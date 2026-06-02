@@ -106,161 +106,52 @@ function useGoogleFonts() {
 }
 
 const FONTS = [
-  { id: 'cormorant',  label: 'Cormorant Garamond',  stack: "'Cormorant Garamond',Georgia,serif",          desc: 'Luxury serif',    group: 'Serif'   },
-  { id: 'playfair',   label: 'Playfair Display',     stack: "'Playfair Display',Georgia,serif",            desc: 'Editorial serif', group: 'Serif'   },
-  { id: 'lora',       label: 'Lora',                 stack: "'Lora',Georgia,serif",                        desc: 'Elegant serif',   group: 'Serif'   },
-  { id: 'merriweather',label:'Merriweather',          stack: "'Merriweather',Georgia,serif",                desc: 'Classic serif',   group: 'Serif'   },
-  { id: 'eb-garamond',label: 'EB Garamond',          stack: "'EB Garamond',Georgia,serif",                 desc: 'Old-style serif', group: 'Serif'   },
-  { id: 'libre-bask', label: 'Libre Baskerville',    stack: "'Libre Baskerville',Georgia,serif",           desc: 'Traditional',     group: 'Serif'   },
-  { id: 'dm-serif',   label: 'DM Serif Display',     stack: "'DM Serif Display',Georgia,serif",            desc: 'Modern serif',    group: 'Serif'   },
-  { id: 'domine',     label: 'Domine',               stack: "'Domine',Georgia,serif",                      desc: 'Humanist serif',  group: 'Serif'   },
-  { id: 'space',      label: 'Space Grotesk',        stack: "'Space Grotesk',system-ui,sans-serif",        desc: 'Modern sans',     group: 'Sans'    },
-  { id: 'josefin',    label: 'Josefin Sans',         stack: "'Josefin Sans',system-ui,sans-serif",         desc: 'Geometric sans',  group: 'Sans'    },
-  { id: 'raleway',    label: 'Raleway',              stack: "'Raleway',system-ui,sans-serif",              desc: 'Elegant sans',    group: 'Sans'    },
-  { id: 'montserrat', label: 'Montserrat',           stack: "'Montserrat',system-ui,sans-serif",           desc: 'Clean sans',      group: 'Sans'    },
-  { id: 'nunito',     label: 'Nunito',               stack: "'Nunito',system-ui,sans-serif",               desc: 'Friendly rounded',group: 'Sans'    },
-  { id: 'poppins',    label: 'Poppins',              stack: "'Poppins',system-ui,sans-serif",              desc: 'Geometric clean', group: 'Sans'    },
-  { id: 'outfit',     label: 'Outfit',               stack: "'Outfit',system-ui,sans-serif",               desc: 'Minimalist sans', group: 'Sans'    },
-  { id: 'dm-sans',    label: 'DM Sans',              stack: "'DM Sans',system-ui,sans-serif",              desc: 'Neutral sans',    group: 'Sans'    },
-  { id: 'inter',      label: 'Inter',                stack: "'Inter',system-ui,sans-serif",                desc: 'UI-optimized',    group: 'Sans'    },
-  { id: 'figtree',    label: 'Figtree',              stack: "'Figtree',system-ui,sans-serif",              desc: 'Contemporary',    group: 'Sans'    },
-  { id: 'bebas',      label: 'Bebas Neue',           stack: "'Bebas Neue',Impact,sans-serif",              desc: 'Bold display',    group: 'Display' },
-  { id: 'oswald',     label: 'Oswald',               stack: "'Oswald',system-ui,sans-serif",               desc: 'Condensed bold',  group: 'Display' },
-  { id: 'anton',      label: 'Anton',                stack: "'Anton',Impact,sans-serif",                   desc: 'Heavy impact',    group: 'Display' },
-  { id: 'righteous',  label: 'Righteous',            stack: "'Righteous',system-ui,sans-serif",            desc: 'Bold retro',      group: 'Display' },
-  { id: 'abril',      label: 'Abril Fatface',        stack: "'Abril Fatface',Georgia,serif",               desc: 'Fat display',     group: 'Display' },
-  { id: 'pacifico',   label: 'Pacifico',             stack: "'Pacifico',cursive",                          desc: 'Casual script',   group: 'Display' },
-  { id: 'dancing',    label: 'Dancing Script',       stack: "'Dancing Script',cursive",                    desc: 'Elegant script',  group: 'Display' },
-  { id: 'great-vibes',label: 'Great Vibes',          stack: "'Great Vibes',cursive",                       desc: 'Luxury script',   group: 'Display' },
-  { id: 'system',     label: 'System UI',            stack: 'system-ui,sans-serif',                        desc: 'Default clean',   group: 'System'  },
-  { id: 'georgia',    label: 'Georgia',              stack: 'Georgia,serif',                               desc: 'Classic system',  group: 'System'  },
-  { id: 'great-vibes', label: 'Great Vibes', stack: "'Great Vibes',cursive",
-    desc: 'Luxury script', group: 'Display' },
+  { id: 'cormorant',  label: 'Cormorant Garamond',  stack: "'Cormorant Garamond',Georgia,serif",       desc: 'Luxury serif',    group: 'Serif'   },
+  { id: 'playfair',   label: 'Playfair Display',     stack: "'Playfair Display',Georgia,serif",         desc: 'Editorial serif', group: 'Serif'   },
+  { id: 'lora',       label: 'Lora',                 stack: "'Lora',Georgia,serif",                     desc: 'Elegant serif',   group: 'Serif'   },
+  { id: 'merriweather',label:'Merriweather',          stack: "'Merriweather',Georgia,serif",             desc: 'Classic serif',   group: 'Serif'   },
+  { id: 'eb-garamond',label: 'EB Garamond',          stack: "'EB Garamond',Georgia,serif",              desc: 'Old-style serif', group: 'Serif'   },
+  { id: 'libre-bask', label: 'Libre Baskerville',    stack: "'Libre Baskerville',Georgia,serif",        desc: 'Traditional',     group: 'Serif'   },
+  { id: 'dm-serif',   label: 'DM Serif Display',     stack: "'DM Serif Display',Georgia,serif",         desc: 'Modern serif',    group: 'Serif'   },
+  { id: 'domine',     label: 'Domine',               stack: "'Domine',Georgia,serif",                   desc: 'Humanist serif',  group: 'Serif'   },
+  { id: 'space',      label: 'Space Grotesk',        stack: "'Space Grotesk',system-ui,sans-serif",     desc: 'Modern sans',     group: 'Sans'    },
+  { id: 'josefin',    label: 'Josefin Sans',         stack: "'Josefin Sans',system-ui,sans-serif",      desc: 'Geometric sans',  group: 'Sans'    },
+  { id: 'raleway',    label: 'Raleway',              stack: "'Raleway',system-ui,sans-serif",           desc: 'Elegant sans',    group: 'Sans'    },
+  { id: 'montserrat', label: 'Montserrat',           stack: "'Montserrat',system-ui,sans-serif",        desc: 'Clean sans',      group: 'Sans'    },
+  { id: 'nunito',     label: 'Nunito',               stack: "'Nunito',system-ui,sans-serif",            desc: 'Friendly rounded',group: 'Sans'    },
+  { id: 'poppins',    label: 'Poppins',              stack: "'Poppins',system-ui,sans-serif",           desc: 'Geometric clean', group: 'Sans'    },
+  { id: 'outfit',     label: 'Outfit',               stack: "'Outfit',system-ui,sans-serif",            desc: 'Minimalist sans', group: 'Sans'    },
+  { id: 'dm-sans',    label: 'DM Sans',              stack: "'DM Sans',system-ui,sans-serif",           desc: 'Neutral sans',    group: 'Sans'    },
+  { id: 'inter',      label: 'Inter',                stack: "'Inter',system-ui,sans-serif",             desc: 'UI-optimized',    group: 'Sans'    },
+  { id: 'figtree',    label: 'Figtree',              stack: "'Figtree',system-ui,sans-serif",           desc: 'Contemporary',    group: 'Sans'    },
+  { id: 'bebas',      label: 'Bebas Neue',           stack: "'Bebas Neue',Impact,sans-serif",           desc: 'Bold display',    group: 'Display' },
+  { id: 'oswald',     label: 'Oswald',               stack: "'Oswald',system-ui,sans-serif",            desc: 'Condensed bold',  group: 'Display' },
+  { id: 'anton',      label: 'Anton',                stack: "'Anton',Impact,sans-serif",                desc: 'Heavy impact',    group: 'Display' },
+  { id: 'righteous',  label: 'Righteous',            stack: "'Righteous',system-ui,sans-serif",         desc: 'Bold retro',      group: 'Display' },
+  { id: 'abril',      label: 'Abril Fatface',        stack: "'Abril Fatface',Georgia,serif",            desc: 'Fat display',     group: 'Display' },
+  { id: 'pacifico',   label: 'Pacifico',             stack: "'Pacifico',cursive",                       desc: 'Casual script',   group: 'Display' },
+  { id: 'dancing',    label: 'Dancing Script',       stack: "'Dancing Script',cursive",                 desc: 'Elegant script',  group: 'Display' },
+  { id: 'great-vibes',label: 'Great Vibes',          stack: "'Great Vibes',cursive",                    desc: 'Luxury script',   group: 'Display' },
+  { id: 'system',     label: 'System UI',            stack: 'system-ui,sans-serif',                     desc: 'Default clean',   group: 'System'  },
+  { id: 'georgia',    label: 'Georgia',              stack: 'Georgia,serif',                            desc: 'Classic system',  group: 'System'  },
 ];
 const FONT_GROUPS = ['Serif', 'Sans', 'Display', 'System'];
 
 const BRAND_KITS = [
-  {
-    id: 'edition',
-    label: 'Édition',
-    accentColor: '#1a1a1a',
-    bgColor: '#fafafa',
-    headingFont: 'eb-garamond',
-    bodyFont: 'josefin',
-    borderRadius: 2,
-    desc: 'Magazine editorial',
-  },
-  {
-    id: 'atelier',
-    label: 'Atelier',
-    accentColor: '#3d2b1f',
-    bgColor: '#f9f6f1',
-    headingFont: 'cormorant',
-    bodyFont: 'raleway',
-    borderRadius: 10,
-    desc: 'Warm studio serif',
-  },
-  {
-    id: 'lumiere',
-    label: 'Lumière',
-    accentColor: '#1a1a1a',
-    bgColor: '#ffffff',
-    headingFont: 'playfair',
-    bodyFont: 'outfit',
-    borderRadius: 16,
-    desc: 'Pure white editorial',
-  },
-  {
-    id: 'grotesk',
-    label: 'Grotesk',
-    accentColor: '#111111',
-    bgColor: '#f7f6f4',
-    headingFont: 'josefin',
-    bodyFont: 'inter',
-    borderRadius: 0,
-    desc: 'Swiss grid minimal',
-  },
-  {
-    id: 'terroir',
-    label: 'Terroir',
-    accentColor: '#1c3a2e',
-    bgColor: '#f5f2ed',
-    headingFont: 'dm-serif',
-    bodyFont: 'dm-sans',
-    borderRadius: 12,
-    desc: 'Organic linen',
-  },
-  {
-    id: 'encre',
-    label: 'Encre',
-    accentColor: '#111111',
-    bgColor: '#f8f8f6',
-    headingFont: 'lora',
-    bodyFont: 'space',
-    borderRadius: 6,
-    desc: 'Ink serif rules',
-  },
-  {
-    id: 'ardoise',
-    label: 'Ardoise',
-    accentColor: '#1a1a1a',
-    bgColor: '#fefefe',
-    headingFont: 'merriweather',
-    bodyFont: 'figtree',
-    borderRadius: 6,
-    desc: 'Blueprint authority',
-  },
-  {
-    id: 'sable',
-    label: 'Sable',
-    accentColor: '#3a2c1e',
-    bgColor: '#fdfcfa',
-    headingFont: 'great-vibes',
-    bodyFont: 'dm-sans',
-    borderRadius: 4,
-    desc: 'Script on linen',
-  },
-  {
-    id: 'manifesto',
-    label: 'Manifesto',
-    accentColor: '#111111',
-    bgColor: '#f9f9f7',
-    headingFont: 'bebas',
-    bodyFont: 'montserrat',
-    borderRadius: 2,
-    desc: 'Bold display slash',
-  },
-  {
-    id: 'matcha',
-    label: 'Matcha',
-    accentColor: '#1a3d30',
-    bgColor: '#f6f9f7',
-    headingFont: 'domine',
-    bodyFont: 'poppins',
-    borderRadius: 14,
-    desc: 'Jade wellness',
-  },
-  {
-    id: 'petale',
-    label: 'Pétale',
-    accentColor: '#2d1a1a',
-    bgColor: '#fff8f9',
-    headingFont: 'dancing',
-    bodyFont: 'nunito',
-    borderRadius: 28,
-    desc: 'Script blush orbs',
-  },
-  {
-    id: 'riviera',
-    label: 'Riviera',
-    accentColor: '#111111',
-    bgColor: '#f9f8f6',
-    headingFont: 'space',
-    bodyFont: 'figtree',
-    borderRadius: 5,
-    desc: 'Coastal precision',
-  },
+  { id: 'edition',   label: 'Édition',   accentColor: '#1a1a1a', bgColor: '#fafafa', headingFont: 'eb-garamond', bodyFont: 'josefin',     borderRadius: 2,  desc: 'Magazine editorial'   },
+  { id: 'atelier',   label: 'Atelier',   accentColor: '#3d2b1f', bgColor: '#f9f6f1', headingFont: 'cormorant',   bodyFont: 'raleway',     borderRadius: 10, desc: 'Warm studio serif'    },
+  { id: 'lumiere',   label: 'Lumière',   accentColor: '#1a1a1a', bgColor: '#ffffff', headingFont: 'playfair',    bodyFont: 'outfit',      borderRadius: 16, desc: 'Pure white editorial' },
+  { id: 'grotesk',   label: 'Grotesk',   accentColor: '#111111', bgColor: '#f7f6f4', headingFont: 'josefin',     bodyFont: 'inter',       borderRadius: 0,  desc: 'Swiss grid minimal'   },
+  { id: 'terroir',   label: 'Terroir',   accentColor: '#1c3a2e', bgColor: '#f5f2ed', headingFont: 'dm-serif',    bodyFont: 'dm-sans',     borderRadius: 12, desc: 'Organic linen'        },
+  { id: 'encre',     label: 'Encre',     accentColor: '#111111', bgColor: '#f8f8f6', headingFont: 'lora',        bodyFont: 'space',       borderRadius: 6,  desc: 'Ink serif rules'      },
+  { id: 'ardoise',   label: 'Ardoise',   accentColor: '#1a1a1a', bgColor: '#fefefe', headingFont: 'merriweather',bodyFont: 'figtree',     borderRadius: 6,  desc: 'Blueprint authority'  },
+  { id: 'sable',     label: 'Sable',     accentColor: '#3a2c1e', bgColor: '#fdfcfa', headingFont: 'great-vibes', bodyFont: 'dm-sans',     borderRadius: 4,  desc: 'Script on linen'      },
+  { id: 'manifesto', label: 'Manifesto', accentColor: '#111111', bgColor: '#f9f9f7', headingFont: 'bebas',       bodyFont: 'montserrat',  borderRadius: 2,  desc: 'Bold display slash'   },
+  { id: 'matcha',    label: 'Matcha',    accentColor: '#1a3d30', bgColor: '#f6f9f7', headingFont: 'domine',      bodyFont: 'poppins',     borderRadius: 14, desc: 'Jade wellness'        },
+  { id: 'petale',    label: 'Pétale',    accentColor: '#2d1a1a', bgColor: '#fff8f9', headingFont: 'dancing',     bodyFont: 'nunito',      borderRadius: 28, desc: 'Script blush orbs'   },
+  { id: 'riviera',   label: 'Riviera',   accentColor: '#111111', bgColor: '#f9f8f6', headingFont: 'space',       bodyFont: 'figtree',     borderRadius: 5,  desc: 'Coastal precision'    },
 ];
+
 const SOCIAL_PLATFORMS = [
   { id: 'instagram', label: 'Instagram', icon: Instagram, placeholder: 'https://instagram.com/yourstudio', color: '#E1306C' },
   { id: 'facebook',  label: 'Facebook',  icon: Facebook,  placeholder: 'https://facebook.com/yourstudio', color: '#1877F2' },
@@ -274,59 +165,54 @@ const SOCIAL_PLATFORMS = [
 ];
 
 const POLICY_ICONS = [
-  { id: 'shield',       icon: Shield,       label: 'Shield'  },
-  { id: 'shield-check', icon: ShieldCheck,  label: 'Check'   },
-  { id: 'clock',        icon: Clock,        label: 'Clock'   },
-  { id: 'clock3',       icon: Clock3,       label: 'Alarm'   },
-  { id: 'alert',        icon: AlertTriangle,label: 'Warning' },
-  { id: 'ban',          icon: Ban,          label: 'No'      },
-  { id: 'credit',       icon: CreditCard,   label: 'Payment' },
-  { id: 'heart',        icon: Heart,        label: 'Heart'   },
-  { id: 'badge',        icon: BadgeCheck,   label: 'Badge'   },
-  { id: 'info',         icon: Info,         label: 'Info'    },
-  { id: 'zap',          icon: Zap,          label: 'Zap'     },
-  { id: 'leaf',         icon: Leaf,         label: 'Leaf'    },
-  { id: 'coffee',       icon: Coffee,       label: 'Care'    },
-  { id: 'flame',        icon: Flame,        label: 'Hot'     },
-  { id: 'phone',        icon: Phone,        label: 'Phone'   },
-  { id: 'mail',         icon: Mail,         label: 'Mail'    },
+  { id: 'shield',       icon: Shield,        label: 'Shield'  },
+  { id: 'shield-check', icon: ShieldCheck,   label: 'Check'   },
+  { id: 'clock',        icon: Clock,         label: 'Clock'   },
+  { id: 'clock3',       icon: Clock3,        label: 'Alarm'   },
+  { id: 'alert',        icon: AlertTriangle, label: 'Warning' },
+  { id: 'ban',          icon: Ban,           label: 'No'      },
+  { id: 'credit',       icon: CreditCard,    label: 'Payment' },
+  { id: 'heart',        icon: Heart,         label: 'Heart'   },
+  { id: 'badge',        icon: BadgeCheck,    label: 'Badge'   },
+  { id: 'info',         icon: Info,          label: 'Info'    },
+  { id: 'zap',          icon: Zap,           label: 'Zap'     },
+  { id: 'leaf',         icon: Leaf,          label: 'Leaf'    },
+  { id: 'coffee',       icon: Coffee,        label: 'Care'    },
+  { id: 'flame',        icon: Flame,         label: 'Hot'     },
+  { id: 'phone',        icon: Phone,         label: 'Phone'   },
+  { id: 'mail',         icon: Mail,          label: 'Mail'    },
 ];
 
 const SECTION_DEFS: Record<SectionType, SectionDef> = {
   nav: { label: 'Navigation', icon: Navigation, color: '#3B6D11', fields: [
-  { k: 'logoUrl',           t: 'image',  l: 'Logo (primary)',                     d: '' },
-  { k: 'logoDarkUrl',       t: 'image',  l: 'Logo — dark variant (on light navs)', d: '' },
-  { k: 'logoLightUrl',      t: 'image',  l: 'Logo — light variant (on dark navs)', d: '' },
-  { k: 'logoText',          t: 'text',   l: 'Studio name (text fallback)',          d: 'Opal' },
-  { k: 'logoMaxHeight',     t: 'select', l: 'Logo size',                            d: '40',
-    opts: ['28','32','36','40','48','56'] },
-  { k: 'ctaText',           t: 'text',   l: 'Button label',                         d: 'Book Now' },
-  { k: 'ctaAction',         t: 'select', l: 'Button action',                        d: 'scroll-contact',
-    opts: ['scroll-contact','scroll-services','booking','url'] },
-  { k: 'ctaUrl',            t: 'text',   l: 'Custom URL (if url action)',            d: '' },
-  { k: 'showLinks',         t: 'toggle', l: 'Show nav links',                        d: true },
-  { k: 'sticky',            t: 'toggle', l: 'Sticky nav',                            d: true },
-  { k: 'navBgColor',      t: 'color',  l: 'Nav bar color (blank = default white)',        d: ''          },
-  { k: 'drawerIconStyle', t: 'select', l: 'Drawer / hamburger icon style',                 d: 'hamburger',
-    opts: ['hamburger', 'minimal', 'bold', 'dots', 'grid'] },
-  { k: 'transparent',       t: 'toggle', l: 'Start transparent over hero',           d: false },
-  { k: 'transparentScroll', t: 'toggle', l: 'Become solid on scroll',                d: true },
-  { k: 'navTheme',          t: 'select', l: 'Nav text color',                        d: 'auto',
-    opts: ['auto','light','dark'] },
-  { k: 'socialLinks',       t: 'social-links', l: 'Social icons in nav',             d: [] },
-  { k: 'showQuickBook',     t: 'toggle', l: 'Show Quick Book in drawer',             d: true },
-  { k: 'quickBookLimit',    t: 'select', l: 'Max services shown',                    d: '6',
-    opts: ['3','4','5','6','8','10'] },
-], layouts: [
-  { id: 'centered',   label: 'Centered',   preview: '[ logo · links · btn ]'       },
-  { id: 'floating',   label: 'Floating',   preview: '( pill nav )'                 },
-  { id: 'bold',       label: 'Bold',       preview: '[ LOGO ]\n[ links · btn ]'    },
-  { id: 'split',      label: 'Split',      preview: '[ links | LOGO | links+btn ]' },
-  { id: 'logo-top',   label: 'Logo Top',   preview: '[ LOGO ]\n[ links ]'          },
-  { id: 'drawer',     label: 'Drawer',     preview: '[ logo · (≡) ]'               },
-  { id: 'bottom-bar', label: 'Bottom Bar', preview: '[ ≡ ≡ ≡ ≡ | Book ]'          },
-  { id: 'minimal',    label: 'Minimal',    preview: '[ logo · btn ]'               },
-]},
+    { k: 'logoUrl',           t: 'image',  l: 'Logo (primary)',                      d: '' },
+    { k: 'logoDarkUrl',       t: 'image',  l: 'Logo — dark variant (on light navs)', d: '' },
+    { k: 'logoLightUrl',      t: 'image',  l: 'Logo — light variant (on dark navs)', d: '' },
+    { k: 'logoText',          t: 'text',   l: 'Studio name (text fallback)',          d: 'Opal' },
+    { k: 'logoMaxHeight',     t: 'select', l: 'Logo size',                            d: '40', opts: ['28','32','36','40','48','56'] },
+    { k: 'ctaText',           t: 'text',   l: 'Button label',                         d: 'Book Now' },
+    { k: 'ctaAction',         t: 'select', l: 'Button action',                        d: 'scroll-contact', opts: ['scroll-contact','scroll-services','booking','url'] },
+    { k: 'ctaUrl',            t: 'text',   l: 'Custom URL (if url action)',            d: '' },
+    { k: 'showLinks',         t: 'toggle', l: 'Show nav links',                        d: true },
+    { k: 'sticky',            t: 'toggle', l: 'Sticky nav',                            d: true },
+    { k: 'navBgColor',        t: 'color',  l: 'Nav bar color (blank = default white)', d: '' },
+    { k: 'drawerIconStyle',   t: 'select', l: 'Drawer icon style',                    d: 'hamburger', opts: ['hamburger','minimal','bold','dots','grid'] },
+    { k: 'transparent',       t: 'toggle', l: 'Start transparent over hero',           d: false },
+    { k: 'transparentScroll', t: 'toggle', l: 'Become solid on scroll',                d: true },
+    { k: 'navTheme',          t: 'select', l: 'Nav text color',                        d: 'auto', opts: ['auto','light','dark'] },
+    { k: 'socialLinks',       t: 'social-links', l: 'Social icons in nav',             d: [] },
+    { k: 'showQuickBook',     t: 'toggle', l: 'Show Quick Book in drawer',             d: true },
+    { k: 'quickBookLimit',    t: 'select', l: 'Max services shown',                    d: '6', opts: ['3','4','5','6','8','10'] },
+  ], layouts: [
+    { id: 'centered',   label: 'Centered',   preview: '[ logo · links · btn ]'       },
+    { id: 'floating',   label: 'Floating',   preview: '( pill nav )'                 },
+    { id: 'bold',       label: 'Bold',       preview: '[ LOGO ]\n[ links · btn ]'    },
+    { id: 'split',      label: 'Split',      preview: '[ links | LOGO | links+btn ]' },
+    { id: 'logo-top',   label: 'Logo Top',   preview: '[ LOGO ]\n[ links ]'          },
+    { id: 'drawer',     label: 'Drawer',     preview: '[ logo · (≡) ]'               },
+    { id: 'bottom-bar', label: 'Bottom Bar', preview: '[ ≡ ≡ ≡ ≡ | Book ]'          },
+    { id: 'minimal',    label: 'Minimal',    preview: '[ logo · btn ]'               },
+  ]},
   hero: { label: 'Hero', icon: ImageIcon, color: '#534AB7', fields: [
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'heroImage', t: 'image', l: 'Feature image (split/magazine)', d: '' },
     { k: 'overlayOpacity', t: 'range', l: 'Overlay opacity', d: 40, min: 0, max: 90, step: 5 },
@@ -337,16 +223,16 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'videoUrl', t: 'text', l: 'Background video URL', d: '' }, { k: 'showBadge', t: 'toggle', l: 'Show trust badge', d: false },
     { k: 'badgeText', t: 'text', l: 'Badge text', d: '⭐ 4.9 · 500+ clients' },
   ], layouts: [
-    { id: 'centered',   label: 'Centered',        preview: '[ full image · centered text ]' },
-    { id: 'vogue',      label: 'Vogue Cover',      preview: '[ text | portrait photo ]'      },
-    { id: 'immersive',  label: 'Immersive',        preview: '[ full-bleed · bottom editorial ]' },
-    { id: 'oversized',  label: 'Oversized Type',   preview: 'GIANT HEADLINE\n─ subtext ─'    },
-    { id: 'split',      label: 'Split',            preview: '[ text | image ]'               },
-    { id: 'editorial',  label: 'Editorial Grid',   preview: '[ portrait | GIANT TYPE ]'      },
-    { id: 'dark',       label: 'Dark Luxury',      preview: '█▓▓ glow text on dark ▓▓█'      },
-    { id: 'glass',      label: 'Glass Card',       preview: '[ image ] + ☐ glass card'       },
-    { id: 'kinetic',    label: 'Kinetic Words',    preview: '[ w·o·r·d animate in ]'         },
-    { id: 'layers',     label: 'Parallax Depth',   preview: '[ mouse-reactive 3D layers ]'   },
+    { id: 'centered',   label: 'Centered',       preview: '[ full image · centered text ]'    },
+    { id: 'vogue',      label: 'Vogue Cover',     preview: '[ text | portrait photo ]'         },
+    { id: 'immersive',  label: 'Immersive',       preview: '[ full-bleed · bottom editorial ]' },
+    { id: 'oversized',  label: 'Oversized Type',  preview: 'GIANT HEADLINE\n─ subtext ─'       },
+    { id: 'split',      label: 'Split',           preview: '[ text | image ]'                  },
+    { id: 'editorial',  label: 'Editorial Grid',  preview: '[ portrait | GIANT TYPE ]'         },
+    { id: 'dark',       label: 'Dark Luxury',     preview: '█▓▓ glow text on dark ▓▓█'         },
+    { id: 'glass',      label: 'Glass Card',      preview: '[ image ] + ☐ glass card'          },
+    { id: 'kinetic',    label: 'Kinetic Words',   preview: '[ w·o·r·d animate in ]'            },
+    { id: 'layers',     label: 'Parallax Depth',  preview: '[ mouse-reactive 3D layers ]'      },
   ]},
   trust: { label: 'Trust Strip', icon: Award, color: '#854F0B', fields: [
     { k: 'stat1l', t: 'text', l: 'Stat 1 label', d: 'Happy clients' }, { k: 'stat1v', t: 'text', l: 'Stat 1 value', d: '500+' },
@@ -355,11 +241,11 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'stat4l', t: 'text', l: 'Stat 4 label', d: 'Services' },     { k: 'stat4v', t: 'text', l: 'Stat 4 value', d: '20+' },
     { k: 'animate', t: 'toggle', l: 'Animate counters on scroll', d: true },
   ], layouts: [
-    { id: 'strip',    label: 'Horizontal strip',  preview: '[ stat | stat | stat | stat ]' },
-    { id: 'cards',    label: 'Stat cards',        preview: '┌──┐┌──┐┌──┐┌──┐'             },
-    { id: 'banner',   label: 'Dark banner',       preview: '▓[ stat | stat | stat ]▓'     },
-    { id: 'ticker',   label: 'Scrolling ticker',  preview: '→ stat · stat · stat →'        },
-    { id: 'counter',  label: 'Counter showcase',  preview: '  ↑↑  ↑↑  ↑↑  ↑↑  '          },
+    { id: 'strip',   label: 'Horizontal strip', preview: '[ stat | stat | stat | stat ]' },
+    { id: 'cards',   label: 'Stat cards',       preview: '┌──┐┌──┐┌──┐┌──┐'             },
+    { id: 'banner',  label: 'Dark banner',      preview: '▓[ stat | stat | stat ]▓'     },
+    { id: 'ticker',  label: 'Scrolling ticker', preview: '→ stat · stat · stat →'        },
+    { id: 'counter', label: 'Counter showcase', preview: '  ↑↑  ↑↑  ↑↑  ↑↑  '          },
   ]},
   services: { label: 'Services', icon: Scissors, color: '#185FA5', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Services' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Handcrafted treatments for every occasion' },
@@ -368,14 +254,14 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showDuration', t: 'toggle', l: 'Show duration', d: true }, { k: 'showFilters', t: 'toggle', l: 'Category filter', d: false },
     { k: 'showDesc', t: 'toggle', l: 'Show descriptions', d: true }, { k: 'showImages', t: 'toggle', l: 'Show service images', d: false },
   ], layouts: [
-    { id: 'cards',      label: 'Cards',           preview: '┌────┐ ┌────┐'                     },
-    { id: 'carousel',   label: 'Carousel',        preview: '← [ card ] [ card ] [ card ] →'     },
-    { id: 'horizontal', label: 'Horizontal rows',  preview: '[ img | text ]\n[ text | img ]'     },
-    { id: 'luxury',     label: 'Luxury list',      preview: '01  Service ··· $99  →\n02  ···'   },
-    { id: 'magazine',   label: 'Editorial',        preview: '[ hero feature | sm sm sm ]'        },
-    { id: 'masonry',    label: 'Masonry',          preview: '┌──┐ ┌───┐\n│  │ │   │'           },
-    { id: 'list',       label: 'List',             preview: '┌──────────────┐\n│ name   $xx  │' },
-    { id: 'grid',       label: 'Grid',             preview: '┌──┬──┬──┐'                        },
+    { id: 'cards',      label: 'Cards',           preview: '┌────┐ ┌────┐'                   },
+    { id: 'carousel',   label: 'Carousel',        preview: '← [ card ] [ card ] →'           },
+    { id: 'horizontal', label: 'Horizontal rows',  preview: '[ img | text ]\n[ text | img ]'  },
+    { id: 'luxury',     label: 'Luxury list',      preview: '01  Service ··· $99  →'         },
+    { id: 'magazine',   label: 'Editorial',        preview: '[ hero feature | sm sm sm ]'     },
+    { id: 'masonry',    label: 'Masonry',          preview: '┌──┐ ┌───┐\n│  │ │   │'        },
+    { id: 'list',       label: 'List',             preview: '┌──────────────┐\n│ name  $xx │' },
+    { id: 'grid',       label: 'Grid',             preview: '┌──┬──┬──┐'                     },
   ]},
   team: { label: 'Team', icon: Users, color: '#0F6E56', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'The Artists' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Expert hands for every style' },
@@ -383,32 +269,31 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showBookButton', t: 'toggle', l: 'Book per artist', d: false }, { k: 'bookCta', t: 'text', l: 'Book button text', d: 'Book with me' },
     { k: 'hoverReveal', t: 'toggle', l: 'Hover reveal bio', d: true },
   ], layouts: [
-    { id: 'circles',   label: 'Circle avatars',  preview: '  ◯   ◯   ◯\n name name name' },
-    { id: 'editorial', label: 'Editorial cards', preview: '┌────┐ ┌────┐'                },
-    { id: 'row',       label: 'Horizontal row',  preview: '[ ◯ name ][ ◯ name ]'         },
-    { id: 'grid',      label: 'Grid',            preview: '┌──┬──┬──┐'                   },
-    { id: 'featured',   label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'    },
-    { id: 'minimal',    label: 'Minimal list',    preview: '— Name · Title'                },
-    
-    { id: 'solo-hero',      label: 'Solo hero',      preview: '[ portrait | name + bio ]'       },
-    { id: 'solo-card',      label: 'Solo card',       preview: '┌──────────┐\n│ portrait  │'    },
-    { id: 'solo-split',     label: 'Solo editorial',  preview: '[ photo | name\n  bio · book ]'  },
+    { id: 'circles',        label: 'Circle avatars',  preview: '  ◯   ◯   ◯'                   },
+    { id: 'editorial',      label: 'Editorial cards', preview: '┌────┐ ┌────┐'                  },
+    { id: 'row',            label: 'Horizontal row',  preview: '[ ◯ name ][ ◯ name ]'           },
+    { id: 'grid',           label: 'Grid',            preview: '┌──┬──┬──┐'                     },
+    { id: 'featured',       label: 'Featured artist', preview: '[ large lead ]\n◯ ◯ ◯ team'    },
+    { id: 'minimal',        label: 'Minimal list',    preview: '— Name · Title'                  },
+    { id: 'solo-hero',      label: 'Solo hero',       preview: '[ portrait band | info strip ]'  },
+    { id: 'solo-card',      label: 'Solo card',       preview: '┌ mat frame ┐\n│ portrait  │'   },
+    { id: 'solo-split',     label: 'Solo editorial',  preview: '[ photo | name + bio ]'          },
     { id: 'solo-cinematic', label: 'Solo cinematic',  preview: '█▓ full-bleed · name glow ▓█'   },
     { id: 'solo-magazine',  label: 'Solo magazine',   preview: '[ portrait | drop-cap · bio ]'   },
-    { id: 'solo-spotlight', label: 'Solo spotlight',  preview: '  ◉ halo · name · skills · cta ' },
+    { id: 'solo-spotlight', label: 'Solo spotlight',  preview: '  ◉ halo · name · skills · cta' },
   ]},
   reviews: { label: 'Reviews', icon: Star, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'What Clients Say' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Real words from real guests' },
     { k: 'showRating', t: 'toggle', l: 'Show star ratings', d: true }, { k: 'showPhotos', t: 'toggle', l: 'Show client photos', d: false },
-    { k: 'rev1Name', t: 'text', l: 'Review 1 name', d: 'Sarah M.' }, { k: 'rev1Rating', t: 'range', l: 'Review 1 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev1Text', t: 'textarea', l: 'Review 1 text', d: 'Absolutely incredible experience. The attention to detail is unmatched.' },
-    { k: 'rev2Name', t: 'text', l: 'Review 2 name', d: 'Jessica T.' }, { k: 'rev2Rating', t: 'range', l: 'Review 2 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev2Text', t: 'textarea', l: 'Review 2 text', d: "Every visit exceeds my expectations. The team is truly world-class." },
-    { k: 'rev3Name', t: 'text', l: 'Review 3 name', d: 'Priya K.' }, { k: 'rev3Rating', t: 'range', l: 'Review 3 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev3Text', t: 'textarea', l: 'Review 3 text', d: 'Luxurious yet so welcoming. I always feel like a VIP.' },
+    { k: 'rev1Name', t: 'text', l: 'Review 1 name', d: 'Sarah M.' }, { k: 'rev1Rating', t: 'range', l: 'Review 1 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev1Text', t: 'textarea', l: 'Review 1 text', d: 'Absolutely incredible experience.' },
+    { k: 'rev2Name', t: 'text', l: 'Review 2 name', d: 'Jessica T.' }, { k: 'rev2Rating', t: 'range', l: 'Review 2 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev2Text', t: 'textarea', l: 'Review 2 text', d: 'Every visit exceeds my expectations.' },
+    { k: 'rev3Name', t: 'text', l: 'Review 3 name', d: 'Priya K.' }, { k: 'rev3Rating', t: 'range', l: 'Review 3 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev3Text', t: 'textarea', l: 'Review 3 text', d: 'Luxurious yet so welcoming.' },
   ], layouts: [
     { id: 'grid',     label: 'Grid',         preview: '┌────┐ ┌────┐'  },
     { id: 'carousel', label: 'Carousel',     preview: '← [ review ] →' },
     { id: 'quotes',   label: 'Large quotes', preview: '" quote text "' },
   ]},
-gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', fields: [
+  gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Work' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Every set, a canvas' },
     { k: 'images', t: 'image-array', l: 'Gallery images (max 24)', d: [] }, { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false },
     { k: 'lightbox', t: 'toggle', l: 'Lightbox on click', d: true }, { k: 'columns', t: 'select', l: 'Columns', d: '3', opts: ['2','3','4'] },
@@ -427,10 +312,10 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
     { k: 'pairs', t: 'beforeafter-pairs', l: 'Before / After pairs', d: [] }, { k: 'sliderColor', t: 'color', l: 'Slider handle color', d: '#000000' },
     { k: 'showLabels', t: 'toggle', l: 'Show Before/After labels', d: true },
   ], layouts: [
-    { id: 'slider',   label: 'Drag slider',    preview: '[ before ←→ after ]'  },
-    { id: 'side',     label: 'Side by side',   preview: '[ before ] [ after ]' },
-    { id: 'stack',    label: 'Stacked hover',  preview: '[ hover to reveal ]'   },
-    { id: 'carousel', label: 'Carousel pairs', preview: '← [ B/A pair ] →'     },
+    { id: 'slider',   label: 'Drag slider',   preview: '[ before ←→ after ]' },
+    { id: 'side',     label: 'Side by side',  preview: '[ before ] [ after ]' },
+    { id: 'stack',    label: 'Stacked hover', preview: '[ hover to reveal ]'   },
+    { id: 'carousel', label: 'Carousel pairs',preview: '← [ B/A pair ] →'     },
   ]},
   memberships: { label: 'Memberships', icon: Crown, color: '#534AB7', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Join the Club' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get started' },
@@ -464,25 +349,25 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
     { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
     { k: 'amounts', t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100' },
   ], layouts: [
-    { id: 'hero',    label: 'Hero style',   preview: '[ bg image | text + cta ]' },
-    { id: 'minimal', label: 'Minimal',      preview: '[ amounts ] [buy]'           },
+    { id: 'hero',    label: 'Hero style', preview: '[ bg image | text + cta ]' },
+    { id: 'minimal', label: 'Minimal',    preview: '[ amounts ] [buy]'          },
   ]},
   quote: { label: 'Quote Request', icon: FileText, color: '#3B6D11', fields: [
-    { k: 'heading',   t: 'text',     l: 'Heading',          d: 'Planning Something Unforgettable?' },
-    { k: 'subheading',t: 'textarea', l: 'Description',       d: 'Planning a wedding, bridal party, or corporate event? We bring the studio to you.' },
-    { k: 'ctaText',   t: 'text',     l: 'Button text',       d: 'Request a Custom Quote' },
-    { k: 'ctaNote',   t: 'text',     l: 'Below button note', d: 'We respond within 24 hours' },
-    { k: 'ctaAction', t: 'select',   l: 'Button action',     d: 'booking', opts: ['booking','url'] },
-    { k: 'bgImage',   t: 'image',    l: 'Background image',  d: '' },
-    { k: 'tags',      t: 'tag-list', l: 'Event types',       d: ['Bridal Parties','Corporate Events','Destination Services','Milestone Celebrations'] },
+    { k: 'heading',    t: 'text',     l: 'Heading',          d: 'Planning Something Unforgettable?' },
+    { k: 'subheading', t: 'textarea', l: 'Description',       d: 'Planning a wedding, bridal party, or corporate event?' },
+    { k: 'ctaText',    t: 'text',     l: 'Button text',       d: 'Request a Custom Quote' },
+    { k: 'ctaNote',    t: 'text',     l: 'Below button note', d: 'We respond within 24 hours' },
+    { k: 'ctaAction',  t: 'select',   l: 'Button action',     d: 'booking', opts: ['booking','url'] },
+    { k: 'bgImage',    t: 'image',    l: 'Background image',  d: '' },
+    { k: 'tags',       t: 'tag-list', l: 'Event types',       d: ['Bridal Parties','Corporate Events','Destination Services'] },
   ], layouts: [
-    { id: 'cinematic',  label: 'Cinematic dark',   preview: '█ ambient glow · glow CTA █'         },
-    { id: 'editorial',  label: 'Editorial',         preview: 'GIANT TYPE | stacked tag cards'      },
-    { id: 'luxury',     label: 'Luxury split',      preview: '[ color panel | event list + CTA ]'  },
-    { id: 'showcase',   label: 'Event showcase',    preview: '┌──┐┌──┐┌──┐\n─── bold CTA ───'    },
-    { id: 'centered',   label: 'Centered overlay',  preview: '[ bg · heading · tags · cta ]'       },
-    { id: 'split',      label: 'Split',             preview: '[ text + tags | image/cards ]'        },
-    { id: 'banner',     label: 'Banner',            preview: '▓[ heading · cta ]▓'                 },
+    { id: 'cinematic', label: 'Cinematic dark',  preview: '█ ambient glow · glow CTA █'       },
+    { id: 'editorial', label: 'Editorial',       preview: 'GIANT TYPE | stacked tag cards'    },
+    { id: 'luxury',    label: 'Luxury split',    preview: '[ color panel | event list + CTA ]'},
+    { id: 'showcase',  label: 'Event showcase',  preview: '┌──┐┌──┐┌──┐\n─── bold CTA ───'  },
+    { id: 'centered',  label: 'Centered overlay',preview: '[ bg · heading · tags · cta ]'     },
+    { id: 'split',     label: 'Split',           preview: '[ text + tags | image/cards ]'     },
+    { id: 'banner',    label: 'Banner',          preview: '▓[ heading · cta ]▓'               },
   ]},
   newclient: { label: 'New Client Offer', icon: Sparkles, color: '#854F0B', fields: [
     { k: 'heading', t: 'text', l: 'Heading', d: 'First Visit Special' }, { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment' },
@@ -501,35 +386,32 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
     { k: 'q5', t: 'text', l: 'Question 5 (optional)', d: '' }, { k: 'a5', t: 'textarea', l: 'Answer 5', d: '' },
     { k: 'q6', t: 'text', l: 'Question 6 (optional)', d: '' }, { k: 'a6', t: 'textarea', l: 'Answer 6', d: '' },
   ], layouts: [
-    { id: 'accordion', label: 'Accordion',    preview: '▶ Question 1\n▶ Question 2' },
-    { id: 'two-col',   label: 'Two columns',  preview: '┌──┬──┐\n│Q │Q │'          },
-    { id: 'minimal',   label: 'Minimal list', preview: 'Q · A\nQ · A'              },
+    { id: 'accordion', label: 'Accordion',    preview: '▶ Question 1\n▶ Question 2'  },
+    { id: 'two-col',   label: 'Two columns',  preview: '┌──┬──┐\n│Q │Q │'           },
+    { id: 'minimal',   label: 'Minimal list', preview: 'Q · A\nQ · A'               },
     { id: 'cards',     label: 'Cards',        preview: '┌────┐ ┌────┐\n│Q+A │ │Q+A│'},
-    { id: 'bold',      label: 'Bold numbers', preview: '01 Big Q?\n   Answer here'  },
-    { id: 'split',     label: 'Split panel',  preview: '[ Questions | Answer ]'    },
+    { id: 'bold',      label: 'Bold numbers', preview: '01 Big Q?\n   Answer here'   },
+    { id: 'split',     label: 'Split panel',  preview: '[ Questions | Answer ]'     },
   ]},
-  // ─── SECTION_DEFS policies layouts PATCH ─────────────────────────────────────
-
   policies: { label: 'Policies', icon: Shield, color: '#0F6E56', fields: [
-    { k: 'heading',  t: 'text',   l: 'Section heading',              d: 'Our Policies' },
-    { k: 'subheading', t: 'text', l: 'Subheading',                   d: '' },
-    { k: 'maxItems', t: 'select', l: 'Items shown before "View all"', d: '6',
-      opts: ['3','4','5','6','8','all'] },
-    { k: 'policies', t: 'policy-list', l: 'Policy items', d: [
+    { k: 'heading',    t: 'text',   l: 'Section heading',               d: 'Our Policies' },
+    { k: 'subheading', t: 'text',   l: 'Subheading',                    d: '' },
+    { k: 'maxItems',   t: 'select', l: 'Items shown before "View all"', d: '6', opts: ['3','4','5','6','8','all'] },
+    { k: 'policies',   t: 'policy-list', l: 'Policy items', d: [
       { id: 'p1', icon: 'clock',  title: 'Cancellation', body: 'Please provide 24 hours notice for all cancellations.' },
       { id: 'p2', icon: 'clock3', title: 'Late Arrival',  body: 'Arrivals 15+ minutes late may need to reschedule.'    },
       { id: 'p3', icon: 'ban',    title: 'No-Shows',      body: 'No-shows may be required to prepay future bookings.'  },
     ]},
   ], layouts: [
-    { id: 'cards',     label: 'Icon cards',     preview: '┌──┐ ┌──┐ ┌──┐'                    },
-    { id: 'list',      label: 'Icon list',       preview: '🛡 Cancellation\n🕐 Late arrival'   },
-    { id: 'timeline',  label: 'Timeline',        preview: '●─ card\n│\n─● card\n│\n●─ card'   },
-    { id: 'accordion', label: 'Accordion',       preview: '▶ 01 · Policy title\n▶ 02 · Title' },
-    { id: 'editorial', label: 'Editorial rows',  preview: '01 | TITLE | body text here'        },
-    { id: 'dark',      label: 'Dark luxury',     preview: '█▓ glowing cards on dark ▓█'        },
-    { id: 'spotlight', label: 'Spotlight',       preview: '⬤ 01 ── TITLE → body\n⬤ 02 ──'    },
-    { id: 'frosted',   label: 'Frosted glass',   preview: '░┌──┐░┌──┐░┌──┐░'                  },
-    { id: 'scroll',    label: 'Auto scroll',     preview: '→ [ card ][ card ][ card ] →'       },
+    { id: 'cards',     label: 'Icon cards',    preview: '┌──┐ ┌──┐ ┌──┐'                  },
+    { id: 'list',      label: 'Icon list',     preview: '🛡 Cancellation\n🕐 Late arrival' },
+    { id: 'timeline',  label: 'Timeline',      preview: '●─ card\n│\n─● card'              },
+    { id: 'accordion', label: 'Accordion',     preview: '▶ 01 · Policy title'              },
+    { id: 'editorial', label: 'Editorial rows',preview: '01 | TITLE | body text here'      },
+    { id: 'dark',      label: 'Dark luxury',   preview: '█▓ glowing cards on dark ▓█'      },
+    { id: 'spotlight', label: 'Spotlight',     preview: '⬤ 01 ── TITLE → body'           },
+    { id: 'frosted',   label: 'Frosted glass', preview: '░┌──┐░┌──┐░┌──┐░'               },
+    { id: 'scroll',    label: 'Auto scroll',   preview: '→ [ card ][ card ][ card ] →'    },
   ]},
   contact: { label: 'Location & Contact', icon: MapPin, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Find Us' }, { k: 'customHours', t: 'textarea', l: 'Hours text', d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm' },
@@ -558,8 +440,7 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
   ]},
   story: { label: 'Studio Story / Content', icon: BookOpen, color: '#3B6D11', fields: [
     { k: 'image', t: 'image', l: 'Section image', d: '' },
-    { k: 'heading', t: 'text', l: 'Heading', d: 'Our Story' },
-    { k: 'tag', t: 'text', l: 'Eyebrow label (optional)', d: '' },
+    { k: 'heading', t: 'text', l: 'Heading', d: 'Our Story' }, { k: 'tag', t: 'text', l: 'Eyebrow label (optional)', d: '' },
     { k: 'pullQuote', t: 'text', l: 'Pull quote (optional)', d: '' },
     { k: 'body', t: 'textarea', l: 'Body text', d: 'Opal was born from a belief that nail care is more than maintenance.' },
     { k: 'body2', t: 'textarea', l: 'Second paragraph (optional)', d: '' },
@@ -567,13 +448,13 @@ gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', 
     { k: 'stat2Value', t: 'text', l: 'Stat 2 value (optional)', d: '' }, { k: 'stat2Label', t: 'text', l: 'Stat 2 label', d: '' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: '' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-team', opts: ['booking','scroll-team','scroll-services','url'] },
   ], layouts: [
-    { id: 'split',      label: 'Text + image',   preview: '[ text | image ]'           },
-    { id: 'centered',   label: 'Centered',       preview: '  heading\n  body'           },
-    { id: 'immersive',  label: 'Immersive',      preview: '[ full image + overlay text ]'},
-    { id: 'founder',    label: 'Founder focus',  preview: '[ portrait | bio + stats ]'  },
-    { id: 'manifesto',  label: 'Manifesto',      preview: 'GIANT TYPE\n── body ──'      },
-    { id: 'editorial',  label: 'Editorial',      preview: '▌ #01 │ HEADING\n   body'    },
-    { id: 'minimal',    label: 'Minimal',        preview: '── heading ──\n    body'     },
+    { id: 'split',     label: 'Text + image',  preview: '[ text | image ]'            },
+    { id: 'centered',  label: 'Centered',      preview: '  heading\n  body'            },
+    { id: 'immersive', label: 'Immersive',     preview: '[ full image + overlay text ]'},
+    { id: 'founder',   label: 'Founder focus', preview: '[ portrait | bio + stats ]'  },
+    { id: 'manifesto', label: 'Manifesto',     preview: 'GIANT TYPE\n── body ──'      },
+    { id: 'editorial', label: 'Editorial',     preview: '▌ #01 │ HEADING\n   body'    },
+    { id: 'minimal',   label: 'Minimal',       preview: '── heading ──\n    body'     },
   ]},
   instagram: { label: 'Instagram Feed', icon: Camera, color: '#993556', fields: [
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Follow Along' }, { k: 'handle', t: 'text', l: 'Instagram handle', d: '@opalmanicure' },
@@ -731,8 +612,7 @@ const PolicyListEditor = ({ value, onChange }: { value: PolicyItem[]; onChange: 
 
 const BeforeAfterPairsEditor = ({ value, onChange }: { value: BeforeAfterPair[]; onChange: (v: BeforeAfterPair[]) => void }) => {
   const pairs: BeforeAfterPair[] = Array.isArray(value) ? value : [];
-  const pairsRef = useRef(pairs);
-  pairsRef.current = pairs;
+  const pairsRef = useRef(pairs); pairsRef.current = pairs;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const add    = () => { const n: BeforeAfterPair = { id: generateId(), beforeUrl: '', afterUrl: '', caption: '' }; onChange([...pairsRef.current, n]); setExpandedId(n.id); };
   const update = (id: string, f: keyof BeforeAfterPair, v: string) => onChange(pairsRef.current.map(p => p.id === id ? { ...p, [f]: v } : p));
@@ -809,7 +689,7 @@ const TagListEditor = ({ value, onChange }: { value: string[]; onChange: (v: str
   );
 };
 
-const FieldRenderer = ({ field, value, onChange, highlightedField }: {
+const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedField }: {
   field: SectionField; value: any; onChange: (v: any) => void; highlightedField?: string | null;
 }) => {
   const fieldRef = useRef<HTMLDivElement>(null);
@@ -820,80 +700,45 @@ const FieldRenderer = ({ field, value, onChange, highlightedField }: {
     <div ref={fieldRef} className={cn('transition-all duration-300', isHighlighted && 'ring-2 ring-indigo-400/60 rounded-xl p-2 bg-indigo-50/50')}>{children}</div>
   );
   if (field.t === 'image') {
-  const isLogoField = field.k === 'logoUrl' || field.k === 'logoDarkUrl' || field.k === 'logoLightUrl';
-  return wrapper(
-    <div className="space-y-1.5">
-      <Label className={labelCls}>{field.l}</Label>
-      <ImageUpload initialImage={value || ''} onImageUploaded={onChange}/>
-      {/* Checkerboard preview — only for logo fields, only when an image is uploaded */}
-      {isLogoField && value && (
-        <div className="mt-2 space-y-1.5">
-          <p className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground/40">
-            Transparency preview
-          </p>
-          <div className="flex gap-2">
-            {/* Light background */}
-            <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border"
-              style={{ background: '#ffffff', minHeight: 56 }}>
-              <img src={value} alt="Logo on light"
-                style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }}/>
-            </div>
-            {/* Checkerboard — shows transparency */}
-            <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border"
-              style={{
-                backgroundImage: `
-                  linear-gradient(45deg, #ccc 25%, transparent 25%),
-                  linear-gradient(-45deg, #ccc 25%, transparent 25%),
-                  linear-gradient(45deg, transparent 75%, #ccc 75%),
-                  linear-gradient(-45deg, transparent 75%, #ccc 75%)
-                `,
-                backgroundSize: '10px 10px',
-                backgroundPosition: '0 0, 0 5px, 5px -5px, -5px 0px',
-                backgroundColor: '#ffffff',
-                minHeight: 56,
-              }}>
-              <img src={value} alt="Logo transparency check"
-                style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }}/>
-            </div>
-            {/* Dark background */}
-            <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border"
-              style={{ background: '#111111', minHeight: 56 }}>
-              <img src={value} alt="Logo on dark"
-                style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block',
-                  filter: 'brightness(0) invert(1)' }}/>
+    const isLogoField = field.k === 'logoUrl' || field.k === 'logoDarkUrl' || field.k === 'logoLightUrl';
+    return wrapper(
+      <div className="space-y-1.5">
+        <Label className={labelCls}>{field.l}</Label>
+        <ImageUpload initialImage={value || ''} onImageUploaded={onChange}/>
+        {isLogoField && value && (
+          <div className="mt-2 space-y-1.5">
+            <p className="text-[8px] font-black uppercase tracking-[0.2em] text-muted-foreground/40">Transparency preview</p>
+            <div className="flex gap-2">
+              <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border" style={{ background: '#ffffff', minHeight: 56 }}>
+                <img src={value} alt="Logo on light" style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}/>
+              </div>
+              <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border" style={{ backgroundImage: 'linear-gradient(45deg,#ccc 25%,transparent 25%),linear-gradient(-45deg,#ccc 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#ccc 75%),linear-gradient(-45deg,transparent 75%,#ccc 75%)', backgroundSize: '10px 10px', backgroundPosition: '0 0,0 5px,5px -5px,-5px 0px', backgroundColor: '#fff', minHeight: 56 }}>
+                <img src={value} alt="Logo transparency" style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain' }}/>
+              </div>
+              <div className="flex-1 flex items-center justify-center p-3 rounded-xl border-2 border-border" style={{ background: '#111111', minHeight: 56 }}>
+                <img src={value} alt="Logo on dark" style={{ height: 32, width: 'auto', maxWidth: '100%', objectFit: 'contain', filter: 'brightness(0) invert(1)' }}/>
+              </div>
             </div>
           </div>
-          <div className="flex justify-between px-1">
-            <span className="text-[8px] text-muted-foreground/40 font-bold">Light</span>
-            <span className="text-[8px] text-muted-foreground/40 font-bold">Transparent</span>
-            <span className="text-[8px] text-muted-foreground/40 font-bold">Dark (auto)</span>
-          </div>
-          {/* Warning if logo has a white background */}
-          {field.k === 'logoUrl' && (
-            <div className="flex items-start gap-1.5 px-2 py-2 rounded-lg bg-amber-50 border border-amber-200 mt-1">
-              <AlertCircle className="w-3 h-3 text-amber-500 shrink-0 mt-0.5"/>
-              <p className="text-[9px] text-amber-700 leading-snug">
-                If your logo has a white background, upload a PNG with transparency or add a dark variant above for use on colored navs.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-  if (field.t === 'image-array')      return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><ImageArrayEditor value={value || []} onChange={onChange}/></div>);
-  if (field.t === 'beforeafter-pairs')return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><BeforeAfterPairsEditor value={value || []} onChange={onChange}/></div>);
-  if (field.t === 'social-links')     return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><SocialLinksEditor value={value || []} onChange={onChange}/></div>);
-  if (field.t === 'policy-list')      return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><PolicyListEditor value={value || []} onChange={onChange}/></div>);
-  if (field.t === 'tag-list')         return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><TagListEditor value={value || []} onChange={onChange}/></div>);
-  if (field.t === 'toggle')           return wrapper(<div className="flex items-center justify-between py-2.5 border-b border-dashed last:border-0"><span className={labelCls}>{field.l}</span><Switch checked={!!value} onCheckedChange={onChange}/></div>);
-  if (field.t === 'textarea')         return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Textarea value={value || ''} onChange={e => onChange(e.target.value)} className="rounded-xl border-2 text-sm min-h-[80px] resize-none"/></div>);
-  if (field.t === 'select')           return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Select value={value ?? field.d} onValueChange={onChange}><SelectTrigger className="h-10 rounded-xl border-2 text-xs font-black uppercase"><SelectValue/></SelectTrigger><SelectContent className="rounded-xl border-2">{field.opts!.map(o => <SelectItem key={o} value={o} className="text-xs font-black uppercase">{o.replace(/-/g,' ').charAt(0).toUpperCase()+o.replace(/-/g,' ').slice(1)}</SelectItem>)}</SelectContent></Select></div>);
-  if (field.t === 'color')            return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><div className="flex items-center gap-2"><input type="color" value={value || '#000000'} onChange={e => onChange(e.target.value)} className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5"/><Input value={value || ''} onChange={e => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && onChange(e.target.value)} className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7} placeholder="#000000"/></div></div>);
-  if (field.t === 'range')            return wrapper(<div className="space-y-2"><div className="flex items-center justify-between"><Label className={labelCls}>{field.l}</Label><span className="text-xs font-bold text-muted-foreground">{value ?? field.d}</span></div><Slider value={[value ?? field.d]} onValueChange={([v]) => onChange(v)} min={field.min ?? 0} max={field.max ?? 100} step={field.step ?? 1} className="w-full"/></div>);
+        )}
+      </div>
+    );
+  }
+  if (field.t === 'image-array')       return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><ImageArrayEditor value={value || []} onChange={onChange}/></div>);
+  if (field.t === 'beforeafter-pairs') return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><BeforeAfterPairsEditor value={value || []} onChange={onChange}/></div>);
+  if (field.t === 'social-links')      return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><SocialLinksEditor value={value || []} onChange={onChange}/></div>);
+  if (field.t === 'policy-list')       return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><PolicyListEditor value={value || []} onChange={onChange}/></div>);
+  if (field.t === 'tag-list')          return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><TagListEditor value={value || []} onChange={onChange}/></div>);
+  if (field.t === 'toggle')            return wrapper(<div className="flex items-center justify-between py-2.5 border-b border-dashed last:border-0"><span className={labelCls}>{field.l}</span><Switch checked={!!value} onCheckedChange={onChange}/></div>);
+  if (field.t === 'textarea')          return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Textarea value={value || ''} onChange={e => onChange(e.target.value)} className="rounded-xl border-2 text-sm min-h-[80px] resize-none"/></div>);
+  if (field.t === 'select')            return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Select value={value ?? field.d} onValueChange={onChange}><SelectTrigger className="h-10 rounded-xl border-2 text-xs font-black uppercase"><SelectValue/></SelectTrigger><SelectContent className="rounded-xl border-2">{field.opts!.map(o => <SelectItem key={o} value={o} className="text-xs font-black uppercase">{o.replace(/-/g,' ').charAt(0).toUpperCase()+o.replace(/-/g,' ').slice(1)}</SelectItem>)}</SelectContent></Select></div>);
+  if (field.t === 'color')             return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><div className="flex items-center gap-2"><input type="color" value={value || '#000000'} onChange={e => onChange(e.target.value)} className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5"/><Input value={value || ''} onChange={e => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && onChange(e.target.value)} className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7} placeholder="#000000"/></div></div>);
+  if (field.t === 'range')             return wrapper(<div className="space-y-2"><div className="flex items-center justify-between"><Label className={labelCls}>{field.l}</Label><span className="text-xs font-bold text-muted-foreground">{value ?? field.d}</span></div><Slider value={[value ?? field.d]} onValueChange={([v]) => onChange(v)} min={field.min ?? 0} max={field.max ?? 100} step={field.step ?? 1} className="w-full"/></div>);
   return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Input value={value || ''} onChange={e => onChange(e.target.value)} className="h-10 rounded-xl border-2 text-sm"/></div>);
 };
+
+// Alias so existing callers work
+const FieldRenderer = renderFieldEditor_FieldRenderer;
 
 const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMoveUp, onMoveDown, onHide, onDuplicate }: {
   section: PageSection; isSelected: boolean; isFirst: boolean; isLast: boolean;
@@ -983,24 +828,24 @@ export default function PageBuilderPage() {
   const fieldEditTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fieldEditActiveRef  = useRef(false);
 
-  const [sections,        setSections]        = useState<PageSection[]>(buildDefaultSections());
-  const [selectedId,      setSelectedId]      = useState<string | null>('hero');
-  const [highlightedField,setHighlightedField]= useState<string | null>(null);
-  const [showLibrary,     setShowLibrary]     = useState(false);
-  const [activePanel,     setActivePanel]     = useState<'sections' | 'style'>('sections');
-  const [styleTab,        setStyleTab]        = useState<'kits' | 'colors' | 'fonts' | 'spacing'>('kits');
-  const [isSaving,        setIsSaving]        = useState(false);
-  const [isDirty,         setIsDirty]         = useState(false);
-  const [previewMode,     setPreviewMode]     = useState<'desktop' | 'mobile'>('desktop');
-  const [canUndo,         setCanUndo]         = useState(false);
-  const [canRedo,         setCanRedo]         = useState(false);
-  const [mobileSheet,     setMobileSheet]     = useState<'closed' | 'half' | 'full'>('half');
-  const [mobilePanelTab,  setMobilePanelTab]  = useState<'sections' | 'style'>('sections');
-  const [mobileFieldView, setMobileFieldView] = useState(false);
-  const [isLandscape,     setIsLandscape]     = useState(false);
-  const [drawerOpen,      setDrawerOpen]      = useState(true);
-  const [dragId,          setDragId]          = useState<string | null>(null);
-  const [dragOverId,      setDragOverId]      = useState<string | null>(null);
+  const [sections,         setSections]        = useState<PageSection[]>(buildDefaultSections());
+  const [selectedId,       setSelectedId]      = useState<string | null>('hero');
+  const [highlightedField, setHighlightedField]= useState<string | null>(null);
+  const [showLibrary,      setShowLibrary]     = useState(false);
+  const [activePanel,      setActivePanel]     = useState<'sections' | 'style'>('sections');
+  const [styleTab,         setStyleTab]        = useState<'kits' | 'colors' | 'fonts' | 'spacing'>('kits');
+  const [isSaving,         setIsSaving]        = useState(false);
+  const [isDirty,          setIsDirty]         = useState(false);
+  const [previewMode,      setPreviewMode]     = useState<'desktop' | 'mobile'>('desktop');
+  const [canUndo,          setCanUndo]         = useState(false);
+  const [canRedo,          setCanRedo]         = useState(false);
+  const [mobileSheet,      setMobileSheet]     = useState<'closed' | 'half' | 'full'>('half');
+  const [mobilePanelTab,   setMobilePanelTab]  = useState<'sections' | 'style'>('sections');
+  const [mobileFieldView,  setMobileFieldView] = useState(false);
+  const [isLandscape,      setIsLandscape]     = useState(false);
+  const [drawerOpen,       setDrawerOpen]      = useState(true);
+  const [dragId,           setDragId]          = useState<string | null>(null);
+  const [dragOverId,       setDragOverId]      = useState<string | null>(null);
 
   const [previewData, setPreviewData] = useState<PageData>({
     tenant: null, services: [], staff: [], events: [], tenantId: '',
@@ -1016,9 +861,7 @@ export default function PageBuilderPage() {
 
   useEffect(() => {
     if (!document.getElementById('cf-anim')) {
-      const s = document.createElement('style');
-      s.id = 'cf-anim'; s.textContent = ANIM_CSS;
-      document.head.appendChild(s);
+      const s = document.createElement('style'); s.id = 'cf-anim'; s.textContent = ANIM_CSS; document.head.appendChild(s);
     }
   }, []);
 
@@ -1034,8 +877,7 @@ export default function PageBuilderPage() {
         ]);
         if (!cancelled) {
           setPreviewData({
-            tenant:   selectedTenant,
-            tenantId: selectedTenant.id,
+            tenant: selectedTenant, tenantId: selectedTenant.id,
             services: svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
             staff:    stSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false),
             events:   evSnap.docs.map(d => ({ id: d.id, ...d.data() })),
@@ -1064,16 +906,16 @@ export default function PageBuilderPage() {
     if (!existing) return;
     isFirstLoad.current = true;
     if (existing.sections?.length) setSections(existing.sections);
-    if (existing.accentColor)              setStyle(p => ({ ...p, accentColor:  existing.accentColor }));
-    if (existing.bgColor)                  setStyle(p => ({ ...p, bgColor:      existing.bgColor }));
-    if (existing.headingFont)              setStyle(p => ({ ...p, headingFont:  existing.headingFont }));
-    if (existing.bodyFont)                 setStyle(p => ({ ...p, bodyFont:     existing.bodyFont }));
+    if (existing.accentColor)               setStyle(p => ({ ...p, accentColor:  existing.accentColor }));
+    if (existing.bgColor)                   setStyle(p => ({ ...p, bgColor:      existing.bgColor }));
+    if (existing.headingFont)               setStyle(p => ({ ...p, headingFont:  existing.headingFont }));
+    if (existing.bodyFont)                  setStyle(p => ({ ...p, bodyFont:     existing.bodyFont }));
     if (existing.borderRadius !== undefined) setStyle(p => ({ ...p, borderRadius: existing.borderRadius }));
-    if (existing.buttonStyle)              setStyle(p => ({ ...p, buttonStyle:  existing.buttonStyle }));
-    if (existing.density)                  setStyle(p => ({ ...p, density:      existing.density }));
-    if (existing.brandKit)                 setStyle(p => ({ ...p, brandKit:     existing.brandKit }));
+    if (existing.buttonStyle)               setStyle(p => ({ ...p, buttonStyle:  existing.buttonStyle }));
+    if (existing.density)                   setStyle(p => ({ ...p, density:      existing.density }));
+    if (existing.brandKit)                  setStyle(p => ({ ...p, brandKit:     existing.brandKit }));
     setTimeout(() => { isFirstLoad.current = false; }, 0);
-  }, [selectedTenant]);
+  }, [selectedTenant]); // eslint-disable-line
 
   useEffect(() => {
     if (isFirstLoad.current) { isFirstLoad.current = false; return; }
@@ -1110,86 +952,43 @@ export default function PageBuilderPage() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [undo, redo]);
+  }, [undo, redo]); // eslint-disable-line
 
   const enabledSections  = useMemo(() => sections.filter(s => s.enabled).sort((a,b) => a.order - b.order), [sections]);
   const disabledSections = useMemo(() => sections.filter(s => !s.enabled), [sections]);
   const selectedSection  = useMemo(() => sections.find(s => s.id === selectedId), [sections, selectedId]);
+  const allSectionTypes  = useMemo(() => enabledSections.map(s => s.type), [enabledSections]);
 
-  // ── KEY: ordered list of enabled section types for nav/bottom-bar ──────
-  // Computed once per render; passed into every SectionRenderer call so the
-  // nav drawer and bottom-bar always reflect the current live page structure.
-  const allSectionTypes = useMemo(
-    () => enabledSections.map(s => s.type),
-    [enabledSections]
-  );
-
-const handleDrop = (targetId: string) => {
+  const handleDrop = (targetId: string) => {
     if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
     pushHistory();
     setSections(prev => {
       const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order);
-      const dragIdx  = en.findIndex(s => s.id === dragId);
-      const dropIdx  = en.findIndex(s => s.id === targetId);
+      const dragIdx = en.findIndex(s => s.id === dragId);
+      const dropIdx = en.findIndex(s => s.id === targetId);
       if (dragIdx < 0 || dropIdx < 0) return prev;
-      const reordered = [...en];
-      const [moved] = reordered.splice(dragIdx, 1);
-      reordered.splice(dropIdx, 0, moved);
-      const orderMap: Record<string,number> = {};
-      reordered.forEach((s, i) => { orderMap[s.id] = i; });
+      const reordered = [...en]; const [moved] = reordered.splice(dragIdx, 1); reordered.splice(dropIdx, 0, moved);
+      const orderMap: Record<string,number> = {}; reordered.forEach((s, i) => { orderMap[s.id] = i; });
       return prev.map(s => orderMap[s.id] !== undefined ? { ...s, order: orderMap[s.id] } : s);
     });
     setDragId(null); setDragOverId(null);
   };
 
-  const moveUp = (id: string) => {
-    pushHistory();
-    setSections(prev => {
-      const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order);
-      const idx = en.findIndex(s => s.id === id); if (idx <= 0) return prev;
-      const [a, b] = [en[idx-1], en[idx]];
-      return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s);
-    });
-  };
-  const moveDown = (id: string) => {
-    pushHistory();
-    setSections(prev => {
-      const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order);
-      const idx = en.findIndex(s => s.id === id); if (idx >= en.length - 1) return prev;
-      const [a, b] = [en[idx], en[idx+1]];
-      return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s);
-    });
-  };
+  const moveUp = (id: string) => { pushHistory(); setSections(prev => { const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order); const idx = en.findIndex(s => s.id === id); if (idx <= 0) return prev; const [a, b] = [en[idx-1], en[idx]]; return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s); }); };
+  const moveDown = (id: string) => { pushHistory(); setSections(prev => { const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order); const idx = en.findIndex(s => s.id === id); if (idx >= en.length - 1) return prev; const [a, b] = [en[idx], en[idx+1]]; return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s); }); };
   const hideSection = (id: string) => { pushHistory(); setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: false } : s)); if (selectedId === id) setSelectedId(null); };
-  const addSection  = (id: string) => {
-    pushHistory();
-    const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0);
-    setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: true, order: maxOrder + 1 } : s));
-    setSelectedId(id); setShowLibrary(false);
-  };
-  const duplicateSection = (id: string) => {
-    pushHistory();
-    const src = sections.find(s => s.id === id); if (!src) return;
-    const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0);
-    const newSection: PageSection = { ...src, id: `${src.type}-${generateId()}`, order: maxOrder + 1 };
-    setSections(prev => [...prev, newSection]); setSelectedId(newSection.id);
-  };
+  const addSection  = (id: string) => { pushHistory(); const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0); setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: true, order: maxOrder + 1 } : s)); setSelectedId(id); setShowLibrary(false); };
+  const duplicateSection = (id: string) => { pushHistory(); const src = sections.find(s => s.id === id); if (!src) return; const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0); const newSection: PageSection = { ...src, id: `${src.type}-${generateId()}`, order: maxOrder + 1 }; setSections(prev => [...prev, newSection]); setSelectedId(newSection.id); };
+
   const updateField = (sectionId: string, key: string, value: any) => {
     if (!fieldEditActiveRef.current) { fieldEditActiveRef.current = true; pushHistory(); }
     if (fieldEditTimerRef.current) clearTimeout(fieldEditTimerRef.current);
     fieldEditTimerRef.current = setTimeout(() => { fieldEditActiveRef.current = false; }, 1500);
     setSections(prev => prev.map(s => s.id === sectionId ? { ...s, config: { ...s.config, [key]: value } } : s));
   };
-  const updateAnimation = (sectionId: string, animConfig: AnimConfig) => {
-    pushHistory();
-    setSections(prev => prev.map(s => s.id === sectionId ? { ...s, config: { ...s.config, _animation: animConfig } } : s));
-  };
+  const updateAnimation = (sectionId: string, animConfig: AnimConfig) => { pushHistory(); setSections(prev => prev.map(s => s.id === sectionId ? { ...s, config: { ...s.config, _animation: animConfig } } : s)); };
   const updateStyle   = (updates: Partial<typeof style>) => { pushHistory(); setStyle(p => ({ ...p, ...updates })); };
-  const applyBrandKit = (kit: typeof BRAND_KITS[0]) => {
-    pushHistory();
-    setStyle(p => ({ ...p, accentColor: kit.accentColor, bgColor: kit.bgColor, headingFont: kit.headingFont, bodyFont: kit.bodyFont, borderRadius: kit.borderRadius, brandKit: kit.id }));
-    toast({ title: `${kit.label} brand kit applied` });
-  };
+  const applyBrandKit = (kit: typeof BRAND_KITS[0]) => { pushHistory(); setStyle(p => ({ ...p, accentColor: kit.accentColor, bgColor: kit.bgColor, headingFont: kit.headingFont, bodyFont: kit.bodyFont, borderRadius: kit.borderRadius, brandKit: kit.id })); toast({ title: `${kit.label} brand kit applied` }); };
 
   const handleSave = async () => {
     if (!selectedTenant || !firestore) return;
@@ -1222,58 +1021,18 @@ const handleDrop = (targetId: string) => {
 
   const selectedDef = selectedSection ? SECTION_DEFS[selectedSection.type as SectionType] : null;
 
-  // ── Shared render helper: renders all enabled sections with allSectionTypes ──
-  // This is the single source of truth — used in desktop preview, mobile
-  // portrait, and mobile landscape. allSectionTypes is passed through so the
-  // nav drawer + bottom-bar always knows the full page structure.
   const renderPreview = () => (
     <>
       {enabledSections.map(section => {
         const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}-${(section.config as any)._animation?.speed || 700}`;
         return (
-          <SectionWrapper
-            key={animKey}
-            section={section}
-            isPreview={true}
-            onEdit={(id) => {
-              setSelectedId(id);
-              setActivePanel('sections');
-              setHighlightedField(null);
-              setShowLibrary(false);
-              // Open mobile panel when tapping edit overlay
-              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-                setMobileFieldView(false);
-                setMobilePanelTab('sections');
-                if (mobileSheet === 'closed') setMobileSheet('half');
-              }
-            }}
-            onFieldTap={(sId, fKey) => {
-              setSelectedId(sId);
-              setActivePanel('sections');
-              setHighlightedField(fKey);
-              setTimeout(() => setHighlightedField(null), 4000);
-              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-                setMobileFieldView(true);
-                setMobileSheet('full');
-              }
-            }}
-          >
-         <SectionRenderer
+          <SectionWrapper key={animKey} section={section} isPreview={true}
+            onEdit={(id) => { setSelectedId(id); setActivePanel('sections'); setHighlightedField(null); setShowLibrary(false); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(false); setMobilePanelTab('sections'); if (mobileSheet === 'closed') setMobileSheet('half'); } }}
+            onFieldTap={(sId, fKey) => { setSelectedId(sId); setActivePanel('sections'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(true); setMobileSheet('full'); } }}>
+            <SectionRenderer
               section={section.type === 'nav' ? { ...section, config: { ...section.config, _enabledSections: allSectionTypes } } : section}
-              style={resolvedPreviewStyle}
-              data={previewData}
-              isPreview={true}
-              onFieldTap={(sId, fKey) => {
-                setSelectedId(sId);
-                setActivePanel('sections');
-                setHighlightedField(fKey);
-                setTimeout(() => setHighlightedField(null), 4000);
-                if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-                  setMobileFieldView(true);
-                  setMobileSheet('full');
-                }
-              }}
-            />
+              style={resolvedPreviewStyle} data={previewData} isPreview={true}
+              onFieldTap={(sId, fKey) => { setSelectedId(sId); setActivePanel('sections'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(true); setMobileSheet('full'); } }}/>
           </SectionWrapper>
         );
       })}
@@ -1332,7 +1091,7 @@ const handleDrop = (targetId: string) => {
   const sheetTranslate = mobileSheet === 'closed' ? `calc(100% - ${HANDLE_H}px)` : mobileSheet === 'half' ? '42%' : '0%';
   const cycleSheet = () => setMobileSheet(s => s === 'closed' ? 'half' : s === 'half' ? 'full' : 'closed');
 
-const renderMobileTabBar = ({ compact = false }: { compact?: boolean } = {}) => (
+  const renderMobileTabBar = ({ compact = false }: { compact?: boolean } = {}) => (
     <div className={cn('flex items-center gap-1.5 w-full')}>
       <div className={cn('flex gap-1 flex-1 bg-slate-100 rounded-xl', compact ? 'p-0.5' : 'p-1')}>
         <button onClick={() => { setMobilePanelTab('sections'); setMobileFieldView(false); if (!isLandscape && mobileSheet === 'closed') setMobileSheet('half'); }}
@@ -1358,7 +1117,7 @@ const renderMobileTabBar = ({ compact = false }: { compact?: boolean } = {}) => 
     </div>
   );
 
-const renderMobilePanelBody = () => (
+  const renderMobilePanelBody = () => (
     <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {mobileFieldView && selectedSection && selectedDef ? (
         <>
@@ -1443,9 +1202,14 @@ const renderMobilePanelBody = () => (
       <div className="lg:hidden flex-1 min-h-0 relative overflow-hidden">
         {isLandscape && (
           <div className="absolute inset-0 flex">
+            {/* ─ preview ─ */}
             <div className="flex-1 min-w-0 relative overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
               {selectedTenant ? (
-                <div className="w-full h-full overflow-y-auto overflow-x-hidden">{renderPreview()}</div>
+                // transform: translateZ(0) scopes position:fixed children to this div
+                <div className="w-full h-full overflow-y-auto overflow-x-hidden"
+                  style={{ transform: 'translateZ(0)' }}>
+                  {renderPreview()}
+                </div>
               ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
               {!drawerOpen && (
                 <button onClick={() => setDrawerOpen(true)} className="absolute right-0 top-1/2 -translate-y-1/2 z-10 w-8 py-4 bg-white border-y border-l border-border rounded-l-xl shadow-lg flex flex-col items-center gap-1.5 text-primary">
@@ -1457,6 +1221,7 @@ const renderMobilePanelBody = () => (
                 {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-lg bg-white/90 backdrop-blur shadow flex items-center justify-center text-slate-500"><ExternalLink className="w-3.5 h-3.5"/></a>}
               </div>
             </div>
+            {/* ─ editor panel ─ */}
             <div className="h-full bg-white border-l flex flex-col shadow-2xl overflow-hidden transition-all duration-300 shrink-0" style={{ width: drawerOpen ? 'min(300px,58vw)' : '0px' }}>
               {drawerOpen && (
                 <>
@@ -1464,7 +1229,7 @@ const renderMobilePanelBody = () => (
                     {renderMobileTabBar({ compact: true })}
                     <button onClick={() => setDrawerOpen(false)} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:bg-muted shrink-0"><X className="w-3.5 h-3.5"/></button>
                   </div>
-                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col"><MobilePanelBody/></div>
+                  <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{renderMobilePanelBody()}</div>
                 </>
               )}
             </div>
@@ -1472,20 +1237,26 @@ const renderMobilePanelBody = () => (
         )}
         {!isLandscape && (
           <>
+            {/* ─ preview ─ */}
             <div className="absolute inset-0 overflow-hidden" style={{ background: resolvedPreviewStyle.bgColor }}>
               {selectedTenant ? (
-                <div className="w-full h-full overflow-y-auto overflow-x-hidden">{renderPreview()}</div>
+                // transform: translateZ(0) scopes position:fixed children to this div
+                <div className="w-full h-full overflow-y-auto overflow-x-hidden"
+                  style={{ transform: 'translateZ(0)' }}>
+                  {renderPreview()}
+                </div>
               ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
             </div>
             <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
               {previewUrl && <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="w-9 h-9 rounded-xl bg-white/90 backdrop-blur shadow-lg flex items-center justify-center text-slate-500"><ExternalLink className="w-4 h-4"/></a>}
             </div>
+            {/* ─ bottom sheet ─ */}
             <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-[0_-8px_40px_rgba(0,0,0,0.14)] flex flex-col z-20"
-                 style={{ height: '100%', transform: `translateY(${sheetTranslate})`, transition: 'transform 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
+              style={{ height: '100%', transform: `translateY(${sheetTranslate})`, transition: 'transform 0.32s cubic-bezier(0.16,1,0.3,1)' }}>
               <div className="shrink-0 cursor-pointer select-none pt-2.5" style={{ height: `${HANDLE_H}px` }} onClick={cycleSheet}>
                 <div className="flex justify-center mb-2"><div className="w-9 h-1 rounded-full bg-slate-200"/></div>
                 <div className="px-3 flex items-center gap-2">
-            {renderMobileTabBar({})}
+                  {renderMobileTabBar()}
                   <button onClick={e => { e.stopPropagation(); cycleSheet(); }} className="w-8 h-8 rounded-xl border-2 border-border flex items-center justify-center text-slate-400 shrink-0">
                     {mobileSheet === 'full' ? <ChevronDown className="w-4 h-4"/> : <ChevronUp className="w-4 h-4"/>}
                   </button>
@@ -1516,13 +1287,10 @@ const renderMobilePanelBody = () => (
               {activePanel === 'sections' && !showLibrary && (
                 <div className="space-y-1.5">
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Active sections</p>
-{enabledSections.map((s, idx) => (
-                    <div key={s.id}
-                      draggable
-                      onDragStart={() => setDragId(s.id)}
+                  {enabledSections.map((s, idx) => (
+                    <div key={s.id} draggable onDragStart={() => setDragId(s.id)}
                       onDragOver={e => { e.preventDefault(); setDragOverId(s.id); }}
-                      onDragLeave={() => setDragOverId(null)}
-                      onDrop={() => handleDrop(s.id)}
+                      onDragLeave={() => setDragOverId(null)} onDrop={() => handleDrop(s.id)}
                       className={cn('transition-all duration-150', dragOverId === s.id && dragId !== s.id && 'ring-2 ring-primary/40 rounded-2xl scale-[1.01]')}>
                       <SectionListItem section={s} isSelected={selectedId === s.id} isFirst={idx === 0} isLast={idx === enabledSections.length - 1}
                         onSelect={() => { setSelectedId(s.id); setActivePanel('sections'); setHighlightedField(null); }}
@@ -1623,12 +1391,16 @@ const renderMobilePanelBody = () => (
             </div>
             <div className={cn('flex-1 min-h-0 overflow-hidden flex', previewMode === 'mobile' ? 'items-start justify-center p-6 bg-slate-200' : 'bg-slate-100')}>
               {selectedTenant ? (
-                <div className={cn(
-                  'overflow-y-auto overflow-x-hidden h-full',
-                  previewMode === 'desktop'
-                    ? 'w-full rounded-xl shadow-xl bg-white'
-                    : 'w-[390px] shrink-0 rounded-[2rem] shadow-2xl ring-8 ring-slate-800 bg-white'
-                )} style={{ background: resolvedPreviewStyle.bgColor }}>
+                // transform: translateZ(0) scopes position:fixed children to this scroll div
+                // so the bottom-bar nav appears at the bottom of the preview, not the browser window
+                <div
+                  className={cn(
+                    'overflow-y-auto overflow-x-hidden h-full',
+                    previewMode === 'desktop'
+                      ? 'w-full rounded-xl shadow-xl bg-white'
+                      : 'w-[390px] shrink-0 rounded-[2rem] shadow-2xl ring-8 ring-slate-800 bg-white'
+                  )}
+                  style={{ background: resolvedPreviewStyle.bgColor, transform: 'translateZ(0)' }}>
                   {renderPreview()}
                 </div>
               ) : (
