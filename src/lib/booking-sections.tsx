@@ -2452,29 +2452,35 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 </p>
               )}
 
+              
               {/* Book button */}
               {showBtn && (
-                <div style={{ animation: soloVis ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both' : 'none' }}>
+                <div style={{
+                  animation: soloVis
+                    ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both'
+                    : 'none',
+                  width: '100%',
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}>
                   <button
                     onClick={e => { e.stopPropagation(); openBooking(); }}
-                    className="inline-flex items-center gap-2.5 px-9 md:px-12 py-3.5 md:py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.05] active:scale-[0.97] transition-transform"
+                    className="inline-flex items-center justify-center gap-2 font-black uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-transform whitespace-nowrap"
                     style={{
-                      background: ac(style), color: '#fff',
-                      borderRadius: br(style, 3), fontFamily: bf(style),
+                      background: ac(style),
+                      color: '#fff',
+                      borderRadius: br(style, 3),
+                      fontFamily: bf(style),
+                      fontSize: 'clamp(10px, 2.5vw, 13px)',
+                      padding: 'clamp(12px, 3.5vw, 16px) clamp(28px, 8vw, 48px)',
                       boxShadow: `0 12px 40px ${ac(style)}28, 0 4px 12px ${ac(style)}16`,
+                      maxWidth: '100%',
                     }}>
                     {config.bookCta || 'Book with me'}
-                    <ArrowRight className="w-4 h-4"/>
+                    <ArrowRight style={{ width: 14, height: 14, flexShrink: 0 }}/>
                   </button>
                 </div>
               )}
-
-            </div>
-          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
-        </div>
-      </section>
-    );
-  }
 
   if (layout === 'solo-hero') {
     const solo      = staff[0];
