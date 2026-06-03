@@ -36,7 +36,7 @@ import {
   LayoutDashboard, RotateCcw, Crown, Package, Gift,
   FileText, Sparkles, HelpCircle, Shield, MapPin,
   Calendar, Share2, BookOpen, Camera, Clock,
-  ChevronUp, ChevronDown, Plus, Eye, Save, ExternalLink,
+  ChevronUp, ChevronDown, Plus, Eye, EyeOff, Save, ExternalLink,
   Loader, Check, Palette, Settings, X, Monitor, Smartphone,
   RefreshCw, AlertCircle, Copy, GripVertical,
   Instagram, Facebook, Twitter, Youtube, Globe, Music2,
@@ -210,9 +210,12 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'split',      label: 'Split',      preview: '[ links | LOGO | links+btn ]' },
     { id: 'logo-top',   label: 'Logo Top',   preview: '[ LOGO ]\n[ links ]'          },
     { id: 'drawer',     label: 'Drawer',     preview: '[ logo · (≡) ]'               },
+    { id: 'bottom-bar', label: 'Bottom Bar', preview: '[ ≡ ≡ ≡ ≡ | Book ]'          },
     { id: 'minimal',    label: 'Minimal',    preview: '[ logo · btn ]'               },
   ]},
   hero: { label: 'Hero', icon: ImageIcon, color: '#534AB7', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show headline',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show subheadline', d: true },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'heroImage', t: 'image', l: 'Feature image (split/magazine)', d: '' },
     { k: 'overlayOpacity', t: 'range', l: 'Overlay opacity', d: 40, min: 0, max: 90, step: 5 },
     { k: 'headline', t: 'text', l: 'Headline', d: 'Book Your Experience' }, { k: 'subheadline', t: 'textarea', l: 'Subheadline', d: 'A sanctuary of craft, curated for those who appreciate the details.' },
@@ -247,6 +250,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'counter', label: 'Counter showcase', preview: '  ↑↑  ↑↑  ↑↑  ↑↑  '          },
   ]},
   services: { label: 'Services', icon: Scissors, color: '#185FA5', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Services' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Handcrafted treatments for every occasion' },
     { k: 'ctaText', t: 'text', l: 'Book button text', d: 'Book this service' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
     { k: 'columns', t: 'select', l: 'Columns', d: '2', opts: ['1','2','3'] }, { k: 'showPrices', t: 'toggle', l: 'Show prices', d: true },
@@ -263,6 +268,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'grid',       label: 'Grid',             preview: '┌──┬──┬──┐'                     },
   ]},
   team: { label: 'Team', icon: Users, color: '#0F6E56', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'The Artists' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Expert hands for every style' },
     { k: 'showBio', t: 'toggle', l: 'Show bio', d: false }, { k: 'showSpecialties', t: 'toggle', l: 'Show specialties', d: true },
     { k: 'showBookButton', t: 'toggle', l: 'Book per artist', d: false }, { k: 'bookCta', t: 'text', l: 'Book button text', d: 'Book with me' },
@@ -282,6 +289,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'solo-spotlight', label: 'Solo spotlight',  preview: '  ◉ halo · name · skills · cta' },
   ]},
   reviews: { label: 'Reviews', icon: Star, color: '#993556', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'What Clients Say' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Real words from real guests' },
     { k: 'showRating', t: 'toggle', l: 'Show star ratings', d: true }, { k: 'showPhotos', t: 'toggle', l: 'Show client photos', d: false },
     { k: 'rev1Name', t: 'text', l: 'Review 1 name', d: 'Sarah M.' }, { k: 'rev1Rating', t: 'range', l: 'Review 1 rating', d: 5, min: 1, max: 5, step: 1 }, { k: 'rev1Text', t: 'textarea', l: 'Review 1 text', d: 'Absolutely incredible experience.' },
@@ -293,6 +302,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'quotes',   label: 'Large quotes', preview: '" quote text "' },
   ]},
   gallery: { label: 'Portfolio Gallery', icon: LayoutDashboard, color: '#534AB7', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Work' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Every set, a canvas' },
     { k: 'images', t: 'image-array', l: 'Gallery images (max 24)', d: [] }, { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false },
     { k: 'lightbox', t: 'toggle', l: 'Lightbox on click', d: true }, { k: 'columns', t: 'select', l: 'Columns', d: '3', opts: ['2','3','4'] },
@@ -307,6 +318,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'filmstrip', label: 'Filmstrip',    preview: '▐███▌▐███▌▐███▌'          },
   ]},
   beforeafter: { label: 'Before / After', icon: RotateCcw, color: '#0F6E56', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Transformations' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'See the difference we make' },
     { k: 'pairs', t: 'beforeafter-pairs', l: 'Before / After pairs', d: [] }, { k: 'sliderColor', t: 'color', l: 'Slider handle color', d: '#000000' },
     { k: 'showLabels', t: 'toggle', l: 'Show Before/After labels', d: true },
@@ -317,6 +330,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'carousel', label: 'Carousel pairs',preview: '← [ B/A pair ] →'     },
   ]},
   memberships: { label: 'Memberships', icon: Crown, color: '#534AB7', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Join the Club' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get started' },
     { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
     { k: 'plan1Name', t: 'text', l: 'Tier 1 name', d: 'Essential' }, { k: 'plan1Price', t: 'text', l: 'Tier 1 price', d: '$89' },
@@ -331,6 +345,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'minimal', label: 'Minimal list',  preview: '── Tier · price ──'    },
   ]},
   packages: { label: 'Packages', icon: Package, color: '#185FA5', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Prepaid Sessions' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Buy package' },
     { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
     { k: 'showExpiry', t: 'toggle', l: 'Show expiry', d: true }, { k: 'showSavings', t: 'toggle', l: 'Show savings %', d: true },
@@ -342,6 +357,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'list',  label: 'List',  preview: '── 5-pack · $xxx ──' },
   ]},
   giftcards: { label: 'Gift Cards', icon: Gift, color: '#993556', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Give the Gift of Beauty' },
     { k: 'bgImage', t: 'image', l: 'Background / card image', d: '' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Send a Gift Card' },
@@ -352,12 +368,15 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'minimal', label: 'Minimal',    preview: '[ amounts ] [buy]'          },
   ]},
   quote: { label: 'Quote Request', icon: FileText, color: '#3B6D11', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading',    t: 'text',     l: 'Heading',          d: 'Planning Something Unforgettable?' },
     { k: 'subheading', t: 'textarea', l: 'Description',       d: 'Planning a wedding, bridal party, or corporate event?' },
     { k: 'ctaText',    t: 'text',     l: 'Button text',       d: 'Request a Custom Quote' },
     { k: 'ctaNote',    t: 'text',     l: 'Below button note', d: 'We respond within 24 hours' },
     { k: 'ctaAction',  t: 'select',   l: 'Button action',     d: 'booking', opts: ['booking','url'] },
     { k: 'bgImage',    t: 'image',    l: 'Background image',  d: '' },
+    { k: 'overlayStyle', t: 'select', l: 'Image overlay style', d: 'dark', opts: ['dark','accent','none'] },
     { k: 'tags',       t: 'tag-list', l: 'Event types',       d: ['Bridal Parties','Corporate Events','Destination Services'] },
   ], layouts: [
     { id: 'cinematic', label: 'Cinematic dark',  preview: '█ ambient glow · glow CTA █'       },
@@ -369,6 +388,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'banner',    label: 'Banner',          preview: '▓[ heading · cta ]▓'               },
   ]},
   newclient: { label: 'New Client Offer', icon: Sparkles, color: '#854F0B', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Heading', d: 'First Visit Special' }, { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Claim Offer' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'expiryText', t: 'text', l: 'Expiry text', d: 'Limited time only' },
@@ -377,6 +397,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'fullbleed', label: 'Full bleed', preview: '[ bg img · overlay · text ]' },
   ]},
   faq: { label: 'FAQ', icon: HelpCircle, color: '#185FA5', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Common Questions' },
     { k: 'q1', t: 'text', l: 'Question 1', d: 'How do I book an appointment?' }, { k: 'a1', t: 'textarea', l: 'Answer 1', d: 'Use the Book Now button above or select any service.' },
     { k: 'q2', t: 'text', l: 'Question 2', d: 'What is your cancellation policy?' }, { k: 'a2', t: 'textarea', l: 'Answer 2', d: 'We require 24 hours notice to avoid a cancellation fee.' },
@@ -393,6 +414,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'split',     label: 'Split panel',  preview: '[ Questions | Answer ]'     },
   ]},
   policies: { label: 'Policies', icon: Shield, color: '#0F6E56', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading',    t: 'text',   l: 'Section heading',               d: 'Our Policies' },
     { k: 'subheading', t: 'text',   l: 'Subheading',                    d: '' },
     { k: 'maxItems',   t: 'select', l: 'Items shown before "View all"', d: '6', opts: ['3','4','5','6','8','all'] },
@@ -413,6 +436,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'scroll',    label: 'Auto scroll',   preview: '→ [ card ][ card ][ card ] →'    },
   ]},
   contact: { label: 'Location & Contact', icon: MapPin, color: '#993556', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Find Us' }, { k: 'customHours', t: 'textarea', l: 'Hours text', d: 'Monday – Saturday: 9am – 7pm\nSunday: 10am – 5pm' },
     { k: 'showMap', t: 'toggle', l: 'Show map embed', d: true }, { k: 'showHours', t: 'toggle', l: 'Show hours', d: true },
     { k: 'showPhone', t: 'toggle', l: 'Show phone', d: true }, { k: 'showEmail', t: 'toggle', l: 'Show email', d: true },
@@ -423,6 +447,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'stacked',   label: 'Stacked',    preview: '[ map ]\n[ details ]'       },
   ]},
   events: { label: 'Events Calendar', icon: Calendar, color: '#854F0B', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Upcoming Events' }, { k: 'emptyText', t: 'text', l: 'When no events', d: 'Check back soon!' },
     { k: 'ctaText', t: 'text', l: 'RSVP button', d: 'RSVP Now' }, { k: 'ctaAction', t: 'select', l: 'RSVP action', d: 'booking', opts: ['booking','url'] },
   ], layouts: [
@@ -430,6 +455,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'list',  label: 'List',        preview: '── date · event ──' },
   ]},
   referral: { label: 'Referral Program', icon: Share2, color: '#185FA5', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Refer a Friend' }, { k: 'subheading', t: 'text', l: 'Description', d: 'Share the love — give $15, get $15' },
     { k: 'rewardYou', t: 'text', l: 'Your reward', d: '$15 credit' }, { k: 'rewardFriend', t: 'text', l: 'Friend reward', d: '$15 off first visit' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get My Referral Link' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
@@ -438,6 +465,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'centered', label: 'Centered',     preview: '  offer · [get link]  '   },
   ]},
   story: { label: 'Studio Story / Content', icon: BookOpen, color: '#3B6D11', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'image', t: 'image', l: 'Section image', d: '' },
     { k: 'heading', t: 'text', l: 'Heading', d: 'Our Story' }, { k: 'tag', t: 'text', l: 'Eyebrow label (optional)', d: '' },
     { k: 'pullQuote', t: 'text', l: 'Pull quote (optional)', d: '' },
@@ -456,6 +484,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'minimal',   label: 'Minimal',       preview: '── heading ──\n    body'     },
   ]},
   instagram: { label: 'Instagram Feed', icon: Camera, color: '#993556', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Follow Along' }, { k: 'handle', t: 'text', l: 'Instagram handle', d: '@opalmanicure' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Follow us on Instagram' }, { k: 'images', t: 'image-array', l: 'Preview images', d: [] },
     { k: 'columns', t: 'select', l: 'Columns', d: '4', opts: ['3','4','6'] },
@@ -464,6 +493,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'banner', label: 'Wide banner', preview: '← scroll row →' },
   ]},
   waitlist: { label: 'Waitlist', icon: Clock, color: '#534AB7', fields: [
+    { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
+    { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Heading', d: 'Fully Booked?' }, { k: 'subheading', t: 'text', l: 'Subheading', d: "Join our waitlist and we'll notify you when a slot opens" },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Join Waitlist' }, { k: 'ctaAction', t: 'select', l: 'Action', d: 'booking', opts: ['booking','url'] },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' },
@@ -739,16 +770,27 @@ const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedFi
 // Alias so existing callers work
 const FieldRenderer = renderFieldEditor_FieldRenderer;
 
-const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMoveUp, onMoveDown, onHide, onDuplicate }: {
+const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMoveUp, onMoveDown, onHide, onDuplicate, onToggleVisible }: {
   section: PageSection; isSelected: boolean; isFirst: boolean; isLast: boolean;
-  onSelect: () => void; onMoveUp: () => void; onMoveDown: () => void; onHide: () => void; onDuplicate: () => void;
+  onSelect: () => void; onMoveUp: () => void; onMoveDown: () => void; onHide: () => void;
+  onDuplicate: () => void; onToggleVisible: () => void;
 }) => {
   const def = SECTION_DEFS[section.type as SectionType]; const Icon = def.icon;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const isHidden = (section as any).visible === false;
   return (
-    <div onClick={onSelect} className={cn('flex items-center gap-2.5 p-2.5 rounded-2xl border-2 cursor-pointer transition-all group', confirmDelete ? 'border-red-300 bg-red-50' : isSelected ? 'border-primary/30 bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20')}>
+    <div onClick={onSelect}
+      className={cn(
+        'flex items-center gap-2.5 p-2.5 rounded-2xl border-2 cursor-pointer transition-all group',
+        confirmDelete ? 'border-red-300 bg-red-50'
+          : isSelected  ? 'border-primary/30 bg-primary/5 shadow-md'
+          : isHidden    ? 'border-dashed border-amber-200 bg-amber-50/30'
+          : 'border-border bg-background hover:border-primary/20'
+      )}>
       <GripVertical className="w-3.5 h-3.5 text-muted-foreground/30 shrink-0"/>
-      <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0" style={{ background: def.color + '18' }}><Icon className="w-3.5 h-3.5" style={{ color: def.color }}/></div>
+      <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0" style={{ background: def.color + '18' }}>
+        <Icon className="w-3.5 h-3.5" style={{ color: def.color }}/>
+      </div>
       {confirmDelete ? (
         <div className="flex-1 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
           <span className="text-[9px] font-black uppercase tracking-widest text-red-600 flex-1">Remove section?</span>
@@ -757,8 +799,23 @@ const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMov
         </div>
       ) : (
         <>
-          <span className={cn('flex-1 text-[10px] font-black uppercase tracking-tight truncate', isSelected ? 'text-primary' : 'text-slate-700')}>{def.label}</span>
+          <div className="flex-1 min-w-0">
+            <span className={cn('text-[10px] font-black uppercase tracking-tight truncate block', isSelected ? 'text-primary' : isHidden ? 'text-slate-400' : 'text-slate-700')}>
+              {def.label}
+            </span>
+            {isHidden && (
+              <span className="text-[8px] font-black uppercase tracking-widest text-amber-500 leading-none">
+                Hidden from visitors
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+            <button onClick={onToggleVisible} title={isHidden ? 'Show on live page' : 'Hide from live page'}
+              className="p-1 rounded hover:bg-muted">
+              {isHidden
+                ? <EyeOff className="w-3 h-3 text-amber-400"/>
+                : <Eye className="w-3 h-3 text-muted-foreground"/>}
+            </button>
             <button onClick={onDuplicate} title="Duplicate" className="p-1 rounded hover:bg-muted text-muted-foreground"><Copy className="w-3 h-3"/></button>
             <button onClick={onMoveUp}   disabled={isFirst} className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronUp className="w-3 h-3"/></button>
             <button onClick={onMoveDown} disabled={isLast}  className="p-1 rounded hover:bg-muted text-muted-foreground disabled:opacity-20"><ChevronDown className="w-3 h-3"/></button>
@@ -976,6 +1033,12 @@ export default function PageBuilderPage() {
   const moveUp = (id: string) => { pushHistory(); setSections(prev => { const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order); const idx = en.findIndex(s => s.id === id); if (idx <= 0) return prev; const [a, b] = [en[idx-1], en[idx]]; return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s); }); };
   const moveDown = (id: string) => { pushHistory(); setSections(prev => { const en = prev.filter(s => s.enabled).sort((a,b) => a.order - b.order); const idx = en.findIndex(s => s.id === id); if (idx >= en.length - 1) return prev; const [a, b] = [en[idx], en[idx+1]]; return prev.map(s => s.id === a.id ? { ...s, order: b.order } : s.id === b.id ? { ...s, order: a.order } : s); }); };
   const hideSection = (id: string) => { pushHistory(); setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: false } : s)); if (selectedId === id) setSelectedId(null); };
+  const toggleVisible = (id: string) => {
+    setSections(prev => prev.map(s =>
+      s.id === id ? { ...s, visible: s.visible === false ? true : false } : s
+    ));
+    setIsDirty(true);
+  };
   const addSection  = (id: string) => { pushHistory(); const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0); setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: true, order: maxOrder + 1 } : s)); setSelectedId(id); setShowLibrary(false); };
   const duplicateSection = (id: string) => { pushHistory(); const src = sections.find(s => s.id === id); if (!src) return; const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0); const newSection: PageSection = { ...src, id: `${src.type}-${generateId()}`, order: maxOrder + 1 }; setSections(prev => [...prev, newSection]); setSelectedId(newSection.id); };
 
@@ -1023,8 +1086,9 @@ export default function PageBuilderPage() {
   const renderPreview = () => (
     <>
       {enabledSections.map(section => {
+        const isHidden = (section as any).visible === false;
         const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}-${(section.config as any)._animation?.speed || 700}`;
-        return (
+        const inner = (
           <SectionWrapper key={animKey} section={section} isPreview={true}
             onEdit={(id) => { setSelectedId(id); setActivePanel('sections'); setHighlightedField(null); setShowLibrary(false); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(false); setMobilePanelTab('sections'); if (mobileSheet === 'closed') setMobileSheet('half'); } }}
             onFieldTap={(sId, fKey) => { setSelectedId(sId); setActivePanel('sections'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(true); setMobileSheet('full'); } }}>
@@ -1033,6 +1097,27 @@ export default function PageBuilderPage() {
               style={resolvedPreviewStyle} data={previewData} isPreview={true}
               onFieldTap={(sId, fKey) => { setSelectedId(sId); setActivePanel('sections'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(true); setMobileSheet('full'); } }}/>
           </SectionWrapper>
+        );
+        if (!isHidden) return inner;
+        return (
+          <div key={animKey} style={{ position: 'relative', opacity: 0.4, pointerEvents: 'auto' }}>
+            {inner}
+            <div style={{
+              position: 'absolute', inset: 0, pointerEvents: 'none',
+              background: 'repeating-linear-gradient(45deg, rgba(245,158,11,0.04) 0px, rgba(245,158,11,0.04) 10px, transparent 10px, transparent 20px)',
+              zIndex: 10,
+            }}/>
+            <div style={{
+              position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
+              background: '#f59e0b', color: 'white',
+              padding: '4px 14px', borderRadius: 6,
+              fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.15em',
+              whiteSpace: 'nowrap', zIndex: 20,
+              boxShadow: '0 2px 10px rgba(0,0,0,0.18)',
+            }}>
+              Hidden from visitors
+            </div>
+          </div>
         );
       })}
       <PreviewFooter tenant={previewData.tenant ?? selectedTenant} style={resolvedPreviewStyle}/>
@@ -1164,7 +1249,8 @@ export default function PageBuilderPage() {
                         isFirst={idx === 0} isLast={idx === enabledSections.length - 1}
                         onSelect={() => { setSelectedId(s.id); setMobileFieldView(true); setShowLibrary(false); if (!isLandscape) setMobileSheet('full'); }}
                         onMoveUp={() => moveUp(s.id)} onMoveDown={() => moveDown(s.id)}
-                        onHide={() => hideSection(s.id)} onDuplicate={() => duplicateSection(s.id)}/>
+                        onHide={() => hideSection(s.id)} onDuplicate={() => duplicateSection(s.id)}
+                        onToggleVisible={() => toggleVisible(s.id)}/>
                     ))
               }
             </div>
@@ -1293,7 +1379,8 @@ export default function PageBuilderPage() {
                       className={cn('transition-all duration-150', dragOverId === s.id && dragId !== s.id && 'ring-2 ring-primary/40 rounded-2xl scale-[1.01]')}>
                       <SectionListItem section={s} isSelected={selectedId === s.id} isFirst={idx === 0} isLast={idx === enabledSections.length - 1}
                         onSelect={() => { setSelectedId(s.id); setActivePanel('sections'); setHighlightedField(null); }}
-                        onMoveUp={() => moveUp(s.id)} onMoveDown={() => moveDown(s.id)} onHide={() => hideSection(s.id)} onDuplicate={() => duplicateSection(s.id)}/>
+                        onMoveUp={() => moveUp(s.id)} onMoveDown={() => moveDown(s.id)} onHide={() => hideSection(s.id)} onDuplicate={() => duplicateSection(s.id)}
+                        onToggleVisible={() => toggleVisible(s.id)}/>
                     </div>
                   ))}
                   {enabledSections.length === 0 && <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">No active sections</div>}
