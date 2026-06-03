@@ -696,6 +696,7 @@ export interface PageSection {
   id:      string;
   type:    SectionType;
   enabled: boolean;
+  visible?: boolean;
   order:   number;
   config:  Record<string, any>;
 }
