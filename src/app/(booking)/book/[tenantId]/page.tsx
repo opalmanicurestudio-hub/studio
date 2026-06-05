@@ -163,7 +163,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     density:      savedConfig?.density      ?? DS.density,
   };
 
-  const activeSections = sections.filter(s => s.enabled).sort((a, b) => a.order - b.order);
+  // Only render sections that are enabled AND not hidden from visitors
+  const activeSections = sections
+    .filter(s => s.enabled && s.visible !== false)
+    .sort((a, b) => a.order - b.order);
 
   useEffect(() => { injectFonts(resolvedStyle.headingFont, resolvedStyle.bodyFont); }, [resolvedStyle.headingFont, resolvedStyle.bodyFont]);
   useEffect(() => {
@@ -261,7 +264,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         />
       )}
 
-      {/* Sections */}
+      {/* Sections — enabled and visible to visitors */}
       {activeSections.map(section => (
         <SectionWrapper key={section.id} section={section} isPreview={false}
           onEdit={() => {}} onFieldTap={() => {}}>
