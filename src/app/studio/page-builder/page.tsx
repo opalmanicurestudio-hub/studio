@@ -827,8 +827,8 @@ const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMov
   );
 };
 
-const LibraryItem = ({ section, onAdd }: { section: PageSection; onAdd: () => void }) => {
-  const def = SECTION_DEFS[section.type as SectionType]; const Icon = def.icon;
+const LibraryItem = ({ type, onAdd }: { type: SectionType; onAdd: () => void }) => {
+  const def = SECTION_DEFS[type]; const Icon = def.icon;
   return (
     <button onClick={onAdd} className="w-full flex items-center gap-2.5 p-2.5 rounded-2xl border-2 border-border bg-background hover:border-primary/30 hover:bg-primary/5 transition-all text-left">
       <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0" style={{ background: def.color + '18' }}><Icon className="w-3.5 h-3.5" style={{ color: def.color }}/></div>
@@ -1012,6 +1012,11 @@ export default function PageBuilderPage() {
 
   const enabledSections  = useMemo(() => sections.filter(s => s.enabled).sort((a,b) => a.order - b.order), [sections]);
   const disabledSections = useMemo(() => sections.filter(s => !s.enabled), [sections]);
+  // Library shows one entry per section TYPE that has no enabled instance — prevents duplicates
+  const availableTypes = useMemo(() => {
+    const enabledTypes = new Set(enabledSections.map(s => s.type));
+    return (Object.keys(SECTION_DEFS) as SectionType[]).filter(t => !enabledTypes.has(t));
+  }, [enabledSections]);
   const selectedSection  = useMemo(() => sections.find(s => s.id === selectedId), [sections, selectedId]);
   const allSectionTypes  = useMemo(() => enabledSections.map(s => s.type), [enabledSections]);
 
@@ -1039,7 +1044,24 @@ export default function PageBuilderPage() {
     ));
     setIsDirty(true);
   };
-  const addSection  = (id: string) => { pushHistory(); const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0); setSections(prev => prev.map(s => s.id === id ? { ...s, enabled: true, order: maxOrder + 1 } : s)); setSelectedId(id); setShowLibrary(false); };
+  const addSection  = (type: SectionType) => {
+    pushHistory();
+    const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0);
+    // Re-enable an existing disabled instance if one exists, otherwise create fresh
+    const existing = sections.find(s => s.type === type && !s.enabled);
+    if (existing) {
+      setSections(prev => prev.map(s => s.id === existing.id ? { ...s, enabled: true, order: maxOrder + 1 } : s));
+      setSelectedId(existing.id);
+    } else {
+      const cfg: Record<string,any> = {};
+      SECTION_DEFS[type].fields.forEach(f => { cfg[f.k] = f.d; });
+      cfg.layout = SECTION_DEFS[type].layouts?.[0]?.id ?? 'default';
+      const newSection: PageSection = { id: `${type}-${generateId()}`, type, enabled: true, order: maxOrder + 1, config: cfg };
+      setSections(prev => [...prev, newSection]);
+      setSelectedId(newSection.id);
+    }
+    setShowLibrary(false);
+  };
   const duplicateSection = (id: string) => { pushHistory(); const src = sections.find(s => s.id === id); if (!src) return; const maxOrder = enabledSections.reduce((m, s) => Math.max(m, s.order), 0); const newSection: PageSection = { ...src, id: `${src.type}-${generateId()}`, order: maxOrder + 1 }; setSections(prev => [...prev, newSection]); setSelectedId(newSection.id); };
 
   const updateField = (sectionId: string, key: string, value: any) => {
@@ -1239,9 +1261,9 @@ export default function PageBuilderPage() {
           <div className="flex-1 min-h-0 overflow-y-auto px-3" style={{ WebkitOverflowScrolling: 'touch' }}>
             <div className="space-y-1.5">
               {showLibrary
-                ? disabledSections.length === 0
+                ? availableTypes.length === 0
                   ? <p className="py-8 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">All sections active</p>
-                  : disabledSections.map(s => <LibraryItem key={s.id} section={s} onAdd={() => { addSection(s.id); setMobileFieldView(true); if (!isLandscape) setMobileSheet('full'); }}/>)
+                  : availableTypes.map(t => <LibraryItem key={t} type={t} onAdd={() => { addSection(t); setMobileFieldView(true); if (!isLandscape) setMobileSheet('full'); }}/>)
                 : enabledSections.length === 0
                   ? <p className="py-8 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">No active sections</p>
                   : enabledSections.map((s, idx) => (
@@ -1389,7 +1411,7 @@ export default function PageBuilderPage() {
               {activePanel === 'sections' && showLibrary && (
                 <div className="space-y-1.5">
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground/40 mb-2">Add sections</p>
-                  {disabledSections.length === 0 ? <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">All sections active</div> : disabledSections.map(s => <LibraryItem key={s.id} section={s} onAdd={() => addSection(s.id)}/>)}
+                  {availableTypes.length === 0 ? <div className="py-8 text-center text-muted-foreground/40 text-xs font-black uppercase tracking-widest">All sections active</div> : availableTypes.map(t => <LibraryItem key={t} type={t} onAdd={() => addSection(t)}/>)}
                 </div>
               )}
               {activePanel === 'style' && renderStylePanel()}
