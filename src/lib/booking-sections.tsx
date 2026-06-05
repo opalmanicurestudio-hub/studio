@@ -3058,8 +3058,6 @@ function PackagesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
 
 // ─── QuoteSection ──────────────────────────────────────────────────────────────
 // Replace the entire QuoteSection function in booking-sections.tsx
-// (from `// ─── QuoteSection` through the closing `}` before the next section comment)
-
 function QuoteSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout  = config.layout || 'cinematic';
   const accent  = ac(style);
@@ -3068,23 +3066,16 @@ function QuoteSection({ config, style, data, isPreview, sectionId, onFieldTap }:
 
   const overlayType = (config.overlayStyle as string) || 'dark';
 
-  // Returns the CSS gradient for the background image overlay.
-  // 'dark'   → neutral black, always legible regardless of accent colour
-  // 'accent' → tinted with the brand accent colour (original behaviour)
-  // 'none'   → only a bottom legibility gradient so text stays readable
   const imgOverlay = (): string => {
     if (!hasBg) return '';
     if (overlayType === 'none')
-      return 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.08) 100%)';
+      return 'linear-gradient(to top, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.20) 55%, rgba(0,0,0,0.05) 100%)';
     if (overlayType === 'accent')
-      return `linear-gradient(145deg, ${accent}cc 0%, rgba(0,0,0,0.52) 100%)`;
-    // dark (default)
-    return 'linear-gradient(145deg, rgba(0,0,0,0.74) 0%, rgba(0,0,0,0.44) 100%)';
+      return `linear-gradient(160deg, ${accent}d0 0%, rgba(0,0,0,0.60) 100%)`;
+    return 'linear-gradient(160deg, rgba(0,0,0,0.80) 0%, rgba(0,0,0,0.48) 100%)';
   };
 
-  // When no image is uploaded, accent colour panels are always used as-is.
-  const accentPanel   = `linear-gradient(135deg, ${accent} 0%, ${accent}bb 100%)`;
-  const accentOverlay = hasBg ? imgOverlay() : accentPanel;
+  const accentPanel = `linear-gradient(145deg, ${accent} 0%, ${accent}cc 100%)`;
 
   const tags: string[] = Array.isArray(config.tags) ? config.tags
     : typeof config.tags === 'string' ? config.tags.split(',').map((s: string) => s.trim()).filter(Boolean)
@@ -3093,249 +3084,395 @@ function QuoteSection({ config, style, data, isPreview, sectionId, onFieldTap }:
   const showHeading    = config.showHeading    !== false;
   const showSubheading = config.showSubheading !== false;
 
-  const TagChips = ({ light = false }: { light?: boolean }) => (
-    <div className="flex flex-wrap gap-2">
-      {tags.map((tag, i) => (
-        <span key={i}
-          className="px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-          style={{
-            background: light ? 'rgba(255,255,255,0.15)' : `${accent}12`,
-            color:      light ? 'rgba(255,255,255,0.90)'  : accent,
-            border:     `1.5px solid ${light ? 'rgba(255,255,255,0.25)' : accent + '28'}`,
-            borderRadius: br(style, 3),
-          }}>
-          {tag}
-        </span>
-      ))}
+  // ── Shared atoms ─────────────────────────────────────────────────────────────
+
+  const Eyebrow = ({ light = false, text = 'Request a Quote' }: { light?: boolean; text?: string }) => (
+    <div className="flex items-center gap-3">
+      <div className="h-px w-8" style={{ background: light ? 'rgba(255,255,255,0.45)' : accent }}/>
+      <span className="text-[9px] font-black uppercase tracking-[0.35em]"
+        style={{ color: light ? 'rgba(255,255,255,0.55)' : accent, fontFamily: bf(style) }}>
+        {text}
+      </span>
     </div>
   );
 
-  const CtaBlock = ({ light = false }: { light?: boolean }) => (
-    <div className="space-y-3">
+  const PrimaryBtn = ({ light = false, full = false }: { light?: boolean; full?: boolean }) => (
+    <div className={full ? 'w-full' : ''}>
       <button
         onClick={cta(config.ctaAction, config.ctaUrl)}
-        className="inline-flex items-center gap-2.5 font-black uppercase tracking-widest
-                   hover:opacity-90 active:scale-[0.98] transition-all whitespace-nowrap"
+        className={cn(
+          'group inline-flex items-center gap-3 font-black uppercase tracking-widest transition-all active:scale-[0.98] whitespace-nowrap',
+          full ? 'w-full justify-center' : ''
+        )}
         style={{
           ...(light
-            ? { background: 'rgba(255,255,255,0.95)', color: accent,
-                borderRadius: br(style, 0.8) }
+            ? { background: '#ffffff', color: accent }
             : btnStyle(style)),
-          padding: '14px 36px',
+          padding: '15px 40px',
           fontFamily: bf(style),
           fontSize: '11px',
+          boxShadow: light
+            ? '0 8px 32px rgba(0,0,0,0.20)'
+            : `0 8px 32px ${accent}35`,
+          borderRadius: br(style, 0.8),
+          letterSpacing: '0.12em',
         }}>
         {config.ctaText || 'Request a Custom Quote'}
-        <ArrowRight className="w-3.5 h-3.5 shrink-0"/>
+        <ArrowRight className="w-3.5 h-3.5 shrink-0 transition-transform group-hover:translate-x-1"/>
       </button>
       {config.ctaNote && (
-        <p className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: light ? 'rgba(255,255,255,0.55)' : `${accent}70`, fontFamily: bf(style) }}>
+        <p className="mt-3 text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: light ? 'rgba(255,255,255,0.45)' : `${accent}60`, fontFamily: bf(style) }}>
           {config.ctaNote}
         </p>
       )}
     </div>
   );
 
-  // ── cinematic ───────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // CINEMATIC — full viewport, dark stage, editorial type hierarchy
+  // ════════════════════════════════════════════════════════════════════════════
   if (layout === 'cinematic') {
     return (
       <section id="quote" className="relative overflow-hidden"
-        style={{ background: hasBg ? '#0a0a0a' : '#0f0f0f', minHeight: '70vh' }}>
+        style={{ background: hasBg ? '#080808' : '#0c0c0c', minHeight: '100vh' }}>
+
+        {/* Background */}
         {hasBg && (
           <>
-            <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+            <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-60"/>
             <div className="absolute inset-0" style={{ background: imgOverlay() }}/>
           </>
         )}
-        {/* Ambient glow */}
-        <div className="absolute inset-0 pointer-events-none"
-          style={{ background: `radial-gradient(ellipse 70% 60% at 50% 40%, ${accent}18 0%, transparent 70%)` }}/>
 
-        <div ref={ref} className="relative z-10 flex flex-col items-center justify-center text-center
-                                  min-h-[70vh] px-6 md:px-16 py-24 space-y-8"
-          style={{ animation: visible ? 'cf-fade-up 0.9s both' : 'none' }}>
-          {showHeading && (
-            <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="h2"
-              className="font-light text-white leading-tight max-w-3xl"
-              style={{ fontFamily: hf(style), fontSize: 'clamp(32px,6vw,72px)' }}>
-              {config.heading || 'Planning Something Unforgettable?'}
-            </FieldTap>
-          )}
-          {showSubheading && config.subheading && (
-            <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="p"
-              className="text-lg font-light max-w-xl text-white/60 leading-relaxed"
-              style={{ fontFamily: bf(style) }}>
-              {config.subheading}
-            </FieldTap>
-          )}
-          <TagChips light/>
-          <CtaBlock light/>
+        {/* Subtle radial glow centred on heading */}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: `radial-gradient(ellipse 80% 55% at 50% 45%, ${accent}14 0%, transparent 68%)` }}/>
+
+        {/* Noise grain overlay for texture */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.035]"
+          style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\'/%3E%3C/svg%3E")', backgroundSize: '200px' }}/>
+
+        {/* Content */}
+        <div ref={ref}
+          className="relative z-10 flex flex-col items-center justify-center text-center px-6 md:px-16"
+          style={{ minHeight: '100vh', paddingTop: '10vh', paddingBottom: '10vh' }}>
+
+          <div className="space-y-8 max-w-4xl mx-auto"
+            style={{ animation: visible ? 'cf-fade-up 1s cubic-bezier(0.16,1,0.3,1) both' : 'none' }}>
+
+            <Eyebrow light text={config.ctaNote || 'Private Event Services'}/>
+
+            {showHeading && (
+              <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="h2" className="text-white leading-[0.88]"
+                style={{ fontFamily: hf(style), fontSize: 'clamp(38px,7.5vw,96px)', fontWeight: 300 }}>
+                {config.heading || 'Planning Something Unforgettable?'}
+              </FieldTap>
+            )}
+
+            {showSubheading && config.subheading && (
+              <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="p" className="text-lg leading-relaxed max-w-2xl mx-auto"
+                style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.55)', fontWeight: 300 }}>
+                {config.subheading}
+              </FieldTap>
+            )}
+
+            {/* Event type pills */}
+            <div className="flex flex-wrap justify-center gap-2.5">
+              {tags.map((tag, i) => (
+                <span key={i}
+                  className="px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.2em]"
+                  style={{
+                    background: 'rgba(255,255,255,0.07)',
+                    color: 'rgba(255,255,255,0.70)',
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    borderRadius: br(style, 3),
+                    backdropFilter: 'blur(8px)',
+                    animation: visible ? `cf-fade-up 0.8s ${0.2 + i * 0.08}s both` : 'none',
+                  }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            <div style={{ animation: visible ? 'cf-fade-up 0.8s 0.5s both' : 'none' }}>
+              <PrimaryBtn light/>
+            </div>
+          </div>
+
+          {/* Scroll hint */}
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 opacity-25">
+            <div className="w-px h-8" style={{ background: 'rgba(255,255,255,0.6)', animation: 'cf-pulse 2s infinite' }}/>
+          </div>
         </div>
       </section>
     );
   }
 
-  // ── editorial ───────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // EDITORIAL — architectural grid, oversized numbering, magazine feel
+  // ════════════════════════════════════════════════════════════════════════════
   if (layout === 'editorial') {
     return (
       <section id="quote" className={py(style)} style={{ background: style.bgColor }}>
         <div className="max-w-6xl mx-auto px-6 md:px-16">
-          <div className="grid md:grid-cols-2 gap-16 items-center">
-            <div ref={ref} className="space-y-8"
+
+          {/* Section label row */}
+          <div className="flex items-center gap-4 mb-16">
+            <div className="h-px flex-1" style={{ background: `${accent}18` }}/>
+            <span className="text-[9px] font-black uppercase tracking-[0.35em]"
+              style={{ color: accent, fontFamily: bf(style) }}>
+              Event & Group Inquiries
+            </span>
+            <div className="h-px flex-1" style={{ background: `${accent}18` }}/>
+          </div>
+
+          <div ref={ref} className="grid md:grid-cols-[1fr_1.1fr] gap-12 md:gap-20 items-start">
+
+            {/* Left — heading + CTA */}
+            <div className="space-y-10"
               style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
-              <div className="space-y-2">
-                <div className="h-px w-12" style={{ background: accent }}/>
-                {showHeading && (
-                  <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-                    as="h2" className="font-light leading-[0.9]"
-                    style={{ fontFamily: hf(style), fontSize: 'clamp(36px,6vw,72px)', color: '#0f172a' }}>
-                    {config.heading || 'Planning Something Unforgettable?'}
-                  </FieldTap>
-                )}
-              </div>
+
+              {showHeading && (
+                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+                  as="h2" className="leading-[0.88]"
+                  style={{ fontFamily: hf(style), fontSize: 'clamp(34px,5.5vw,68px)',
+                    fontWeight: 300, color: '#0f172a' }}>
+                  {config.heading || 'Planning Something Unforgettable?'}
+                </FieldTap>
+              )}
+
               {showSubheading && config.subheading && (
                 <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="p" className="text-base text-slate-500 leading-relaxed max-w-sm"
-                  style={{ fontFamily: bf(style) }}>
+                  as="p" className="text-base leading-relaxed max-w-sm"
+                  style={{ fontFamily: bf(style), color: '#64748b', fontWeight: 300 }}>
                   {config.subheading}
                 </FieldTap>
               )}
-              <CtaBlock/>
+
+              <PrimaryBtn/>
             </div>
-            <div className="space-y-3">
+
+            {/* Right — numbered service cards */}
+            <div className="space-y-0">
               {tags.map((tag, i) => (
                 <div key={i}
-                  className="flex items-center gap-4 p-5 border-2 hover:shadow-md transition-all"
+                  className="flex items-start gap-5 py-6 border-b group cursor-default"
                   style={{
-                    borderColor: `${accent}18`, borderRadius: br(style, 1.5),
+                    borderColor: `${accent}10`,
                     animation: visible ? `cf-fade-up 0.6s ${i * 0.1}s both` : 'none',
-                    background: `${accent}04`,
                   }}>
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: `${accent}12` }}>
-                    <Sparkles className="w-4 h-4" style={{ color: accent }}/>
+                  <span className="text-[11px] font-black tabular-nums shrink-0 pt-0.5"
+                    style={{ color: accent, fontFamily: bf(style), letterSpacing: '0.1em' }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black uppercase tracking-widest text-sm text-slate-800 group-hover:text-slate-900 transition-colors"
+                      style={{ fontFamily: bf(style) }}>
+                      {tag}
+                    </p>
                   </div>
-                  <span className="font-black uppercase tracking-widest text-sm"
-                    style={{ color: '#0f172a', fontFamily: bf(style) }}>{tag}</span>
+                  <ArrowRight className="w-4 h-4 shrink-0 opacity-0 group-hover:opacity-100 transition-all translate-x-0 group-hover:translate-x-1"
+                    style={{ color: accent }}/>
+                </div>
+              ))}
+
+              {/* Decorative large number watermark */}
+              <div className="relative pt-8">
+                <span className="select-none pointer-events-none font-light"
+                  style={{ fontSize: 'clamp(80px,14vw,120px)', fontFamily: hf(style),
+                    color: `${accent}06`, lineHeight: 1, display: 'block' }}>
+                  Events
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // LUXURY — full-bleed split: image/dark left, structured process right
+  // ════════════════════════════════════════════════════════════════════════════
+  if (layout === 'luxury') {
+    const steps = [
+      { n: '01', title: 'Submit your inquiry', body: 'Tell us about your event, group size and preferred dates.' },
+      { n: '02', title: 'Receive a custom quote', body: 'We respond within 24 hours with a personalised proposal.' },
+      { n: '03', title: 'Confirm & book',          body: 'Secure your date with a deposit. We handle the rest.' },
+    ];
+    return (
+      <section id="quote" className="overflow-hidden" style={{ background: style.bgColor }}>
+        <div className="grid md:grid-cols-[1.1fr_1fr]">
+
+          {/* Left — dark/image panel */}
+          <div className="relative overflow-hidden flex flex-col justify-end"
+            style={{ minHeight: 560, background: '#0c0c0c' }}>
+            {hasBg && (
+              <>
+                <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-55"/>
+                <div className="absolute inset-0" style={{ background: imgOverlay() }}/>
+              </>
+            )}
+            {!hasBg && (
+              <div className="absolute inset-0" style={{ background: accentPanel, opacity: 0.18 }}/>
+            )}
+            <div className="absolute inset-0 pointer-events-none"
+              style={{ background: `radial-gradient(ellipse 80% 60% at 30% 60%, ${accent}12 0%, transparent 65%)` }}/>
+
+            <div ref={ref} className="relative z-10 p-8 md:p-14 space-y-6"
+              style={{ animation: visible ? 'cf-fade-up 0.9s both' : 'none' }}>
+              <Eyebrow light text="Private & Group Events"/>
+              {showHeading && (
+                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+                  as="h2" className="font-light text-white leading-[0.88]"
+                  style={{ fontFamily: hf(style), fontSize: 'clamp(26px,4vw,52px)' }}>
+                  {config.heading || 'Planning Something Unforgettable?'}
+                </FieldTap>
+              )}
+              {showSubheading && config.subheading && (
+                <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+                  as="p" className="text-sm leading-relaxed max-w-sm"
+                  style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.55)', fontWeight: 300 }}>
+                  {config.subheading}
+                </FieldTap>
+              )}
+              {/* Tags */}
+              <div className="flex flex-wrap gap-2 pt-2">
+                {tags.map((tag, i) => (
+                  <span key={i}
+                    className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest"
+                    style={{
+                      background: 'rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.70)',
+                      border: '1px solid rgba(255,255,255,0.18)', borderRadius: br(style, 3),
+                    }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right — process + CTA */}
+          <div className="flex flex-col justify-center px-8 md:px-14 py-14 md:py-20 space-y-10 bg-white">
+            <div className="space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-[0.3em]"
+                style={{ color: accent, fontFamily: bf(style) }}>How it works</p>
+              <div className="h-px w-10" style={{ background: `${accent}25` }}/>
+            </div>
+
+            <div className="space-y-6">
+              {steps.map((step, i) => (
+                <div key={i} className="flex gap-5"
+                  style={{ animation: visible ? `cf-fade-up 0.6s ${0.1 + i * 0.12}s both` : 'none' }}>
+                  <span className="text-[11px] font-black shrink-0 pt-0.5 tabular-nums"
+                    style={{ color: accent, fontFamily: bf(style), letterSpacing: '0.12em' }}>
+                    {step.n}
+                  </span>
+                  <div>
+                    <p className="text-sm font-black uppercase tracking-tight text-slate-800 mb-1"
+                      style={{ fontFamily: bf(style) }}>{step.title}</p>
+                    <p className="text-xs text-slate-500 leading-relaxed font-light"
+                      style={{ fontFamily: bf(style) }}>{step.body}</p>
+                  </div>
                 </div>
               ))}
             </div>
+
+            <PrimaryBtn/>
           </div>
         </div>
       </section>
     );
   }
 
-  // ── luxury ──────────────────────────────────────────────────────────────────
-  if (layout === 'luxury') {
-    return (
-      <section id="quote" className="overflow-hidden" style={{ background: style.bgColor }}>
-        <div className="grid md:grid-cols-2">
-          {/* Left panel — accent/image */}
-          <div className="relative overflow-hidden flex flex-col justify-end"
-            style={{ minHeight: 420 }}>
-            {hasBg
-              ? <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>
-              : <div className="absolute inset-0" style={{ background: accentPanel }}/>}
-            {hasBg && <div className="absolute inset-0" style={{ background: imgOverlay() }}/>}
-            <div ref={ref} className="relative z-10 p-8 md:p-12 space-y-5"
-              style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
-              {showHeading && (
-                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="h2" className="font-light text-white leading-[0.9]"
-                  style={{ fontFamily: hf(style), fontSize: 'clamp(28px,4vw,52px)' }}>
-                  {config.heading || 'Planning Something Unforgettable?'}
-                </FieldTap>
-              )}
-              {showSubheading && config.subheading && (
-                <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="p" className="text-sm text-white/70 leading-relaxed"
-                  style={{ fontFamily: bf(style) }}>
-                  {config.subheading}
-                </FieldTap>
-              )}
-              <TagChips light/>
-            </div>
-          </div>
-
-          {/* Right panel — white CTA */}
-          <div className={cn(py(style), 'flex flex-col justify-center px-8 md:px-14 space-y-6')}
-            style={{ background: '#ffffff' }}>
-            <div className="space-y-3">
-              <p className="text-[9px] font-black uppercase tracking-[0.3em]"
-                style={{ color: accent, fontFamily: bf(style) }}>
-                Get in touch
-              </p>
-              <div className="h-px w-10" style={{ background: `${accent}30` }}/>
-            </div>
-            <CtaBlock/>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  // ── showcase ────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // SHOWCASE — elegant event-type cards + prominent full-width CTA
+  // ════════════════════════════════════════════════════════════════════════════
   if (layout === 'showcase') {
     return (
       <section id="quote" className={py(style)} style={{ background: style.bgColor }}>
-        <div className="max-w-5xl mx-auto px-6 md:px-16 space-y-6">
+        <div className="max-w-6xl mx-auto px-6 md:px-16 space-y-16">
+
+          {/* Header */}
           {(showHeading || showSubheading) && (
-            <div ref={ref} className="text-center space-y-3 mb-12"
-              style={{ animation: visible ? 'cf-fade-up 0.7s both' : 'none' }}>
+            <div ref={ref} className="text-center space-y-5 max-w-3xl mx-auto"
+              style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
+              <Eyebrow text={config.ctaNote || 'Group & Event Services'}/>
               {showHeading && (
                 <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="h2" className="font-light" style={{ fontFamily: hf(style), fontSize: 'clamp(28px,5vw,56px)', color: '#0f172a' }}>
+                  as="h2" className="font-light leading-tight"
+                  style={{ fontFamily: hf(style), fontSize: 'clamp(30px,5vw,60px)', color: '#0f172a' }}>
                   {config.heading || 'Planning Something Unforgettable?'}
                 </FieldTap>
               )}
               {showSubheading && config.subheading && (
                 <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="p" className="text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>
+                  as="p" className="text-base leading-relaxed"
+                  style={{ fontFamily: bf(style), color: '#64748b', fontWeight: 300 }}>
                   {config.subheading}
                 </FieldTap>
               )}
             </div>
           )}
 
-          {/* Tag grid */}
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
+          {/* Tag cards */}
+          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
             {tags.map((tag, i) => (
               <div key={i}
-                className="flex items-center gap-3 p-4 border-2 hover:shadow-lg transition-all cursor-default"
+                className="relative overflow-hidden p-6 group cursor-default transition-all hover:-translate-y-1"
                 style={{
-                  borderColor: `${accent}20`,
+                  border: `1.5px solid ${accent}18`,
                   borderRadius: br(style, 2),
-                  background: `${accent}06`,
-                  animation: visible ? `cf-scale-up 0.5s ${i * 0.08}s both` : 'none',
+                  background: `${accent}04`,
+                  animation: visible ? `cf-fade-up 0.55s ${i * 0.09}s both` : 'none',
+                  boxShadow: '0 2px 0 rgba(0,0,0,0.04)',
+                  transition: 'transform 0.25s ease, box-shadow 0.25s ease',
                 }}>
-                <div className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0"
-                  style={{ background: `${accent}15` }}>
-                  <Sparkles className="w-3.5 h-3.5" style={{ color: accent }}/>
+                {/* Decorative number */}
+                <span className="absolute top-3 right-4 font-light select-none pointer-events-none"
+                  style={{ fontSize: 48, fontFamily: hf(style), color: `${accent}06`, lineHeight: 1 }}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center mb-4"
+                  style={{ background: `${accent}12` }}>
+                  <Sparkles className="w-4 h-4" style={{ color: accent }}/>
                 </div>
-                <span className="text-sm font-black uppercase tracking-widest"
-                  style={{ color: '#0f172a', fontFamily: bf(style) }}>{tag}</span>
+                <p className="font-black text-sm uppercase tracking-widest text-slate-800"
+                  style={{ fontFamily: bf(style) }}>{tag}</p>
+                <div className="h-px mt-4 w-0 group-hover:w-full transition-all duration-500"
+                  style={{ background: `${accent}30` }}/>
               </div>
             ))}
           </div>
 
-          {/* CTA block */}
-          <div className="mt-10 p-8 md:p-10 text-center relative overflow-hidden"
-            style={{ background: accentOverlay, borderRadius: br(style, 2) }}>
+          {/* Full-width CTA strip */}
+          <div className="relative overflow-hidden p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-6"
+            style={{
+              background: '#0f0f0f',
+              borderRadius: br(style, 2),
+              boxShadow: `0 24px 64px rgba(0,0,0,0.20), 0 0 0 1px rgba(255,255,255,0.05)`,
+            }}>
             {hasBg && (
               <>
-                <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+                <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30"/>
                 <div className="absolute inset-0" style={{ background: imgOverlay() }}/>
               </>
             )}
-            <div className="relative z-10 space-y-4">
-              <p className="text-white font-black uppercase tracking-widest text-sm" style={{ fontFamily: bf(style) }}>
-                Ready to plan?
+            <div className="absolute inset-0 pointer-events-none"
+              style={{ background: `radial-gradient(ellipse 60% 80% at 20% 50%, ${accent}18 0%, transparent 65%)` }}/>
+            <div className="relative z-10 space-y-1">
+              <p className="text-white font-light text-xl md:text-2xl" style={{ fontFamily: hf(style) }}>
+                Ready to plan your event?
               </p>
-              <CtaBlock light/>
+              <p className="text-white/45 text-sm font-light" style={{ fontFamily: bf(style) }}>
+                We respond to every inquiry within 24 hours.
+              </p>
+            </div>
+            <div className="relative z-10 shrink-0">
+              <PrimaryBtn light/>
             </div>
           </div>
         </div>
@@ -3343,117 +3480,216 @@ function QuoteSection({ config, style, data, isPreview, sectionId, onFieldTap }:
     );
   }
 
-  // ── centered ────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // CENTERED — ultra-refined minimalism, maximum breathing room
+  // ════════════════════════════════════════════════════════════════════════════
   if (layout === 'centered') {
     return (
       <section id="quote" className="relative overflow-hidden"
-        style={{ background: hasBg ? '#111' : accent, minHeight: '60vh' }}>
+        style={{ background: hasBg ? '#0a0a0a' : style.bgColor, minHeight: '72vh' }}>
         {hasBg && (
           <>
-            <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+            <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-45"/>
             <div className="absolute inset-0" style={{ background: imgOverlay() }}/>
           </>
         )}
+
         <div ref={ref}
-          className={cn(py(style), 'relative z-10 flex flex-col items-center justify-center text-center px-6 md:px-16 space-y-8')}
-          style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
-          {showHeading && (
-            <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="h2" className="font-light text-white leading-tight max-w-3xl"
-              style={{ fontFamily: hf(style), fontSize: 'clamp(30px,5.5vw,64px)' }}>
-              {config.heading || 'Planning Something Unforgettable?'}
-            </FieldTap>
-          )}
-          {showSubheading && config.subheading && (
-            <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-              as="p" className="text-white/65 max-w-lg leading-relaxed"
-              style={{ fontFamily: bf(style) }}>
-              {config.subheading}
-            </FieldTap>
-          )}
-          <TagChips light/>
-          <CtaBlock light/>
+          className="relative z-10 flex flex-col items-center justify-center text-center px-6 md:px-16"
+          style={{
+            minHeight: '72vh',
+            paddingTop: 'clamp(60px,12vh,120px)',
+            paddingBottom: 'clamp(60px,12vh,120px)',
+            animation: visible ? 'cf-fade-up 1s cubic-bezier(0.16,1,0.3,1) both' : 'none',
+          }}>
+
+          <div className="space-y-10 max-w-3xl">
+            <Eyebrow light={hasBg} text="Private Event Services"/>
+
+            {showHeading && (
+              <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="h2" className="leading-[0.88]"
+                style={{
+                  fontFamily: hf(style),
+                  fontSize: 'clamp(32px,6vw,76px)',
+                  fontWeight: 300,
+                  color: hasBg ? '#ffffff' : '#0f172a',
+                }}>
+                {config.heading || 'Planning Something Unforgettable?'}
+              </FieldTap>
+            )}
+
+            {/* Thin rule */}
+            <div className="flex items-center justify-center gap-4">
+              <div className="h-px w-16" style={{ background: hasBg ? 'rgba(255,255,255,0.20)' : `${accent}25` }}/>
+              <div className="w-1 h-1 rounded-full" style={{ background: hasBg ? 'rgba(255,255,255,0.35)' : accent }}/>
+              <div className="h-px w-16" style={{ background: hasBg ? 'rgba(255,255,255,0.20)' : `${accent}25` }}/>
+            </div>
+
+            {showSubheading && config.subheading && (
+              <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="p" className="text-lg leading-relaxed font-light max-w-xl mx-auto"
+                style={{ fontFamily: bf(style), color: hasBg ? 'rgba(255,255,255,0.50)' : '#64748b' }}>
+                {config.subheading}
+              </FieldTap>
+            )}
+
+            {/* Tags inline */}
+            <div className="flex flex-wrap justify-center gap-2">
+              {tags.map((tag, i) => (
+                <span key={i}
+                  className="px-4 py-2 text-[9px] font-black uppercase tracking-[0.22em]"
+                  style={{
+                    background: hasBg ? 'rgba(255,255,255,0.09)' : `${accent}08`,
+                    color:      hasBg ? 'rgba(255,255,255,0.60)' : accent,
+                    border:     `1px solid ${hasBg ? 'rgba(255,255,255,0.16)' : accent + '22'}`,
+                    borderRadius: br(style, 3),
+                  }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+
+            <PrimaryBtn light={hasBg}/>
+          </div>
         </div>
       </section>
     );
   }
 
-  // ── split ───────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // SPLIT — asymmetric, generous, image left / structured CTA right
+  // ════════════════════════════════════════════════════════════════════════════
   if (layout === 'split') {
     return (
       <section id="quote" className="overflow-hidden" style={{ background: style.bgColor }}>
-        <div className="grid md:grid-cols-2">
-          {/* Text side */}
-          <div ref={ref}
-            className={cn(py(style), 'flex flex-col justify-center px-8 md:px-14 space-y-7')}
-            style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
-            <div className="space-y-4">
-              {showHeading && (
-                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="h2" className="font-light leading-[0.9]"
-                  style={{ fontFamily: hf(style), fontSize: 'clamp(28px,4vw,52px)', color: '#0f172a' }}>
-                  {config.heading || 'Planning Something Unforgettable?'}
-                </FieldTap>
-              )}
-              {showSubheading && config.subheading && (
-                <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="p" className="text-slate-500 leading-relaxed max-w-sm"
-                  style={{ fontFamily: bf(style) }}>
-                  {config.subheading}
-                </FieldTap>
-              )}
-            </div>
-            <CtaBlock/>
-          </div>
+        <div className="grid md:grid-cols-[1.15fr_1fr]">
 
-          {/* Decorative side — image or accent panel */}
-          <div className="relative overflow-hidden flex flex-col justify-end"
-            style={{ minHeight: 380 }}>
+          {/* Left — image / accent panel */}
+          <div className="relative overflow-hidden" style={{ minHeight: 500 }}>
             {hasBg
               ? <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>
               : <div className="absolute inset-0" style={{ background: accentPanel }}/>}
             {hasBg && <div className="absolute inset-0" style={{ background: imgOverlay() }}/>}
-            <div className="relative z-10 p-8 space-y-3">
-              <TagChips light/>
+
+            {/* Overlay content */}
+            <div ref={ref} className="relative z-10 flex flex-col justify-end h-full p-8 md:p-12 space-y-5"
+              style={{ minHeight: 500, animation: visible ? 'cf-fade-up 0.9s both' : 'none' }}>
+              {showHeading && (
+                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+                  as="h2" className="font-light text-white leading-[0.88]"
+                  style={{ fontFamily: hf(style), fontSize: 'clamp(28px,4vw,54px)' }}>
+                  {config.heading || 'Planning Something Unforgettable?'}
+                </FieldTap>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {tags.map((tag, i) => (
+                  <span key={i}
+                    className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest"
+                    style={{
+                      background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.75)',
+                      border: '1px solid rgba(255,255,255,0.20)', borderRadius: br(style, 3),
+                    }}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
+          </div>
+
+          {/* Right — CTA panel */}
+          <div className="flex flex-col justify-center px-8 md:px-14 py-16 md:py-24 space-y-8 bg-white">
+            <Eyebrow text="Get in touch"/>
+
+            {showSubheading && config.subheading ? (
+              <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+                as="p" className="text-base leading-relaxed font-light max-w-xs"
+                style={{ fontFamily: bf(style), color: '#64748b' }}>
+                {config.subheading}
+              </FieldTap>
+            ) : (
+              <p className="text-base leading-relaxed font-light max-w-xs"
+                style={{ fontFamily: bf(style), color: '#64748b' }}>
+                Tell us about your event and we'll craft a personalised quote within 24 hours.
+              </p>
+            )}
+
+            {/* Response time callout */}
+            <div className="flex items-center gap-3 py-4 border-y"
+              style={{ borderColor: `${accent}12` }}>
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: `${accent}10` }}>
+                <Sparkles className="w-4 h-4" style={{ color: accent }}/>
+              </div>
+              <p className="text-[10px] font-black uppercase tracking-widest"
+                style={{ color: '#0f172a', fontFamily: bf(style) }}>
+                We respond to every inquiry within 24 hours
+              </p>
+            </div>
+
+            <PrimaryBtn/>
           </div>
         </div>
       </section>
     );
   }
 
-  // ── banner ──────────────────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════════════════════
+  // BANNER — refined horizontal strip, dark and premium
+  // ════════════════════════════════════════════════════════════════════════════
   if (layout === 'banner') {
     return (
-      <section id="quote" className="relative overflow-hidden py-16"
-        style={{ background: hasBg ? '#111' : accent }}>
+      <section id="quote" className="relative overflow-hidden py-20"
+        style={{ background: hasBg ? '#0a0a0a' : '#0c0c0c' }}>
         {hasBg && (
           <>
-            <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover"/>
+            <img src={config.bgImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40"/>
             <div className="absolute inset-0" style={{ background: imgOverlay() }}/>
           </>
         )}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: `radial-gradient(ellipse 55% 90% at 15% 50%, ${accent}12 0%, transparent 60%)` }}/>
+
         <div ref={ref}
           className="relative z-10 max-w-6xl mx-auto px-6 md:px-16
-                     flex flex-col md:flex-row items-center justify-between gap-8"
-          style={{ animation: visible ? 'cf-fade-up 0.7s both' : 'none' }}>
-          <div className="space-y-2 text-center md:text-left">
+                     flex flex-col lg:flex-row items-center justify-between gap-10"
+          style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
+
+          {/* Left text */}
+          <div className="space-y-4 text-center lg:text-left">
+            <Eyebrow light text="Event & Group Inquiries"/>
             {showHeading && (
               <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-                as="h2" className="font-light text-white leading-tight"
-                style={{ fontFamily: hf(style), fontSize: 'clamp(24px,4vw,48px)' }}>
+                as="h2" className="font-light text-white leading-[0.9]"
+                style={{ fontFamily: hf(style), fontSize: 'clamp(24px,3.5vw,48px)' }}>
                 {config.heading || 'Planning Something Unforgettable?'}
               </FieldTap>
             )}
+            {/* Inline tags */}
+            <div className="flex flex-wrap gap-2 justify-center lg:justify-start">
+              {tags.map((tag, i) => (
+                <span key={i}
+                  className="px-3 py-1 text-[9px] font-black uppercase tracking-widest"
+                  style={{
+                    background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.55)',
+                    border: '1px solid rgba(255,255,255,0.12)', borderRadius: br(style, 3),
+                  }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Right CTA */}
+          <div className="shrink-0 space-y-3 text-center lg:text-right">
+            <PrimaryBtn light/>
             {showSubheading && config.subheading && (
               <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-                as="p" className="text-white/65" style={{ fontFamily: bf(style) }}>
+                as="p" className="text-xs font-light"
+                style={{ fontFamily: bf(style), color: 'rgba(255,255,255,0.35)' }}>
                 {config.subheading}
               </FieldTap>
             )}
-          </div>
-          <div className="shrink-0">
-            <CtaBlock light/>
           </div>
         </div>
       </section>
@@ -3466,12 +3702,20 @@ function QuoteSection({ config, style, data, isPreview, sectionId, onFieldTap }:
       <div className="max-w-3xl mx-auto px-6 text-center space-y-8">
         {showHeading && (
           <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-            as="h2" className="font-light" style={{ fontFamily: hf(style), fontSize: 'clamp(28px,5vw,56px)', color: '#0f172a' }}>
+            as="h2" className="font-light"
+            style={{ fontFamily: hf(style), fontSize: 'clamp(28px,5vw,56px)', color: '#0f172a' }}>
             {config.heading || 'Planning Something Unforgettable?'}
           </FieldTap>
         )}
-        <TagChips/>
-        <CtaBlock/>
+        <div className="flex flex-wrap justify-center gap-2">
+          {tags.map((tag, i) => (
+            <span key={i} className="px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+              style={{ background: `${accent}0e`, color: accent, border: `1.5px solid ${accent}22`, borderRadius: br(style, 3) }}>
+              {tag}
+            </span>
+          ))}
+        </div>
+        <PrimaryBtn/>
       </div>
     </section>
   );
