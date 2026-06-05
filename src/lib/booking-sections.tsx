@@ -1324,526 +1324,381 @@ function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: Secti
 // ─── ServicesSection ──────────────────────────────────────────────────────────
 function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'cards';
-  const allServices = data.services;
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const scrollRef  = useRef<HTMLDivElement>(null);
-  const [canLeft,  setCanLeft]  = useState(false);
-  const [canRight, setCanRight] = useState(true);
-  const CARD_W = 300;
-
-  const categories = Array.from(new Set(allServices.map((s: any) => s.category).filter(Boolean))) as string[];
-  const services = activeCategory ? allServices.filter((s: any) => s.category === activeCategory) : allServices;
-
-  const Header = () => (
-    <div className="text-center mb-12 space-y-4">
-      <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-        as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
-        {config.heading || 'Our Services'}
-      </FieldTap>
-      {config.subheading && (
+  const accent = ac(style);
+  const { ref, visible } = useInView(0.06);
+  const services = data.services || [];
+ 
+  const showHeading    = config.showHeading    !== false;
+  const showSubheading = config.showSubheading !== false;
+ 
+  const Header = () => (showHeading || showSubheading) ? (
+    <div className="text-center space-y-3 mb-10 md:mb-14">
+      {showHeading && (
+        <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h2" className="font-light"
+          style={{ fontFamily: hf(style), fontSize: 'clamp(26px,5vw,56px)', color: '#0f172a' }}>
+          {config.heading || 'Our Services'}
+        </FieldTap>
+      )}
+      {showSubheading && config.subheading && (
         <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-          as="p" className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>
+          as="p" className="font-light leading-relaxed mx-auto"
+          style={{ fontFamily: bf(style), color: '#64748b',
+            fontSize: 'clamp(14px,1.8vw,16px)', maxWidth: '32rem' }}>
           {config.subheading}
         </FieldTap>
       )}
     </div>
-  );
-
-  const CategoryFilter = () => config.showFilters && categories.length > 1 ? (
-    <div className="flex flex-wrap gap-2 justify-center mb-10">
-      <button onClick={() => setActiveCategory(null)}
-        className="px-5 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-200"
-        style={{ background: !activeCategory ? ac(style) : 'transparent', color: !activeCategory ? 'white' : '#94a3b8', borderRadius: br(style, 2), border: `1.5px solid ${!activeCategory ? ac(style) : '#e2e8f0'}` }}>
-        All
-      </button>
-      {categories.map(cat => (
-        <button key={cat} onClick={() => setActiveCategory(cat === activeCategory ? null : cat)}
-          className="px-5 py-2 text-[10px] font-black uppercase tracking-widest transition-all duration-200"
-          style={{ background: activeCategory === cat ? ac(style) : 'transparent', color: activeCategory === cat ? 'white' : '#94a3b8', borderRadius: br(style, 2), border: `1.5px solid ${activeCategory === cat ? ac(style) : '#e2e8f0'}` }}>
-          {cat}
-        </button>
-      ))}
-    </div>
   ) : null;
-
-  const Empty = () => (
-    <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">
-      {allServices.length === 0 ? 'Services coming soon' : 'No services in this category'}
-    </p>
-  );
-
-  const BookBtn = ({ svc, full = false }: { svc: any; full?: boolean }) => (
-    <button onClick={e => { e.stopPropagation(); openBooking(svc); }}
-      className={cn('text-[11px] font-black uppercase tracking-widest hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] transition-all', full ? 'w-full py-3.5' : 'px-6 py-3')}
-      style={{ ...btnStyle(style), fontFamily: bf(style) }}>
-      {config.ctaText || 'Book Now'}
+ 
+  const BookBtn = ({ svc }: { svc: any }) => (
+    <button
+      onClick={() => openBooking(svc)}
+      className="w-full font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.98]
+                 transition-all whitespace-nowrap"
+      style={{
+        ...btnStyle(style), fontFamily: bf(style),
+        padding: 'clamp(10px,2vw,13px) 0',
+        fontSize: 'clamp(9px,1.8vw,11px)',
+        letterSpacing: '0.12em',
+      }}>
+      {config.ctaText || 'Book this service'}
     </button>
   );
-
+ 
+  // ── cards ──────────────────────────────────────────────────────────────────
   if (layout === 'cards') {
-    const cols = parseInt(config.columns) || 2;
-    const gridCls = cols === 1 ? 'grid-cols-1 max-w-lg mx-auto' : cols === 3 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2';
+    const cols = parseInt(config.columns || '2');
+    const gridCls = cols === 3
+      ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+      : cols === 1
+        ? 'grid-cols-1 max-w-lg mx-auto'
+        : 'grid-cols-1 sm:grid-cols-2';
     return (
       <section id="services" className={py(style)} style={{ background: style.bgColor }}>
-        <div className="max-w-6xl mx-auto px-6 md:px-16">
-          <Header/><CategoryFilter/>
-          {services.length > 0 ? (
-            <div className={`grid gap-6 ${gridCls}`}>
-              {services.map((svc: any) => (
-                <div key={svc.id} className="group relative bg-white overflow-hidden transition-all duration-400 hover:shadow-2xl hover:-translate-y-2"
-                     style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}18` }}>
-                  {config.showImages && svc.imageUrl ? (
-                    <div className="relative overflow-hidden aspect-[3/2]">
-                      <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
-                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-400"
-                           style={{ background: `linear-gradient(to top, ${ac(style)}cc 0%, transparent 60%)` }}/>
-                      {config.showPrices !== false && svc.price && (
-                        <div className="absolute top-3 right-3 px-3 py-1.5 text-white text-[11px] font-black shadow-lg"
-                             style={{ background: ac(style), borderRadius: br(style) }}>${svc.price}</div>
-                      )}
-                    </div>
-                  ) : config.showImages && (
-                    <div className="aspect-[3/2] flex items-center justify-center"
-                         style={{ background: `linear-gradient(135deg, ${ac(style)}12 0%, ${ac(style)}06 100%)` }}>
-                      <div className="w-12 h-12 rounded-full" style={{ background: ac(style) + '20' }}/>
-                    </div>
-                  )}
-                  <div className="p-6 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight" style={{ fontFamily: bf(style) }}>{svc.name}</h3>
-                      {config.showPrices !== false && svc.price && !config.showImages && (
-                        <span className="text-lg font-light shrink-0" style={{ color: ac(style), fontFamily: hf(style) }}>${svc.price}</span>
-                      )}
-                    </div>
-                    {config.showDesc !== false && svc.description && (
-                      <p className="text-sm text-slate-500 leading-relaxed line-clamp-2" style={{ fontFamily: bf(style) }}>{svc.description}</p>
-                    )}
-                    {config.showDuration !== false && svc.duration && (
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3 h-3" style={{ color: ac(style) }}/>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{svc.duration} min</p>
-                      </div>
-                    )}
-                    <div className="h-px scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left mt-1" style={{ background: ac(style) }}/>
-                    <BookBtn svc={svc} full/>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : <Empty/>}
-        </div>
-      </section>
-    );
-  }
-
-  if (layout === 'carousel') {
-    const checkScroll = () => {
-      const el = scrollRef.current; if (!el) return;
-      setCanLeft(el.scrollLeft > 8);
-      setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 8);
-    };
-    const slide = (dir: -1 | 1) => {
-      scrollRef.current?.scrollBy({ left: dir * (CARD_W + 20), behavior: 'smooth' });
-    };
-    return (
-      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
-        <div className="max-w-6xl mx-auto px-6 md:px-16">
-          <div className="flex items-end justify-between mb-10">
-            <div>
-              <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
-                as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>
-                {config.heading || 'Our Services'}
-              </FieldTap>
-              {config.subheading && (
-                <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
-                  as="p" className="text-sm text-slate-500 mt-2" style={{ fontFamily: bf(style) }}>
-                  {config.subheading}
-                </FieldTap>
-              )}
-            </div>
-            <div className="hidden md:flex items-center gap-2 shrink-0 ml-4">
-              <button onClick={() => slide(-1)} className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all"
-                      style={{ borderColor: canLeft ? ac(style) : '#e2e8f0', color: canLeft ? ac(style) : '#cbd5e1', opacity: canLeft ? 1 : 0.45 }}>
-                <ChevronLeft className="w-4 h-4"/>
-              </button>
-              <button onClick={() => slide(1)} className="w-10 h-10 rounded-full flex items-center justify-center transition-all text-white"
-                      style={{ background: canRight ? ac(style) : '#e2e8f0', opacity: canRight ? 1 : 0.45 }}>
-                <ChevronRight className="w-4 h-4"/>
-              </button>
-            </div>
-          </div>
-          <CategoryFilter/>
-          {services.length > 0 ? (
-            <>
-              <div ref={scrollRef} onScroll={checkScroll}
-                   className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory -mx-6 px-6 md:mx-0 md:px-0"
-                   style={{ scrollbarWidth: 'none', cursor: 'grab' }}>
-                {services.map((svc: any, i: number) => (
-                  <div key={svc.id} className="snap-start shrink-0 group bg-white overflow-hidden hover:shadow-2xl transition-all duration-400"
-                       style={{ width: CARD_W, borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}14`, animation: `cf-float-up 0.7s ${i * 0.08}s both` }}>
-                    <div className="relative overflow-hidden" style={{ height: 200, background: ac(style) + '0e' }}>
-                      {svc.imageUrl
-                        ? <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
-                        : <div className="w-full h-full flex items-center justify-center">
-                            <span className="text-5xl font-light opacity-[0.15]" style={{ fontFamily: hf(style), color: ac(style) }}>{String(i + 1).padStart(2,'0')}</span>
-                          </div>}
-                      {config.showPrices !== false && svc.price && (
-                        <div className="absolute top-3 right-3 px-3 py-1 text-white text-[11px] font-black shadow-lg"
-                             style={{ background: ac(style), borderRadius: br(style) }}>${svc.price}</div>
-                      )}
-                      {svc.category && (
-                        <div className="absolute bottom-3 left-3 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white"
-                             style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', borderRadius: '999px' }}>{svc.category}</div>
-                      )}
-                    </div>
-                    <div className="p-5 space-y-2">
-                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{svc.name}</h3>
-                      {config.showDesc !== false && svc.description && (
-                        <p className="text-xs text-slate-400 leading-relaxed line-clamp-2" style={{ fontFamily: bf(style) }}>{svc.description}</p>
-                      )}
-                      {config.showDuration !== false && svc.duration && (
-                        <div className="flex items-center gap-1.5">
-                          <Clock className="w-3 h-3" style={{ color: ac(style) }}/>
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{svc.duration} min</span>
-                        </div>
-                      )}
-                      <BookBtn svc={svc} full/>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-center gap-4 mt-4 md:hidden">
-                <div className="flex gap-1.5">
-                  {services.slice(0, Math.min(services.length, 8)).map((_: any, i: number) => (
-                    <div key={i} className="h-1.5 rounded-full transition-all" style={{ background: ac(style) + '40', width: i === 0 ? 20 : 6 }}/>
-                  ))}
-                </div>
-              </div>
-            </>
-          ) : <Empty/>}
-        </div>
-      </section>
-    );
-  }
-
-  if (layout === 'horizontal') return (
-    <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="space-y-6">
-            {services.map((svc: any, i: number) => {
-              const imageLeft = i % 2 === 0;
-              return (
-                <div key={svc.id} className="group grid md:grid-cols-2 overflow-hidden bg-white hover:shadow-2xl transition-all duration-400"
-                     style={{ borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}15` }}>
-                  <div className={cn('relative overflow-hidden', imageLeft ? 'md:order-1' : 'md:order-2')}
-                       style={{ minHeight: '240px', background: ac(style) + '10' }}>
-                    {svc.imageUrl
-                      ? <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 absolute inset-0"/>
-                      : <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-5xl font-light opacity-20" style={{ fontFamily: hf(style), color: ac(style) }}>{svc.name?.[0]}</div>
-                        </div>}
-                    {svc.category && (
-                      <div className="absolute top-4 left-4 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white"
-                           style={{ background: ac(style) + 'dd', borderRadius: '999px', backdropFilter: 'blur(4px)' }}>{svc.category}</div>
-                    )}
-                  </div>
-                  <div className={cn('flex flex-col justify-center p-8 md:p-10 space-y-4', imageLeft ? 'md:order-2' : 'md:order-1')}>
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.25em] mb-2" style={{ color: ac(style) }}>{String(i + 1).padStart(2, '0')}</p>
-                      <h3 className="text-2xl font-light text-slate-900 mb-1" style={{ fontFamily: hf(style) }}>{svc.name}</h3>
-                      {config.showDuration !== false && svc.duration && (
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{svc.duration} min</p>
-                      )}
-                    </div>
-                    {config.showDesc !== false && svc.description && (
-                      <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{svc.description}</p>
-                    )}
-                    <div className="flex items-center justify-between pt-2">
-                      {config.showPrices !== false && svc.price && (
-                        <span className="text-3xl font-light" style={{ fontFamily: hf(style), color: ac(style) }}>${svc.price}</span>
-                      )}
-                      <BookBtn svc={svc}/>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : <Empty/>}
-      </div>
-    </section>
-  );
-
-  if (layout === 'luxury') return (
-    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-4xl mx-auto px-6 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="space-y-0">
+        <div className="max-w-6xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className={cn('grid gap-4 md:gap-6', gridCls)}>
             {services.map((svc: any, i: number) => (
-              <div key={svc.id} className="group relative"
-                   onMouseEnter={() => setHoveredIdx(i)} onMouseLeave={() => setHoveredIdx(null)}>
-                {svc.imageUrl && hoveredIdx === i && (
-                  <div className="absolute right-0 top-1/2 -translate-y-1/2 w-40 h-28 overflow-hidden shadow-2xl z-20 pointer-events-none"
-                       style={{ borderRadius: br(style, 1.5), animation: 'cf-scale-up 0.3s ease both' }}>
+              <div key={svc.id}
+                className="flex flex-col overflow-hidden"
+                style={{
+                  border: `1.5px solid ${accent}15`, borderRadius: br(style, 2),
+                  background: '#fff',
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                  animation: visible ? `cf-fade-up 0.55s ${i * 0.07}s both` : 'none',
+                }}>
+                {config.showImages && svc.imageUrl && (
+                  <div className="overflow-hidden" style={{ aspectRatio: '16/9' }}>
                     <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover"/>
                   </div>
                 )}
-                <div className="flex items-center gap-6 md:gap-10 py-6 border-b transition-all duration-200 group-hover:px-4"
-                     style={{ borderColor: ac(style) + '15', background: hoveredIdx === i ? ac(style) + '04' : 'transparent' }}>
-                  <span className="text-[11px] font-black uppercase tracking-[0.2em] shrink-0 w-8 text-right transition-all duration-200"
-                        style={{ color: hoveredIdx === i ? ac(style) : '#cbd5e1' }}>{String(i + 1).padStart(2, '0')}</span>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-xl md:text-2xl font-light transition-all duration-200"
-                        style={{ fontFamily: hf(style), color: hoveredIdx === i ? '#0f172a' : '#334155' }}>{svc.name}</h3>
-                    {hoveredIdx === i && config.showDesc !== false && svc.description && (
-                      <p className="text-sm text-slate-400 mt-1 leading-relaxed max-w-sm" style={{ fontFamily: bf(style), animation: 'cf-fade-in 0.3s both' }}>{svc.description}</p>
+                <div className="flex flex-col flex-1 p-5 md:p-6 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="font-black uppercase tracking-tight text-slate-900 leading-tight flex-1"
+                      style={{ fontFamily: bf(style), fontSize: 'clamp(13px,2vw,15px)' }}>
+                      {svc.name}
+                    </h3>
+                    {config.showPrices !== false && svc.price && (
+                      <span className="font-light shrink-0"
+                        style={{ fontFamily: hf(style), color: accent, fontSize: 'clamp(18px,3vw,24px)' }}>
+                        ${svc.price}
+                      </span>
                     )}
-                    <div className="flex items-center gap-4 mt-1">
-                      {config.showDuration !== false && svc.duration && <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{svc.duration} min</span>}
-                      {svc.category && <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: ac(style) + '80' }}>{svc.category}</span>}
-                    </div>
                   </div>
-                  {config.showPrices !== false && svc.price && (
-                    <span className="text-2xl font-light shrink-0 transition-all duration-200"
-                          style={{ fontFamily: hf(style), color: hoveredIdx === i ? ac(style) : '#94a3b8' }}>${svc.price}</span>
+                  {config.showDuration !== false && svc.duration && (
+                    <p className="text-[10px] font-black uppercase tracking-widest"
+                      style={{ color: `${accent}70`, fontFamily: bf(style) }}>
+                      {svc.duration} min
+                    </p>
                   )}
-                  <button onClick={e => { e.stopPropagation(); openBooking(svc); }}
-                          className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300"
-                          style={{ background: hoveredIdx === i ? ac(style) : 'transparent', border: `1.5px solid ${hoveredIdx === i ? ac(style) : '#e2e8f0'}`, opacity: hoveredIdx === i ? 1 : 0.4 }}>
-                    <ArrowRight className="w-4 h-4" style={{ color: hoveredIdx === i ? 'white' : '#94a3b8' }}/>
-                  </button>
+                  {config.showDesc !== false && svc.description && (
+                    <p className="text-sm text-slate-500 leading-relaxed flex-1 font-light"
+                      style={{ fontFamily: bf(style) }}>
+                      {svc.description}
+                    </p>
+                  )}
+                  <div className="pt-2 mt-auto"><BookBtn svc={svc}/></div>
                 </div>
               </div>
             ))}
           </div>
-        ) : <Empty/>}
-      </div>
-    </section>
-  );
-
-  if (layout === 'magazine') {
-    const [feature, ...rest] = services;
-    return (
-      <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
-        <div className="max-w-6xl mx-auto px-6 md:px-16">
-          <Header/><CategoryFilter/>
-          {services.length > 0 ? (
-            <div className="grid md:grid-cols-3 gap-5">
-              {feature && (
-                <div className="md:col-span-2 group relative overflow-hidden bg-white hover:shadow-2xl transition-all duration-500 cursor-pointer"
-                     style={{ borderRadius: br(style, 2), border: `1.5px solid ${ac(style)}15`, minHeight: '420px' }}
-                     onClick={() => openBooking(feature)}>
-                  {feature.imageUrl ? (
-                    <><img src={feature.imageUrl} alt={feature.name} className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>
-                    <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0) 55%)' }}/></>
-                  ) : (
-                    <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${ac(style)}18 0%, ${ac(style)}06 100%)` }}/>
-                  )}
-                  <div className="absolute bottom-0 inset-x-0 p-8 space-y-3">
-                    {feature.category && <span className="text-[9px] font-black uppercase tracking-[0.3em]" style={{ color: feature.imageUrl ? 'rgba(255,255,255,0.55)' : ac(style) }}>{feature.category}</span>}
-                    <h3 className="text-3xl md:text-4xl font-light" style={{ fontFamily: hf(style), color: feature.imageUrl ? 'white' : '#0f172a' }}>{feature.name}</h3>
-                    {config.showDesc !== false && feature.description && (
-                      <p className="text-sm max-w-sm leading-relaxed" style={{ color: feature.imageUrl ? 'rgba(255,255,255,0.65)' : '#64748b', fontFamily: bf(style) }}>{feature.description}</p>
-                    )}
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="flex items-center gap-4">
-                        {config.showPrices !== false && feature.price && <span className="text-2xl font-light" style={{ fontFamily: hf(style), color: feature.imageUrl ? 'white' : ac(style) }}>${feature.price}</span>}
-                        {config.showDuration !== false && feature.duration && <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: feature.imageUrl ? 'rgba(255,255,255,0.5)' : '#94a3b8' }}>{feature.duration} min</span>}
-                      </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest text-white px-5 py-2.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                            style={{ background: ac(style), borderRadius: br(style) }}>{config.ctaText || 'Book Now'}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div className="flex flex-col gap-3">
-                {rest.slice(0, 5).map((svc: any) => (
-                  <div key={svc.id} className="group flex items-center gap-4 p-4 bg-white hover:shadow-md transition-all duration-300 cursor-pointer"
-                       style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}12` }}
-                       onClick={() => openBooking(svc)}>
-                    {svc.imageUrl ? (
-                      <div className="w-16 h-16 shrink-0 overflow-hidden" style={{ borderRadius: br(style) }}>
-                        <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
-                      </div>
-                    ) : (
-                      <div className="w-12 h-12 shrink-0 flex items-center justify-center" style={{ background: ac(style) + '12', borderRadius: br(style) }}>
-                        <span className="text-lg font-light" style={{ color: ac(style), fontFamily: hf(style) }}>{svc.name?.[0]}</span>
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate" style={{ fontFamily: bf(style) }}>{svc.name}</p>
-                      <div className="flex items-center gap-3 mt-0.5">
-                        {config.showPrices !== false && svc.price && <span className="text-sm font-light" style={{ color: ac(style), fontFamily: hf(style) }}>${svc.price}</span>}
-                        {config.showDuration !== false && svc.duration && <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{svc.duration}m</span>}
-                      </div>
-                    </div>
-                    <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" style={{ color: ac(style) }}/>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : <Empty/>}
         </div>
       </section>
     );
   }
-
-  if (layout === 'masonry') return (
-    <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="columns-1 sm:columns-2 lg:columns-3 gap-5 space-y-0">
+ 
+  // ── luxury list (numbered editorial rows) ──────────────────────────────────
+  if (layout === 'luxury') {
+    return (
+      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-4xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className="space-y-0">
             {services.map((svc: any, i: number) => (
-              <div key={svc.id} className="group break-inside-avoid mb-5 bg-white overflow-hidden hover:shadow-2xl transition-all duration-400 cursor-pointer block"
-                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}
-                   onClick={() => openBooking(svc)}>
-                {svc.imageUrl ? (
-                  <div className="overflow-hidden" style={{ aspectRatio: [4/3, 1, 3/4, 5/4, 1, 4/3][i % 6].toString().replace(',', '/') }}>
-                    <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"/>
-                  </div>
-                ) : (
-                  <div className="aspect-square flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${ac(style)}14 0%, ${ac(style)}06 100%)` }}>
-                    <span className="text-5xl font-light opacity-30" style={{ fontFamily: hf(style), color: ac(style) }}>{svc.name?.[0]}</span>
-                  </div>
-                )}
-                <div className="p-5 space-y-2">
-                  <h3 className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{svc.name}</h3>
-                  {config.showDesc !== false && svc.description && (
-                    <p className="text-xs text-slate-500 leading-relaxed line-clamp-3" style={{ fontFamily: bf(style) }}>{svc.description}</p>
+              <div key={svc.id}
+                className="grid grid-cols-[auto_1fr_auto] items-center gap-4 md:gap-8 py-5 md:py-6 border-b group cursor-pointer hover:bg-slate-50/60 transition-colors px-2 -mx-2 rounded-lg"
+                style={{
+                  borderColor: `${accent}10`,
+                  animation: visible ? `cf-fade-up 0.55s ${i * 0.07}s both` : 'none',
+                }}
+                onClick={() => openBooking(svc)}>
+                <span className="text-[11px] font-black tabular-nums shrink-0"
+                  style={{ color: accent, fontFamily: bf(style), letterSpacing: '0.1em' }}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div className="min-w-0">
+                  <p className="font-black uppercase tracking-tight text-slate-900 truncate"
+                    style={{ fontFamily: bf(style), fontSize: 'clamp(13px,2vw,16px)' }}>
+                    {svc.name}
+                  </p>
+                  {config.showDuration !== false && svc.duration && (
+                    <p className="text-[10px] font-black uppercase tracking-widest mt-0.5"
+                      style={{ color: `${accent}65`, fontFamily: bf(style) }}>
+                      {svc.duration} min
+                    </p>
                   )}
-                  <div className="flex items-center justify-between pt-1">
-                    <div className="flex items-center gap-3">
-                      {config.showPrices !== false && svc.price && <span className="text-base font-light" style={{ color: ac(style), fontFamily: hf(style) }}>${svc.price}</span>}
-                      {config.showDuration !== false && svc.duration && <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{svc.duration}m</span>}
-                    </div>
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300" style={{ background: ac(style) }}>
-                      <ArrowRight className="w-3 h-3 text-white"/>
-                    </div>
-                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {config.showPrices !== false && svc.price && (
+                    <span className="font-light"
+                      style={{ fontFamily: hf(style), color: accent, fontSize: 'clamp(18px,2.5vw,24px)' }}>
+                      ${svc.price}
+                    </span>
+                  )}
+                  <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-all translate-x-0 group-hover:translate-x-1"
+                    style={{ color: accent }}/>
                 </div>
               </div>
             ))}
           </div>
-        ) : <Empty/>}
-      </div>
-    </section>
-  );
-
-  if (layout === 'list') return (
-    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-3xl mx-auto px-4 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="space-y-3">
-            {services.map((svc: any) => (
-              <div key={svc.id} className="group bg-white hover:shadow-lg transition-all duration-300 overflow-hidden"
-                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}>
-                <div className="flex items-center gap-4 p-4">
-                  {config.showImages && svc.imageUrl && (
-                    <div className="w-14 h-14 shrink-0 overflow-hidden rounded-xl" style={{ borderRadius: br(style) }}>
-                      <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"/>
-                    </div>
+        </div>
+      </section>
+    );
+  }
+ 
+  // ── grid ───────────────────────────────────────────────────────────────────
+  if (layout === 'grid') {
+    return (
+      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {services.map((svc: any, i: number) => (
+              <button key={svc.id}
+                onClick={() => openBooking(svc)}
+                className="text-left p-5 hover:shadow-lg active:scale-[0.98] transition-all"
+                style={{
+                  border: `1.5px solid ${accent}15`, borderRadius: br(style, 2),
+                  background: '#fff',
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.06}s both` : 'none',
+                }}>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <h3 className="font-black uppercase tracking-tight text-slate-900 leading-tight"
+                    style={{ fontFamily: bf(style), fontSize: 'clamp(12px,2vw,14px)' }}>
+                    {svc.name}
+                  </h3>
+                  {config.showPrices !== false && svc.price && (
+                    <span className="font-light shrink-0"
+                      style={{ fontFamily: hf(style), color: accent, fontSize: 'clamp(16px,2.5vw,20px)' }}>
+                      ${svc.price}
+                    </span>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 leading-tight" style={{ fontFamily: bf(style) }}>{svc.name}</h3>
-                      {config.showPrices !== false && svc.price && (
-                        <span className="text-base font-light shrink-0" style={{ color: ac(style), fontFamily: hf(style) }}>${svc.price}</span>
-                      )}
-                    </div>
-                    {config.showDuration !== false && svc.duration && (
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-0.5">{svc.duration} min</p>
+                </div>
+                {config.showDuration !== false && svc.duration && (
+                  <p className="text-[9px] font-black uppercase tracking-widest"
+                    style={{ color: `${accent}65`, fontFamily: bf(style) }}>
+                    {svc.duration} min
+                  </p>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+ 
+  // ── list ───────────────────────────────────────────────────────────────────
+  if (layout === 'list') {
+    return (
+      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-2xl mx-auto" style={{ padding: '0 clamp(16px,5vw,48px)' }}>
+          <Header/>
+          <div ref={ref} className="space-y-2">
+            {services.map((svc: any, i: number) => (
+              <button key={svc.id}
+                onClick={() => openBooking(svc)}
+                className="w-full flex items-center justify-between gap-4 p-4 md:p-5 text-left hover:shadow-md active:scale-[0.98] transition-all"
+                style={{
+                  border: `1.5px solid ${accent}15`, borderRadius: br(style, 1.5),
+                  background: '#fff',
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.06}s both` : 'none',
+                }}>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black uppercase tracking-tight text-slate-900 truncate"
+                    style={{ fontFamily: bf(style), fontSize: 'clamp(12px,2vw,14px)' }}>
+                    {svc.name}
+                  </p>
+                  {config.showDuration !== false && svc.duration && (
+                    <p className="text-[9px] font-black uppercase tracking-widest mt-0.5"
+                      style={{ color: `${accent}65`, fontFamily: bf(style) }}>
+                      {svc.duration} min
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  {config.showPrices !== false && svc.price && (
+                    <span className="font-light"
+                      style={{ fontFamily: hf(style), color: accent, fontSize: 'clamp(17px,2.5vw,22px)' }}>
+                      ${svc.price}
+                    </span>
+                  )}
+                  <ArrowRight className="w-4 h-4" style={{ color: `${accent}60` }}/>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+ 
+  // ── carousel ───────────────────────────────────────────────────────────────
+  if (layout === 'carousel') {
+    return (
+      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto">
+          <div style={{ padding: '0 clamp(16px,5vw,64px)' }}><Header/></div>
+          <div ref={ref}
+            className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory"
+            style={{
+              padding: '0 clamp(16px,5vw,64px)',
+              scrollbarWidth: 'none',
+              WebkitOverflowScrolling: 'touch',
+            }}>
+            {services.map((svc: any, i: number) => (
+              <div key={svc.id}
+                className="flex flex-col shrink-0 snap-start overflow-hidden"
+                style={{
+                  // Responsive card width: fills most of viewport on mobile, fixed on desktop
+                  width: 'clamp(240px, 72vw, 300px)',
+                  border: `1.5px solid ${accent}15`, borderRadius: br(style, 2),
+                  background: '#fff',
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.06}s both` : 'none',
+                }}>
+                {config.showImages && svc.imageUrl && (
+                  <div style={{ aspectRatio: '4/3', overflow: 'hidden' }}>
+                    <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover"/>
+                  </div>
+                )}
+                <div className="flex flex-col flex-1 p-5 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-black uppercase tracking-tight text-slate-900 leading-tight flex-1 text-sm"
+                      style={{ fontFamily: bf(style) }}>{svc.name}</h3>
+                    {config.showPrices !== false && svc.price && (
+                      <span className="font-light shrink-0"
+                        style={{ fontFamily: hf(style), color: accent, fontSize: 22 }}>
+                        ${svc.price}
+                      </span>
                     )}
                   </div>
-                </div>
-                {config.showDesc !== false && svc.description && (
-                  <p className="text-xs text-slate-400 leading-relaxed px-4 pb-3 -mt-1 line-clamp-2" style={{ fontFamily: bf(style) }}>{svc.description}</p>
-                )}
-                <div className="px-4 pb-4">
-                  <button onClick={e => { e.stopPropagation(); openBooking(svc); }}
-                          className="w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all"
-                          style={{ ...btnStyle(style), fontFamily: bf(style) }}>
-                    {config.ctaText || 'Book Now'}
-                  </button>
+                  {config.showDuration !== false && svc.duration && (
+                    <p className="text-[9px] font-black uppercase tracking-widest"
+                      style={{ color: `${accent}65`, fontFamily: bf(style) }}>{svc.duration} min</p>
+                  )}
+                  <div className="mt-auto pt-2"><BookBtn svc={svc}/></div>
                 </div>
               </div>
             ))}
           </div>
-        ) : <Empty/>}
-      </div>
-    </section>
-  );
-
-  if (layout === 'grid') return (
-    <section id="services" className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {services.map((svc: any) => (
-              <div key={svc.id} className="group bg-white overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer"
-                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}15` }}
-                   onClick={() => openBooking(svc)}>
-                {svc.imageUrl ? (
-                  <div className="aspect-square overflow-hidden">
-                    <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-600"/>
+        </div>
+      </section>
+    );
+  }
+ 
+  // ── horizontal ─────────────────────────────────────────────────────────────
+  if (layout === 'horizontal') {
+    return (
+      <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-5xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className="space-y-4 md:space-y-6">
+            {services.map((svc: any, i: number) => (
+              <div key={svc.id}
+                className="grid grid-cols-1 sm:grid-cols-[1fr_auto] items-center gap-4 p-5 md:p-6"
+                style={{
+                  border: `1.5px solid ${accent}15`, borderRadius: br(style, 2),
+                  background: '#fff',
+                  animation: visible ? `cf-fade-up 0.55s ${i * 0.08}s both` : 'none',
+                }}>
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h3 className="font-black uppercase tracking-tight text-slate-900"
+                      style={{ fontFamily: bf(style), fontSize: 'clamp(13px,2vw,15px)' }}>
+                      {svc.name}
+                    </h3>
+                    {config.showPrices !== false && svc.price && (
+                      <span className="font-light"
+                        style={{ fontFamily: hf(style), color: accent, fontSize: 'clamp(18px,2.5vw,22px)' }}>
+                        ${svc.price}
+                      </span>
+                    )}
                   </div>
-                ) : (
-                  <div className="aspect-square flex items-center justify-center" style={{ background: ac(style) + '10' }}>
-                    <span className="text-3xl font-light opacity-40" style={{ color: ac(style), fontFamily: hf(style) }}>{svc.name?.[0]}</span>
-                  </div>
-                )}
-                <div className="p-4">
-                  <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 mb-1" style={{ fontFamily: bf(style) }}>{svc.name}</p>
-                  <div className="flex items-center justify-between">
-                    {config.showPrices !== false && svc.price && <span className="text-sm font-light" style={{ color: ac(style), fontFamily: hf(style) }}>${svc.price}</span>}
-                    {config.showDuration !== false && svc.duration && <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{svc.duration}m</span>}
-                  </div>
+                  {config.showDuration !== false && svc.duration && (
+                    <p className="text-[9px] font-black uppercase tracking-widest"
+                      style={{ color: `${accent}65`, fontFamily: bf(style) }}>{svc.duration} min</p>
+                  )}
+                  {config.showDesc !== false && svc.description && (
+                    <p className="text-sm text-slate-500 leading-relaxed font-light"
+                      style={{ fontFamily: bf(style) }}>{svc.description}</p>
+                  )}
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : <Empty/>}
-      </div>
-    </section>
-  );
-
-  return (
-    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <Header/><CategoryFilter/>
-        {services.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {services.map((svc: any) => (
-              <div key={svc.id} className="group p-7 bg-white hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
-                   style={{ borderRadius: br(style, 1.5), border: `1.5px solid ${ac(style)}20` }}>
-                {config.showImages && svc.imageUrl && (
-                  <div className="overflow-hidden aspect-[3/2] mb-5" style={{ borderRadius: br(style) }}>
-                    <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"/>
-                  </div>
-                )}
-                <h3 className="text-sm font-black uppercase tracking-tight text-slate-900 mb-2" style={{ fontFamily: bf(style) }}>{svc.name}</h3>
-                {config.showDesc !== false && svc.description && (
-                  <p className="text-sm text-slate-500 leading-relaxed mb-4" style={{ fontFamily: bf(style) }}>{svc.description}</p>
-                )}
-                <div className="flex items-center justify-between">
-                  {config.showPrices !== false && svc.price && <span className="text-xl font-light" style={{ color: ac(style), fontFamily: hf(style) }}>${svc.price}</span>}
+                <div className="shrink-0 w-full sm:w-auto sm:min-w-[140px]">
                   <BookBtn svc={svc}/>
                 </div>
               </div>
             ))}
           </div>
-        ) : <Empty/>}
+        </div>
+      </section>
+    );
+  }
+ 
+  // ── masonry (fallback as grid) ─────────────────────────────────────────────
+  return (
+    <section id="services" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-6xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+        <Header/>
+        <div ref={ref} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+          {services.map((svc: any, i: number) => (
+            <div key={svc.id}
+              className="flex flex-col p-5 md:p-6 space-y-3 cursor-pointer hover:shadow-md transition-all"
+              style={{
+                border: `1.5px solid ${accent}15`, borderRadius: br(style, 2), background: '#fff',
+                animation: visible ? `cf-fade-up 0.5s ${i * 0.06}s both` : 'none',
+              }}
+              onClick={() => openBooking(svc)}>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="font-black uppercase tracking-tight text-slate-900 leading-tight flex-1 text-sm"
+                  style={{ fontFamily: bf(style) }}>{svc.name}</h3>
+                {config.showPrices !== false && svc.price && (
+                  <span className="font-light shrink-0"
+                    style={{ fontFamily: hf(style), color: accent, fontSize: 20 }}>${svc.price}</span>
+                )}
+              </div>
+              {config.showDuration !== false && svc.duration && (
+                <p className="text-[9px] font-black uppercase tracking-widest"
+                  style={{ color: `${accent}65`, fontFamily: bf(style) }}>{svc.duration} min</p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
 }
-
+ 
 // ─── TeamSection ──────────────────────────────────────────────────────────────
 function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const staff = data.staff;
@@ -2480,58 +2335,241 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
     );
   }
 
-  if (layout === 'solo-hero') {
-    const solo = staff[0];
+if (layout === 'solo-hero') {
+    const solo      = staff[0];
+    const showBio   = !!(config.showBio && solo?.bio);
+    const showBtn   = !!config.showBookButton;
+    const showSpecs = !!(config.showSpecialties !== false && solo?.specialties?.length > 0);
+ 
     return (
-      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
-        <div className="max-w-5xl mx-auto px-6 md:px-16">
-          <Header/>
-          {solo ? (
-            <div className="grid md:grid-cols-2 gap-10 md:gap-20 items-center">
-              <div className="relative">
-                <div className="overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), aspectRatio: '3/4' }}>
-                  {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"/> : <div className="w-full h-full flex items-center justify-center" style={{ background: ac(style)+'14' }}><span className="text-8xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'40' }}>{solo.name?.[0]}</span></div>}
-                </div>
-                <div className="absolute -bottom-4 -left-4 px-5 py-3 text-white shadow-xl" style={{ background: ac(style), borderRadius: br(style,1.5) }}>
-                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Artist</p>
-                  <p className="text-sm font-black uppercase tracking-tight">{solo.name}</p>
-                </div>
-              </div>
-              <div className="space-y-6 pt-8 md:pt-0">
-                <div className="w-10 h-px" style={{ background: ac(style) }}/>
-                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'The Artist'}</FieldTap>
-                {config.showSpecialties !== false && solo.specialties?.length > 0 && (
-                  <div className="flex flex-wrap gap-2">{solo.specialties.map((s: string, i: number) => <span key={i} className="px-3 py-1 text-[10px] font-black uppercase tracking-widest" style={{ background: ac(style)+'12', color: ac(style), borderRadius: br(style,2) }}>{s}</span>)}</div>
-                )}
-                {config.showBio && solo.bio && <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
-                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
-              </div>
+      <section id="team" className="relative overflow-hidden"
+        style={{ background: style.bgColor, minHeight: 'clamp(520px, 80vh, 900px)' }}>
+ 
+        {/* Subtle accent wash behind content side */}
+        <div className="absolute inset-y-0 left-0 w-full md:w-[48%] pointer-events-none"
+          style={{ background: `${ac(style)}04` }}/>
+ 
+        <div className="absolute inset-0 grid md:grid-cols-[1fr_1.15fr]">
+ 
+          {/* ── Content panel (left) ── */}
+          <div className="relative z-10 flex flex-col justify-center
+                          px-8 md:px-12 lg:px-20
+                          pt-24 pb-16 md:py-0
+                          order-2 md:order-1">
+ 
+            {/* Eyebrow */}
+            <div className="flex items-center gap-3 mb-6">
+              <div className="h-px w-8" style={{ background: ac(style) }}/>
+              <span className="text-[10px] font-black uppercase tracking-[0.35em]"
+                style={{ color: ac(style), fontFamily: bf(style) }}>
+                {config.heading || 'The Artist'}
+              </span>
             </div>
-          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+ 
+            {/* Name — the hero element */}
+            <h2 className="font-light leading-[0.87] mb-6"
+              style={{
+                fontFamily: hf(style),
+                color: '#0f172a',
+                fontSize: 'clamp(44px, 7vw, 88px)',
+              }}>
+              {solo?.name || 'Artist Name'}
+            </h2>
+ 
+            {/* Thick accent rule */}
+            <div className="h-[3px] w-14 mb-8" style={{ background: ac(style) }}/>
+ 
+            {/* Specialties */}
+            {showSpecs && (
+              <div className="flex flex-wrap gap-2 mb-7">
+                {solo.specialties.map((s: string, i: number) => (
+                  <span key={i}
+                    className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest whitespace-nowrap"
+                    style={{
+                      background: `${ac(style)}0e`,
+                      color: ac(style),
+                      border: `1.5px solid ${ac(style)}22`,
+                      borderRadius: br(style, 3),
+                      fontFamily: bf(style),
+                    }}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            )}
+ 
+            {/* Bio */}
+            {showBio && (
+              <p className="text-base text-slate-500 leading-relaxed max-w-sm mb-8"
+                style={{ fontFamily: bf(style) }}>
+                {solo.bio}
+              </p>
+            )}
+ 
+            {/* Book button */}
+            {showBtn && (
+              <div>
+                <button
+                  onClick={e => { e.stopPropagation(); openBooking(); }}
+                  className="inline-flex items-center gap-3 font-black text-sm uppercase tracking-widest
+                             hover:scale-[1.03] active:scale-[0.97] transition-transform
+                             whitespace-nowrap"
+                  style={{
+                    ...btnStyle(style),
+                    fontFamily: bf(style),
+                    padding: '14px 36px',
+                    boxShadow: `0 12px 40px ${ac(style)}28`,
+                  }}>
+                  {config.bookCta || 'Book with me'}
+                  <ArrowRight className="w-4 h-4 shrink-0"/>
+                </button>
+              </div>
+            )}
+          </div>
+ 
+          {/* ── Portrait panel (right) ── */}
+          <div className="relative overflow-hidden order-1 md:order-2"
+            style={{
+              // Mobile: fixed aspect ratio. Desktop: fills the grid cell height.
+              aspectRatio: '4/3',
+              minHeight: 0,
+            }}>
+            <style>{`@media (min-width: 768px) {
+              .solo-hero-portrait { aspect-ratio: unset !important; position: absolute; inset: 0; }
+            }`}</style>
+            <div className="solo-hero-portrait relative w-full h-full"
+              style={{ aspectRatio: '4/3' }}>
+              {solo?.avatarUrl
+                ? <img
+                    src={solo.avatarUrl}
+                    alt={solo?.name || ''}
+                    className="w-full h-full object-cover object-top"
+                    style={{ transform: 'scale(1.01)' }}
+                  />
+                : <div className="absolute inset-0 flex items-center justify-center"
+                    style={{ background: `${ac(style)}0a` }}>
+                    <span className="font-light select-none pointer-events-none"
+                      style={{ fontSize: 'clamp(80px, 18vw, 160px)', fontFamily: hf(style),
+                        color: ac(style) + '20', lineHeight: 1 }}>
+                      {solo?.name?.[0] ?? 'A'}
+                    </span>
+                  </div>}
+ 
+              {/* Gradient bleed into content panel — desktop only */}
+              <div className="absolute inset-y-0 left-0 w-16 hidden md:block"
+                style={{ background: `linear-gradient(to right, ${style.bgColor}, transparent)` }}/>
+              {/* Bottom gradient on mobile */}
+              <div className="absolute bottom-0 inset-x-0 h-24 md:hidden"
+                style={{ background: `linear-gradient(to top, ${style.bgColor}, transparent)` }}/>
+            </div>
+          </div>
         </div>
       </section>
     );
   }
 
   if (layout === 'solo-card') {
-    const solo = staff[0];
+    const solo      = staff[0];
+    const showBio   = !!(config.showBio && solo?.bio);
+    const showBtn   = !!config.showBookButton;
+    const showSpecs = !!(config.showSpecialties !== false && solo?.specialties?.length > 0);
+ 
     return (
       <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
-        <div className="max-w-sm mx-auto px-6 md:px-0 text-center">
+        <div className="max-w-sm mx-auto px-6 md:px-0">
           <Header/>
           {solo ? (
-            <div className="bg-white overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), border: `2px solid ${ac(style)}15` }}>
-              <div className="relative overflow-hidden" style={{ aspectRatio: '3/4', background: ac(style)+'10' }}>
-                {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"/> : <div className="absolute inset-0 flex items-center justify-center"><span className="text-9xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'25' }}>{solo.name?.[0]}</span></div>}
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)' }}/>
-                <div className="absolute bottom-0 inset-x-0 p-6 text-left">
-                  <p className="text-xl font-light text-white" style={{ fontFamily: hf(style) }}>{solo.name}</p>
-                  {config.showSpecialties !== false && solo.specialties?.length > 0 && <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">{solo.specialties.slice(0,3).join(' · ')}</p>}
+            <div className="bg-white overflow-hidden"
+              style={{
+                borderRadius: br(style, 2),
+                border: `1.5px solid ${ac(style)}18`,
+                boxShadow: `0 32px 80px rgba(0,0,0,0.12), 0 0 0 6px ${ac(style)}06`,
+              }}>
+ 
+              {/* Portrait with mat-frame treatment */}
+              <div className="relative overflow-hidden m-3"
+                style={{
+                  aspectRatio: '3/4',
+                  borderRadius: `${Math.max((style.borderRadius || 4) - 2, 2)}px`,
+                  background: `${ac(style)}0a`,
+                }}>
+                {solo.avatarUrl
+                  ? <img
+                      src={solo.avatarUrl}
+                      alt={solo.name}
+                      className="w-full h-full object-cover object-top"
+                    />
+                  : <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="font-light select-none"
+                        style={{ fontSize: 'clamp(60px,22vw,100px)',
+                          fontFamily: hf(style), color: ac(style) + '22', lineHeight: 1 }}>
+                        {solo.name?.[0]}
+                      </span>
+                    </div>}
+ 
+                {/* Photography mat inner border */}
+                <div className="absolute inset-[8px] pointer-events-none"
+                  style={{ border: '1px solid rgba(255,255,255,0.30)', borderRadius: '2px' }}/>
+ 
+                {/* Bottom gradient */}
+                <div className="absolute bottom-0 inset-x-0"
+                  style={{ height: '40%', background: 'linear-gradient(to top, rgba(0,0,0,0.60) 0%, transparent 100%)' }}/>
+ 
+                {/* Name overlaid on portrait bottom */}
+                <div className="absolute bottom-0 inset-x-0 px-5 pb-4 text-center">
+                  <h2 className="font-light text-white leading-tight"
+                    style={{
+                      fontFamily: hf(style),
+                      fontSize: 'clamp(20px, 6vw, 28px)',
+                    }}>
+                    {solo.name}
+                  </h2>
                 </div>
               </div>
-              <div className="p-6 space-y-4">
-                {config.showBio && solo.bio && <p className="text-sm text-slate-500 leading-relaxed text-left" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
-                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book an appointment'}</button>}
+ 
+              {/* Card body below portrait */}
+              <div className="px-6 pb-6 pt-4 space-y-4">
+ 
+                {/* Accent rule + specialties */}
+                {showSpecs ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: ac(style) }}/>
+                      <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
+                    </div>
+                    <p className="text-center text-[10px] font-black uppercase tracking-widest"
+                      style={{ color: ac(style), fontFamily: bf(style) }}>
+                      {solo.specialties.slice(0, 3).join(' · ')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
+                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: `${ac(style)}40` }}/>
+                    <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
+                  </div>
+                )}
+ 
+                {/* Bio */}
+                {showBio && (
+                  <p className="text-sm text-slate-500 leading-relaxed text-center"
+                    style={{ fontFamily: bf(style) }}>
+                    {solo.bio}
+                  </p>
+                )}
+ 
+                {/* Book button */}
+                {showBtn && (
+                  <button
+                    onClick={e => { e.stopPropagation(); openBooking(); }}
+                    className="w-full py-4 font-black text-sm uppercase tracking-widest
+                               hover:opacity-90 active:scale-[0.99] transition-all
+                               whitespace-nowrap overflow-hidden"
+                    style={{ ...btnStyle(style), fontFamily: bf(style) }}>
+                    {config.bookCta || 'Book an appointment'}
+                  </button>
+                )}
               </div>
             </div>
           ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
@@ -2539,6 +2577,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
       </section>
     );
   }
+ 
 
   if (layout === 'solo-split') {
     const solo = staff[0];
@@ -2591,60 +2630,128 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
   );
 }
 // ─── ReviewsSection ───────────────────────────────────────────────────────────
-function ReviewsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const [idx, setIdx] = useState(0);
+function ReviewsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const layout = config.layout || 'grid';
-  const reviews = [1,2,3,4,5,6].map(n => ({
-    name:  config[`rev${n}Name`]  || ['Sarah M.','Jessica T.','Priya K.','Amara B.','Lena S.','Chloe W.'][n-1] || '',
-    rating: config[`rev${n}Rating`] ?? 5,
-    text:  config[`rev${n}Text`]  || ['Absolutely incredible experience.','Every visit exceeds expectations.','Luxurious yet so welcoming.','Cannot recommend enough.','A gem of a studio.','Creative and professional.'][n-1] || '',
-    photo: config[`rev${n}Photo`] || '',
-  })).filter(r => r.name && r.text);
-  const Stars = ({ n }: { n: number }) => <div className="flex gap-0.5">{Array(Math.max(1,Math.min(5,n))).fill(0).map((_,j) => <Star key={j} className="w-3.5 h-3.5 fill-current" style={{ color: ac(style) }}/>)}</div>;
-  const Card = ({ r }: { r: typeof reviews[0] }) => (
-    <div className="p-8 bg-white hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300" style={{ borderRadius: br(style,1.5), border: `2px solid ${ac(style)}20` }}>
-      {config.showRating !== false && <div className="mb-4"><Stars n={r.rating}/></div>}
-      {r.photo && config.showPhotos && <img src={r.photo} alt={r.name} className="w-10 h-10 rounded-full object-cover mb-4"/>}
-      <p className="text-sm leading-relaxed text-slate-600 italic mb-4">"{r.text}"</p>
-      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400" style={{ fontFamily: bf(style) }}>— {r.name}</p>
+  const accent = ac(style);
+  const { ref, visible } = useInView(0.06);
+ 
+  const showHeading    = config.showHeading    !== false;
+  const showSubheading = config.showSubheading !== false;
+ 
+  const Header = () => (showHeading || showSubheading) ? (
+    <div className="text-center space-y-3 mb-10 md:mb-14">
+      {showHeading && (
+        <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h2" className="font-light"
+          style={{ fontFamily: hf(style), fontSize: 'clamp(26px,5vw,56px)', color: '#0f172a' }}>
+          {config.heading || 'What Clients Say'}
+        </FieldTap>
+      )}
+      {showSubheading && config.subheading && (
+        <FieldTap sectionId={sectionId} fieldKey="subheading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="p" className="font-light leading-relaxed mx-auto"
+          style={{ fontFamily: bf(style), color: '#64748b',
+            fontSize: 'clamp(14px,1.8vw,16px)', maxWidth: '32rem' }}>
+          {config.subheading}
+        </FieldTap>
+      )}
+    </div>
+  ) : null;
+ 
+  const reviews = [
+    { name: config.rev1Name || 'Sarah M.',   rating: config.rev1Rating ?? 5, text: config.rev1Text || 'Absolutely incredible experience.' },
+    { name: config.rev2Name || 'Jessica T.', rating: config.rev2Rating ?? 5, text: config.rev2Text || 'Every visit exceeds my expectations.' },
+    { name: config.rev3Name || 'Priya K.',   rating: config.rev3Rating ?? 5, text: config.rev3Text || 'Luxurious yet so welcoming.' },
+  ].filter(r => r.text);
+ 
+  const Stars = ({ count, light = false }: { count: number; light?: boolean }) => (
+    <div className="flex gap-0.5">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <span key={i} style={{ color: i < count ? (light ? '#fbbf24' : accent) : 'rgba(0,0,0,0.14)', fontSize: 13 }}>★</span>
+      ))}
     </div>
   );
-  if (layout === 'quotes') {
-    const r = reviews[idx % Math.max(1, reviews.length)];
+ 
+  if (layout === 'grid') {
     return (
-      <section className={py(style)} style={{ background: style.bgColor }}>
-        <div className="max-w-3xl mx-auto px-6 md:px-16 text-center space-y-10">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'What Clients Say'}</FieldTap>
-          {r && <div className="space-y-8">
-            {config.showRating !== false && <div className="flex justify-center"><Stars n={r.rating}/></div>}
-            <p className="text-2xl md:text-3xl font-light italic leading-relaxed text-slate-700" style={{ fontFamily: hf(style) }}>"{r.text}"</p>
-            <div className="flex items-center justify-center gap-4">{r.photo && <img src={r.photo} alt={r.name} className="w-10 h-10 rounded-full object-cover"/>}<p className="text-[11px] font-black uppercase tracking-widest text-slate-400">— {r.name}</p></div>
-            {reviews.length > 1 && <div className="flex items-center justify-center gap-3">
-              <button onClick={() => setIdx(i => (i - 1 + reviews.length) % reviews.length)} className="w-9 h-9 rounded-full border-2 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all" style={{ borderColor: ac(style)+'30' }}><ChevronLeft className="w-4 h-4"/></button>
-              {reviews.map((_, i) => <div key={i} className="w-2 h-2 rounded-full transition-all cursor-pointer" style={{ background: i === idx % reviews.length ? ac(style) : '#cbd5e1' }} onClick={() => setIdx(i)}/>)}
-              <button onClick={() => setIdx(i => (i + 1) % reviews.length)} className="w-9 h-9 rounded-full border-2 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-all" style={{ borderColor: ac(style)+'30' }}><ChevronRight className="w-4 h-4"/></button>
-            </div>}
-          </div>}
+      <section id="reviews" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+            {reviews.map((r, i) => (
+              <div key={i}
+                className="flex flex-col p-5 md:p-6 space-y-4"
+                style={{
+                  border: `1.5px solid ${accent}12`, borderRadius: br(style, 2), background: '#fff',
+                  animation: visible ? `cf-fade-up 0.55s ${i * 0.1}s both` : 'none',
+                }}>
+                {config.showRating !== false && <Stars count={r.rating}/>}
+                <p className="text-sm text-slate-600 leading-relaxed flex-1 font-light italic"
+                  style={{ fontFamily: bf(style) }}>
+                  "{r.text}"
+                </p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400"
+                  style={{ fontFamily: bf(style) }}>{r.name}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     );
   }
-  if (layout === 'carousel') return (
-    <section className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16"><FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'What Clients Say'}</FieldTap></div>
-        <div className="flex gap-6 overflow-x-auto pb-4 snap-x" style={{ scrollbarWidth: 'none' }}>{reviews.map((r,i) => <div key={i} className="shrink-0 snap-start w-[320px]"><Card r={r}/></div>)}</div>
-      </div>
-    </section>
-  );
-  return (
-    <section className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-6xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'What Clients Say'}</FieldTap>
-          {config.subheading && <p className="text-base text-slate-500 max-w-xl mx-auto" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
+ 
+  if (layout === 'quotes') {
+    return (
+      <section id="reviews" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-3xl mx-auto" style={{ padding: '0 clamp(20px,7vw,80px)' }}>
+          <Header/>
+          <div ref={ref} className="space-y-12 md:space-y-16">
+            {reviews.map((r, i) => (
+              <div key={i} className="text-center space-y-5"
+                style={{ animation: visible ? `cf-fade-up 0.7s ${i * 0.15}s both` : 'none' }}>
+                {/* Large quote mark */}
+                <div className="font-light select-none" style={{ fontFamily: hf(style), fontSize: 80, color: `${accent}20`, lineHeight: 0.8 }}>
+                  "
+                </div>
+                <p className="font-light leading-relaxed text-slate-700"
+                  style={{ fontFamily: hf(style), fontSize: 'clamp(16px,2.5vw,22px)' }}>
+                  {r.text}
+                </p>
+                {config.showRating !== false && <div className="flex justify-center"><Stars count={r.rating}/></div>}
+                <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400"
+                  style={{ fontFamily: bf(style) }}>{r.name}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="grid md:grid-cols-3 gap-6">{reviews.slice(0,6).map((r,i) => <Card key={i} r={r}/>)}</div>
+      </section>
+    );
+  }
+ 
+  // carousel
+  return (
+    <section id="reviews" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-6xl mx-auto">
+        <div style={{ padding: '0 clamp(16px,5vw,64px)' }}><Header/></div>
+        <div ref={ref}
+          className="flex gap-4 overflow-x-auto pb-4 snap-x snap-mandatory"
+          style={{ padding: '0 clamp(16px,5vw,64px)', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+          {reviews.map((r, i) => (
+            <div key={i}
+              className="flex flex-col shrink-0 snap-start p-5 space-y-4"
+              style={{
+                width: 'clamp(260px,75vw,320px)',
+                border: `1.5px solid ${accent}12`, borderRadius: br(style, 2), background: '#fff',
+                animation: visible ? `cf-fade-up 0.5s ${i * 0.08}s both` : 'none',
+              }}>
+              {config.showRating !== false && <Stars count={r.rating}/>}
+              <p className="text-sm text-slate-600 leading-relaxed flex-1 font-light italic"
+                style={{ fontFamily: bf(style) }}>"{r.text}"</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400"
+                style={{ fontFamily: bf(style) }}>{r.name}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -3749,162 +3856,148 @@ function NewClientSection({ config, style, isPreview, sectionId, onFieldTap }: S
 }
 
 // ─── FAQSection ───────────────────────────────────────────────────────────────
-function FAQSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const [open, setOpen] = React.useState<number|null>(null), layout = config.layout || 'accordion';
-  const items = [1,2,3,4,5,6].map(n => ({ q: config[`q${n}`], a: config[`a${n}`] })).filter(i => i.q && i.a);
-  const H = () => <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light text-center mb-14" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Common Questions'}</FieldTap>;
-  if (layout === 'two-col') return <section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-5xl mx-auto px-6 md:px-16"><H/><div className="grid md:grid-cols-2 gap-6">{items.map((item,i) => <div key={i} className="p-6 bg-white space-y-2" style={{ borderRadius: br(style), border: `2px solid ${ac(style)}20` }}><p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{item.q}</p><p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</p></div>)}</div></div></section>;
-  if (layout === 'minimal') return <section className={py(style)} style={{ background: style.bgColor }}><div className="max-w-3xl mx-auto px-6 md:px-16"><H/><div className="space-y-6">{items.map((item,i) => <div key={i} className="border-b pb-6" style={{ borderColor: ac(style)+'18' }}><p className="text-sm font-black uppercase tracking-tight text-slate-900 mb-2" style={{ fontFamily: bf(style) }}>{item.q}</p><p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</p></div>)}</div></div></section>;
-  if (layout === 'cards') return (
-    <section className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16"><H/>
-        <div className="grid md:grid-cols-2 gap-4">
-          {items.map((item, i) => {
-            const isOpen = open === i;
-            return (
-              <div key={i} className="group bg-white p-6 space-y-3 cursor-pointer hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
-                   style={{ borderRadius: br(style, 1.5), border: `2px solid ${isOpen ? ac(style) : ac(style)+'20'}` }}
-                   onClick={() => setOpen(isOpen ? null : i)}>
-                <div className="flex items-start justify-between gap-3">
-                  <span className="font-black text-sm uppercase tracking-tight text-slate-900 flex-1" style={{ fontFamily: bf(style) }}>{item.q}</span>
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all" style={{ background: isOpen ? ac(style) : ac(style)+'12' }}>
-                    {isOpen ? <ChevronUp className="w-3 h-3 text-white"/> : <ChevronDown className="w-3 h-3" style={{ color: ac(style) }}/>}
-                  </div>
-                </div>
-                {isOpen && <p className="text-sm text-slate-500 leading-relaxed border-t pt-3" style={{ fontFamily: bf(style), borderColor: ac(style)+'15' }}>{item.a}</p>}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-
-  if (layout === 'bold') return (
-    <section className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-4xl mx-auto px-6 md:px-16"><H/>
-        <div className="space-y-0">
-          {items.map((item, i) => {
-            const isOpen = open === i;
-            return (
-              <div key={i} className="group border-b cursor-pointer" style={{ borderColor: ac(style)+'15' }}
-                   onClick={() => setOpen(isOpen ? null : i)}>
-                <div className="flex items-start gap-6 py-8 hover:pl-3 transition-all duration-300">
-                  <span className="text-5xl font-light shrink-0 leading-none" style={{ color: isOpen ? ac(style) : ac(style)+'22', fontFamily: hf(style) }}>{String(i+1).padStart(2,'0')}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-lg md:text-xl uppercase tracking-tight text-slate-900 leading-tight" style={{ fontFamily: bf(style) }}>{item.q}</p>
-                    <div style={{ maxHeight: isOpen ? '200px' : '0px', overflow: 'hidden', opacity: isOpen ? 1 : 0, transition: 'max-height 0.4s ease, opacity 0.3s' }}>
-                      <p className="text-sm text-slate-500 leading-relaxed mt-3" style={{ fontFamily: bf(style) }}>{item.a}</p>
-                    </div>
-                  </div>
-                  <ChevronDown className="w-5 h-5 shrink-0 mt-1 transition-transform duration-300" style={{ color: ac(style)+'60', transform: isOpen ? 'rotate(180deg)' : 'none' }}/>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-
-  if (layout === 'split') {
-    const [activeIdx, setActiveIdx] = React.useState(0);
+function FAQSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
+  const layout = config.layout || 'accordion';
+  const accent = ac(style);
+  const { ref, visible } = useInView(0.06);
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+ 
+  const showHeading = config.showHeading !== false;
+ 
+  const items = [
+    { q: config.q1, a: config.a1 }, { q: config.q2, a: config.a2 },
+    { q: config.q3, a: config.a3 }, { q: config.q4, a: config.a4 },
+    { q: config.q5, a: config.a5 }, { q: config.q6, a: config.a6 },
+  ].filter(i => i.q && i.a) as { q: string; a: string }[];
+ 
+  const Header = () => showHeading ? (
+    <div className="text-center mb-10 md:mb-14">
+      <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+        as="h2" className="font-light"
+        style={{ fontFamily: hf(style), fontSize: 'clamp(26px,5vw,54px)', color: '#0f172a' }}>
+        {config.heading || 'Common Questions'}
+      </FieldTap>
+    </div>
+  ) : null;
+ 
+  if (layout === 'accordion') {
     return (
-      <section className={py(style)} style={{ background: '#f8fafc' }}>
-        <div className="max-w-5xl mx-auto px-6 md:px-16"><H/>
-          <div className="grid md:grid-cols-2 gap-0 bg-white overflow-hidden shadow-xl" style={{ borderRadius: br(style, 2), border: `2px solid ${ac(style)}18` }}>
-            <div className="border-r" style={{ borderColor: ac(style)+'15' }}>
-              {items.map((item, i) => (
-                <button key={i} onClick={() => setActiveIdx(i)}
-                  className="w-full flex items-center gap-4 px-6 py-5 text-left border-b last:border-0 transition-all hover:bg-slate-50"
-                  style={{ borderColor: ac(style)+'10', background: activeIdx === i ? ac(style)+'08' : 'transparent', borderLeft: activeIdx === i ? `3px solid ${ac(style)}` : '3px solid transparent' }}>
-                  <span className="text-[11px] font-black uppercase tracking-tight leading-snug flex-1" style={{ color: activeIdx === i ? '#0f172a' : '#64748b', fontFamily: bf(style) }}>{item.q}</span>
-                  <ChevronRight className="w-4 h-4 shrink-0" style={{ color: activeIdx === i ? ac(style) : '#cbd5e1' }}/>
+      <section id="faq" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-3xl mx-auto" style={{ padding: '0 clamp(16px,5vw,48px)' }}>
+          <Header/>
+          <div ref={ref} className="space-y-0">
+            {items.map((item, i) => (
+              <div key={i}
+                className="border-b"
+                style={{
+                  borderColor: `${accent}12`,
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.07}s both` : 'none',
+                }}>
+                <button
+                  onClick={() => setOpenIdx(openIdx === i ? null : i)}
+                  className="w-full flex items-center justify-between gap-4 py-5 text-left group">
+                  <span className="font-black uppercase tracking-tight text-slate-800 group-hover:text-slate-900 transition-colors"
+                    style={{ fontFamily: bf(style), fontSize: 'clamp(12px,2vw,14px)' }}>
+                    {item.q}
+                  </span>
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 transition-transform"
+                    style={{
+                      background: openIdx === i ? accent : `${accent}10`,
+                      transform: openIdx === i ? 'rotate(45deg)' : 'none',
+                    }}>
+                    <Plus className="w-3 h-3" style={{ color: openIdx === i ? '#fff' : accent }}/>
+                  </div>
                 </button>
-              ))}
-            </div>
-            <div className="p-8 md:p-10 flex flex-col justify-center min-h-[300px]">
-              {items[activeIdx] && (
-                <div className="space-y-4" key={activeIdx} style={{ animation: 'cf-fade-up 0.35s both' }}>
-                  <div className="w-8 h-px" style={{ background: ac(style) }}/>
-                  <p className="font-black text-base uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{items[activeIdx].q}</p>
-                  <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{items[activeIdx].a}</p>
-                </div>
-              )}
-            </div>
+                {openIdx === i && (
+                  <div className="pb-5">
+                    <p className="text-sm text-slate-500 leading-relaxed font-light"
+                      style={{ fontFamily: bf(style) }}>{item.a}</p>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </section>
     );
   }
-
-  return <section className={py(style)} style={{ background: '#f8fafc' }}><div className="max-w-3xl mx-auto px-6 md:px-16"><H/><div className="space-y-2">{items.map((item,i) => <div key={i} className="overflow-hidden bg-white" style={{ borderRadius: br(style), border: `2px solid ${ac(style)}22` }}><button onClick={() => setOpen(open === i ? null : i)} className="w-full flex items-center justify-between p-6 text-left hover:bg-slate-50/80 transition-colors"><span className="font-black text-sm uppercase tracking-tight text-slate-900 pr-4" style={{ fontFamily: bf(style) }}>{item.q}</span>{open === i ? <ChevronUp className="w-4 h-4 shrink-0" style={{ color: ac(style) }}/> : <ChevronDown className="w-4 h-4 shrink-0 text-slate-300"/>}</button>{open === i && <div className="px-6 pb-6 text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{item.a}</div>}</div>)}</div></div></section>;
+ 
+  if (layout === 'two-col') {
+    return (
+      <section id="faq" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-5xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+            {items.map((item, i) => (
+              <div key={i}
+                className="p-5 md:p-6 space-y-3"
+                style={{
+                  border: `1.5px solid ${accent}12`, borderRadius: br(style, 2), background: '#fff',
+                  animation: visible ? `cf-fade-up 0.5s ${i * 0.07}s both` : 'none',
+                }}>
+                <p className="font-black uppercase tracking-tight text-slate-800"
+                  style={{ fontFamily: bf(style), fontSize: 'clamp(12px,1.8vw,13px)' }}>{item.q}</p>
+                <p className="text-sm text-slate-500 leading-relaxed font-light"
+                  style={{ fontFamily: bf(style) }}>{item.a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+ 
+  if (layout === 'bold') {
+    return (
+      <section id="faq" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-4xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <Header/>
+          <div ref={ref} className="space-y-8 md:space-y-12">
+            {items.map((item, i) => (
+              <div key={i} className="grid grid-cols-[auto_1fr] gap-5 md:gap-8"
+                style={{ animation: visible ? `cf-fade-up 0.55s ${i * 0.09}s both` : 'none' }}>
+                <span className="font-black tabular-nums text-3xl md:text-4xl leading-none"
+                  style={{ color: `${accent}18`, fontFamily: hf(style) }}>
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div className="space-y-2 pt-1">
+                  <p className="font-black uppercase tracking-tight text-slate-800"
+                    style={{ fontFamily: bf(style), fontSize: 'clamp(13px,2vw,15px)' }}>{item.q}</p>
+                  <p className="text-sm text-slate-500 leading-relaxed font-light"
+                    style={{ fontFamily: bf(style) }}>{item.a}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+ 
+  // minimal / split / cards fallback
+  return (
+    <section id="faq" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-3xl mx-auto" style={{ padding: '0 clamp(16px,5vw,48px)' }}>
+        <Header/>
+        <div ref={ref} className="space-y-4">
+          {items.map((item, i) => (
+            <div key={i}
+              className="p-5 space-y-2"
+              style={{
+                border: `1.5px solid ${accent}12`, borderRadius: br(style, 2), background: '#fff',
+                animation: visible ? `cf-fade-up 0.5s ${i * 0.07}s both` : 'none',
+              }}>
+              <p className="font-black uppercase tracking-tight text-slate-800 text-sm"
+                style={{ fontFamily: bf(style) }}>{item.q}</p>
+              <p className="text-sm text-slate-500 leading-relaxed font-light"
+                style={{ fontFamily: bf(style) }}>{item.a}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
-// ─── Policy theme utilities ───────────────────────────────────────────────────
-function bgIsDark(hex: string): boolean {
-  const h = (hex || '#ffffff').replace('#', '');
-  if (h.length < 6) return false;
-  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
-  return (0.299*r + 0.587*g + 0.114*b) < 128;
-}
-function pBg(style: StyleConfig, elevated = false): string {
-  return bgIsDark(style.bgColor)
-    ? elevated ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)'
-    : elevated ? '#ffffff' : `${ac(style)}03`;
-}
-function pBorderColor(style: StyleConfig, open = false): string {
-  return bgIsDark(style.bgColor)
-    ? open ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.07)'
-    : open ? `${ac(style)}22` : `${ac(style)}10`;
-}
-function pBoxShadow(style: StyleConfig, elevated = false): string {
-  if (!elevated) return 'none';
-  return bgIsDark(style.bgColor)
-    ? '0 2px 16px rgba(0,0,0,0.4)'
-    : '0 2px 12px rgba(0,0,0,0.04)';
-}
-function pTextPrimary(style: StyleConfig): string {
-  return bgIsDark(style.bgColor) ? 'rgba(255,255,255,0.90)' : '#0f172a';
-}
-function pTextSecondary(style: StyleConfig): string {
-  return bgIsDark(style.bgColor) ? 'rgba(255,255,255,0.48)' : '#64748b';
-}
-function pTextMuted(style: StyleConfig): string {
-  return bgIsDark(style.bgColor) ? 'rgba(255,255,255,0.20)' : '#cbd5e1';
-}
-function pDivider(style: StyleConfig): string {
-  return bgIsDark(style.bgColor) ? 'rgba(255,255,255,0.07)' : `${ac(style)}0b`;
-}
-function pIconBg(style: StyleConfig): React.CSSProperties {
-  return {
-    background: bgIsDark(style.bgColor) ? `${ac(style)}20` : `${ac(style)}0d`,
-    border: `1px solid ${ac(style)}${bgIsDark(style.bgColor) ? '30' : '16'}`,
-  };
-}
-function pCardPad(style: StyleConfig): string {
-  return style.density === 'compact' ? 'p-5' : style.density === 'airy' ? 'p-8' : 'p-6';
-}
-function pbr(style: StyleConfig, mult = 1): string {
-  return `${Math.min((style.borderRadius || 4) * mult, 24)}px`;
-}
-const POLICY_ICON_MAP: Record<string, React.ElementType> = {
-  'shield':       Shield,
-  'shield-check': ShieldCheck,
-  'clock':        Clock,
-  'clock3':       Clock3,
-  'alert':        AlertTriangle,
-  'ban':          Ban,
-  'credit':       CreditCard,
-  'heart':        Heart,
-  'badge':        BadgeCheck,
-  'info':         Info,
-  'zap':          Zap,
-  'leaf':         Leaf,
-  'coffee':       Coffee,
-  'flame':        Flame,
-  'phone':        Phone,
-  'mail':         Mail,
-};
 
 // ─── PoliciesSection ──────────────────────────────────────────────────────────
 function PoliciesSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
@@ -4702,64 +4795,129 @@ const MAX_DEFAULT = config.maxItems === 'all'
 
 // ─── ContactSection ───────────────────────────────────────────────────────────
 function ContactSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const tenant = data.tenant, socialLinks: any[] = Array.isArray(config.socialLinks) ? config.socialLinks : [], layout = config.layout || 'split-map';
+  const layout = config.layout || 'split-map';
+  const accent = ac(style);
+  const { ref, visible } = useInView(0.06);
+  const tenant = data.tenant;
+ 
+  const showHeading = config.showHeading !== false;
+ 
   const Info = () => (
-    <div className="space-y-7">
-      {config.showHours !== false && config.customHours && <div className="space-y-2.5"><div className="flex items-center gap-2"><Clock className="w-4 h-4" style={{ color: ac(style) }}/><p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(style) }}>Hours</p></div><p className="text-sm text-slate-500 leading-relaxed whitespace-pre-line" style={{ fontFamily: bf(style) }}>{config.customHours}</p></div>}
-      {tenant?.studioAddress && <div className="space-y-2.5"><div className="flex items-center gap-2"><MapPin className="w-4 h-4" style={{ color: ac(style) }}/><p className="text-[11px] font-black uppercase tracking-widest" style={{ color: ac(style) }}>Location</p></div><p className="text-sm text-slate-500" style={{ fontFamily: bf(style) }}>{tenant.studioAddress}</p></div>}
-      {config.showPhone !== false && tenant?.phone && <div className="flex items-center gap-3"><Phone className="w-4 h-4" style={{ color: ac(style) }}/><a href={`tel:${tenant.phone}`} className="text-sm text-slate-500 hover:text-slate-900 transition-colors">{tenant.phone}</a></div>}
-      {config.showEmail !== false && tenant?.email && <div className="flex items-center gap-3"><Mail className="w-4 h-4" style={{ color: ac(style) }}/><a href={`mailto:${tenant.email}`} className="text-sm text-slate-500 hover:text-slate-900 transition-colors">{tenant.email}</a></div>}
-      {config.showSocial !== false && socialLinks.length > 0 && <div className="flex gap-3 flex-wrap">{socialLinks.map((link:any) => <a key={link.platform} href={link.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-900 transition-colors border rounded-full" style={{ borderColor: ac(style)+'30' }}>{link.platform}</a>)}</div>}
-      {config.showSocial !== false && tenant?.instagramHandle && <div className="flex items-center gap-3"><Instagram className="w-4 h-4" style={{ color: ac(style) }}/><a href={`https://instagram.com/${tenant.instagramHandle}`} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-500 hover:text-slate-900 transition-colors">@{tenant.instagramHandle}</a></div>}
-      {config.ctaText && <button onClick={cta(config.ctaAction, config.ctaUrl)} className="mt-2 px-8 py-3.5 font-black text-sm uppercase tracking-widest shadow-lg hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText}</button>}
+    <div className="space-y-6">
+      {showHeading && (
+        <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap}
+          as="h2" className="font-light leading-tight"
+          style={{ fontFamily: hf(style), fontSize: 'clamp(24px,4vw,48px)', color: '#0f172a' }}>
+          {config.heading || 'Find Us'}
+        </FieldTap>
+      )}
+ 
+      {config.showHours !== false && config.customHours && (
+        <div className="space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-[0.3em]"
+            style={{ color: accent, fontFamily: bf(style) }}>Hours</p>
+          <div className="space-y-1">
+            {config.customHours.split('\n').filter(Boolean).map((line: string, i: number) => (
+              <p key={i} className="text-sm text-slate-600 font-light" style={{ fontFamily: bf(style) }}>
+                {line}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+ 
+      <div className="space-y-3">
+        {config.showPhone !== false && tenant?.phone && (
+          <a href={`tel:${tenant.phone}`}
+            className="flex items-center gap-3 text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors"
+            style={{ fontFamily: bf(style) }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: `${accent}10` }}>
+              <Phone className="w-3.5 h-3.5" style={{ color: accent }}/>
+            </div>
+            {tenant.phone}
+          </a>
+        )}
+        {config.showEmail !== false && tenant?.email && (
+          <a href={`mailto:${tenant.email}`}
+            className="flex items-center gap-3 text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors"
+            style={{ fontFamily: bf(style) }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: `${accent}10` }}>
+              <Mail className="w-3.5 h-3.5" style={{ color: accent }}/>
+            </div>
+            <span className="truncate">{tenant.email}</span>
+          </a>
+        )}
+        {tenant?.address && (
+          <div className="flex items-start gap-3 text-sm font-light text-slate-600"
+            style={{ fontFamily: bf(style) }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+              style={{ background: `${accent}10` }}>
+              <MapPin className="w-3.5 h-3.5" style={{ color: accent }}/>
+            </div>
+            <span className="leading-relaxed">{tenant.address}</span>
+          </div>
+        )}
+      </div>
+ 
+      <button
+        onClick={cta(config.ctaAction, config.ctaUrl)}
+        className="inline-flex items-center gap-2 font-black uppercase tracking-widest
+                   hover:opacity-90 active:scale-[0.97] transition-all whitespace-nowrap"
+        style={{
+          ...btnStyle(style), fontFamily: bf(style),
+          padding: 'clamp(12px,2.5vw,15px) clamp(22px,4vw,36px)',
+          fontSize: 'clamp(10px,2vw,11px)', letterSpacing: '0.12em',
+        }}>
+        {config.ctaText || 'Book an Appointment'}
+        <ArrowRight className="w-3.5 h-3.5 shrink-0"/>
+      </button>
     </div>
   );
-  const Map = () => tenant?.studioLocation ? (<div className="overflow-hidden shadow-xl" style={{ height: '280px', borderRadius: br(style,1.5) }}><iframe src={`https://maps.google.com/maps?q=${tenant.studioLocation.lat},${tenant.studioLocation.lng}&z=15&output=embed`} className="w-full h-full border-0" loading="lazy" title="Studio location"/></div>) : null;
-  return (
-    <section id="contact" className={py(style)} style={{ background: '#f8fafc' }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light text-center mb-16" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Find Us'}</FieldTap>
-        {layout === 'stacked' ? (
-          <div className="space-y-10 max-w-2xl mx-auto">{config.showMap !== false && <Map/>}<Info/></div>
-        ) : (
-          <div className="grid md:grid-cols-2 gap-14 items-start"><Info/>{config.showMap !== false && <Map/>}</div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-// ─── EventsSection ────────────────────────────────────────────────────────────
-function EventsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
-  const events = data.events;
-  return (
-    <section className={py(style)} style={{ background: style.bgColor }}>
-      <div className="max-w-5xl mx-auto px-6 md:px-16">
-        <div className="text-center mb-16 space-y-4">
-          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Upcoming Events'}</FieldTap>
-          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
-        </div>
-        {events.length > 0 ? (
-          <div className="space-y-4">
-            {events.map((event: any) => {
-              const d = event.date ? new Date(event.date?.toDate?.() ?? event.date) : null;
-              return (
-                <div key={event.id} className="flex items-center gap-6 p-6 bg-white hover:shadow-lg hover:-translate-y-0.5 transition-all" style={{ borderRadius: br(style,1.5), border: `2px solid ${ac(style)}22` }}>
-                  {d && <div className="shrink-0 w-14 h-14 flex flex-col items-center justify-center text-white" style={{ background: ac(style), borderRadius: br(style) }}><span className="text-[9px] font-black uppercase">{d.toLocaleString('default',{month:'short'})}</span><span className="text-xl font-black leading-none">{d.getDate()}</span></div>}
-                  <div className="flex-1 min-w-0"><p className="font-black uppercase tracking-tight text-slate-900 text-sm truncate" style={{ fontFamily: bf(style) }}>{event.title || event.name}</p>{event.description && <p className="text-xs text-slate-400 mt-1 truncate">{event.description}</p>}</div>
-                  <button onClick={cta(config.ctaAction, config.ctaUrl)} className="shrink-0 px-5 py-2 text-[11px] font-black uppercase tracking-widest" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'RSVP'}</button>
-                </div>
-              );
-            })}
+ 
+  // Map embed placeholder
+  const MapEmbed = () => config.showMap !== false && tenant?.address ? (
+    <div className="overflow-hidden bg-slate-100"
+      style={{ borderRadius: br(style, 1.5), aspectRatio: '4/3', minHeight: 220 }}>
+      <iframe
+        title="map"
+        src={`https://maps.google.com/maps?q=${encodeURIComponent(tenant.address)}&output=embed`}
+        className="w-full h-full border-0"
+        loading="lazy"
+        allowFullScreen/>
+    </div>
+  ) : null;
+ 
+  if (layout === 'split-map') {
+    return (
+      <section id="contact" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-6xl mx-auto" style={{ padding: '0 clamp(16px,5vw,64px)' }}>
+          <div ref={ref}
+            className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-16 items-start"
+            style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
+            <Info/>
+            <MapEmbed/>
           </div>
-        ) : (
-          <div className="text-center py-16 space-y-4"><Calendar className="w-12 h-12 mx-auto text-slate-200"/><p className="text-[11px] font-black uppercase tracking-widest text-slate-300">{config.emptyText || 'Check back soon!'}</p></div>
-        )}
+        </div>
+      </section>
+    );
+  }
+ 
+  // stacked
+  return (
+    <section id="contact" className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-3xl mx-auto space-y-8 md:space-y-10"
+        style={{ padding: '0 clamp(16px,5vw,48px)' }}>
+        <div ref={ref} style={{ animation: visible ? 'cf-fade-up 0.8s both' : 'none' }}>
+          <MapEmbed/>
+        </div>
+        <Info/>
       </div>
     </section>
   );
 }
-
+ 
 // ─── ReferralSection ──────────────────────────────────────────────────────────
 function ReferralSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   return (
