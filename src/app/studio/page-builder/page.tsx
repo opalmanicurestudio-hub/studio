@@ -770,10 +770,10 @@ const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedFi
 // Alias so existing callers work
 const FieldRenderer = renderFieldEditor_FieldRenderer;
 
-const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMoveUp, onMoveDown, onHide, onDuplicate, onToggleVisible }: {
+const SectionListItem = ({ section, isSelected, isFirst, isLast, onSelect, onMoveUp, onMoveDown, onHide, onDuplicate, onToggleVisible = () => {} }: {
   section: PageSection; isSelected: boolean; isFirst: boolean; isLast: boolean;
   onSelect: () => void; onMoveUp: () => void; onMoveDown: () => void; onHide: () => void;
-  onDuplicate: () => void; onToggleVisible: () => void;
+  onDuplicate: () => void; onToggleVisible?: () => void;
 }) => {
   const def = SECTION_DEFS[section.type as SectionType]; const Icon = def.icon;
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -1110,8 +1110,8 @@ export default function PageBuilderPage() {
       {enabledSections.map(section => {
         const isHidden = (section as any).visible === false;
         const animKey = `${section.id}-${(section.config as any)._animation?.type || 'fu'}-${(section.config as any)._animation?.speed || 700}`;
-        const inner = (
-          <SectionWrapper key={animKey} section={section} isPreview={true}
+        const sectionEl = (
+          <SectionWrapper section={section} isPreview={true}
             onEdit={(id) => { setSelectedId(id); setActivePanel('sections'); setHighlightedField(null); setShowLibrary(false); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(false); setMobilePanelTab('sections'); if (mobileSheet === 'closed') setMobileSheet('half'); } }}
             onFieldTap={(sId, fKey) => { setSelectedId(sId); setActivePanel('sections'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(true); setMobileSheet('full'); } }}>
             <SectionRenderer
@@ -1120,10 +1120,13 @@ export default function PageBuilderPage() {
               onFieldTap={(sId, fKey) => { setSelectedId(sId); setActivePanel('sections'); setHighlightedField(fKey); setTimeout(() => setHighlightedField(null), 4000); if (typeof window !== 'undefined' && window.innerWidth < 1024) { setMobileFieldView(true); setMobileSheet('full'); } }}/>
           </SectionWrapper>
         );
-        if (!isHidden) return inner;
+
+        if (!isHidden) {
+          return <React.Fragment key={animKey}>{sectionEl}</React.Fragment>;
+        }
         return (
           <div key={animKey} style={{ position: 'relative', opacity: 0.4, pointerEvents: 'auto' }}>
-            {inner}
+            {sectionEl}
             <div style={{
               position: 'absolute', inset: 0, pointerEvents: 'none',
               background: 'repeating-linear-gradient(45deg, rgba(245,158,11,0.04) 0px, rgba(245,158,11,0.04) 10px, transparent 10px, transparent 20px)',
@@ -1180,18 +1183,21 @@ export default function PageBuilderPage() {
     </div>
   );
 
-  const renderFieldEditor = () => (
+  const renderFieldEditor = () => {
+    if (!selectedSection || !selectedDef) return null;
+    return (
     <div className="space-y-5 p-4">
-      <AnimationPicker value={(selectedSection!.config as any)._animation} onChange={v => updateAnimation(selectedSection!.id, v)}/>
+      <AnimationPicker value={(selectedSection.config as any)._animation} onChange={v => updateAnimation(selectedSection.id, v)}/>
       <Separator className="border-dashed"/>
-      {selectedDef!.layouts && selectedDef!.layouts.length > 1 && (
-        <><LayoutPicker layouts={selectedDef!.layouts} value={selectedSection!.config.layout ?? selectedDef!.layouts[0].id} onChange={val => updateField(selectedSection!.id, 'layout', val)}/><Separator className="border-dashed"/></>
+      {selectedDef.layouts && selectedDef.layouts.length > 1 && (
+        <><LayoutPicker layouts={selectedDef.layouts} value={selectedSection.config.layout ?? selectedDef.layouts[0].id} onChange={val => updateField(selectedSection.id, 'layout', val)}/><Separator className="border-dashed"/></>
       )}
-      {SECTION_DEFS[selectedSection!.type as SectionType].fields.map(field => (
-        <FieldRenderer key={field.k} field={field} value={selectedSection!.config[field.k] ?? field.d} onChange={val => updateField(selectedSection!.id, field.k, val)} highlightedField={highlightedField}/>
+      {SECTION_DEFS[selectedSection.type as SectionType]?.fields.map(field => (
+        <FieldRenderer key={field.k} field={field} value={selectedSection.config[field.k] ?? field.d} onChange={val => updateField(selectedSection.id, field.k, val)} highlightedField={highlightedField}/>
       ))}
     </div>
-  );
+    );
+  };
 
   const HANDLE_H = 56;
   const sheetTranslate = mobileSheet === 'closed' ? `calc(100% - ${HANDLE_H}px)` : mobileSheet === 'half' ? '42%' : '0%';
@@ -1208,11 +1214,11 @@ export default function PageBuilderPage() {
           className={cn('flex-1 flex items-center justify-center gap-1 rounded-lg font-black uppercase tracking-widest transition-all', compact ? 'py-1.5 text-[9px]' : 'py-2 text-[10px]', mobilePanelTab === 'style' && !mobileFieldView ? 'bg-white shadow-sm text-primary' : 'text-slate-400')}>
           <Palette className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'}/>Style
         </button>
-        {selectedSection && (
+        {selectedSection && selectedDef && (
           <button onClick={() => setMobileFieldView(true)}
             className={cn('flex-1 flex items-center justify-center gap-1 rounded-lg font-black uppercase tracking-widest transition-all', compact ? 'py-1.5 text-[9px]' : 'py-2 text-[10px]', mobileFieldView ? 'bg-white shadow-sm text-primary' : 'text-slate-400')}>
-            {React.createElement(selectedDef!.icon, { className: compact ? 'w-3 h-3' : 'w-3.5 h-3.5' })}
-            <span className="truncate max-w-[44px]">{selectedDef!.label.split(' ')[0]}</span>
+            {React.createElement(selectedDef.icon, { className: compact ? 'w-3 h-3' : 'w-3.5 h-3.5' })}
+            <span className="truncate max-w-[44px]">{selectedDef.label.split(' ')[0]}</span>
           </button>
         )}
       </div>
@@ -1430,14 +1436,14 @@ export default function PageBuilderPage() {
 
           {/* Center: field editor */}
           <div className="w-80 xl:w-[420px] h-full flex flex-col border-r bg-white shrink-0">
-            {selectedSection && activePanel === 'sections' ? (
+            {selectedSection && selectedDef && activePanel === 'sections' ? (
               <>
                 <div className="p-4 border-b bg-white flex items-center gap-3 shrink-0">
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: selectedDef!.color + '18' }}>
-                    {React.createElement(selectedDef!.icon, { className: 'w-4 h-4', style: { color: selectedDef!.color } })}
+                  <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: selectedDef.color + '18' }}>
+                    {React.createElement(selectedDef.icon, { className: 'w-4 h-4', style: { color: selectedDef.color } })}
                   </div>
                   <div className="flex-1">
-                    <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{selectedDef!.label}</h2>
+                    <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{selectedDef.label}</h2>
                     <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Content & configuration</p>
                   </div>
                   {highlightedField && (
