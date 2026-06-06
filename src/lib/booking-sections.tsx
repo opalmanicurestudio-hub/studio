@@ -1,5 +1,5 @@
 'use client';
-
+ 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type PageSection } from '@/lib/data';
 import { cn } from '@/lib/utils';
@@ -9,10 +9,9 @@ import {
   ChevronLeft, ChevronRight, X as XIcon, ArrowRight, ArrowLeftRight,
   Users, Award, Heart, Scissors, Zap, Crown, Shield, TrendingUp,
   CheckCircle, ThumbsUp, Smile, Coffee, Menu, BookOpen,
-  LayoutDashboard, HelpCircle, Package, Camera,
+  LayoutDashboard, HelpCircle, Package, Camera, Plus,
   ShieldCheck, BadgeCheck, AlertTriangle, Ban, CreditCard, Leaf, Flame, Info,
 } from 'lucide-react';
-const ANIM_CSS = `
 @keyframes cf-fade-up    { from{opacity:0;transform:translateY(28px)} to{opacity:1;transform:translateY(0)} }
 @keyframes cf-fade-in    { from{opacity:0} to{opacity:1} }
 @keyframes cf-slide-left { from{opacity:0;transform:translateX(-28px)} to{opacity:1;transform:translateX(0)} }
