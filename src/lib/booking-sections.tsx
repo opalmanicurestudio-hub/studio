@@ -1086,6 +1086,12 @@ function HeroSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
 }
  
 // ─── TrustSection ─────────────────────────────────────────────────────────────
+const TRUST_ICON_MAP: Record<string, React.ElementType> = {
+  star: Star, heart: Heart, award: Award, check: CheckCircle,
+  thumbs: ThumbsUp, smile: Smile, zap: Zap, coffee: Coffee,
+  shield: Shield, trending: TrendingUp, crown: Crown,
+  scissors: Scissors, users: Users, gift: Gift,
+};
 function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const { ref, visible } = useInView(0.2);
   const layout = config.layout || 'strip';
