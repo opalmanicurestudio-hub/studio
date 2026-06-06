@@ -905,7 +905,7 @@ const BrandKitPicker = ({ style, onApply }: { style: any; onApply: (kit: typeof 
 );
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
-export default function PageBuilderPage() {
+export function PageBuilderPageInner() {
   const { firestore }      = useFirebase();
   const { selectedTenant } = useTenant();
   const { toast }          = useToast();
@@ -1564,5 +1564,70 @@ export default function PageBuilderPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+// ─── App-level error boundary ────────────────────────────────────────────────
+// Shows the ACTUAL error message on screen so it can be diagnosed.
+// Replaces the generic Next.js "Application error" white screen.
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null; stack: string | null }
+> {
+  constructor(props: any) { super(props); this.state = { error: null, stack: null }; }
+  static getDerivedStateFromError(error: Error) { return { error, stack: null }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[PageBuilder crash]', error, info);
+    this.setState({ stack: info.componentStack ?? null });
+  }
+  render() {
+    const { error, stack } = this.state;
+    if (!error) return this.props.children;
+    return (
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', padding: 24, background: '#f8fafc' }}>
+        <div style={{ maxWidth: 600, width: '100%', background: '#fff',
+          borderRadius: 16, border: '2px solid #fca5a5', padding: 32, gap: 16,
+          display: 'flex', flexDirection: 'column' }}>
+          <p style={{ fontWeight: 900, textTransform: 'uppercase',
+            letterSpacing: '0.1em', fontSize: 12, color: '#dc2626' }}>
+            Page Builder — Runtime Error
+          </p>
+          <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#7f1d1d',
+            background: '#fff1f2', padding: 16, borderRadius: 8,
+            wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>
+            {error.message}
+          </p>
+          {stack && (
+            <details style={{ cursor: 'pointer' }}>
+              <summary style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Component stack (tap to expand)
+              </summary>
+              <pre style={{ fontSize: 10, color: '#cbd5e1', marginTop: 8,
+                overflowX: 'auto', maxHeight: 200 }}>
+                {stack}
+              </pre>
+            </details>
+          )}
+          <button
+            onClick={() => this.setState({ error: null, stack: null })}
+            style={{ padding: '10px 20px', background: '#dc2626', color: '#fff',
+              borderRadius: 8, border: 'none', fontWeight: 900, fontSize: 11,
+              textTransform: 'uppercase', letterSpacing: '0.1em', cursor: 'pointer',
+              width: 'fit-content' }}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
+export default function PageBuilderPage() {
+  return (
+    <AppErrorBoundary>
+      <PageBuilderPageInner/>
+    </AppErrorBoundary>
   );
 }
