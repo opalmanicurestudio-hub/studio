@@ -49,6 +49,39 @@ import {
 import { cn } from '@/lib/utils';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 
+// ─── Preview Error Boundary ───────────────────────────────────────────────────
+// Catches any crash inside a section render so the page builder itself never
+// goes down when a section has a bad config or undefined icon.
+class PreviewErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  constructor(props: any) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) { console.error('[preview]', error); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-4 p-10 text-center min-h-[200px]"
+          style={{ background: '#fff8f8', border: '2px dashed #fca5a5' }}>
+          <AlertCircle className="w-8 h-8 text-red-400"/>
+          <div>
+            <p className="text-sm font-black uppercase tracking-widest text-red-500 mb-1">Section preview error</p>
+            <p className="text-xs text-slate-400 font-mono max-w-sm break-all">{this.state.error.message}</p>
+          </div>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-red-500
+                       text-[10px] font-black uppercase tracking-widest hover:bg-red-100">
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 type SectionType =
   | 'nav' | 'hero' | 'trust' | 'services' | 'team' | 'reviews'
@@ -1321,7 +1354,7 @@ export default function PageBuilderPage() {
                 // transform: translateZ(0) scopes position:fixed children to this div
                 <div className="w-full h-full overflow-y-auto overflow-x-hidden"
                   style={{ transform: 'translateZ(0)' }}>
-                  {renderPreview()}
+                  <PreviewErrorBoundary>{renderPreview()}</PreviewErrorBoundary>
                 </div>
               ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
               {!drawerOpen && (
@@ -1356,7 +1389,7 @@ export default function PageBuilderPage() {
                 // transform: translateZ(0) scopes position:fixed children to this div
                 <div className="w-full h-full overflow-y-auto overflow-x-hidden"
                   style={{ transform: 'translateZ(0)' }}>
-                  {renderPreview()}
+                  <PreviewErrorBoundary>{renderPreview()}</PreviewErrorBoundary>
                 </div>
               ) : <div className="w-full h-full flex items-center justify-center"><Eye className="w-10 h-10 text-slate-200"/></div>}
             </div>
@@ -1515,7 +1548,7 @@ export default function PageBuilderPage() {
                       : 'w-[390px] shrink-0 rounded-[2rem] shadow-2xl ring-8 ring-slate-800 bg-white'
                   )}
                   style={{ background: resolvedPreviewStyle.bgColor, transform: 'translateZ(0)' }}>
-                  {renderPreview()}
+                  <PreviewErrorBoundary>{renderPreview()}</PreviewErrorBoundary>
                 </div>
               ) : (
                 <div className="w-full h-full flex items-center justify-center">
