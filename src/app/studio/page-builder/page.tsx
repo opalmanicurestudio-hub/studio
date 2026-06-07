@@ -99,7 +99,7 @@ interface SectionLayoutOption { id: string; label: string; preview: string; }
 interface SectionDef { label: string; icon: React.ElementType; color: string; fields: SectionField[]; layouts?: SectionLayoutOption[]; }
 interface PolicyItem { id: string; icon: string; title: string; body: string; }
 interface SocialLink { platform: string; url: string; }
-interface GalleryImage { id: string; url: string; caption?: string; category?: string; }
+interface GalleryImage { id: string; url: string; caption?: string; category?: string; link?: string; }
 interface BeforeAfterPair { id: string; beforeUrl: string; afterUrl: string; caption?: string; }
 interface AnimConfig { type: string; speed: number; }
 
@@ -253,8 +253,10 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'overlayOpacity', t: 'range', l: 'Overlay opacity', d: 40, min: 0, max: 90, step: 5 },
     { k: 'headline', t: 'text', l: 'Headline', d: 'Book Your Experience' }, { k: 'subheadline', t: 'textarea', l: 'Subheadline', d: 'A sanctuary of craft, curated for those who appreciate the details.' },
     { k: 'ctaText', t: 'text', l: 'Primary button', d: 'Book a Session' }, { k: 'ctaAction', t: 'select', l: 'Primary action', d: 'booking', opts: ['booking','scroll-services','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Primary button URL (if url action)', d: '' },
     { k: 'showWalkIn', t: 'toggle', l: 'Show walk-in button', d: true }, { k: 'cta2Text', t: 'text', l: 'Walk-in label', d: 'Walk In Today' },
     { k: 'cta2Action', t: 'select', l: 'Walk-in action', d: 'scroll-contact', opts: ['booking','scroll-contact','scroll-services','url'] },
+    { k: 'cta2Url', t: 'text', l: 'Walk-in button URL (if url action)', d: '' },
     { k: 'videoUrl', t: 'text', l: 'Background video URL', d: '' }, { k: 'showBadge', t: 'toggle', l: 'Show trust badge', d: false },
     { k: 'badgeText', t: 'text', l: 'Badge text', d: '⭐ 4.9 · 500+ clients' },
   ], layouts: [
@@ -287,6 +289,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Services' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Handcrafted treatments for every occasion' },
     { k: 'ctaText', t: 'text', l: 'Book button text', d: 'Book this service' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
     { k: 'columns', t: 'select', l: 'Columns', d: '2', opts: ['1','2','3'] }, { k: 'showPrices', t: 'toggle', l: 'Show prices', d: true },
     { k: 'showDuration', t: 'toggle', l: 'Show duration', d: true }, { k: 'showFilters', t: 'toggle', l: 'Category filter', d: false },
     { k: 'showDesc', t: 'toggle', l: 'Show descriptions', d: true }, { k: 'showImages', t: 'toggle', l: 'Show service images', d: false },
@@ -306,6 +309,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'heading', t: 'text', l: 'Section heading', d: 'The Artists' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Expert hands for every style' },
     { k: 'showBio', t: 'toggle', l: 'Show bio', d: false }, { k: 'showSpecialties', t: 'toggle', l: 'Show specialties', d: true },
     { k: 'showBookButton', t: 'toggle', l: 'Book per artist', d: false }, { k: 'bookCta', t: 'text', l: 'Book button text', d: 'Book with me' },
+    { k: 'bookAction', t: 'select', l: 'Book button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'bookUrl', t: 'text', l: 'Custom booking URL (if url action)', d: '' },
     { k: 'hoverReveal', t: 'toggle', l: 'Hover reveal bio', d: true },
   ], layouts: [
     { id: 'circles',        label: 'Circle avatars',  preview: '  ◯   ◯   ◯'                   },
@@ -339,6 +344,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Work' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Every set, a canvas' },
     { k: 'images', t: 'image-array', l: 'Gallery images (max 24)', d: [] }, { k: 'showCaptions', t: 'toggle', l: 'Show captions', d: false },
+    { k: 'showImageLinks', t: 'toggle', l: 'Enable clickable image links', d: false },
     { k: 'lightbox', t: 'toggle', l: 'Lightbox on click', d: true }, { k: 'columns', t: 'select', l: 'Columns', d: '3', opts: ['2','3','4'] },
     { k: 'hoverEffect', t: 'select', l: 'Hover effect', d: 'zoom', opts: ['zoom','fade','none'] },
   ], layouts: [
@@ -366,6 +372,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Join the Club' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get started' },
     { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
     { k: 'plan1Name', t: 'text', l: 'Tier 1 name', d: 'Essential' }, { k: 'plan1Price', t: 'text', l: 'Tier 1 price', d: '$89' },
     { k: 'plan1Features', t: 'textarea', l: 'Tier 1 features (one per line)', d: '2 services/month\nPriority booking\n10% off retail' },
     { k: 'plan2Name', t: 'text', l: 'Tier 2 name', d: 'Luxe' }, { k: 'plan2Price', t: 'text', l: 'Tier 2 price', d: '$149' },
@@ -381,6 +388,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Prepaid Sessions' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Buy package' },
     { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
     { k: 'showExpiry', t: 'toggle', l: 'Show expiry', d: true }, { k: 'showSavings', t: 'toggle', l: 'Show savings %', d: true },
     { k: 'pkg1Name', t: 'text', l: 'Package 1 name', d: '5-Pack' }, { k: 'pkg1Price', t: 'text', l: 'Package 1 price', d: '$199' }, { k: 'pkg1Saving', t: 'text', l: 'Package 1 saving', d: 'Save 15%' },
     { k: 'pkg2Name', t: 'text', l: 'Package 2 name', d: '10-Pack' }, { k: 'pkg2Price', t: 'text', l: 'Package 2 price', d: '$349' }, { k: 'pkg2Saving', t: 'text', l: 'Package 2 saving', d: 'Save 25%' },
@@ -395,6 +403,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'bgImage', t: 'image', l: 'Background / card image', d: '' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Send a Gift Card' },
     { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
     { k: 'amounts', t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100' },
   ], layouts: [
     { id: 'hero',    label: 'Hero style', preview: '[ bg image | text + cta ]' },
@@ -408,6 +417,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'ctaText',    t: 'text',     l: 'Button text',       d: 'Request a Custom Quote' },
     { k: 'ctaNote',    t: 'text',     l: 'Below button note', d: 'We respond within 24 hours' },
     { k: 'ctaAction',  t: 'select',   l: 'Button action',     d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl',     t: 'text',     l: 'Custom URL (if url action)', d: '' },
     { k: 'bgImage',    t: 'image',    l: 'Background image',  d: '' },
     { k: 'overlayStyle', t: 'select', l: 'Image overlay style', d: 'dark', opts: ['dark','accent','none'] },
     { k: 'tags',       t: 'tag-list', l: 'Event types',       d: ['Bridal Parties','Corporate Events','Destination Services'] },
@@ -424,6 +434,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Heading', d: 'First Visit Special' }, { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Claim Offer' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'expiryText', t: 'text', l: 'Expiry text', d: 'Limited time only' },
   ], layouts: [
     { id: 'banner',    label: 'Banner',     preview: '[ offer · highlight · cta ]' },
@@ -474,7 +485,9 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showMap', t: 'toggle', l: 'Show map embed', d: true }, { k: 'showHours', t: 'toggle', l: 'Show hours', d: true },
     { k: 'showPhone', t: 'toggle', l: 'Show phone', d: true }, { k: 'showEmail', t: 'toggle', l: 'Show email', d: true },
     { k: 'showSocial', t: 'toggle', l: 'Show social links', d: true }, { k: 'ctaText', t: 'text', l: 'Book CTA text', d: 'Book an Appointment' },
-    { k: 'ctaAction', t: 'select', l: 'CTA action', d: 'booking', opts: ['booking','url'] }, { k: 'socialLinks', t: 'social-links', l: 'Social links', d: [] },
+    { k: 'ctaAction', t: 'select', l: 'CTA action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'socialLinks', t: 'social-links', l: 'Social links', d: [] },
   ], layouts: [
     { id: 'split-map', label: 'Map + info', preview: '[ map | hours · address ]' },
     { id: 'stacked',   label: 'Stacked',    preview: '[ map ]\n[ details ]'       },
@@ -483,6 +496,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Upcoming Events' }, { k: 'emptyText', t: 'text', l: 'When no events', d: 'Check back soon!' },
     { k: 'ctaText', t: 'text', l: 'RSVP button', d: 'RSVP Now' }, { k: 'ctaAction', t: 'select', l: 'RSVP action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
   ], layouts: [
     { id: 'cards', label: 'Event cards', preview: '┌────┐ ┌────┐' },
     { id: 'list',  label: 'List',        preview: '── date · event ──' },
@@ -493,6 +507,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Refer a Friend' }, { k: 'subheading', t: 'text', l: 'Description', d: 'Share the love — give $15, get $15' },
     { k: 'rewardYou', t: 'text', l: 'Your reward', d: '$15 credit' }, { k: 'rewardFriend', t: 'text', l: 'Friend reward', d: '$15 off first visit' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get My Referral Link' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
   ], layouts: [
     { id: 'split',    label: 'Split reward', preview: '[ you get | friend gets ]' },
     { id: 'centered', label: 'Centered',     preview: '  offer · [get link]  '   },
@@ -507,6 +522,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'stat1Value', t: 'text', l: 'Stat 1 value (optional)', d: '' }, { k: 'stat1Label', t: 'text', l: 'Stat 1 label', d: '' },
     { k: 'stat2Value', t: 'text', l: 'Stat 2 value (optional)', d: '' }, { k: 'stat2Label', t: 'text', l: 'Stat 2 label', d: '' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: '' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-team', opts: ['booking','scroll-team','scroll-services','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
   ], layouts: [
     { id: 'split',     label: 'Text + image',  preview: '[ text | image ]'            },
     { id: 'centered',  label: 'Centered',      preview: '  heading\n  body'            },
@@ -530,6 +546,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Heading', d: 'Fully Booked?' }, { k: 'subheading', t: 'text', l: 'Subheading', d: "Join our waitlist and we'll notify you when a slot opens" },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Join Waitlist' }, { k: 'ctaAction', t: 'select', l: 'Action', d: 'booking', opts: ['booking','url'] },
+    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' },
   ], layouts: [
     { id: 'banner',   label: 'Banner',   preview: '[ heading · form · cta ]' },
@@ -721,19 +738,30 @@ const BeforeAfterPairsEditor = ({ value, onChange }: { value: BeforeAfterPair[];
 
 const ImageArrayEditor = ({ value, onChange, maxImages = 24 }: { value: GalleryImage[]; onChange: (v: GalleryImage[]) => void; maxImages?: number }) => {
   const images: GalleryImage[] = Array.isArray(value) ? value : [];
-  const remove = (id: string) => onChange(images.filter(img => img.id !== id));
+  const remove     = (id: string) => onChange(images.filter(img => img.id !== id));
+  const updateLink = (id: string, link: string) => onChange(images.map(img => img.id === id ? { ...img, link } : img));
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-2">
         {images.map(img => (
-          <div key={img.id} className="relative group rounded-xl overflow-hidden border-2 border-border aspect-square">
-            {img.url ? <img src={img.url} alt={img.caption || ''} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-muted flex items-center justify-center"><ImageIcon className="w-5 h-5 text-muted-foreground/40"/></div>}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button onClick={() => remove(img.id)} className="w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center"><X className="w-3 h-3"/></button></div>
+          <div key={img.id} className="space-y-1">
+            <div className="relative group rounded-xl overflow-hidden border-2 border-border aspect-square">
+              {img.url ? <img src={img.url} alt={img.caption || ''} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-muted flex items-center justify-center"><ImageIcon className="w-5 h-5 text-muted-foreground/40"/></div>}
+              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><button onClick={() => remove(img.id)} className="w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center"><X className="w-3 h-3"/></button></div>
+            </div>
+            {/* Per-image link input */}
+            <input
+              type="url"
+              value={img.link || ''}
+              onChange={e => updateLink(img.id, e.target.value)}
+              placeholder="Link URL (optional)"
+              className="w-full px-2 py-1 text-[10px] border border-border rounded-lg focus:outline-none focus:border-primary/40 font-mono"
+            />
           </div>
         ))}
       </div>
       {images.length < maxImages && (
-        <div><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50 mb-2">Upload new image</p><ImageUpload initialImage="" onImageUploaded={url => onChange([...images, { id: generateId(), url, caption: '', category: '' }])}/></div>
+        <div><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50 mb-2">Upload new image</p><ImageUpload initialImage="" onImageUploaded={url => onChange([...images, { id: generateId(), url, caption: '', category: '', link: '' }])}/></div>
       )}
       {images.length > 0 && <p className="text-[9px] text-muted-foreground/50 text-center">{images.length} image{images.length !== 1 ? 's' : ''} uploaded</p>}
     </div>
