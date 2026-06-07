@@ -1,4 +1,4 @@
-'use client';
+Li'use client';
  
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type PageSection } from '@/lib/data';
@@ -347,39 +347,25 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
     ) : null;
 
   // ── CTA button ─────────────────────────────────────────────────────────────
-  const cta = (link?: string) => (e: React.MouseEvent) => {
-  e.stopPropagation();
-  const l = (link ?? '').trim();
- 
-  // External URL
-  if (l.startsWith('http') || l.startsWith('//')) {
-    window.open(l.startsWith('//') ? 'https:' + l : l, '_blank', 'noopener,noreferrer');
-    return;
-  }
- 
-  // Scroll to a section: #services, #team, #gallery, etc.
-  if (l.startsWith('#')) {
-    const el = document.getElementById(l.slice(1));
-    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
-    // fallback: also try named scroll aliases
-  }
- 
-  // Named scroll shortcuts (from old ctaAction values)
-  const scrollMap: Record<string, string> = {
-    'scroll-services': 'services',
-    'scroll-contact':  'contact',
-    'scroll-team':     'team',
-    'scroll-gallery':  'gallery',
-  };
-  if (scrollMap[l]) {
-    document.getElementById(scrollMap[l])?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    return;
-  }
- 
-  // Default: open booking flow
-  window.dispatchEvent(new CustomEvent('cf-book'));
-};
- 
+  const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; className?: string }) => (
+  <button
+    onClick={cta((config.ctaLink as string) || config.ctaAction)}
+    className={cn(
+      'inline-flex items-center gap-1.5 font-black uppercase tracking-widest',
+      'hover:opacity-90 active:scale-[0.97] transition-all whitespace-nowrap',
+      className
+    )}
+    style={{
+      ...btnStyle(style),
+      fontFamily: bf(style),
+      padding: size === 'sm' ? '8px 18px' : '10px 24px',
+      fontSize: size === 'sm' ? '10px' : '11px',
+      letterSpacing: '0.12em',
+      borderRadius: br(style, 0.8),
+    }}>
+    {config.ctaText || 'Book Now'}
+  </button>
+);
 
   // ── Hamburger button ───────────────────────────────────────────────────────
   // Thinner lines, no border-radius on lines, subtler pill background.
