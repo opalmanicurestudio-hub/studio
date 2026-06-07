@@ -347,22 +347,39 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
     ) : null;
 
   // ── CTA button ─────────────────────────────────────────────────────────────
-  const Cta = ({ size = 'default', className = '' }: { size?: 'default' | 'sm'; className?: string }) => (
-    <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
-      <button onClick={cta(config.ctaAction, config.ctaUrl)}
-        className={cn('font-black uppercase tracking-widest hover:opacity-90 transition-all active:scale-95 whitespace-nowrap', className,
-          size === 'sm' ? 'px-4 py-2 text-[10px]' : 'px-6 py-2.5 text-[11px]')}
-        style={{
-          ...(isDark ? { background: 'rgba(255,255,255,0.15)', color: 'white',
-              border: '1.5px solid rgba(255,255,255,0.35)',
-              borderRadius: style.buttonStyle === 'pill' ? '999px' : br(style, 0.6) }
-            : { ...btnStyle(style) }),
-          fontFamily: bf(style),
-        }}>
-        {config.ctaText || 'Book Now'}
-      </button>
-    </FieldTap>
-  );
+  const cta = (link?: string) => (e: React.MouseEvent) => {
+  e.stopPropagation();
+  const l = (link ?? '').trim();
+ 
+  // External URL
+  if (l.startsWith('http') || l.startsWith('//')) {
+    window.open(l.startsWith('//') ? 'https:' + l : l, '_blank', 'noopener,noreferrer');
+    return;
+  }
+ 
+  // Scroll to a section: #services, #team, #gallery, etc.
+  if (l.startsWith('#')) {
+    const el = document.getElementById(l.slice(1));
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+    // fallback: also try named scroll aliases
+  }
+ 
+  // Named scroll shortcuts (from old ctaAction values)
+  const scrollMap: Record<string, string> = {
+    'scroll-services': 'services',
+    'scroll-contact':  'contact',
+    'scroll-team':     'team',
+    'scroll-gallery':  'gallery',
+  };
+  if (scrollMap[l]) {
+    document.getElementById(scrollMap[l])?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+ 
+  // Default: open booking flow
+  window.dispatchEvent(new CustomEvent('cf-book'));
+};
+ 
 
   // ── Hamburger button ───────────────────────────────────────────────────────
   // Thinner lines, no border-radius on lines, subtler pill background.
