@@ -92,7 +92,7 @@ type SectionType =
 type FieldType =
   | 'text' | 'textarea' | 'toggle' | 'select' | 'image' | 'color'
   | 'range' | 'image-array' | 'social-links' | 'policy-list' | 'tag-list'
-  | 'beforeafter-pairs';
+  | 'beforeafter-pairs' | 'link';
 
 interface SectionField { k: string; t: FieldType; l: string; d: any; opts?: string[]; min?: number; max?: number; step?: number; }
 interface SectionLayoutOption { id: string; label: string; preview: string; }
@@ -224,8 +224,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'logoText',          t: 'text',   l: 'Studio name (text fallback)',          d: 'Opal' },
     { k: 'logoMaxHeight',     t: 'select', l: 'Logo size',                            d: '40', opts: ['28','32','36','40','48','56'] },
     { k: 'ctaText',           t: 'text',   l: 'Button label',                         d: 'Book Now' },
-    { k: 'ctaAction',         t: 'select', l: 'Button action',                        d: 'scroll-contact', opts: ['scroll-contact','scroll-services','booking','url'] },
-    { k: 'ctaUrl',            t: 'text',   l: 'Custom URL (if url action)',            d: '' },
+    { k: 'ctaLink', t: 'link', l: 'Button link', d: 'booking' },
     { k: 'showLinks',         t: 'toggle', l: 'Show nav links',                        d: true },
     { k: 'sticky',            t: 'toggle', l: 'Sticky nav',                            d: true },
     { k: 'navBgColor',        t: 'color',  l: 'Nav bar color (blank = default white)', d: '' },
@@ -252,11 +251,9 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'heroImage', t: 'image', l: 'Feature image (split/magazine)', d: '' },
     { k: 'overlayOpacity', t: 'range', l: 'Overlay opacity', d: 40, min: 0, max: 90, step: 5 },
     { k: 'headline', t: 'text', l: 'Headline', d: 'Book Your Experience' }, { k: 'subheadline', t: 'textarea', l: 'Subheadline', d: 'A sanctuary of craft, curated for those who appreciate the details.' },
-    { k: 'ctaText', t: 'text', l: 'Primary button', d: 'Book a Session' }, { k: 'ctaAction', t: 'select', l: 'Primary action', d: 'booking', opts: ['booking','scroll-services','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Primary button URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Primary button', d: 'Book a Session' }, { k: 'ctaLink', t: 'link', l: 'Primary button link', d: 'booking' },
     { k: 'showWalkIn', t: 'toggle', l: 'Show walk-in button', d: true }, { k: 'cta2Text', t: 'text', l: 'Walk-in label', d: 'Walk In Today' },
-    { k: 'cta2Action', t: 'select', l: 'Walk-in action', d: 'scroll-contact', opts: ['booking','scroll-contact','scroll-services','url'] },
-    { k: 'cta2Url', t: 'text', l: 'Walk-in button URL (if url action)', d: '' },
+    { k: 'cta2Link', t: 'link', l: 'Walk-in button link', d: 'booking' },
     { k: 'videoUrl', t: 'text', l: 'Background video URL', d: '' }, { k: 'showBadge', t: 'toggle', l: 'Show trust badge', d: false },
     { k: 'badgeText', t: 'text', l: 'Badge text', d: '⭐ 4.9 · 500+ clients' },
   ], layouts: [
@@ -288,8 +285,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Our Services' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Handcrafted treatments for every occasion' },
-    { k: 'ctaText', t: 'text', l: 'Book button text', d: 'Book this service' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Book button text', d: 'Book this service' }, { k: 'ctaLink', t: 'link', l: 'Button action', d: 'booking' },
     { k: 'columns', t: 'select', l: 'Columns', d: '2', opts: ['1','2','3'] }, { k: 'showPrices', t: 'toggle', l: 'Show prices', d: true },
     { k: 'showDuration', t: 'toggle', l: 'Show duration', d: true }, { k: 'showFilters', t: 'toggle', l: 'Category filter', d: false },
     { k: 'showDesc', t: 'toggle', l: 'Show descriptions', d: true }, { k: 'showImages', t: 'toggle', l: 'Show service images', d: false },
@@ -309,8 +305,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'heading', t: 'text', l: 'Section heading', d: 'The Artists' }, { k: 'subheading', t: 'text', l: 'Subheading', d: 'Expert hands for every style' },
     { k: 'showBio', t: 'toggle', l: 'Show bio', d: false }, { k: 'showSpecialties', t: 'toggle', l: 'Show specialties', d: true },
     { k: 'showBookButton', t: 'toggle', l: 'Book per artist', d: false }, { k: 'bookCta', t: 'text', l: 'Book button text', d: 'Book with me' },
-    { k: 'bookAction', t: 'select', l: 'Book button action', d: 'booking', opts: ['booking','url'] },
-    { k: 'bookUrl', t: 'text', l: 'Custom booking URL (if url action)', d: '' },
+    { k: 'bookLink', t: 'link', l: 'Book button link', d: 'booking' },
     { k: 'hoverReveal', t: 'toggle', l: 'Hover reveal bio', d: true },
   ], layouts: [
     { id: 'circles',        label: 'Circle avatars',  preview: '  ◯   ◯   ◯'                   },
@@ -371,8 +366,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   memberships: { label: 'Memberships', icon: Crown, color: '#534AB7', fields: [
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Join the Club' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get started' },
-    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaLink', t: 'link', l: 'Button action', d: 'scroll-contact' },
     { k: 'plan1Name', t: 'text', l: 'Tier 1 name', d: 'Essential' }, { k: 'plan1Price', t: 'text', l: 'Tier 1 price', d: '$89' },
     { k: 'plan1Features', t: 'textarea', l: 'Tier 1 features (one per line)', d: '2 services/month\nPriority booking\n10% off retail' },
     { k: 'plan2Name', t: 'text', l: 'Tier 2 name', d: 'Luxe' }, { k: 'plan2Price', t: 'text', l: 'Tier 2 price', d: '$149' },
@@ -387,8 +381,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   packages: { label: 'Packages', icon: Package, color: '#185FA5', fields: [
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Prepaid Sessions' }, { k: 'ctaText', t: 'text', l: 'Button text', d: 'Buy package' },
-    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-contact', opts: ['booking','scroll-contact','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaLink', t: 'link', l: 'Button action', d: 'scroll-contact' },
     { k: 'showExpiry', t: 'toggle', l: 'Show expiry', d: true }, { k: 'showSavings', t: 'toggle', l: 'Show savings %', d: true },
     { k: 'pkg1Name', t: 'text', l: 'Package 1 name', d: '5-Pack' }, { k: 'pkg1Price', t: 'text', l: 'Package 1 price', d: '$199' }, { k: 'pkg1Saving', t: 'text', l: 'Package 1 saving', d: 'Save 15%' },
     { k: 'pkg2Name', t: 'text', l: 'Package 2 name', d: '10-Pack' }, { k: 'pkg2Price', t: 'text', l: 'Package 2 price', d: '$349' }, { k: 'pkg2Saving', t: 'text', l: 'Package 2 saving', d: 'Save 25%' },
@@ -402,8 +395,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Give the Gift of Beauty' },
     { k: 'bgImage', t: 'image', l: 'Background / card image', d: '' },
     { k: 'ctaText', t: 'text', l: 'Button text', d: 'Send a Gift Card' },
-    { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaLink', t: 'link', l: 'Button action', d: 'booking' },
     { k: 'amounts', t: 'text', l: 'Preset amounts (comma-sep)', d: '25,50,75,100' },
   ], layouts: [
     { id: 'hero',    label: 'Hero style', preview: '[ bg image | text + cta ]' },
@@ -416,8 +408,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'subheading', t: 'textarea', l: 'Description',       d: 'Planning a wedding, bridal party, or corporate event?' },
     { k: 'ctaText',    t: 'text',     l: 'Button text',       d: 'Request a Custom Quote' },
     { k: 'ctaNote',    t: 'text',     l: 'Below button note', d: 'We respond within 24 hours' },
-    { k: 'ctaAction',  t: 'select',   l: 'Button action',     d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl',     t: 'text',     l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaLink', t: 'link', l: 'Button action', d: 'booking' },
     { k: 'bgImage',    t: 'image',    l: 'Background image',  d: '' },
     { k: 'overlayStyle', t: 'select', l: 'Image overlay style', d: 'dark', opts: ['dark','accent','none'] },
     { k: 'tags',       t: 'tag-list', l: 'Event types',       d: ['Bridal Parties','Corporate Events','Destination Services'] },
@@ -433,8 +424,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   newclient: { label: 'New Client Offer', icon: Sparkles, color: '#854F0B', fields: [
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Heading', d: 'First Visit Special' }, { k: 'offerText', t: 'text', l: 'Offer description', d: '20% off your first appointment' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Claim Offer' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Claim Offer' }, { k: 'ctaLink', t: 'link', l: 'Button action', d: 'booking' },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' }, { k: 'expiryText', t: 'text', l: 'Expiry text', d: 'Limited time only' },
   ], layouts: [
     { id: 'banner',    label: 'Banner',     preview: '[ offer · highlight · cta ]' },
@@ -485,8 +475,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showMap', t: 'toggle', l: 'Show map embed', d: true }, { k: 'showHours', t: 'toggle', l: 'Show hours', d: true },
     { k: 'showPhone', t: 'toggle', l: 'Show phone', d: true }, { k: 'showEmail', t: 'toggle', l: 'Show email', d: true },
     { k: 'showSocial', t: 'toggle', l: 'Show social links', d: true }, { k: 'ctaText', t: 'text', l: 'Book CTA text', d: 'Book an Appointment' },
-    { k: 'ctaAction', t: 'select', l: 'CTA action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaLink', t: 'link', l: 'CTA action', d: 'booking' },
     { k: 'socialLinks', t: 'social-links', l: 'Social links', d: [] },
   ], layouts: [
     { id: 'split-map', label: 'Map + info', preview: '[ map | hours · address ]' },
@@ -495,8 +484,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
   events: { label: 'Events Calendar', icon: Calendar, color: '#854F0B', fields: [
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Upcoming Events' }, { k: 'emptyText', t: 'text', l: 'When no events', d: 'Check back soon!' },
-    { k: 'ctaText', t: 'text', l: 'RSVP button', d: 'RSVP Now' }, { k: 'ctaAction', t: 'select', l: 'RSVP action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'RSVP button', d: 'RSVP Now' }, { k: 'ctaLink', t: 'link', l: 'RSVP action', d: 'booking' },
   ], layouts: [
     { id: 'cards', label: 'Event cards', preview: '┌────┐ ┌────┐' },
     { id: 'list',  label: 'List',        preview: '── date · event ──' },
@@ -506,8 +494,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Section heading', d: 'Refer a Friend' }, { k: 'subheading', t: 'text', l: 'Description', d: 'Share the love — give $15, get $15' },
     { k: 'rewardYou', t: 'text', l: 'Your reward', d: '$15 credit' }, { k: 'rewardFriend', t: 'text', l: 'Friend reward', d: '$15 off first visit' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get My Referral Link' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Get My Referral Link' }, { k: 'ctaLink', t: 'link', l: 'Button action', d: 'booking' },
   ], layouts: [
     { id: 'split',    label: 'Split reward', preview: '[ you get | friend gets ]' },
     { id: 'centered', label: 'Centered',     preview: '  offer · [get link]  '   },
@@ -521,8 +508,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'body2', t: 'textarea', l: 'Second paragraph (optional)', d: '' },
     { k: 'stat1Value', t: 'text', l: 'Stat 1 value (optional)', d: '' }, { k: 'stat1Label', t: 'text', l: 'Stat 1 label', d: '' },
     { k: 'stat2Value', t: 'text', l: 'Stat 2 value (optional)', d: '' }, { k: 'stat2Label', t: 'text', l: 'Stat 2 label', d: '' },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: '' }, { k: 'ctaAction', t: 'select', l: 'Button action', d: 'scroll-team', opts: ['booking','scroll-team','scroll-services','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: '' }, { k: 'ctaLink', t: 'link', l: 'Button action', d: 'scroll-team' },
   ], layouts: [
     { id: 'split',     label: 'Text + image',  preview: '[ text | image ]'            },
     { id: 'centered',  label: 'Centered',      preview: '  heading\n  body'            },
@@ -545,8 +531,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'showHeading',    t: 'toggle', l: 'Show section heading',    d: true },
     { k: 'showSubheading', t: 'toggle', l: 'Show section subheading', d: true },
     { k: 'heading', t: 'text', l: 'Heading', d: 'Fully Booked?' }, { k: 'subheading', t: 'text', l: 'Subheading', d: "Join our waitlist and we'll notify you when a slot opens" },
-    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Join Waitlist' }, { k: 'ctaAction', t: 'select', l: 'Action', d: 'booking', opts: ['booking','url'] },
-    { k: 'ctaUrl', t: 'text', l: 'Custom URL (if url action)', d: '' },
+    { k: 'ctaText', t: 'text', l: 'Button text', d: 'Join Waitlist' }, { k: 'ctaLink', t: 'link', l: 'Action', d: 'booking' },
     { k: 'bgImage', t: 'image', l: 'Background image', d: '' },
   ], layouts: [
     { id: 'banner',   label: 'Banner',   preview: '[ heading · form · cta ]' },
@@ -780,8 +765,110 @@ const TagListEditor = ({ value, onChange }: { value: string[]; onChange: (v: str
   );
 };
 
-const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedField }: {
-  field: SectionField; value: any; onChange: (v: any) => void; highlightedField?: string | null;
+// ─── Link Picker ───────────────────────────────────────────────────────────────
+const SECTION_LINK_LABELS: Record<string, string> = {
+  services: 'Services', team: 'Team', gallery: 'Gallery',
+  reviews: 'Reviews', contact: 'Contact', faq: 'FAQ',
+  quote: 'Quote Form', events: 'Events', memberships: 'Memberships',
+  packages: 'Packages', giftcards: 'Gift Cards', story: 'Our Story',
+  referral: 'Referral', beforeafter: 'Before/After', waitlist: 'Waitlist',
+};
+
+const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
+  value: string; onChange: (v: string) => void; enabledTypes?: string[];
+}) => {
+  const [customUrl, setCustomUrl] = useState(value?.startsWith('http') ? value : '');
+  const current = value || 'booking';
+  const isBooking  = !value || value === 'booking';
+  const isSection  = current.startsWith('#');
+  const isExternal = current.startsWith('http');
+
+  const sectionLinks = enabledTypes
+    .filter(t => SECTION_LINK_LABELS[t])
+    .map(t => ({ label: SECTION_LINK_LABELS[t], value: `#${t}` }));
+
+  const apply = (v: string) => { onChange(v); if (v.startsWith('http')) setCustomUrl(v); };
+
+  return (
+    <div className="space-y-4">
+      {/* Current state */}
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border-2"
+        style={{ borderColor: 'var(--primary, #6366f1)', background: 'color-mix(in srgb, var(--primary, #6366f1) 6%, transparent)' }}>
+        <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-primary"/>
+        <span className="text-[11px] font-black uppercase tracking-widest text-primary flex-1 truncate">
+          {isBooking  ? 'Opens booking flow'
+           : isSection ? `Scrolls to ${SECTION_LINK_LABELS[current.slice(1)] ?? current.slice(1)}`
+           : current}
+        </span>
+        {!isBooking && (
+          <button onClick={() => apply('booking')}
+            className="shrink-0 text-muted-foreground hover:text-red-500 transition-colors">
+            <X className="w-3.5 h-3.5"/>
+          </button>
+        )}
+      </div>
+
+      {/* Booking flow */}
+      <button onClick={() => apply('booking')}
+        className={cn('w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 text-left transition-all',
+          isBooking ? 'border-primary/30 bg-primary/5' : 'border-border hover:border-primary/20')}>
+        <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: isBooking ? 'var(--primary)' : '#e2e8f0' }}>
+          <BookOpen className="w-3 h-3" style={{ color: isBooking ? '#fff' : '#64748b' }}/>
+        </div>
+        <span className={cn('text-[11px] font-black uppercase tracking-widest',
+          isBooking ? 'text-primary' : 'text-slate-500')}>
+          Open booking flow
+        </span>
+        {isBooking && <Check className="w-3.5 h-3.5 text-primary ml-auto"/>}
+      </button>
+
+      {/* Page sections */}
+      {sectionLinks.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">
+            Scroll to section
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {sectionLinks.map(s => (
+              <button key={s.value} onClick={() => apply(s.value)}
+                className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',
+                  current === s.value
+                    ? 'bg-primary/10 border border-primary/30 text-primary'
+                    : 'bg-slate-100 border border-transparent text-slate-500 hover:bg-primary/5 hover:text-primary hover:border-primary/20')}>
+                ↓ {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Custom URL */}
+      <div className="space-y-1.5">
+        <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">
+          Custom URL
+        </p>
+        <div className="flex gap-2">
+          <Input
+            type="url"
+            value={isExternal ? current : customUrl}
+            onChange={e => setCustomUrl(e.target.value)}
+            placeholder="https://yourbookingsite.com"
+            className="flex-1 h-9 rounded-xl border-2 text-xs font-mono"
+          />
+          <Button size="sm" onClick={() => { if (customUrl.startsWith('http')) apply(customUrl); }}
+            className="h-9 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest">
+            Set
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedField, enabledSectionTypes }: {
+  field: SectionField; value: any; onChange: (v: any) => void;
+  highlightedField?: string | null; enabledSectionTypes?: string[];
 }) => {
   const fieldRef = useRef<HTMLDivElement>(null);
   const isHighlighted = highlightedField === field.k;
@@ -824,6 +911,7 @@ const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedFi
   if (field.t === 'textarea')          return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Textarea value={value || ''} onChange={e => onChange(e.target.value)} className="rounded-xl border-2 text-sm min-h-[80px] resize-none"/></div>);
   if (field.t === 'select')            return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Select value={value ?? field.d} onValueChange={onChange}><SelectTrigger className="h-10 rounded-xl border-2 text-xs font-black uppercase"><SelectValue/></SelectTrigger><SelectContent className="rounded-xl border-2">{field.opts!.map(o => <SelectItem key={o} value={o} className="text-xs font-black uppercase">{o.replace(/-/g,' ').charAt(0).toUpperCase()+o.replace(/-/g,' ').slice(1)}</SelectItem>)}</SelectContent></Select></div>);
   if (field.t === 'color')             return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><div className="flex items-center gap-2"><input type="color" value={value || '#000000'} onChange={e => onChange(e.target.value)} className="w-10 h-10 rounded-xl border-2 cursor-pointer p-0.5"/><Input value={value || ''} onChange={e => /^#[0-9a-fA-F]{0,6}$/.test(e.target.value) && onChange(e.target.value)} className="h-10 rounded-xl border-2 font-mono text-xs w-28" maxLength={7} placeholder="#000000"/></div></div>);
+  if (field.t === 'link')              return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><LinkPickerEditor value={value || 'booking'} onChange={onChange} enabledTypes={enabledSectionTypes}/></div>);
   if (field.t === 'range')             return wrapper(<div className="space-y-2"><div className="flex items-center justify-between"><Label className={labelCls}>{field.l}</Label><span className="text-xs font-bold text-muted-foreground">{value ?? field.d}</span></div><Slider value={[value ?? field.d]} onValueChange={([v]) => onChange(v)} min={field.min ?? 0} max={field.max ?? 100} step={field.step ?? 1} className="w-full"/></div>);
   return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Input value={value || ''} onChange={e => onChange(e.target.value)} className="h-10 rounded-xl border-2 text-sm"/></div>);
 };
@@ -1254,7 +1342,7 @@ export function PageBuilderPageInner() {
         <><LayoutPicker layouts={selectedDef.layouts} value={selectedSection.config.layout ?? selectedDef.layouts[0].id} onChange={val => updateField(selectedSection.id, 'layout', val)}/><Separator className="border-dashed"/></>
       )}
       {SECTION_DEFS[selectedSection.type as SectionType]?.fields.map(field => (
-        <FieldRenderer key={field.k} field={field} value={selectedSection.config[field.k] ?? field.d} onChange={val => updateField(selectedSection.id, field.k, val)} highlightedField={highlightedField}/>
+        <FieldRenderer key={field.k} field={field} value={selectedSection.config[field.k] ?? field.d} onChange={val => updateField(selectedSection.id, field.k, val)} highlightedField={highlightedField} enabledSectionTypes={allSectionTypes}/>
       ))}
     </div>
     );
