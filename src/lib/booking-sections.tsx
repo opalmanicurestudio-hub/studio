@@ -346,8 +346,8 @@ function NavSection({ config, style, data, isPreview, sectionId, onFieldTap }: S
       </div>
     ) : null;
 
-  // ── CTA button ─────────────────────────────────────────────────────────────
-  const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; className?: string }) => (
+  // ── CTA button component ───────────────────────────────────────────────────
+const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; className?: string }) => (
   <button
     onClick={cta((config.ctaLink as string) || config.ctaAction)}
     className={cn(
