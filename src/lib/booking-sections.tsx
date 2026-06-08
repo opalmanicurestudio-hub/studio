@@ -1,4 +1,4 @@
-Li'use client';
+'use client';
  
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type PageSection } from '@/lib/data';
