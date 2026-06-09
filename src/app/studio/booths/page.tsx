@@ -411,7 +411,8 @@ function PricingAdvisor(props: {
 }
 
 export default function BoothsPage() {
-  const { firestore, tenantId } = useFirebase();
+  const { firestore, user, isUserLoading } = useFirebase();
+  const tenantId = user?.uid ?? null;
 
   const boothsRef = useMemoFirebase(
     () =>
@@ -450,7 +451,7 @@ export default function BoothsPage() {
     return { total: list.length, vacant, occupied, potentialMonthly };
   }, [sortedBooths]);
 
-  if (!firestore || !tenantId) {
+  if (isUserLoading || !tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
         Loading your studio…
