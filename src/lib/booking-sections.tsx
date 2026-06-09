@@ -4237,7 +4237,7 @@ function ContactSection({ config, style, data, isPreview, sectionId, onFieldTap 
         )}
       </div>
  
-      <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)
+      <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
         className="inline-flex items-center gap-2 font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.97] transition-all whitespace-nowrap"
         style={{ ...btnStyle(style), fontFamily: bf(style),
           padding: 'clamp(12px,2.5vw,15px) clamp(22px,4vw,36px)',
