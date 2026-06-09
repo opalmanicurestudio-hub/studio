@@ -125,16 +125,27 @@ function openBooking(service?: any) {
   window.dispatchEvent(new CustomEvent('cf-book', { detail: { service: service || null } }));
 }
 
-function cta(action?: string, url?: string) {
+function cta(link?: string, legacyUrl?: string) {
   return (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (action === 'booking') { openBooking(); return; }
-    if (action === 'url' && url) { window.open(url, '_blank'); return; }
-    const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-    if (action === 'scroll-services') { go('services'); return; }
-    if (action === 'scroll-contact')  { go('contact');  return; }
-    if (action === 'scroll-team')     { go('team');     return; }
-    go('contact');
+    const l = (link || '').trim();
+    if (l.startsWith('http') || l.startsWith('//')) {
+      window.open(l, '_blank', 'noopener,noreferrer'); return;
+    }
+    if (l.startsWith('#')) {
+      document.getElementById(l.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
+    }
+    if (l === 'url' && legacyUrl) {
+      window.open(legacyUrl, '_blank', 'noopener,noreferrer'); return;
+    }
+    const scrolls: Record<string,string> = {
+      'scroll-services': 'services', 'scroll-contact': 'contact',
+      'scroll-team': 'team', 'scroll-gallery': 'gallery',
+    };
+    if (scrolls[l]) {
+      document.getElementById(scrolls[l])?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
+    }
+    window.dispatchEvent(new CustomEvent('cf-book'));
   };
 }
 
@@ -540,7 +551,7 @@ const Cta = ({ size = 'default', className = '' }: { size?: 'sm' | 'default'; cl
           style={{ borderTop: `1.5px solid ${ac(style)}10`,
             paddingBottom: 'max(24px, env(safe-area-inset-bottom, 24px))', paddingTop: '16px' }}>
           <button
-            onClick={() => { cta(config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any); setDrawerOpen(false); }}
+            onClick={() => { cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)({ stopPropagation: () => {} } as any); setDrawerOpen(false); }}
             className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 active:scale-[0.99] transition-all whitespace-nowrap"
             style={{ ...btnStyle(style), fontFamily: bf(style), borderRadius: `${Math.min((style.borderRadius || 4), 16)}px` }}>
             {config.ctaText || 'Book Now'}
@@ -726,7 +737,7 @@ function HeroSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
   const Btns = ({ light = true }: { light?: boolean }) => (
     <div className="flex flex-wrap items-center gap-3">
       <button
-        onClick={cta(config.ctaAction, config.ctaUrl)}
+        onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
         className="inline-flex items-center gap-2 font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.97] transition-all whitespace-nowrap"
         style={{
           ...(light ? { background: '#ffffff', color: accent } : btnStyle(style)),
@@ -740,7 +751,7 @@ function HeroSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
       </button>
       {config.showWalkIn !== false && config.cta2Text && (
         <button
-          onClick={cta(config.cta2Action || 'scroll-contact', config.ctaUrl)}
+          onClick={cta((config.cta2Link as string) || config.cta2Action || 'scroll-contact', config.ctaUrl)}
           className="inline-flex items-center gap-1.5 font-black uppercase tracking-widest transition-all whitespace-nowrap"
           style={{ fontFamily: bf(style), fontSize: 'clamp(10px,2vw,11px)', letterSpacing: '0.12em',
             color: light ? 'rgba(255,255,255,0.72)' : '#64748b',
@@ -3021,7 +3032,7 @@ function MembershipsSection({ config, style, isPreview, sectionId, onFieldTap }:
                   </li>
                 ))}
               </ul>
-              <button onClick={cta(config.ctaAction, config.ctaUrl)} className="w-full py-3.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ background: plan.featured ? 'white' : ac(style), color: plan.featured ? ac(style) : 'white', borderRadius: br(style), fontFamily: bf(style) }}>{config.ctaText || 'Join Now'}</button>
+              <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="w-full py-3.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ background: plan.featured ? 'white' : ac(style), color: plan.featured ? ac(style) : 'white', borderRadius: br(style), fontFamily: bf(style) }}>{config.ctaText || 'Join Now'}</button>
             </div>
           ))}
         </div>
@@ -3048,7 +3059,7 @@ function PackagesSection({ config, style, isPreview, sectionId, onFieldTap }: Se
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{pkg.sessions} sessions</p>
               {config.showExpiry !== false && <p className="text-xs text-slate-400">Valid 12 months</p>}
               {config.showSavings !== false && <span className="inline-block px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white" style={{ background: ac(style), borderRadius: br(style,2) }}>{pkg.saving}</span>}
-              <button onClick={cta(config.ctaAction, config.ctaUrl)} className="block w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>Purchase</button>
+              <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="block w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>Purchase</button>
             </div>
           ))}
         </div>
@@ -3112,7 +3123,7 @@ function QuoteSection({ config, style, data, isPreview, sectionId, onFieldTap }:
  
   const PrimaryBtn = ({ light = false, full = false }: { light?: boolean; full?: boolean }) => (
     <div>
-      <button onClick={cta(config.ctaAction, config.ctaUrl)}
+      <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
         className={cn('group inline-flex items-center gap-2.5 font-black uppercase tracking-widest transition-all active:scale-[0.97] whitespace-nowrap', full ? 'w-full justify-center' : '')}
         style={{
           ...(light ? { background: '#ffffff', color: accent } : btnStyle(style)),
@@ -3566,7 +3577,7 @@ function NewClientSection({ config, style, isPreview, sectionId, onFieldTap }: S
             {config.finePrint && <p className="text-xs" style={{ color: hasBg ? 'rgba(255,255,255,0.4)' : '#94a3b8' }}>{config.finePrint}</p>}
           </div>
           <FieldTap sectionId={sectionId} fieldKey="ctaText" isPreview={isPreview} onFieldTap={onFieldTap} as="span">
-            <button onClick={cta(config.ctaAction, config.ctaUrl)} className="shrink-0 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Claim Offer'}</button>
+            <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="shrink-0 px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Claim Offer'}</button>
           </FieldTap>
         </div>
       </div>
@@ -4226,7 +4237,7 @@ function ContactSection({ config, style, data, isPreview, sectionId, onFieldTap 
         )}
       </div>
  
-      <button onClick={cta(config.ctaAction, config.ctaUrl)}
+      <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)
         className="inline-flex items-center gap-2 font-black uppercase tracking-widest hover:opacity-90 active:scale-[0.97] transition-all whitespace-nowrap"
         style={{ ...btnStyle(style), fontFamily: bf(style),
           padding: 'clamp(12px,2.5vw,15px) clamp(22px,4vw,36px)',
@@ -4291,7 +4302,7 @@ function ReferralSection({ config, style, isPreview, sectionId, onFieldTap }: Se
             </div>
           ))}
         </div>
-        <button onClick={cta(config.ctaAction, config.ctaUrl)} className="px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Get My Referral Link'}</button>
+        <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="px-10 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Get My Referral Link'}</button>
       </div>
     </section>
   );
@@ -4314,7 +4325,7 @@ function StorySection({ config, style, isPreview, sectionId, onFieldTap }: Secti
   ) : null;
 
   const CtaBtn = ({ dark = false }: { dark?: boolean }) => config.ctaText ? (
-    <button onClick={cta(config.ctaAction, config.ctaUrl)} className="inline-flex items-center gap-2 px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all"
+    <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="inline-flex items-center gap-2 px-8 py-3.5 font-black text-sm uppercase tracking-widest hover:opacity-80 transition-all"
       style={dark ? { background: 'white', color: ac(style), borderRadius: br(style), fontFamily: bf(style) } : { ...btnStyle(style,'secondary'), fontFamily: bf(style) }}>
       {config.ctaText} <ArrowRight className="w-3.5 h-3.5"/>
     </button>
@@ -4466,7 +4477,7 @@ function WaitlistSection({ config, style, isPreview, sectionId, onFieldTap }: Se
         </div>
         <div className="flex gap-2">
           <input type="email" placeholder="your@email.com" className="flex-1 px-4 py-3 text-sm focus:outline-none" style={{ borderRadius: br(style), border: `2px solid ${hasBg ? 'rgba(255,255,255,0.3)' : ac(style)+'40'}`, fontFamily: bf(style), background: hasBg ? 'rgba(255,255,255,0.1)' : 'white', color: hasBg ? 'white' : 'inherit' }}/>
-          <button onClick={cta(config.ctaAction, config.ctaUrl)} className="px-6 py-3 font-black text-sm uppercase tracking-widest whitespace-nowrap hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Join'}</button>
+          <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="px-6 py-3 font-black text-sm uppercase tracking-widest whitespace-nowrap hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Join'}</button>
         </div>
       </div>
     </section>
