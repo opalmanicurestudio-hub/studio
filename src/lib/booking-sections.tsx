@@ -129,6 +129,9 @@ function cta(link?: string, legacyUrl?: string) {
   return (e: React.MouseEvent) => {
     e.stopPropagation();
     const l = (link || '').trim();
+    if (!l || l === 'booking') {
+      window.dispatchEvent(new CustomEvent('cf-book')); return;
+    }
     if (l.startsWith('http') || l.startsWith('//')) {
       window.open(l, '_blank', 'noopener,noreferrer'); return;
     }
@@ -145,7 +148,8 @@ function cta(link?: string, legacyUrl?: string) {
     if (scrolls[l]) {
       document.getElementById(scrolls[l])?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return;
     }
-    window.dispatchEvent(new CustomEvent('cf-book'));
+    // Bare domain or unrecognized — open as external
+    window.open(`https://${l}`, '_blank', 'noopener,noreferrer');
   };
 }
 
