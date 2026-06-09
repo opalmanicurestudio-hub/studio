@@ -822,10 +822,16 @@ const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
       {/* Custom URL — saves as you type, no button needed */}
       <div className="space-y-1.5">
         <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">Custom URL</p>
-        <Input
-          type="url"
-          value={isExternal ? current : ''}
-          onChange={e => onChange(e.target.value || 'booking')}
+     <Input
+  type="url"
+  value={isExternal ? current : ''}
+  onChange={e => onChange(e.target.value || 'booking')}
+  onBlur={e => {
+    const v = e.target.value.trim();
+    if (v && !v.startsWith('http') && !v.startsWith('#') && !v.startsWith('//')) {
+      onChange(`https://${v}`);
+    }
+  }}
           placeholder="https://your-link-here.com"
           className={cn('h-9 rounded-xl border-2 text-xs font-mono',
             isExternal ? 'border-primary/40' : 'border-border')}
