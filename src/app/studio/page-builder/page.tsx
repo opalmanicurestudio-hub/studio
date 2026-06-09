@@ -777,65 +777,41 @@ const SECTION_LINK_LABELS: Record<string, string> = {
 const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
   value: string; onChange: (v: string) => void; enabledTypes?: string[];
 }) => {
-  const [customUrl, setCustomUrl] = useState(value?.startsWith('http') ? value : '');
-  const current = value || 'booking';
+  const current    = value || 'booking';
   const isBooking  = !value || value === 'booking';
   const isSection  = current.startsWith('#');
-  const isExternal = current.startsWith('http');
+  const isExternal = !isBooking && !isSection;
 
   const sectionLinks = enabledTypes
     .filter(t => SECTION_LINK_LABELS[t])
     .map(t => ({ label: SECTION_LINK_LABELS[t], value: `#${t}` }));
 
-  const apply = (v: string) => { onChange(v); if (v.startsWith('http')) setCustomUrl(v); };
-
   return (
-    <div className="space-y-4">
-      {/* Current state */}
-      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border-2"
-        style={{ borderColor: 'var(--primary, #6366f1)', background: 'color-mix(in srgb, var(--primary, #6366f1) 6%, transparent)' }}>
-        <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-primary"/>
-        <span className="text-[11px] font-black uppercase tracking-widest text-primary flex-1 truncate">
-          {isBooking  ? 'Opens booking flow'
-           : isSection ? `Scrolls to ${SECTION_LINK_LABELS[current.slice(1)] ?? current.slice(1)}`
-           : current}
-        </span>
-        {!isBooking && (
-          <button onClick={() => apply('booking')}
-            className="shrink-0 text-muted-foreground hover:text-red-500 transition-colors">
-            <X className="w-3.5 h-3.5"/>
-          </button>
-        )}
-      </div>
+    <div className="space-y-3">
 
       {/* Booking flow */}
-      <button onClick={() => apply('booking')}
+      <button onClick={() => onChange('booking')}
         className={cn('w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 text-left transition-all',
-          isBooking ? 'border-primary/30 bg-primary/5' : 'border-border hover:border-primary/20')}>
-        <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: isBooking ? 'var(--primary)' : '#e2e8f0' }}>
-          <BookOpen className="w-3 h-3" style={{ color: isBooking ? '#fff' : '#64748b' }}/>
-        </div>
-        <span className={cn('text-[11px] font-black uppercase tracking-widest',
-          isBooking ? 'text-primary' : 'text-slate-500')}>
-          Open booking flow
+          isBooking ? 'border-primary/40 bg-primary/5' : 'border-border hover:border-primary/20')}>
+        <BookOpen className="w-3.5 h-3.5 shrink-0" style={{ color: isBooking ? 'var(--primary)' : '#94a3b8' }}/>
+        <span className={cn('text-[11px] font-black uppercase tracking-widest flex-1',
+          isBooking ? 'text-primary' : 'text-slate-400')}>
+          Open booking flow (default)
         </span>
-        {isBooking && <Check className="w-3.5 h-3.5 text-primary ml-auto"/>}
+        {isBooking && <Check className="w-3.5 h-3.5 text-primary shrink-0"/>}
       </button>
 
-      {/* Page sections */}
+      {/* Page section scroll links */}
       {sectionLinks.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">
-            Scroll to section
-          </p>
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">Scroll to section</p>
           <div className="flex flex-wrap gap-1.5">
             {sectionLinks.map(s => (
-              <button key={s.value} onClick={() => apply(s.value)}
+              <button key={s.value} onClick={() => onChange(s.value)}
                 className={cn('px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all',
                   current === s.value
                     ? 'bg-primary/10 border border-primary/30 text-primary'
-                    : 'bg-slate-100 border border-transparent text-slate-500 hover:bg-primary/5 hover:text-primary hover:border-primary/20')}>
+                    : 'bg-slate-100 border border-transparent text-slate-500 hover:bg-primary/5 hover:border-primary/20')}>
                 ↓ {s.label}
               </button>
             ))}
@@ -843,24 +819,20 @@ const LinkPickerEditor = ({ value, onChange, enabledTypes = [] }: {
         </div>
       )}
 
-      {/* Custom URL */}
+      {/* Custom URL — saves as you type, no button needed */}
       <div className="space-y-1.5">
-        <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">
-          Custom URL
-        </p>
-        <div className="flex gap-2">
-          <Input
-            type="url"
-            value={isExternal ? current : customUrl}
-            onChange={e => setCustomUrl(e.target.value)}
-            placeholder="https://yourbookingsite.com"
-            className="flex-1 h-9 rounded-xl border-2 text-xs font-mono"
-          />
-          <Button size="sm" onClick={() => { if (customUrl.startsWith('http')) apply(customUrl); }}
-            className="h-9 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest">
-            Set
-          </Button>
-        </div>
+        <p className="text-[9px] font-black uppercase tracking-[0.28em] text-muted-foreground/50">Custom URL</p>
+        <Input
+          type="url"
+          value={isExternal ? current : ''}
+          onChange={e => onChange(e.target.value || 'booking')}
+          placeholder="https://your-link-here.com"
+          className={cn('h-9 rounded-xl border-2 text-xs font-mono',
+            isExternal ? 'border-primary/40' : 'border-border')}
+        />
+        {isExternal && (
+          <p className="text-[9px] font-black uppercase tracking-widest text-green-600">✓ Custom URL active</p>
+        )}
       </div>
     </div>
   );
