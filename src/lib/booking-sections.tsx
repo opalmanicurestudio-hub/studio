@@ -1605,10 +1605,16 @@ function ServicesSection({ config, style, data, isPreview, sectionId, onFieldTap
 }
  
 // ─── TeamSection ──────────────────────────────────────────────────────────────
+// ─── TeamSection ──────────────────────────────────────────────────────────────
 function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const staff = data.staff;
   const layout = config.layout || 'circles';
   const { ref: soloRef, visible: soloVis } = useInView(0.08);
+
+  // Respects bookLink (new) with fallback to bookAction/bookUrl (legacy)
+  const handleBook = cta(
+    (config.bookLink as string) || (config.bookAction === 'url' ? config.bookUrl as string : undefined) || 'booking'
+  );
 
   const Header = () => (
     <div className="text-center mb-16 space-y-4">
@@ -1649,7 +1655,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 <p className="text-[11px] font-black uppercase tracking-widest text-slate-900" style={{ fontFamily: bf(style) }}>{m.name}</p>
                 {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">{m.specialties.slice(0, 2).join(' · ')}</p>}
                 {config.showBio && m.bio && <p className="text-xs text-slate-500 mt-2 leading-relaxed" style={{ fontFamily: bf(style) }}>{m.bio}</p>}
-                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="mt-3 px-5 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+                {config.showBookButton && <button onClick={handleBook} className="mt-3 px-5 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
               </div>
             </div>
           ))}
@@ -1671,7 +1677,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
               </div>
               <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 truncate" style={{ fontFamily: bf(style) }}>{m.name}</p>
               {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[9px] text-slate-400 uppercase tracking-wider">{m.specialties[0]}</p>}
-              {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+              {config.showBookButton && <button onClick={handleBook} className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
             </div>
           ))}
         </div>
@@ -1694,7 +1700,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 <p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{m.name}</p>
                 {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[10px] uppercase tracking-wider text-slate-400">{m.specialties.slice(0, 2).join(' · ')}</p>}
                 {config.showBio && m.bio && <p className="text-xs text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{m.bio}</p>}
-                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="w-full mt-2 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+                {config.showBookButton && <button onClick={handleBook} className="w-full mt-2 py-2.5 text-[11px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
               </div>
             </div>
           ))}
@@ -1724,7 +1730,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
               <div className="p-4 space-y-1">
                 <p className="text-[11px] font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{m.name}</p>
                 {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[9px] uppercase tracking-wider text-slate-400">{m.specialties.slice(0, 2).join(' · ')}</p>}
-                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="w-full mt-2 py-2 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+                {config.showBookButton && <button onClick={handleBook} className="w-full mt-2 py-2 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
               </div>
             </div>
           ))}
@@ -1751,7 +1757,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                     <p className="text-2xl md:text-3xl font-light text-white" style={{ fontFamily: hf(style) }}>{lead.name}</p>
                     {config.showSpecialties !== false && lead.specialties?.length > 0 && <p className="text-[11px] text-white/55 uppercase tracking-wider">{lead.specialties.slice(0, 3).join(' · ')}</p>}
                     {config.showBio && lead.bio && <p className="text-sm text-white/45 leading-relaxed max-w-sm" style={{ fontFamily: bf(style) }}>{lead.bio}</p>}
-                    {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="mt-2 px-8 py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ background: 'white', color: ac(style), borderRadius: br(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'}</button>}
+                    {config.showBookButton && <button onClick={handleBook} className="mt-2 px-8 py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all" style={{ background: 'white', color: ac(style), borderRadius: br(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'}</button>}
                   </div>
                 </div>
               </div>
@@ -1766,7 +1772,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate" style={{ fontFamily: bf(style) }}>{m.name}</p>
                     {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[9px] text-slate-400 uppercase tracking-wider mt-0.5 truncate">{m.specialties.slice(0, 2).join(' · ')}</p>}
-                    {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="mt-2 px-4 py-1 text-[9px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+                    {config.showBookButton && <button onClick={handleBook} className="mt-2 px-4 py-1 text-[9px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
                   </div>
                 </div>
               ))}
@@ -1792,7 +1798,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                 <p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{m.name}</p>
                 {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[10px] text-slate-400 uppercase tracking-wider">{m.specialties.slice(0, 2).join(' · ')}</p>}
               </div>
-              {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+              {config.showBookButton && <button onClick={handleBook} className="shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
             </div>
           ))}
         </div>
@@ -1928,7 +1934,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
           {showBtn && (
             <div style={{ animation: soloVis ? 'cf-float-up 0.9s cubic-bezier(0.34,1.56,0.64,1) 0.6s both' : 'none' }}>
               <button
-                onClick={e => { e.stopPropagation(); openBooking(); }}
+                onClick={handleBook}
                 className="inline-flex items-center gap-3 px-8 md:px-10 py-3.5 md:py-4 font-black text-sm uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-transform"
                 style={{
                   background: ac(style), color: '#fff',
@@ -2068,7 +2074,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                     style={{ animation: soloVis ? 'cf-fade-up 0.7s 0.5s both' : 'none' }}>
                     <div className="h-px" style={{ background: ac(style) + '12' }}/>
                     <button
-                      onClick={e => { e.stopPropagation(); openBooking(); }}
+                      onClick={handleBook}
                       className="w-full py-3.5 md:py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
                       style={{ ...btnStyle(style), fontFamily: bf(style) }}>
                       {config.bookCta || 'Book an appointment'}
@@ -2217,7 +2223,7 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
                   display: 'flex', justifyContent: 'center', width: '100%',
                 }}>
                   <button
-                    onClick={e => { e.stopPropagation(); openBooking(); }}
+                    onClick={handleBook}
                     className="inline-flex items-center justify-center gap-2 font-black uppercase tracking-widest hover:scale-[1.04] active:scale-[0.97] transition-transform whitespace-nowrap"
                     style={{
                       background: ac(style), color: '#fff',
@@ -2240,241 +2246,31 @@ function TeamSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
     );
   }
 
-if (layout === 'solo-hero') {
-    const solo      = staff[0];
-    const showBio   = !!(config.showBio && solo?.bio);
-    const showBtn   = !!config.showBookButton;
-    const showSpecs = !!(config.showSpecialties !== false && solo?.specialties?.length > 0);
- 
+  if (layout === 'solo-hero') {
+    const solo = staff[0];
     return (
-      <section id="team" className="relative overflow-hidden"
-        style={{ background: style.bgColor, minHeight: 'clamp(520px, 80vh, 900px)' }}>
- 
-        {/* Subtle accent wash behind content side */}
-        <div className="absolute inset-y-0 left-0 w-full md:w-[48%] pointer-events-none"
-          style={{ background: `${ac(style)}04` }}/>
- 
-        <div className="absolute inset-0 grid md:grid-cols-[1fr_1.15fr]">
- 
-          {/* ── Content panel (left) ── */}
-          <div className="relative z-10 flex flex-col justify-center
-                          px-8 md:px-12 lg:px-20
-                          pt-24 pb-16 md:py-0
-                          order-2 md:order-1">
- 
-            {/* Eyebrow */}
-            <div className="flex items-center gap-3 mb-6">
-              <div className="h-px w-8" style={{ background: ac(style) }}/>
-              <span className="text-[10px] font-black uppercase tracking-[0.35em]"
-                style={{ color: ac(style), fontFamily: bf(style) }}>
-                {config.heading || 'The Artist'}
-              </span>
-            </div>
- 
-            {/* Name — the hero element */}
-            <h2 className="font-light leading-[0.87] mb-6"
-              style={{
-                fontFamily: hf(style),
-                color: '#0f172a',
-                fontSize: 'clamp(44px, 7vw, 88px)',
-              }}>
-              {solo?.name || 'Artist Name'}
-            </h2>
- 
-            {/* Thick accent rule */}
-            <div className="h-[3px] w-14 mb-8" style={{ background: ac(style) }}/>
- 
-            {/* Specialties */}
-            {showSpecs && (
-              <div className="flex flex-wrap gap-2 mb-7">
-                {solo.specialties.map((s: string, i: number) => (
-                  <span key={i}
-                    className="px-4 py-1.5 text-[10px] font-black uppercase tracking-widest whitespace-nowrap"
-                    style={{
-                      background: `${ac(style)}0e`,
-                      color: ac(style),
-                      border: `1.5px solid ${ac(style)}22`,
-                      borderRadius: br(style, 3),
-                      fontFamily: bf(style),
-                    }}>
-                    {s}
-                  </span>
-                ))}
-              </div>
-            )}
- 
-            {/* Bio */}
-            {showBio && (
-              <p className="text-base text-slate-500 leading-relaxed max-w-sm mb-8"
-                style={{ fontFamily: bf(style) }}>
-                {solo.bio}
-              </p>
-            )}
- 
-            {/* Book button */}
-            {showBtn && (
-              <div>
-                <button
-                  onClick={e => { e.stopPropagation(); openBooking(); }}
-                  className="inline-flex items-center gap-3 font-black text-sm uppercase tracking-widest
-                             hover:scale-[1.03] active:scale-[0.97] transition-transform
-                             whitespace-nowrap"
-                  style={{
-                    ...btnStyle(style),
-                    fontFamily: bf(style),
-                    padding: '14px 36px',
-                    boxShadow: `0 12px 40px ${ac(style)}28`,
-                  }}>
-                  {config.bookCta || 'Book with me'}
-                  <ArrowRight className="w-4 h-4 shrink-0"/>
-                </button>
-              </div>
-            )}
-          </div>
- 
-          {/* ── Portrait panel (right) ── */}
-          <div className="relative overflow-hidden order-1 md:order-2"
-            style={{
-              // Mobile: fixed aspect ratio. Desktop: fills the grid cell height.
-              aspectRatio: '4/3',
-              minHeight: 0,
-            }}>
-            <style>{`@media (min-width: 768px) {
-              .solo-hero-portrait { aspect-ratio: unset !important; position: absolute; inset: 0; }
-            }`}</style>
-            <div className="solo-hero-portrait relative w-full h-full"
-              style={{ aspectRatio: '4/3' }}>
-              {solo?.avatarUrl
-                ? <img
-                    src={solo.avatarUrl}
-                    alt={solo?.name || ''}
-                    className="w-full h-full object-cover object-top"
-                    style={{ transform: 'scale(1.01)' }}
-                  />
-                : <div className="absolute inset-0 flex items-center justify-center"
-                    style={{ background: `${ac(style)}0a` }}>
-                    <span className="font-light select-none pointer-events-none"
-                      style={{ fontSize: 'clamp(80px, 18vw, 160px)', fontFamily: hf(style),
-                        color: ac(style) + '20', lineHeight: 1 }}>
-                      {solo?.name?.[0] ?? 'A'}
-                    </span>
-                  </div>}
- 
-              {/* Gradient bleed into content panel — desktop only */}
-              <div className="absolute inset-y-0 left-0 w-16 hidden md:block"
-                style={{ background: `linear-gradient(to right, ${style.bgColor}, transparent)` }}/>
-              {/* Bottom gradient on mobile */}
-              <div className="absolute bottom-0 inset-x-0 h-24 md:hidden"
-                style={{ background: `linear-gradient(to top, ${style.bgColor}, transparent)` }}/>
-            </div>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  if (layout === 'solo-card') {
-    const solo      = staff[0];
-    const showBio   = !!(config.showBio && solo?.bio);
-    const showBtn   = !!config.showBookButton;
-    const showSpecs = !!(config.showSpecialties !== false && solo?.specialties?.length > 0);
- 
-    return (
-      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
-        <div className="max-w-sm mx-auto px-6 md:px-0">
+      <section id="team" className={py(style)} style={{ background: style.bgColor }}>
+        <div className="max-w-5xl mx-auto px-6 md:px-16">
           <Header/>
           {solo ? (
-            <div className="bg-white overflow-hidden"
-              style={{
-                borderRadius: br(style, 2),
-                border: `1.5px solid ${ac(style)}18`,
-                boxShadow: `0 32px 80px rgba(0,0,0,0.12), 0 0 0 6px ${ac(style)}06`,
-              }}>
- 
-              {/* Portrait with mat-frame treatment */}
-              <div className="relative overflow-hidden m-3"
-                style={{
-                  aspectRatio: '3/4',
-                  borderRadius: `${Math.max((style.borderRadius || 4) - 2, 2)}px`,
-                  background: `${ac(style)}0a`,
-                }}>
-                {solo.avatarUrl
-                  ? <img
-                      src={solo.avatarUrl}
-                      alt={solo.name}
-                      className="w-full h-full object-cover object-top"
-                    />
-                  : <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="font-light select-none"
-                        style={{ fontSize: 'clamp(60px,22vw,100px)',
-                          fontFamily: hf(style), color: ac(style) + '22', lineHeight: 1 }}>
-                        {solo.name?.[0]}
-                      </span>
-                    </div>}
- 
-                {/* Photography mat inner border */}
-                <div className="absolute inset-[8px] pointer-events-none"
-                  style={{ border: '1px solid rgba(255,255,255,0.30)', borderRadius: '2px' }}/>
- 
-                {/* Bottom gradient */}
-                <div className="absolute bottom-0 inset-x-0"
-                  style={{ height: '40%', background: 'linear-gradient(to top, rgba(0,0,0,0.60) 0%, transparent 100%)' }}/>
- 
-                {/* Name overlaid on portrait bottom */}
-                <div className="absolute bottom-0 inset-x-0 px-5 pb-4 text-center">
-                  <h2 className="font-light text-white leading-tight"
-                    style={{
-                      fontFamily: hf(style),
-                      fontSize: 'clamp(20px, 6vw, 28px)',
-                    }}>
-                    {solo.name}
-                  </h2>
+            <div className="grid md:grid-cols-2 gap-10 md:gap-20 items-center">
+              <div className="relative">
+                <div className="overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), aspectRatio: '3/4' }}>
+                  {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"/> : <div className="w-full h-full flex items-center justify-center" style={{ background: ac(style)+'14' }}><span className="text-8xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'40' }}>{solo.name?.[0]}</span></div>}
+                </div>
+                <div className="absolute -bottom-4 -left-4 px-5 py-3 text-white shadow-xl" style={{ background: ac(style), borderRadius: br(style,1.5) }}>
+                  <p className="text-[9px] font-black uppercase tracking-[0.3em] opacity-70">Artist</p>
+                  <p className="text-sm font-black uppercase tracking-tight">{solo.name}</p>
                 </div>
               </div>
- 
-              {/* Card body below portrait */}
-              <div className="px-6 pb-6 pt-4 space-y-4">
- 
-                {/* Accent rule + specialties */}
-                {showSpecs ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: ac(style) }}/>
-                      <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                    </div>
-                    <p className="text-center text-[10px] font-black uppercase tracking-widest"
-                      style={{ color: ac(style), fontFamily: bf(style) }}>
-                      {solo.specialties.slice(0, 3).join(' · ')}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                    <div className="w-1.5 h-1.5 rounded-full" style={{ background: `${ac(style)}40` }}/>
-                    <div className="h-px flex-1" style={{ background: `${ac(style)}18` }}/>
-                  </div>
+              <div className="space-y-6 pt-8 md:pt-0">
+                <div className="w-10 h-px" style={{ background: ac(style) }}/>
+                <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'The Artist'}</FieldTap>
+                {config.showSpecialties !== false && solo.specialties?.length > 0 && (
+                  <div className="flex flex-wrap gap-2">{solo.specialties.map((s: string, i: number) => <span key={i} className="px-3 py-1 text-[10px] font-black uppercase tracking-widest" style={{ background: ac(style)+'12', color: ac(style), borderRadius: br(style,2) }}>{s}</span>)}</div>
                 )}
- 
-                {/* Bio */}
-                {showBio && (
-                  <p className="text-sm text-slate-500 leading-relaxed text-center"
-                    style={{ fontFamily: bf(style) }}>
-                    {solo.bio}
-                  </p>
-                )}
- 
-                {/* Book button */}
-                {showBtn && (
-                  <button
-                    onClick={e => { e.stopPropagation(); openBooking(); }}
-                    className="w-full py-4 font-black text-sm uppercase tracking-widest
-                               hover:opacity-90 active:scale-[0.99] transition-all
-                               whitespace-nowrap overflow-hidden"
-                    style={{ ...btnStyle(style), fontFamily: bf(style) }}>
-                    {config.bookCta || 'Book an appointment'}
-                  </button>
-                )}
+                {config.showBio && solo.bio && <p className="text-base text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={handleBook} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-xl hover:opacity-90 hover:scale-[1.02] transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
               </div>
             </div>
           ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
@@ -2482,7 +2278,33 @@ if (layout === 'solo-hero') {
       </section>
     );
   }
- 
+
+  if (layout === 'solo-card') {
+    const solo = staff[0];
+    return (
+      <section id="team" className={py(style)} style={{ background: '#f8fafc' }}>
+        <div className="max-w-sm mx-auto px-6 md:px-0 text-center">
+          <Header/>
+          {solo ? (
+            <div className="bg-white overflow-hidden shadow-2xl" style={{ borderRadius: br(style,2), border: `2px solid ${ac(style)}15` }}>
+              <div className="relative overflow-hidden" style={{ aspectRatio: '3/4', background: ac(style)+'10' }}>
+                {solo.avatarUrl ? <img src={solo.avatarUrl} alt={solo.name} className="w-full h-full object-cover object-top"/> : <div className="absolute inset-0 flex items-center justify-center"><span className="text-9xl font-light" style={{ fontFamily: hf(style), color: ac(style)+'25' }}>{solo.name?.[0]}</span></div>}
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 50%)' }}/>
+                <div className="absolute bottom-0 inset-x-0 p-6 text-left">
+                  <p className="text-xl font-light text-white" style={{ fontFamily: hf(style) }}>{solo.name}</p>
+                  {config.showSpecialties !== false && solo.specialties?.length > 0 && <p className="text-[10px] font-black uppercase tracking-widest text-white/60 mt-1">{solo.specialties.slice(0,3).join(' · ')}</p>}
+                </div>
+              </div>
+              <div className="p-6 space-y-4">
+                {config.showBio && solo.bio && <p className="text-sm text-slate-500 leading-relaxed text-left" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
+                {config.showBookButton && <button onClick={handleBook} className="w-full py-4 font-black text-sm uppercase tracking-widest hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book an appointment'}</button>}
+              </div>
+            </div>
+          ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
+        </div>
+      </section>
+    );
+  }
 
   if (layout === 'solo-split') {
     const solo = staff[0];
@@ -2503,7 +2325,7 @@ if (layout === 'solo-hero') {
                 <div className="w-10 h-px" style={{ background: ac(style) }}/>
                 {config.showSpecialties !== false && solo.specialties?.length > 0 && <div className="flex flex-wrap gap-2">{solo.specialties.map((s: string, i: number) => <span key={i} className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest border" style={{ color: '#64748b', borderColor: ac(style)+'25', borderRadius: br(style) }}>{s}</span>)}</div>}
                 {config.showBio && solo.bio && <p className="text-sm text-slate-500 leading-relaxed" style={{ fontFamily: bf(style) }}>{solo.bio}</p>}
-                {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-lg hover:opacity-90 transition-all w-fit" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
+                {config.showBookButton && <button onClick={handleBook} className="inline-flex items-center gap-2 px-8 py-4 font-black text-sm uppercase tracking-widest shadow-lg hover:opacity-90 transition-all w-fit" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book with me'} <ArrowRight className="w-3.5 h-3.5"/></button>}
               </div>
             </div>
           ) : <p className="text-center text-[11px] font-black uppercase tracking-widest text-slate-300 py-20">Artist profile coming soon</p>}
@@ -2526,7 +2348,7 @@ if (layout === 'solo-hero') {
                 <p className="text-sm font-black uppercase tracking-tight text-slate-900" style={{ fontFamily: bf(style) }}>{m.name}</p>
                 {config.showSpecialties !== false && m.specialties?.length > 0 && <p className="text-[10px] text-slate-400 uppercase tracking-wider">{m.specialties.slice(0, 2).join(' · ')}</p>}
               </div>
-              {config.showBookButton && <button onClick={e => { e.stopPropagation(); openBooking(); }} className="shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
+              {config.showBookButton && <button onClick={handleBook} className="shrink-0 px-4 py-1.5 text-[10px] font-black uppercase tracking-widest hover:opacity-90" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.bookCta || 'Book'}</button>}
             </div>
           ))}
         </div>
