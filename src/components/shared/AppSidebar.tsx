@@ -118,4 +118,273 @@ function NavItem({
 }: {
   href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string;
 }) {
-  const
+  const pathname    = usePathname();
+  const { state }   = useSidebar();
+  const isCollapsed = state === 'collapsed';
+
+  // Portals open in new tab with the tenantId appended
+  const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
+  const isActive  = !isPortal && (
+    href === '/dashboard' ? pathname === href : pathname.startsWith(href)
+  );
+
+  const btn = (
+    <SidebarMenuButton
+      asChild
+      isActive={isActive}
+      className={cn(
+        'rounded-xl h-10 font-black uppercase text-[9px] tracking-widest',
+        'transition-all duration-150',
+        'data-[active=true]:bg-primary data-[active=true]:text-primary-foreground',
+        'data-[active=true]:shadow-md data-[active=true]:shadow-primary/20',
+        'hover:bg-primary/10 hover:text-primary',
+        isCollapsed && 'justify-center',
+      )}
+    >
+      <Link href={finalHref} target={isPortal ? '_blank' : undefined}>
+        <Icon className="w-[17px] h-[17px] shrink-0" />
+        <span>{label}</span>
+        {isPortal && !isCollapsed && (
+          <ExternalLink className="ml-auto w-3 h-3 opacity-30 shrink-0" />
+        )}
+      </Link>
+    </SidebarMenuButton>
+  );
+
+  if (isCollapsed) {
+    return (
+      <SidebarMenuItem>
+        <Tooltip>
+          <TooltipTrigger asChild>{btn}</TooltipTrigger>
+          <TooltipContent
+            side="right"
+            align="center"
+            className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2 shadow-xl"
+          >
+            {label}
+          </TooltipContent>
+        </Tooltip>
+      </SidebarMenuItem>
+    );
+  }
+
+  return <SidebarMenuItem>{btn}</SidebarMenuItem>;
+}
+
+function NavSection({
+  label, items, isPortal, tenantId,
+}: {
+  label: string;
+  items: { href: string; icon: any; label: string }[];
+  isPortal?: boolean;
+  tenantId?: string;
+}) {
+  const { state }   = useSidebar();
+  const isCollapsed = state === 'collapsed';
+
+  return (
+    <SidebarGroup className="py-1">
+      {!isCollapsed && (
+        <SidebarGroupLabel className="px-3 mb-1 h-5 font-black uppercase text-[8px] tracking-[0.22em] text-muted-foreground/40">
+          {label}
+        </SidebarGroupLabel>
+      )}
+      {isCollapsed && <div className="mx-auto w-4 h-px bg-border/50 mb-2" />}
+      <SidebarMenu className="gap-px px-0">
+        {items.map(item => (
+          <NavItem
+            key={item.href} {...item}
+            isPortal={isPortal} tenantId={tenantId}
+          />
+        ))}
+      </SidebarMenu>
+    </SidebarGroup>
+  );
+}
+
+function CollapseToggle() {
+  const { state, toggleSidebar } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  return (
+    <button onClick={toggleSidebar}
+      className="flex items-center justify-center w-8 h-8 rounded-xl hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all shrink-0"
+      title={isCollapsed ? 'Expand sidebar (⌘B)' : 'Collapse sidebar (⌘B)'}
+    >
+      {isCollapsed
+        ? <PanelLeftOpen  className="w-4 h-4" />
+        : <PanelLeftClose className="w-4 h-4" />}
+    </button>
+  );
+}
+
+export function AppSidebar() {
+  const { selectedTenant, role } = useTenant();
+  const tenantId = selectedTenant?.id;
+  const auth     = useAuth();
+  const router   = useRouter();
+  const pathname = usePathname();
+
+  const isOwner = role === 'owner';
+  const isAdmin = role === 'admin';
+
+  const handleLogout = async () => {
+    if (auth) { await signOut(auth); router.push('/login'); }
+  };
+
+  return (
+    <TooltipProvider delayDuration={0}>
+      <Sidebar
+        collapsible="icon"
+        className="border-r-2 border-border/40 bg-white"
+      >
+        <SidebarRail />
+
+        <SidebarHeader className="border-b border-border/30">
+          <div className="flex items-center justify-between px-4 py-4 min-h-[68px]">
+            <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
+              <ClarityFlowLogo className="w-8 h-8 shrink-0" />
+              <div className="flex flex-col leading-none min-w-0 group-data-[collapsible=icon]:hidden">
+                <span className="text-[19px] font-black uppercase tracking-tighter text-slate-900">
+                  ClarityFlow
+                </span>
+                <span className="text-[7px] font-black uppercase tracking-[0.35em] text-primary opacity-60 mt-0.5">
+                  Studio OS
+                </span>
+              </div>
+            </Link>
+
+            <div className="group-data-[collapsible=icon]:hidden">
+              <CollapseToggle />
+            </div>
+          </div>
+        </SidebarHeader>
+
+        <SidebarContent className="overflow-y-auto overflow-x-hidden py-2 px-1.5">
+
+          {isOwner && (
+            <div className="px-2 pb-3 pt-1 group-data-[collapsible=icon]:hidden">
+              <ClientOnly><TenantSwitcher /></ClientOnly>
+            </div>
+          )}
+
+          <NavSection label="Daily" items={DAILY_HUB} />
+
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Clients & Growth" items={CLIENT_GROWTH} />
+            </>
+          )}
+
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Studio Assets" items={STUDIO_ASSETS} />
+            </>
+          )}
+
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Team" items={TEAM_FULL} />
+            </>
+          )}
+          {isAdmin && !isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Team" items={TEAM_ADMIN} />
+            </>
+          )}
+
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Financial Suite" items={FINANCIAL_SUITE} />
+            </>
+          )}
+
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Booth Rental" items={BOOTH_RENTAL} />
+            </>
+          )}
+
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Events" items={EVENTS} />
+            </>
+          )}
+
+          {isOwner && tenantId && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection
+                label="Public Portals"
+                items={PUBLIC_PORTALS}
+                isPortal
+                tenantId={tenantId}
+              />
+            </>
+          )}
+        </SidebarContent>
+
+        <SidebarFooter className="border-t border-border/30 py-2 px-1.5">
+          <SidebarMenu className="gap-px px-0">
+
+            <SidebarMenuItem className="group-data-[collapsible!=icon]:hidden">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarMenuButton
+                    onClick={() => {}}
+                    className="rounded-xl h-10 hover:bg-primary/10 hover:text-primary text-muted-foreground transition-all justify-center"
+                  >
+                    <PanelLeftOpen className="w-[17px] h-[17px]" />
+                    <span>Expand</span>
+                  </SidebarMenuButton>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2">
+                  Expand sidebar (⌘B)
+                </TooltipContent>
+              </Tooltip>
+            </SidebarMenuItem>
+
+            {isOwner && (
+              <NavItem href="/settings" icon={Settings} label="Studio Settings" />
+            )}
+
+            <SidebarMenuItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarMenuButton
+                    onClick={handleLogout}
+                    className="rounded-xl h-10 font-black uppercase text-[9px] tracking-widest text-destructive hover:bg-destructive/8 hover:text-destructive transition-all"
+                  >
+                    <LogOut className="w-[17px] h-[17px] shrink-0" />
+                    <span>Sign Out</span>
+                  </SidebarMenuButton>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2">
+                  Sign Out
+                </TooltipContent>
+              </Tooltip>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarFooter>
+      </Sidebar>
+    </TooltipProvider>
+  );
+}
+
+export function MobileSidebarTrigger({ className }: { className?: string }) {
+  return (
+    <SidebarTrigger
+      className={cn(
+        'lg:hidden flex items-center justify-center w-10 h-10 rounded-xl',
+        'hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all',
+        className,
+      )}
+    />
+  );
+}
