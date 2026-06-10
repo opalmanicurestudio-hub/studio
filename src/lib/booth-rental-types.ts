@@ -1,3 +1,10 @@
+// src/lib/booth-rental-types.ts
+// ClarityFlow Booth Rental System — shared types, constants, and pure helpers.
+// Conventions:
+//   - All money amounts are INTEGER CENTS. $250.00 = 25000.
+//   - All dates are ISO 8601 strings ("2026-06-10"). No Firestore Timestamps here.
+//   - Firestore paths: everything lives under tenants/{tenantId}/ (see BOOTH_RENTAL_COLLECTIONS).
+
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
 export type RentFrequency = 'daily' | 'weekly' | 'biweekly' | 'monthly';
@@ -19,10 +26,13 @@ export type BoothStatus =
   | 'inactive';
 
 export type LeaseStatus =
+  | 'draft'
   | 'pending_signature'
   | 'active'
   | 'on_leave'
+  | 'ending_soon'   // derived in UI, storable for query convenience
   | 'ended'
+  | 'terminated'
   | 'cancelled';
 
 export type WeekDay = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=Sun … 6=Sat
@@ -110,6 +120,7 @@ export interface LateFeePolicy {
   type: 'flat' | 'percent';
   amountCents?: number;
   percent?: number;
+  maxFeeCents?: number | null;
 }
 
 export interface Deposit {
@@ -148,16 +159,26 @@ export interface Lease {
   updatedAt: string;
 }
 
-// ─── Ledger entry ─────────────────────────────────────────────────────────────
+// ─── Ledger entries ───────────────────────────────────────────────────────────
+// Sign convention: charges are POSITIVE (owed to owner), payments/credits are
+// NEGATIVE. A renter's balance is the sum of non-waived, non-failed entries.
 
 export type LedgerEntryType =
+  // current naming
   | 'rent'
   | 'late_fee'
   | 'deposit_collected'
   | 'deposit_refunded'
   | 'perk_credit'
   | 'adjustment'
-  | 'expense';
+  | 'expense'
+  // original naming used by the rent roll page
+  | 'rent_charge'
+  | 'one_off_charge'
+  | 'payment'
+  | 'deposit_charge'
+  | 'deposit_refund'
+  | 'credit';
 
 export type LedgerEntryStatus = 'pending' | 'paid' | 'waived' | 'failed';
 
@@ -175,6 +196,26 @@ export interface LedgerEntry {
   notes: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Ledger entry shape used by the rent roll page (superset, mostly optional). */
+export interface RentLedgerEntry {
+  id: string;
+  leaseId: string;
+  renterId: string;
+  boothId?: string;
+  type: LedgerEntryType;
+  amountCents: number;
+  status: LedgerEntryStatus;
+  dueDate: string;
+  paidAt?: string | null;
+  description?: string;
+  notes?: string;
+  method?: string;            // how a payment was made: cash, venmo, zelle, etc.
+  receiptId?: string | null;
+  waivedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // ─── Receipt ─────────────────────────────────────────────────────────────────
@@ -227,15 +268,21 @@ export interface Expense {
 }
 
 // ─── Firestore collection paths ───────────────────────────────────────────────
+// NOTE: rentLedger is the original, live collection — your existing ledger data
+// lives at tenants/{t}/rentLedger. Both keys below intentionally point there.
 
 export const BOOTH_RENTAL_COLLECTIONS = {
-  booths:   (t: string) => `tenants/${t}/booths`,
-  renters:  (t: string) => `tenants/${t}/renters`,
-  leases:   (t: string) => `tenants/${t}/leases`,
-  ledger:   (t: string) => `tenants/${t}/ledger`,
-  receipts: (t: string) => `tenants/${t}/receipts`,
-  expenses: (t: string) => `tenants/${t}/expenses`,
+  booths:     (t: string) => `tenants/${t}/booths`,
+  renters:    (t: string) => `tenants/${t}/renters`,
+  leases:     (t: string) => `tenants/${t}/leases`,
+  rentLedger: (t: string) => `tenants/${t}/rentLedger`,
+  ledger:     (t: string) => `tenants/${t}/rentLedger`,
+  receipts:   (t: string) => `tenants/${t}/receipts`,
+  expenses:   (t: string) => `tenants/${t}/expenses`,
 };
+
+/** Back-compat alias — some earlier files referenced COLLECTIONS directly. */
+export const COLLECTIONS = BOOTH_RENTAL_COLLECTIONS;
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
@@ -264,6 +311,17 @@ export const BOOTH_STATUS_LABELS: Record<BoothStatus, string> = {
   inactive:    'Inactive',
 };
 
+export const LEASE_STATUS_LABELS: Record<LeaseStatus, string> = {
+  draft:             'Draft',
+  pending_signature: 'Pending signature',
+  active:            'Active',
+  on_leave:          'On leave',
+  ending_soon:       'Ending soon',
+  ended:             'Ended',
+  terminated:        'Terminated',
+  cancelled:         'Cancelled',
+};
+
 export const BOOTH_STATUS_COLORS: Record<BoothStatus, { bg: string; text: string; border: string }> = {
   vacant:      { bg: '#EAF3DE', text: '#27500A', border: '#97C459' },
   occupied:    { bg: '#E6F1FB', text: '#0C447C', border: '#378ADD' },
@@ -282,6 +340,29 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   equipment:        'Equipment',
   professional_fees: 'Professional fees',
   other:            'Other',
+};
+
+export const LEDGER_TYPE_LABELS: Record<LedgerEntryType, string> = {
+  rent:              'Rent',
+  rent_charge:       'Rent charge',
+  late_fee:          'Late fee',
+  one_off_charge:    'One-off charge',
+  payment:           'Payment',
+  deposit_collected: 'Deposit collected',
+  deposit_refunded:  'Deposit refunded',
+  deposit_charge:    'Deposit charge',
+  deposit_refund:    'Deposit refund',
+  perk_credit:       'Perk credit',
+  credit:            'Credit',
+  adjustment:        'Adjustment',
+  expense:           'Expense',
+};
+
+export const LEDGER_STATUS_LABELS: Record<LedgerEntryStatus, string> = {
+  pending: 'Pending',
+  paid:    'Paid',
+  waived:  'Waived',
+  failed:  'Failed',
 };
 
 export const PERK_TYPE_LABELS: Record<PerkType, string> = {
@@ -319,6 +400,16 @@ export function toIsoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+export function parseIsoDate(iso: string): Date {
+  return new Date(`${iso.slice(0, 10)}T00:00:00`);
+}
+
+export function addDays(d: Date, days: number): Date {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+}
+
 export function generateReceiptNumber(index: number): string {
   const year = new Date().getFullYear();
   return `RCP-${year}-${String(index).padStart(4, '0')}`;
@@ -327,4 +418,118 @@ export function generateReceiptNumber(index: number): string {
 /** Returns true if two ScheduleSlots share any day */
 export function slotsOverlap(a: ScheduleSlot, b: ScheduleSlot): boolean {
   return a.days.some((d) => b.days.includes(d));
+}
+
+// ─── Ledger math (used by the rent roll page) ─────────────────────────────────
+
+/**
+ * Net balance owed across a renter's ledger.
+ * Charges are positive, payments/credits negative; waived and failed entries
+ * are excluded. Positive result = renter owes money.
+ */
+export function computeBalanceCents(ledger: RentLedgerEntry[]): number {
+  return ledger
+    .filter((e) => e.status !== 'waived' && e.status !== 'failed')
+    .reduce((sum, e) => sum + e.amountCents, 0);
+}
+
+/** Pending charges whose due date + grace period has passed. */
+export function getPastDueEntries(
+  entries: RentLedgerEntry[],
+  graceDays: number,
+  todayIso: string
+): RentLedgerEntry[] {
+  const today = parseIsoDate(todayIso);
+  return entries.filter((e) => {
+    if (e.status !== 'pending') return false;
+    if (e.amountCents <= 0) return false;
+    if (!e.dueDate) return false;
+    const dueWithGrace = addDays(parseIsoDate(e.dueDate), graceDays);
+    return today > dueWithGrace;
+  });
+}
+
+/** Late fee for a given policy and rent charge. Returns 0 if none. */
+export function computeLateFeeCents(policy: LateFeePolicy, rentChargeCents: number): number {
+  if (!policy.enabled) return 0;
+  let fee = 0;
+  if (policy.type === 'flat') {
+    fee = policy.amountCents ?? 0;
+  } else {
+    fee = Math.round((rentChargeCents * (policy.percent ?? 0)) / 100);
+  }
+  if (policy.maxFeeCents != null) fee = Math.min(fee, policy.maxFeeCents);
+  return fee;
+}
+
+/** Lease is within `windowDays` of its end date (renewal-reminder logic). */
+export function isLeaseEndingSoon(lease: Lease, todayIso: string, windowDays = 60): boolean {
+  if (!lease.endDate || lease.status !== 'active') return false;
+  const today = parseIsoDate(todayIso);
+  const end = parseIsoDate(lease.endDate);
+  const windowStart = addDays(end, -windowDays);
+  return today >= windowStart && today <= end;
+}
+
+// ─── Dashboard rollup ─────────────────────────────────────────────────────────
+
+export interface RentRollSummary {
+  totalRentersActive: number;
+  totalBooths: number;
+  vacantBooths: number;
+  collectedThisCycleCents: number;
+  outstandingCents: number;
+  pastDueRenterIds: string[];
+  leasesEndingSoonIds: string[];
+}
+
+/** Build the exception-driven dashboard summary from raw collections. */
+export function buildRentRollSummary(params: {
+  booths: Booth[];
+  renters: Renter[];
+  leases: Lease[];
+  ledger: RentLedgerEntry[];
+  todayIso: string;
+  cycleStartIso: string; // start of the current reporting window (e.g. this month)
+}): RentRollSummary {
+  const { booths, renters, leases, ledger, todayIso, cycleStartIso } = params;
+
+  const activeLeases = leases.filter((l) => l.status === 'active');
+  const leaseById = new Map(activeLeases.map((l) => [l.id, l]));
+
+  const collectedThisCycleCents = ledger
+    .filter(
+      (e) =>
+        e.type === 'payment' &&
+        e.status === 'paid' &&
+        e.paidAt != null &&
+        e.paidAt >= cycleStartIso
+    )
+    .reduce((sum, e) => sum + Math.abs(e.amountCents), 0);
+
+  const outstandingCents = Math.max(0, computeBalanceCents(ledger));
+
+  const pastDueRenterIds = Array.from(
+    new Set(
+      ledger
+        .filter((e) => {
+          const lease = leaseById.get(e.leaseId);
+          const grace = lease?.lateFeePolicy?.graceDays ?? 0;
+          return getPastDueEntries([e], grace, todayIso).length > 0;
+        })
+        .map((e) => e.renterId)
+    )
+  );
+
+  return {
+    totalRentersActive: renters.filter((r) => r.status === 'active').length,
+    totalBooths: booths.filter((b) => b.status !== 'inactive').length,
+    vacantBooths: booths.filter((b) => b.status === 'vacant').length,
+    collectedThisCycleCents,
+    outstandingCents,
+    pastDueRenterIds,
+    leasesEndingSoonIds: activeLeases
+      .filter((l) => isLeaseEndingSoon(l, todayIso))
+      .map((l) => l.id),
+  };
 }
