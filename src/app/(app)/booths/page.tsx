@@ -53,7 +53,7 @@ import {
   formatCents,
 } from '@/lib/booth-rental-types';
 
-const STATUS_CONFIG: Record
+const STATUS_CONFIG: Record <
   BoothStatus,
   { label: string; badgeClass: string }
 > = {
