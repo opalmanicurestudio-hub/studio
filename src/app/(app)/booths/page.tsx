@@ -779,7 +779,7 @@ export default function BoothsPage() {
     startBoothH: number;
   } | null>(null);
 
-  const [localPos, setLocalPos] = useState
+  const [localPos, setLocalPos] = useState <
     Record<string, { x: number; y: number; w: number; h: number }>
   >({});
 
