@@ -12,7 +12,7 @@ import {
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
-  Armchair, KeyRound, HandCoins,
+  Armchair, KeyRound, HandCoins, LayoutGrid, Receipt, Wallet,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -93,9 +93,12 @@ const FINANCIAL_SUITE = [
 ];
 
 const BOOTH_RENTAL = [
-  { href: '/booths',  icon: Armchair,  label: 'Booths'  },
-  { href: '/renters', icon: KeyRound,  label: 'Renters' },
-  { href: '/rent',    icon: HandCoins, label: 'Rent'    },
+  { href: '/booths',     icon: Armchair,   label: 'Booths'     },
+  { href: '/renters',    icon: KeyRound,   label: 'Renters'    },
+  { href: '/rent',       icon: HandCoins,  label: 'Rent'       },
+  { href: '/floor-plan', icon: LayoutGrid, label: 'Floor Plan' },
+  { href: '/receipts',   icon: Receipt,    label: 'Receipts'   },
+  { href: '/expenses',   icon: Wallet,     label: 'Expenses'   },
 ];
 
 const EVENTS = [
@@ -124,8 +127,9 @@ function NavItem({
 
   // Portals open in new tab with the tenantId appended
   const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
+  // Exact match, or a true child route (prevents /rent matching /renters)
   const isActive  = !isPortal && (
-    href === '/dashboard' ? pathname === href : pathname.startsWith(href)
+    pathname === href || pathname.startsWith(`${href}/`)
   );
 
   const btn = (
