@@ -12,6 +12,7 @@ import {
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
+  Armchair, KeyRound, HandCoins,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -44,8 +45,9 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
 //   3. Studio Assets   — weekly configuration
 //   4. Team            — scheduling & staff
 //   5. Financial Suite — periodic deep-dives
-//   6. Events          — as needed
-//   7. Public Portals  — rarely accessed, critical when needed
+//   6. Booth Rental    — renters, leases, and rent collection
+//   7. Events          — as needed
+//   8. Public Portals  — rarely accessed, critical when needed
 
 const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
@@ -88,6 +90,12 @@ const FINANCIAL_SUITE = [
   { href: '/bills',      icon: CreditCard, label: 'Obligations'       },
   { href: '/payday',     icon: DollarSign, label: 'Payday'            },
   { href: '/reports',    icon: BarChart,   label: 'Analytics'         },
+];
+
+const BOOTH_RENTAL = [
+  { href: '/booths',  icon: Armchair,  label: 'Booths'  },
+  { href: '/renters', icon: KeyRound,  label: 'Renters' },
+  { href: '/rent',    icon: HandCoins, label: 'Rent'    },
 ];
 
 const EVENTS = [
@@ -317,7 +325,15 @@ export function AppSidebar() {
             </>
           )}
 
-          {/* 6 ── Events (owner) */}
+          {/* 6 ── Booth Rental (owner) */}
+          {isOwner && (
+            <>
+              <SidebarSeparator className="my-1 opacity-20" />
+              <NavSection label="Booth Rental" items={BOOTH_RENTAL} />
+            </>
+          )}
+
+          {/* 7 ── Events (owner) */}
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
@@ -325,7 +341,7 @@ export function AppSidebar() {
             </>
           )}
 
-          {/* 7 ── Public Portals (owner + tenantId) */}
+          {/* 8 ── Public Portals (owner + tenantId) */}
           {isOwner && tenantId && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
@@ -402,7 +418,7 @@ export function MobileSidebarTrigger({ className }: { className?: string }) {
       className={cn(
         'lg:hidden flex items-center justify-center w-10 h-10 rounded-xl',
         'hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all',
-        className,
+      className,
       )}
     />
   );
