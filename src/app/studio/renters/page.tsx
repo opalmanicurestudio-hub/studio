@@ -466,14 +466,9 @@ export default function RentersPage() {
           enabled: leaseForm.lateFeeEnabled,
           graceDays: parseInt(leaseForm.lateFeeGraceDays, 10) || 0,
           type: leaseForm.lateFeeType,
-          amountCents:
-            leaseForm.lateFeeType === 'flat'
-              ? Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100)
-              : undefined,
-          percent:
-            leaseForm.lateFeeType === 'percent'
-              ? toNumber(leaseForm.lateFeePercent)
-              : undefined,
+          ...(leaseForm.lateFeeType === 'flat'
+            ? { amountCents: Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100) }
+            : { percent: toNumber(leaseForm.lateFeePercent) }),
         },
         includedAmenities: booth?.amenities ?? [],
         houseRules: leaseForm.houseRules.trim(),
