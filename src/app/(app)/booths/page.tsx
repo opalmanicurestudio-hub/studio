@@ -90,7 +90,7 @@ const FREQ_TO_MONTHLY: Record<string, number> = {
 
 // ─── Status config (list view badges) ─────────────────────────────────────────
 
-const STATUS_CONFIG: Record <
+const STATUS_CONFIG: Record
   BoothStatus,
   { label: string; badgeClass: string }
 > = {
