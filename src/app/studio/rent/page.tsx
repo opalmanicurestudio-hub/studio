@@ -9,6 +9,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -116,8 +117,9 @@ interface ChargeFormState {
 }
 
 export default function RentRollPage() {
-  const { firestore, user, isUserLoading } = useFirebase();
-  const tenantId = user?.uid ?? null;
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id ?? null;
 
   const rentersRef = useMemoFirebase(
     () =>
@@ -235,7 +237,7 @@ export default function RentRollPage() {
     return list;
   }, [renters, ledgerByRenter, summary.pastDueRenterIds]);
 
-  if (isUserLoading || !tenantId) {
+  if (!tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
         Loading your studio…
