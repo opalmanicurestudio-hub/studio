@@ -9,6 +9,7 @@ import {
 } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -153,8 +154,9 @@ function toNumber(value: string): number {
 const WIZARD_STEPS = ['Booth & rent', 'Deposit & fees', 'Review'] as const;
 
 export default function RentersPage() {
-  const { firebaseApp, firestore, user, isUserLoading } = useFirebase();
-  const tenantId = user?.uid ?? null;
+  const { firebaseApp, firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id ?? null;
   const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
 
   const rentersRef = useMemoFirebase(
@@ -235,7 +237,7 @@ export default function RentersPage() {
     return list;
   }, [renters]);
 
-  if (isUserLoading || !tenantId) {
+  if (!tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
         Loading your studio…
