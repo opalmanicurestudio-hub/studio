@@ -33,16 +33,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
   Users,
   Plus,
   Pencil,
@@ -55,8 +45,8 @@ import {
   ChevronRight,
   ChevronLeft,
   Upload,
-  AlertCircle,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import {
   Booth,
   Renter,
@@ -69,11 +59,7 @@ import {
   toIsoDate,
 } from '@/lib/booth-rental-types';
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
-
-const RENTER_STATUS_CONFIG: Record<
+const RENTER_STATUS_CONFIG: Record
   RenterStatus,
   { label: string; badgeClass: string }
 > = {
@@ -92,10 +78,6 @@ const WEEKDAY_OPTIONS = [
   { value: '6', label: 'Saturday' },
   { value: '0', label: 'Sunday' },
 ];
-
-// ---------------------------------------------------------------------------
-// Renter form
-// ---------------------------------------------------------------------------
 
 interface RenterFormState {
   firstName: string;
@@ -116,10 +98,6 @@ const EMPTY_RENTER_FORM: RenterFormState = {
   specialty: '',
   notes: '',
 };
-
-// ---------------------------------------------------------------------------
-// Lease form
-// ---------------------------------------------------------------------------
 
 interface LeaseFormState {
   boothId: string;
@@ -173,15 +151,7 @@ function toNumber(value: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// ---------------------------------------------------------------------------
-// Wizard
-// ---------------------------------------------------------------------------
-
 const WIZARD_STEPS = ['Booth & rent', 'Deposit & fees', 'Review'] as const;
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export default function RentersPage() {
   const { firebaseApp, firestore } = useFirebase();
@@ -189,7 +159,6 @@ export default function RentersPage() {
   const tenantId = selectedTenant?.id ?? null;
   const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
 
-  // Firestore refs
   const rentersRef = useMemoFirebase(
     () =>
       firestore && tenantId
@@ -217,32 +186,20 @@ export default function RentersPage() {
   const { data: booths } = useCollection<Booth>(boothsRef);
   const { data: leases } = useCollection<Lease>(leasesRef);
 
-  // ── Renter dialog state ──────────────────────────────────────────────────
   const [renterDialogOpen, setRenterDialogOpen] = useState(false);
-  // FIX #8: editingRenterId is explicitly tracked and cleared on close
   const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
-  const [renterForm, setRenterForm] = useState<RenterFormState>(EMPTY_RENTER_FORM);
-  // FIX #10: separate error state for renter save
-  const [renterError, setRenterError] = useState<string | null>(null);
-  // FIX #7: separate saving flags
-  const [savingRenter, setSavingRenter] = useState(false);
+  const [renterForm, setRenterForm] =
+    useState<RenterFormState>(EMPTY_RENTER_FORM);
 
-  // ── Lease wizard state ───────────────────────────────────────────────────
   const [leaseDialogOpen, setLeaseDialogOpen] = useState(false);
   const [leaseRenterId, setLeaseRenterId] = useState<string | null>(null);
   const [leaseStep, setLeaseStep] = useState(0);
-  const [leaseForm, setLeaseForm] = useState<LeaseFormState>(buildEmptyLeaseForm());
-  // FIX #10: separate error state for lease save
-  const [leaseError, setLeaseError] = useState<string | null>(null);
-  // FIX #7: separate saving flag
-  const [savingLease, setSavingLease] = useState(false);
+  const [leaseForm, setLeaseForm] = useState<LeaseFormState>(
+    buildEmptyLeaseForm()
+  );
 
-  // ── End-lease confirmation ───────────────────────────────────────────────
-  // FIX #5: confirmation dialog before ending a lease
-  const [endLeaseTarget, setEndLeaseTarget] = useState<Renter | null>(null);
-  const [savingEndLease, setSavingEndLease] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  // ── Derived data ─────────────────────────────────────────────────────────
   const activeLeaseByRenter = useMemo(() => {
     const map = new Map<string, Lease>();
     (leases ?? []).forEach((lease) => {
@@ -280,20 +237,6 @@ export default function RentersPage() {
     return list;
   }, [renters]);
 
-  // ── Wizard helpers ───────────────────────────────────────────────────────
-  const selectedBooth = boothById.get(leaseForm.boothId);
-  const dueDayIsWeekday = leaseForm.frequency !== 'monthly';
-
-  // FIX #1: robust per-step validation
-  const step0Valid = Boolean(leaseForm.boothId && toNumber(leaseForm.rentDollars) > 0);
-  const step1Valid = (() => {
-    if (!leaseForm.lateFeeEnabled) return true;
-    if (leaseForm.lateFeeType === 'flat' && toNumber(leaseForm.lateFeeAmountDollars) <= 0) return false;
-    if (leaseForm.lateFeeType === 'percent' && toNumber(leaseForm.lateFeePercent) <= 0) return false;
-    return true;
-  })();
-  const wizardCanAdvance = leaseStep === 0 ? step0Valid : leaseStep === 1 ? step1Valid : true;
-
   if (!tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
@@ -302,12 +245,9 @@ export default function RentersPage() {
     );
   }
 
-  // ── Renter handlers ──────────────────────────────────────────────────────
-
   const openCreateRenter = () => {
-    setEditingRenterId(null); // FIX #8: always clear before opening for create
+    setEditingRenterId(null);
     setRenterForm(EMPTY_RENTER_FORM);
-    setRenterError(null);
     setRenterDialogOpen(true);
   };
 
@@ -322,23 +262,12 @@ export default function RentersPage() {
       specialty: renter.specialty ?? '',
       notes: renter.notes ?? '',
     });
-    setRenterError(null);
     setRenterDialogOpen(true);
-  };
-
-  // FIX #8: on close, always reset editingRenterId so re-open for "Add" doesn't call updateDoc
-  const handleRenterDialogOpenChange = (open: boolean) => {
-    if (!open) {
-      setEditingRenterId(null);
-      setRenterError(null);
-    }
-    setRenterDialogOpen(open);
   };
 
   const handleSaveRenter = async () => {
     if (!renterForm.firstName.trim() || !renterForm.email.trim()) return;
-    setSavingRenter(true);
-    setRenterError(null);
+    setSaving(true);
     const now = new Date().toISOString();
     const payload = {
       firstName: renterForm.firstName.trim(),
@@ -353,7 +282,11 @@ export default function RentersPage() {
     try {
       if (editingRenterId) {
         await updateDoc(
-          doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), editingRenterId),
+          doc(
+            firestore,
+            BOOTH_RENTAL_COLLECTIONS.renters(tenantId),
+            editingRenterId
+          ),
           payload
         );
       } else {
@@ -371,61 +304,32 @@ export default function RentersPage() {
         );
       }
       setRenterDialogOpen(false);
-      setEditingRenterId(null); // FIX #8: clear after successful save
-    } catch (err) {
-      // FIX #10: surface errors to the user
-      setRenterError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
     } finally {
-      setSavingRenter(false);
+      setSaving(false);
     }
   };
-
-  // ── Lease wizard handlers ────────────────────────────────────────────────
 
   const openLeaseWizard = (renterId: string) => {
     setLeaseRenterId(renterId);
     setLeaseForm(buildEmptyLeaseForm());
     setLeaseStep(0);
-    setLeaseError(null);
     setLeaseDialogOpen(true);
   };
 
-  // FIX #6: reset wizard state whenever the dialog is dismissed
-  const handleLeaseDialogOpenChange = (open: boolean) => {
-    if (!open) {
-      setLeaseStep(0);
-      setLeaseForm(buildEmptyLeaseForm());
-      setLeaseError(null);
-    }
-    setLeaseDialogOpen(open);
-  };
-
-  // FIX #2: always update rent + frequency from booth, overriding any prior user input
   const handleBoothSelect = (boothId: string) => {
     const booth = boothById.get(boothId);
     setLeaseForm((prev) => ({
       ...prev,
       boothId,
-      rentDollars: booth ? (booth.baseRentCents / 100).toString() : prev.rentDollars,
+      rentDollars:
+        prev.rentDollars || (booth ? (booth.baseRentCents / 100).toString() : ''),
       frequency: booth ? booth.baseRentFrequency : prev.frequency,
-      // FIX #3: reset dueDay to a valid default whenever frequency changes
-      dueDay: booth?.baseRentFrequency !== 'monthly' ? '1' : prev.dueDay,
-    }));
-  };
-
-  // FIX #3: reset dueDay to a safe default when frequency changes
-  const handleFrequencyChange = (value: RentFrequency) => {
-    setLeaseForm((prev) => ({
-      ...prev,
-      frequency: value,
-      dueDay: value === 'monthly' ? '1' : '1',
     }));
   };
 
   const handleCreateLease = async () => {
     if (!leaseRenterId || !leaseForm.boothId) return;
-    setSavingLease(true);
-    setLeaseError(null);
+    setSaving(true);
     const now = new Date().toISOString();
     try {
       let signedDocumentUrl: string | null = null;
@@ -466,9 +370,14 @@ export default function RentersPage() {
           enabled: leaseForm.lateFeeEnabled,
           graceDays: parseInt(leaseForm.lateFeeGraceDays, 10) || 0,
           type: leaseForm.lateFeeType,
-          ...(leaseForm.lateFeeType === 'flat'
-            ? { amountCents: Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100) }
-            : { percent: toNumber(leaseForm.lateFeePercent) }),
+          amountCents:
+            leaseForm.lateFeeType === 'flat'
+              ? Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100)
+              : undefined,
+          percent:
+            leaseForm.lateFeeType === 'percent'
+              ? toNumber(leaseForm.lateFeePercent)
+              : undefined,
         },
         includedAmenities: booth?.amenities ?? [],
         houseRules: leaseForm.houseRules.trim(),
@@ -485,30 +394,33 @@ export default function RentersPage() {
       );
 
       await updateDoc(
-        doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), leaseForm.boothId),
+        doc(
+          firestore,
+          BOOTH_RENTAL_COLLECTIONS.booths(tenantId),
+          leaseForm.boothId
+        ),
         { status: 'occupied', currentLeaseId: leaseRef.id, updatedAt: now }
       );
 
       await updateDoc(
-        doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), leaseRenterId),
+        doc(
+          firestore,
+          BOOTH_RENTAL_COLLECTIONS.renters(tenantId),
+          leaseRenterId
+        ),
         { status: 'active', updatedAt: now }
       );
 
       setLeaseDialogOpen(false);
-    } catch (err) {
-      // FIX #10: surface errors to the user
-      setLeaseError(err instanceof Error ? err.message : 'Failed to create lease. Please try again.');
     } finally {
-      setSavingLease(false);
+      setSaving(false);
     }
   };
 
-  // FIX #5: end-lease now goes through a confirmation dialog
-  const handleEndLease = async () => {
-    if (!endLeaseTarget) return;
-    const lease = activeLeaseByRenter.get(endLeaseTarget.id);
+  const handleEndLease = async (renter: Renter) => {
+    const lease = activeLeaseByRenter.get(renter.id);
     if (!lease) return;
-    setSavingEndLease(true);
+    setSaving(true);
     const now = new Date().toISOString();
     const today = toIsoDate(new Date());
     try {
@@ -521,20 +433,23 @@ export default function RentersPage() {
         { status: 'vacant', currentLeaseId: null, updatedAt: now }
       );
       await updateDoc(
-        doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), endLeaseTarget.id),
+        doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), renter.id),
         { status: 'past', updatedAt: now }
       );
     } finally {
-      setSavingEndLease(false);
-      setEndLeaseTarget(null);
+      setSaving(false);
     }
   };
 
-  // ── Render ───────────────────────────────────────────────────────────────
+  const selectedBooth = boothById.get(leaseForm.boothId);
+  const wizardCanAdvance =
+    leaseStep === 0
+      ? Boolean(leaseForm.boothId && toNumber(leaseForm.rentDollars) > 0)
+      : true;
+  const dueDayIsWeekday = leaseForm.frequency !== 'monthly';
 
   return (
     <div className="p-6 md:p-8 space-y-6">
-      {/* Page header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
@@ -561,7 +476,7 @@ export default function RentersPage() {
             <Users className="h-10 w-10 mx-auto text-muted-foreground" />
             <p className="font-medium">No renters yet</p>
             <p className="text-sm text-muted-foreground">
-              Add a renter, then set up their lease — booth, rent, deposit, and
+              Add a renter, then set up her lease — booth, rent, deposit, and
               the signed agreement, all in one place.
             </p>
             <Button onClick={openCreateRenter}>
@@ -572,11 +487,11 @@ export default function RentersPage() {
         </Card>
       )}
 
-      {/* Renter cards */}
       <div className="grid gap-4 md:grid-cols-2">
         {sortedRenters.map((renter) => {
           const statusConfig =
-            RENTER_STATUS_CONFIG[renter.status] ?? RENTER_STATUS_CONFIG.prospective;
+            RENTER_STATUS_CONFIG[renter.status] ??
+            RENTER_STATUS_CONFIG.prospective;
           const lease = activeLeaseByRenter.get(renter.id);
           const booth = lease ? boothById.get(lease.boothId) : undefined;
           return (
@@ -623,7 +538,7 @@ export default function RentersPage() {
                         : 'Month-to-month'}
                     </div>
                     {lease.signedDocumentUrl && (
-                      <a
+                      
                         href={lease.signedDocumentUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -651,12 +566,12 @@ export default function RentersPage() {
                       Set up lease
                     </Button>
                   )}
-                  {/* FIX #5: opens confirmation dialog instead of firing directly */}
                   {lease && (
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setEndLeaseTarget(renter)}
+                      disabled={saving}
+                      onClick={() => handleEndLease(renter)}
                     >
                       <LogOut className="h-3.5 w-3.5 mr-1.5" />
                       End lease
@@ -669,8 +584,7 @@ export default function RentersPage() {
         })}
       </div>
 
-      {/* ── Add / Edit renter dialog ───────────────────────────────────────── */}
-      <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
+      <Dialog open={renterDialogOpen} onOpenChange={setRenterDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
@@ -757,43 +671,26 @@ export default function RentersPage() {
                 }
               />
             </div>
-
-            {/* FIX #10: visible error */}
-            {renterError && (
-              <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                {renterError}
-              </div>
-            )}
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => handleRenterDialogOpenChange(false)}
-            >
+            <Button variant="outline" onClick={() => setRenterDialogOpen(false)}>
               Cancel
             </Button>
             <Button
               onClick={handleSaveRenter}
               disabled={
-                savingRenter ||
+                saving ||
                 !renterForm.firstName.trim() ||
                 !renterForm.email.trim()
               }
             >
-              {savingRenter
-                ? 'Saving…'
-                : editingRenterId
-                ? 'Save changes'
-                : 'Add renter'}
+              {saving ? 'Saving…' : editingRenterId ? 'Save changes' : 'Add renter'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ── Lease wizard dialog ────────────────────────────────────────────── */}
-      {/* FIX #6: onOpenChange resets wizard state on any close */}
-      <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
+      <Dialog open={leaseDialogOpen} onOpenChange={setLeaseDialogOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Set up lease</DialogTitle>
@@ -803,12 +700,14 @@ export default function RentersPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* ── Step 0: Booth & rent ── */}
           {leaseStep === 0 && (
             <div className="space-y-4">
               <div className="space-y-1">
                 <Label>Booth</Label>
-                <Select value={leaseForm.boothId} onValueChange={handleBoothSelect}>
+                <Select
+                  value={leaseForm.boothId}
+                  onValueChange={handleBoothSelect}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Choose a vacant booth" />
                   </SelectTrigger>
@@ -840,13 +739,16 @@ export default function RentersPage() {
                     }
                   />
                 </div>
-                {/* FIX #3: use handleFrequencyChange to reset dueDay */}
                 <div className="space-y-1">
                   <Label>Frequency</Label>
                   <Select
                     value={leaseForm.frequency}
                     onValueChange={(value) =>
-                      handleFrequencyChange(value as RentFrequency)
+                      setLeaseForm((p) => ({
+                        ...p,
+                        frequency: value as RentFrequency,
+                        dueDay: value === 'monthly' ? '1' : p.dueDay,
+                      }))
                     }
                   >
                     <SelectTrigger>
@@ -896,11 +798,9 @@ export default function RentersPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="l-firstcharge">First charge date</Label>
-                  {/* FIX #4: enforce today or later */}
                   <Input
                     id="l-firstcharge"
                     type="date"
-                    min={toIsoDate(new Date())}
                     value={leaseForm.firstChargeDate}
                     onChange={(e) =>
                       setLeaseForm((p) => ({
@@ -926,11 +826,9 @@ export default function RentersPage() {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="l-end">Lease end (blank = month-to-month)</Label>
-                  {/* FIX #4: end must be after start */}
                   <Input
                     id="l-end"
                     type="date"
-                    min={leaseForm.startDate || toIsoDate(new Date())}
                     value={leaseForm.endDate}
                     onChange={(e) =>
                       setLeaseForm((p) => ({ ...p, endDate: e.target.value }))
@@ -956,7 +854,6 @@ export default function RentersPage() {
             </div>
           )}
 
-          {/* ── Step 1: Deposit & fees ── */}
           {leaseStep === 1 && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -995,7 +892,10 @@ export default function RentersPage() {
                     <Switch
                       checked={leaseForm.depositRefundable}
                       onCheckedChange={(checked) =>
-                        setLeaseForm((p) => ({ ...p, depositRefundable: checked }))
+                        setLeaseForm((p) => ({
+                          ...p,
+                          depositRefundable: checked,
+                        }))
                       }
                     />
                   </div>
@@ -1037,7 +937,6 @@ export default function RentersPage() {
                       <Label>Grace days</Label>
                       <Input
                         type="number"
-                        min={0}
                         value={leaseForm.lateFeeGraceDays}
                         onChange={(e) =>
                           setLeaseForm((p) => ({
@@ -1068,13 +967,11 @@ export default function RentersPage() {
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      {/* FIX #1: label + validation tied to type */}
                       <Label>
                         {leaseForm.lateFeeType === 'flat' ? 'Fee ($)' : 'Fee (%)'}
                       </Label>
                       <Input
                         type="number"
-                        min={0.01}
                         value={
                           leaseForm.lateFeeType === 'flat'
                             ? leaseForm.lateFeeAmountDollars
@@ -1090,12 +987,6 @@ export default function RentersPage() {
                       />
                     </div>
                   </div>
-                )}
-                {/* FIX #1: show inline validation hint when fee amount is 0 */}
-                {leaseForm.lateFeeEnabled && !step1Valid && (
-                  <p className="text-xs text-destructive">
-                    Enter a fee amount greater than 0, or turn off late fees.
-                  </p>
                 )}
               </div>
 
@@ -1131,7 +1022,6 @@ export default function RentersPage() {
             </div>
           )}
 
-          {/* ── Step 2: Review ── */}
           {leaseStep === 2 && (
             <div className="space-y-3">
               <div className="rounded-lg border p-4 space-y-2 text-sm">
@@ -1144,8 +1034,8 @@ export default function RentersPage() {
                 <p>
                   <span className="text-muted-foreground">Rent:</span>{' '}
                   <span className="font-medium">
-                    {formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} /{' '}
-                    {FREQUENCY_LABELS[leaseForm.frequency].toLowerCase()}
+                    {formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))}{' '}
+                    / {FREQUENCY_LABELS[leaseForm.frequency].toLowerCase()}
                   </span>
                 </p>
                 <p>
@@ -1176,7 +1066,9 @@ export default function RentersPage() {
                     {leaseForm.lateFeeEnabled
                       ? leaseForm.lateFeeType === 'flat'
                         ? `${formatCents(
-                            Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100)
+                            Math.round(
+                              toNumber(leaseForm.lateFeeAmountDollars) * 100
+                            )
                           )} after ${leaseForm.lateFeeGraceDays} grace days`
                         : `${leaseForm.lateFeePercent}% after ${leaseForm.lateFeeGraceDays} grace days`
                       : 'None'}
@@ -1185,7 +1077,9 @@ export default function RentersPage() {
                 <p>
                   <span className="text-muted-foreground">Agreement:</span>{' '}
                   <span className="font-medium">
-                    {leaseForm.signedFile ? leaseForm.signedFile.name : 'Not uploaded'}
+                    {leaseForm.signedFile
+                      ? leaseForm.signedFile.name
+                      : 'Not uploaded'}
                   </span>
                 </p>
               </div>
@@ -1193,14 +1087,6 @@ export default function RentersPage() {
                 Creating this lease marks the booth occupied and the renter
                 active. Rent charges will follow the schedule above.
               </p>
-
-              {/* FIX #10: visible error on final step */}
-              {leaseError && (
-                <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4 shrink-0" />
-                  {leaseError}
-                </div>
-              )}
             </div>
           )}
 
@@ -1209,7 +1095,6 @@ export default function RentersPage() {
               <Button
                 variant="outline"
                 onClick={() => setLeaseStep((s) => s - 1)}
-                disabled={savingLease}
               >
                 <ChevronLeft className="h-4 w-4 mr-1" />
                 Back
@@ -1225,43 +1110,13 @@ export default function RentersPage() {
               </Button>
             )}
             {leaseStep === WIZARD_STEPS.length - 1 && (
-              <Button onClick={handleCreateLease} disabled={savingLease}>
-                {savingLease ? 'Creating…' : 'Create lease'}
+              <Button onClick={handleCreateLease} disabled={saving}>
+                {saving ? 'Creating…' : 'Create lease'}
               </Button>
             )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* ── FIX #5: End-lease confirmation dialog ─────────────────────────── */}
-      <AlertDialog
-        open={Boolean(endLeaseTarget)}
-        onOpenChange={(open) => { if (!open) setEndLeaseTarget(null); }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>End lease?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will immediately mark{' '}
-              <strong>
-                {endLeaseTarget?.firstName} {endLeaseTarget?.lastName}
-              </strong>
-              's lease as ended, free up their booth, and set their status to
-              Past. This can't be undone from here.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={savingEndLease}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleEndLease}
-              disabled={savingEndLease}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {savingEndLease ? 'Ending…' : 'End lease'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
