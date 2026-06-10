@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   collection,
   doc,
@@ -32,6 +32,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   Armchair,
   Plus,
   Pencil,
@@ -42,23 +48,55 @@ import {
   CheckCircle2,
   DoorOpen,
   Wrench,
+  CircleDollarSign,
+  LayoutGrid,
+  List,
+  Lock,
+  Unlock,
+  RefreshCw,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Booth,
   BoothStatus,
+  Renter,
+  Lease,
   RentFrequency,
   BOOTH_RENTAL_COLLECTIONS,
+  BOOTH_STATUS_LABELS,
+  BOOTH_STATUS_COLORS,
+  RENTER_STATUS_LABELS,
   FREQUENCY_LABELS,
   formatCents,
 } from '@/lib/booth-rental-types';
 
-const STATUS_CONFIG: Record <
+// ─── Canvas constants ─────────────────────────────────────────────────────────
+
+const CANVAS_W = 1200;
+const CANVAS_H = 800;
+const GRID = 20;
+const DEFAULT_W = 140;
+const DEFAULT_H = 100;
+
+const snap = (v: number) => Math.round(v / GRID) * GRID;
+
+const FREQ_TO_MONTHLY: Record<string, number> = {
+  daily: 30,
+  weekly: 4.33,
+  biweekly: 2.17,
+  monthly: 1,
+};
+
+// ─── Status config (list view badges) ─────────────────────────────────────────
+
+const STATUS_CONFIG: Record
   BoothStatus,
   { label: string; badgeClass: string }
 > = {
   vacant: { label: 'Vacant', badgeClass: 'bg-amber-100 text-amber-800' },
   occupied: { label: 'Occupied', badgeClass: 'bg-emerald-100 text-emerald-800' },
+  partial: { label: 'Partial', badgeClass: 'bg-orange-100 text-orange-800' },
   maintenance: { label: 'Maintenance', badgeClass: 'bg-slate-200 text-slate-700' },
   inactive: { label: 'Inactive', badgeClass: 'bg-slate-100 text-slate-500' },
 };
@@ -73,6 +111,8 @@ const AMENITY_OPTIONS = [
   'Parking',
   'Towel service',
 ];
+
+// ─── Booth form ───────────────────────────────────────────────────────────────
 
 interface BoothFormState {
   name: string;
@@ -91,6 +131,8 @@ const EMPTY_FORM: BoothFormState = {
   status: 'vacant',
   amenities: [],
 };
+
+// ─── Pricing Advisor ──────────────────────────────────────────────────────────
 
 interface PricingInputs {
   monthlyLease: string;
@@ -393,9 +435,7 @@ function PricingAdvisor(props: {
                 </Button>
                 <Button
                   onClick={() => {
-                    onApplyWeeklyRent(
-                      Math.round(result.floorWeekly)
-                    );
+                    onApplyWeeklyRent(Math.round(result.floorWeekly));
                     onOpenChange(false);
                   }}
                 >
@@ -411,6 +451,280 @@ function PricingAdvisor(props: {
   );
 }
 
+// ─── Metric card ──────────────────────────────────────────────────────────────
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  icon: Icon,
+  accent,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  icon: React.ElementType;
+  accent?: string;
+}) {
+  return (
+    <div className="bg-background border border-border/40 rounded-xl p-4 flex gap-3 items-start">
+      <div
+        className="mt-0.5 h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
+        style={{ background: accent ?? 'var(--color-background-secondary)' }}
+      >
+        <Icon className="h-4 w-4" style={{ color: accent ? '#fff' : undefined }} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs text-muted-foreground leading-none mb-1">{label}</p>
+        <p className="text-xl font-semibold leading-none truncate">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-1 truncate">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Status pill ──────────────────────────────────────────────────────────────
+
+function StatusPill({ status }: { status: Booth['status'] }) {
+  const c = BOOTH_STATUS_COLORS[status];
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+      style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
+    >
+      {BOOTH_STATUS_LABELS[status]}
+    </span>
+  );
+}
+
+// ─── Booth card on canvas ─────────────────────────────────────────────────────
+
+interface BoothCanvasCardProps {
+  booth: Booth;
+  renter?: Renter;
+  lease?: Lease;
+  selected: boolean;
+  locked: boolean;
+  onMouseDown: (e: React.MouseEvent, id: string) => void;
+  onResizeMouseDown: (e: React.MouseEvent, id: string) => void;
+  onClick: (id: string) => void;
+}
+
+function BoothCanvasCard({
+  booth,
+  renter,
+  lease,
+  selected,
+  locked,
+  onMouseDown,
+  onResizeMouseDown,
+  onClick,
+}: BoothCanvasCardProps) {
+  const colors = BOOTH_STATUS_COLORS[booth.status];
+
+  const monthlyRent = useMemo(() => {
+    if (!lease) return 0;
+    return Math.round(
+      lease.rentAmountCents * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)
+    );
+  }, [lease]);
+
+  return (
+    <div
+      className="absolute select-none group"
+      style={{
+        left: booth.canvasX,
+        top: booth.canvasY,
+        width: booth.canvasW,
+        height: booth.canvasH,
+      }}
+      onMouseDown={(e) => !locked && onMouseDown(e, booth.id)}
+      onClick={() => onClick(booth.id)}
+    >
+      <div
+        className="w-full h-full rounded-xl flex flex-col p-2.5 overflow-hidden transition-shadow"
+        style={{
+          background: colors.bg,
+          border: `2px solid ${selected ? colors.border : colors.border + '99'}`,
+          boxShadow: selected ? `0 0 0 2px ${colors.border}44` : undefined,
+          cursor: locked ? 'pointer' : 'grab',
+        }}
+      >
+        <div className="flex items-center justify-between gap-1 mb-1">
+          <span
+            className="text-xs font-semibold truncate leading-none"
+            style={{ color: colors.text }}
+          >
+            {booth.name}
+          </span>
+          <span
+            className="h-2 w-2 rounded-full shrink-0"
+            style={{ background: colors.border }}
+          />
+        </div>
+
+        {renter && (
+          <span
+            className="text-[11px] truncate leading-none mb-1"
+            style={{ color: colors.text + 'cc' }}
+          >
+            {renter.firstName} {renter.lastName}
+          </span>
+        )}
+        {!renter && booth.status === 'vacant' && (
+          <span
+            className="text-[11px] italic leading-none mb-1"
+            style={{ color: colors.text + '88' }}
+          >
+            Available
+          </span>
+        )}
+
+        {lease && monthlyRent > 0 && (
+          <span
+            className="text-[11px] font-medium leading-none mt-auto"
+            style={{ color: colors.text }}
+          >
+            {formatCents(monthlyRent)}/mo
+          </span>
+        )}
+
+        {renter?.specialty && booth.canvasH >= 90 && (
+          <span
+            className="text-[10px] truncate leading-none mt-0.5"
+            style={{ color: colors.text + '99' }}
+          >
+            {renter.specialty}
+          </span>
+        )}
+      </div>
+
+      {!locked && (
+        <div
+          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeMouseDown(e, booth.id);
+          }}
+          style={{
+            background: `linear-gradient(135deg, transparent 50%, ${colors.border} 50%)`,
+            borderBottomRightRadius: 10,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Detail panel ─────────────────────────────────────────────────────────────
+
+function DetailPanel({
+  booth,
+  renter,
+  lease,
+  onClose,
+  onEdit,
+}: {
+  booth: Booth;
+  renter?: Renter;
+  lease?: Lease;
+  onClose: () => void;
+  onEdit: (booth: Booth) => void;
+}) {
+  const monthlyRent = useMemo(() => {
+    if (!lease) return 0;
+    return Math.round(
+      lease.rentAmountCents * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)
+    );
+  }, [lease]);
+
+  return (
+    <div className="absolute right-4 top-4 w-64 bg-background border border-border rounded-xl shadow-lg p-4 space-y-3 z-50">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-semibold text-sm">{booth.name}</p>
+          <StatusPill status={booth.status} />
+        </div>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground text-lg leading-none"
+        >
+          ×
+        </button>
+      </div>
+
+      {renter && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Renter</p>
+          <p className="text-sm font-medium">
+            {renter.firstName} {renter.lastName}
+          </p>
+          {renter.businessName && (
+            <p className="text-xs text-muted-foreground">{renter.businessName}</p>
+          )}
+          {renter.specialty && (
+            <p className="text-xs text-muted-foreground">{renter.specialty}</p>
+          )}
+          <p className="text-xs text-muted-foreground">{renter.email}</p>
+          <Badge className="text-[10px]">{RENTER_STATUS_LABELS[renter.status]}</Badge>
+        </div>
+      )}
+
+      {lease && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Lease</p>
+          <p className="text-sm font-medium">{formatCents(monthlyRent)} / mo</p>
+          <p className="text-xs text-muted-foreground">
+            {formatCents(lease.rentAmountCents)} /{' '}
+            {FREQUENCY_LABELS[lease.frequency].toLowerCase()}
+          </p>
+          {lease.scheduleSlot && (
+            <p className="text-xs text-muted-foreground">
+              Days: {lease.scheduleSlot.label ?? lease.scheduleSlot.days.join(', ')}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {lease.endDate ? `Ends ${lease.endDate}` : 'Month-to-month'}
+          </p>
+          {lease.perks.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {lease.perks.length} perk{lease.perks.length > 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {booth.amenities.length > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Amenities</p>
+          <div className="flex flex-wrap gap-1">
+            {booth.amenities.map((a) => (
+              <span
+                key={a}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+              >
+                {a}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => onEdit(booth)}
+      >
+        <Pencil className="h-3.5 w-3.5 mr-1.5" />
+        Edit booth
+      </Button>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
 export default function BoothsPage() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -423,7 +737,26 @@ export default function BoothsPage() {
         : null,
     [firestore, tenantId]
   );
+  const rentersRef = useMemoFirebase(
+    () =>
+      firestore && tenantId
+        ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId))
+        : null,
+    [firestore, tenantId]
+  );
+  const leasesRef = useMemoFirebase(
+    () =>
+      firestore && tenantId
+        ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId))
+        : null,
+    [firestore, tenantId]
+  );
+
   const { data: booths, isLoading } = useCollection<Booth>(boothsRef);
+  const { data: renters } = useCollection<Renter>(rentersRef);
+  const { data: leases } = useCollection<Lease>(leasesRef);
+
+  const [view, setView] = useState<'floor' | 'list'>('floor');
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
@@ -431,35 +764,238 @@ export default function BoothsPage() {
   const [form, setForm] = useState<BoothFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  const [locked, setLocked] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [layoutSaving, setLayoutSaving] = useState(false);
+
+  const dragRef = useRef<{
+    boothId: string;
+    mode: 'move' | 'resize';
+    startMouseX: number;
+    startMouseY: number;
+    startBoothX: number;
+    startBoothY: number;
+    startBoothW: number;
+    startBoothH: number;
+  } | null>(null);
+
+  const [localPos, setLocalPos] = useState
+    Record<string, { x: number; y: number; w: number; h: number }>
+  >({});
+
+  const renterById = useMemo(() => {
+    const m = new Map<string, Renter>();
+    (renters ?? []).forEach((r) => m.set(r.id, r));
+    return m;
+  }, [renters]);
+
+  const activeLeaseByBooth = useMemo(() => {
+    const m = new Map<string, Lease>();
+    (leases ?? []).forEach((l) => {
+      if (l.status === 'active' || l.status === 'on_leave') {
+        if (!m.has(l.boothId)) m.set(l.boothId, l);
+      }
+    });
+    return m;
+  }, [leases]);
+
   const sortedBooths = useMemo(() => {
     const list = booths ? [...booths] : [];
-    list.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name));
+    list.sort(
+      (a, b) =>
+        (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)
+    );
     return list;
   }, [booths]);
 
-  const summary = useMemo(() => {
-    const list = sortedBooths.filter((b) => b.status !== 'inactive');
-    const vacant = list.filter((b) => b.status === 'vacant').length;
-    const occupied = list.filter((b) => b.status === 'occupied').length;
-    const potentialMonthly = list.reduce((sum, b) => {
-      const perMonth =
-        b.baseRentFrequency === 'monthly'
-          ? b.baseRentCents
-          : b.baseRentFrequency === 'weekly'
-          ? Math.round((b.baseRentCents * 52) / 12)
-          : Math.round((b.baseRentCents * 26) / 12);
-      return sum + perMonth;
-    }, 0);
-    return { total: list.length, vacant, occupied, potentialMonthly };
-  }, [sortedBooths]);
+  const metrics = useMemo(() => {
+    const allBooths = (booths ?? []).filter((b) => b.status !== 'inactive');
+    const total = allBooths.length;
+    const occupied = allBooths.filter(
+      (b) => b.status === 'occupied' || b.status === 'partial'
+    ).length;
+    const vacant = allBooths.filter((b) => b.status === 'vacant').length;
 
-  if (!tenantId) {
-    return (
-      <div className="p-8 text-sm text-muted-foreground">
-        Loading your studio…
-      </div>
+    let monthlyRevenue = 0;
+    let vacancyCost = 0;
+    let potentialMonthly = 0;
+
+    allBooths.forEach((b) => {
+      const lease = activeLeaseByBooth.get(b.id);
+      const baseMonthly = Math.round(
+        b.baseRentCents * (FREQ_TO_MONTHLY[b.baseRentFrequency] ?? 1)
+      );
+      potentialMonthly += baseMonthly;
+      if (lease) {
+        monthlyRevenue += Math.round(
+          lease.rentAmountCents * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)
+        );
+      } else if (b.status === 'vacant') {
+        vacancyCost += baseMonthly;
+      }
+    });
+
+    const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
+    return {
+      total,
+      occupied,
+      vacant,
+      monthlyRevenue,
+      vacancyCost,
+      potentialMonthly,
+      occupancyPct,
+    };
+  }, [booths, activeLeaseByBooth]);
+
+  const effectiveBooth = useCallback(
+    (booth: Booth) => {
+      const lp = localPos[booth.id];
+      if (lp)
+        return { ...booth, canvasX: lp.x, canvasY: lp.y, canvasW: lp.w, canvasH: lp.h };
+      return booth;
+    },
+    [localPos]
+  );
+
+  // ── Drag handlers ───────────────────────────────────────────────────────────
+
+  const beginDrag = useCallback(
+    (e: React.MouseEvent, boothId: string, mode: 'move' | 'resize') => {
+      if (locked) return;
+      e.preventDefault();
+      const booth = (booths ?? []).find((b) => b.id === boothId);
+      if (!booth) return;
+      const lp = localPos[boothId];
+      dragRef.current = {
+        boothId,
+        mode,
+        startMouseX: e.clientX,
+        startMouseY: e.clientY,
+        startBoothX: lp?.x ?? booth.canvasX,
+        startBoothY: lp?.y ?? booth.canvasY,
+        startBoothW: lp?.w ?? booth.canvasW,
+        startBoothH: lp?.h ?? booth.canvasH,
+      };
+      setSelectedId(boothId);
+    },
+    [locked, booths, localPos]
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent, boothId: string) => beginDrag(e, boothId, 'move'),
+    [beginDrag]
+  );
+
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent, boothId: string) => beginDrag(e, boothId, 'resize'),
+    [beginDrag]
+  );
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.startMouseX;
+      const dy = e.clientY - d.startMouseY;
+
+      if (d.mode === 'move') {
+        setLocalPos((prev) => ({
+          ...prev,
+          [d.boothId]: {
+            x: Math.max(0, Math.min(CANVAS_W - d.startBoothW, snap(d.startBoothX + dx))),
+            y: Math.max(0, Math.min(CANVAS_H - d.startBoothH, snap(d.startBoothY + dy))),
+            w: d.startBoothW,
+            h: d.startBoothH,
+          },
+        }));
+      } else {
+        setLocalPos((prev) => ({
+          ...prev,
+          [d.boothId]: {
+            x: d.startBoothX,
+            y: d.startBoothY,
+            w: Math.max(GRID * 4, snap(d.startBoothW + dx)),
+            h: Math.max(GRID * 4, snap(d.startBoothH + dy)),
+          },
+        }));
+      }
+    };
+
+    const handleMouseUp = async () => {
+      const d = dragRef.current;
+      if (!d || !tenantId) {
+        dragRef.current = null;
+        return;
+      }
+      const lp = localPos[d.boothId];
+      dragRef.current = null;
+      if (!lp) return;
+
+      setLayoutSaving(true);
+      try {
+        await updateDoc(
+          doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), d.boothId),
+          {
+            canvasX: lp.x,
+            canvasY: lp.y,
+            canvasW: lp.w,
+            canvasH: lp.h,
+            updatedAt: new Date().toISOString(),
+          }
+        );
+        setLocalPos((prev) => {
+          const next = { ...prev };
+          delete next[d.boothId];
+          return next;
+        });
+      } finally {
+        setLayoutSaving(false);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [firestore, tenantId, localPos]);
+
+  const autoArrangeBooths = async () => {
+    if (!tenantId) return;
+    const unplaced = (booths ?? []).filter(
+      (b) => (b.canvasX ?? 0) === 0 && (b.canvasY ?? 0) === 0
     );
-  }
+    if (unplaced.length === 0) return;
+    const cols = 4;
+    const padX = 40;
+    const padY = 40;
+    const gapX = 20;
+    const gapY = 20;
+    setLayoutSaving(true);
+    try {
+      await Promise.all(
+        unplaced.map((b, i) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          return updateDoc(
+            doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), b.id),
+            {
+              canvasX: padX + col * (DEFAULT_W + gapX),
+              canvasY: padY + row * (DEFAULT_H + gapY),
+              canvasW: DEFAULT_W,
+              canvasH: DEFAULT_H,
+              updatedAt: new Date().toISOString(),
+            }
+          );
+        })
+      );
+    } finally {
+      setLayoutSaving(false);
+    }
+  };
+
+  // ── CRUD handlers ───────────────────────────────────────────────────────────
 
   const openCreate = () => {
     setEditingId(null);
@@ -490,7 +1026,7 @@ export default function BoothsPage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !tenantId) return;
     setSaving(true);
     const now = new Date().toISOString();
     const payload = {
@@ -511,7 +1047,15 @@ export default function BoothsPage() {
       } else {
         await addDoc(
           collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)),
-          { ...payload, currentLeaseId: null, createdAt: now }
+          {
+            ...payload,
+            currentLeaseId: null,
+            canvasX: 0,
+            canvasY: 0,
+            canvasW: DEFAULT_W,
+            canvasH: DEFAULT_H,
+            createdAt: now,
+          }
         );
       }
       setDialogOpen(false);
@@ -521,10 +1065,30 @@ export default function BoothsPage() {
   };
 
   const handleDelete = async (boothId: string) => {
+    if (!tenantId) return;
     await deleteDoc(
       doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), boothId)
     );
+    if (selectedId === boothId) setSelectedId(null);
   };
+
+  if (!tenantId) {
+    return (
+      <div className="p-8 text-sm text-muted-foreground">
+        Loading your studio…
+      </div>
+    );
+  }
+
+  const selectedBooth = selectedId
+    ? (booths ?? []).find((b) => b.id === selectedId)
+    : null;
+  const selectedLease = selectedBooth
+    ? activeLeaseByBooth.get(selectedBooth.id)
+    : undefined;
+  const selectedRenter = selectedLease
+    ? renterById.get(selectedLease.renterId)
+    : undefined;
 
   return (
     <div className="p-6 md:p-8 space-y-6">
@@ -535,10 +1099,29 @@ export default function BoothsPage() {
             Booths
           </h1>
           <p className="text-sm text-muted-foreground">
-            Your rentable chairs, booths, and suites.
+            Your rentable chairs, booths, and suites — arranged the way your
+            studio actually looks.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+          <div className="flex rounded-lg border border-border p-0.5">
+            <Button
+              variant={view === 'floor' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setView('floor')}
+            >
+              <LayoutGrid className="h-4 w-4 mr-1.5" />
+              Floor plan
+            </Button>
+            <Button
+              variant={view === 'list' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setView('list')}
+            >
+              <List className="h-4 w-4 mr-1.5" />
+              List
+            </Button>
+          </div>
           <Button variant="outline" onClick={() => setPricingOpen(true)}>
             <Calculator className="h-4 w-4 mr-2" />
             Pricing Advisor
@@ -550,49 +1133,39 @@ export default function BoothsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Booths
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{summary.total}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Occupied
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{summary.occupied}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Vacant
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">{summary.vacant}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Potential rent / mo
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold">
-              {formatCents(summary.potentialMonthly)}
-            </p>
-          </CardContent>
-        </Card>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard
+          label="Monthly revenue"
+          value={formatCents(metrics.monthlyRevenue)}
+          sub={`${metrics.occupancyPct}% occupancy`}
+          icon={CircleDollarSign}
+          accent="#185FA5"
+        />
+        <MetricCard
+          label="Occupied"
+          value={`${metrics.occupied} / ${metrics.total}`}
+          sub="booths"
+          icon={TrendingUp}
+          accent="#0F6E56"
+        />
+        <MetricCard
+          label="Vacant"
+          value={String(metrics.vacant)}
+          sub={
+            metrics.vacancyCost > 0
+              ? `${formatCents(metrics.vacancyCost)}/mo uncollected`
+              : 'No vacancies'
+          }
+          icon={DoorOpen}
+          accent={metrics.vacant > 0 ? '#BA7517' : '#3B6D11'}
+        />
+        <MetricCard
+          label="Potential rent"
+          value={formatCents(metrics.potentialMonthly)}
+          sub="if fully occupied"
+          icon={Calculator}
+          accent="#5B4A8A"
+        />
       </div>
 
       {isLoading && (
@@ -616,75 +1189,204 @@ export default function BoothsPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {sortedBooths.map((booth) => {
-          const statusConfig = STATUS_CONFIG[booth.status] ?? STATUS_CONFIG.vacant;
-          return (
-            <Card key={booth.id} className="flex flex-col">
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="text-base">{booth.name}</CardTitle>
-                  <Badge className={statusConfig.badgeClass}>
-                    {booth.status === 'maintenance' && (
-                      <Wrench className="h-3 w-3 mr-1" />
-                    )}
-                    {statusConfig.label}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="flex-1 flex flex-col gap-3">
-                <p className="text-lg font-semibold">
-                  {formatCents(booth.baseRentCents)}
-                  <span className="text-sm font-normal text-muted-foreground">
-                    {' '}
-                    / {FREQUENCY_LABELS[booth.baseRentFrequency].toLowerCase()}
-                  </span>
-                </p>
-                {booth.description && (
-                  <p className="text-sm text-muted-foreground line-clamp-2">
-                    {booth.description}
-                  </p>
+      {view === 'floor' && sortedBooths.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex gap-3 flex-wrap">
+              {(Object.entries(BOOTH_STATUS_COLORS) as [
+                Booth['status'],
+                (typeof BOOTH_STATUS_COLORS)[Booth['status']]
+              ][]).map(([status, c]) => (
+                <span
+                  key={status}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                >
+                  <span
+                    className="h-2.5 w-2.5 rounded-sm"
+                    style={{ background: c.bg, border: `1.5px solid ${c.border}` }}
+                  />
+                  {BOOTH_STATUS_LABELS[status]}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              {layoutSaving && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <RefreshCw className="h-3 w-3 animate-spin" /> Saving…
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={autoArrangeBooths}
+                disabled={layoutSaving || locked}
+              >
+                <LayoutGrid className="h-4 w-4 mr-1.5" />
+                Auto-arrange
+              </Button>
+              <Button
+                variant={locked ? 'default' : 'secondary'}
+                size="sm"
+                onClick={() => setLocked((l) => !l)}
+              >
+                {locked ? (
+                  <>
+                    <Lock className="h-4 w-4 mr-1.5" />
+                    Layout locked
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="h-4 w-4 mr-1.5" />
+                    Editing layout
+                  </>
                 )}
-                {booth.amenities?.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {booth.amenities.map((amenity) => (
-                      <Badge key={amenity} variant="secondary" className="text-xs">
-                        {amenity}
-                      </Badge>
-                    ))}
+              </Button>
+            </div>
+          </div>
+
+          {!locked && (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Info className="h-3 w-3" />
+              Drag to move · drag corner to resize · changes save automatically
+            </p>
+          )}
+
+          <div className="relative">
+            <div className="h-[600px] overflow-auto rounded-xl border border-border bg-muted/30">
+              <div
+                className="relative"
+                style={{
+                  width: CANVAS_W,
+                  height: CANVAS_H,
+                  backgroundImage: locked
+                    ? undefined
+                    : 'radial-gradient(circle, var(--border) 1px, transparent 1px)',
+                  backgroundSize: `${GRID}px ${GRID}px`,
+                }}
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setSelectedId(null);
+                }}
+              >
+                {sortedBooths.map((b) => {
+                  const eb = effectiveBooth(b);
+                  const lease = activeLeaseByBooth.get(b.id);
+                  const renter = lease ? renterById.get(lease.renterId) : undefined;
+                  return (
+                    <TooltipProvider key={b.id}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <BoothCanvasCard
+                              booth={eb}
+                              renter={renter}
+                              lease={lease}
+                              selected={selectedId === b.id}
+                              locked={locked}
+                              onMouseDown={handleMouseDown}
+                              onResizeMouseDown={handleResizeMouseDown}
+                              onClick={setSelectedId}
+                            />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="text-xs max-w-[200px]">
+                          <p className="font-medium">{b.name}</p>
+                          {b.amenities.length > 0 && (
+                            <p className="text-muted-foreground">
+                              {b.amenities.join(', ')}
+                            </p>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                })}
+              </div>
+            </div>
+
+            {selectedBooth && (
+              <DetailPanel
+                booth={effectiveBooth(selectedBooth)}
+                renter={selectedRenter}
+                lease={selectedLease}
+                onClose={() => setSelectedId(null)}
+                onEdit={(booth) => {
+                  openEdit(booth);
+                }}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'list' && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {sortedBooths.map((booth) => {
+            const statusConfig = STATUS_CONFIG[booth.status] ?? STATUS_CONFIG.vacant;
+            return (
+              <Card key={booth.id} className="flex flex-col">
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <CardTitle className="text-base">{booth.name}</CardTitle>
+                    <Badge className={statusConfig.badgeClass}>
+                      {booth.status === 'maintenance' && (
+                        <Wrench className="h-3 w-3 mr-1" />
+                      )}
+                      {statusConfig.label}
+                    </Badge>
                   </div>
-                )}
-                <div className="mt-auto flex gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => openEdit(booth)}
-                  >
-                    <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(booth.id)}
-                    disabled={booth.status === 'occupied'}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col gap-3">
+                  <p className="text-lg font-semibold">
+                    {formatCents(booth.baseRentCents)}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      {' '}
+                      / {FREQUENCY_LABELS[booth.baseRentFrequency].toLowerCase()}
+                    </span>
+                  </p>
+                  {booth.description && (
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {booth.description}
+                    </p>
+                  )}
+                  {booth.amenities?.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {booth.amenities.map((amenity) => (
+                        <Badge key={amenity} variant="secondary" className="text-xs">
+                          {amenity}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-auto flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => openEdit(booth)}
+                    >
+                      <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(booth.id)}
+                      disabled={booth.status === 'occupied'}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {editingId ? 'Edit booth' : 'Add booth'}
-            </DialogTitle>
+            <DialogTitle>{editingId ? 'Edit booth' : 'Add booth'}</DialogTitle>
             <DialogDescription>
               Name it the way your renters know it.
             </DialogDescription>
@@ -766,6 +1468,7 @@ export default function BoothsPage() {
                 <SelectContent>
                   <SelectItem value="vacant">Vacant</SelectItem>
                   <SelectItem value="occupied">Occupied</SelectItem>
+                  <SelectItem value="partial">Partial (shared)</SelectItem>
                   <SelectItem value="maintenance">Maintenance</SelectItem>
                   <SelectItem value="inactive">Inactive</SelectItem>
                 </SelectContent>
