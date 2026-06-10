@@ -39,16 +39,6 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
 );
 
 // ─── NAV SECTIONS ──────────────────────────────────────────────────────────────
-// Ordered by daily workflow frequency:
-//   1. Daily Hub       — touched every session
-//   2. Clients         — constant but not every minute
-//   3. Studio Assets   — weekly configuration
-//   4. Team            — scheduling & staff
-//   5. Financial Suite — periodic deep-dives
-//   6. Booth Rental    — renters, leases, and rent collection
-//   7. Events          — as needed
-//   8. Public Portals  — rarely accessed, critical when needed
-
 const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
@@ -73,15 +63,15 @@ const STUDIO_ASSETS = [
 ];
 
 const TEAM_FULL = [
-  { href: '/staff',      icon: Users,        label: 'Pro Team'       },
-  { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
-  { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
+  { href: '/staff',      icon: Users,         label: 'Pro Team'       },
+  { href: '/schedule',   icon: CalendarDays,  label: 'Shift Schedule' },
+  { href: '/timesheets', icon: ClipboardList, label: 'Timesheets'     },
 ];
 
 const TEAM_ADMIN = [
-  { href: '/staff',      icon: Users,        label: 'Pro Team'       },
-  { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
-  { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
+  { href: '/staff',      icon: Users,         label: 'Pro Team'       },
+  { href: '/schedule',   icon: CalendarDays,  label: 'Shift Schedule' },
+  { href: '/timesheets', icon: ClipboardList, label: 'Timesheets'     },
 ];
 
 const FINANCIAL_SUITE = [
@@ -92,10 +82,11 @@ const FINANCIAL_SUITE = [
   { href: '/reports',    icon: BarChart,   label: 'Analytics'         },
 ];
 
+// ─── ONLY THESE 3 HREFS CHANGED ───────────────────────────────────────────────
 const BOOTH_RENTAL = [
-  { href: '/booths',  icon: Armchair,  label: 'Booths'  },
-  { href: '/renters', icon: KeyRound,  label: 'Renters' },
-  { href: '/rent',    icon: HandCoins, label: 'Rent'    },
+  { href: '/studio/booths',  icon: Armchair,  label: 'Booths'  },
+  { href: '/studio/renters', icon: KeyRound,  label: 'Renters' },
+  { href: '/studio/rent',    icon: HandCoins, label: 'Rent'    },
 ];
 
 const EVENTS = [
@@ -122,7 +113,6 @@ function NavItem({
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
 
-  // Portals open in new tab with the tenantId appended
   const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
   const isActive  = !isPortal && (
     href === '/dashboard' ? pathname === href : pathname.startsWith(href)
@@ -135,11 +125,9 @@ function NavItem({
       className={cn(
         'rounded-xl h-10 font-black uppercase text-[9px] tracking-widest',
         'transition-all duration-150',
-        // Expanded: normal text + icon
         'data-[active=true]:bg-primary data-[active=true]:text-primary-foreground',
         'data-[active=true]:shadow-md data-[active=true]:shadow-primary/20',
         'hover:bg-primary/10 hover:text-primary',
-        // Collapsed icon mode: centre the icon
         isCollapsed && 'justify-center',
       )}
     >
@@ -153,7 +141,6 @@ function NavItem({
     </SidebarMenuButton>
   );
 
-  // In collapsed mode show a tooltip so the icon is still labelled
   if (isCollapsed) {
     return (
       <SidebarMenuItem>
@@ -188,13 +175,11 @@ function NavSection({
 
   return (
     <SidebarGroup className="py-1">
-      {/* Label — hidden in icon mode */}
       {!isCollapsed && (
         <SidebarGroupLabel className="px-3 mb-1 h-5 font-black uppercase text-[8px] tracking-[0.22em] text-muted-foreground/40">
           {label}
         </SidebarGroupLabel>
       )}
-      {/* Thin divider replaces label in icon mode */}
       {isCollapsed && <div className="mx-auto w-4 h-px bg-border/50 mb-2" />}
       <SidebarMenu className="gap-px px-0">
         {items.map(item => (
@@ -209,7 +194,6 @@ function NavSection({
 }
 
 // ─── COLLAPSE TOGGLE ───────────────────────────────────────────────────────────
-// Wraps useSidebar so it can live inside the Sidebar context
 function CollapseToggle() {
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === 'collapsed';
@@ -247,16 +231,13 @@ export function AppSidebar() {
         collapsible="icon"
         className="border-r-2 border-border/40 bg-white"
       >
-        {/* ── Rail — thin click-strip on the right edge for easy collapse ── */}
         <SidebarRail />
 
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <SidebarHeader className="border-b border-border/30">
           <div className="flex items-center justify-between px-4 py-4 min-h-[68px]">
-            {/* Logo + wordmark — wordmark hidden in icon mode via group */}
             <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
               <ClarityFlowLogo className="w-8 h-8 shrink-0" />
-              {/* Hidden by sidebar's group-data-[collapsible=icon] CSS */}
               <div className="flex flex-col leading-none min-w-0 group-data-[collapsible=icon]:hidden">
                 <span className="text-[19px] font-black uppercase tracking-tighter text-slate-900">
                   ClarityFlow
@@ -266,8 +247,6 @@ export function AppSidebar() {
                 </span>
               </div>
             </Link>
-
-            {/* Collapse button — hidden in icon mode (no room) */}
             <div className="group-data-[collapsible=icon]:hidden">
               <CollapseToggle />
             </div>
@@ -277,7 +256,6 @@ export function AppSidebar() {
         {/* ── Content ────────────────────────────────────────────────────── */}
         <SidebarContent className="overflow-y-auto overflow-x-hidden py-2 px-1.5">
 
-          {/* Tenant switcher — owner only, full mode only */}
           {isOwner && (
             <div className="px-2 pb-3 pt-1 group-data-[collapsible=icon]:hidden">
               <ClientOnly><TenantSwitcher /></ClientOnly>
@@ -303,7 +281,7 @@ export function AppSidebar() {
             </>
           )}
 
-          {/* 4 ── Team — full for owner, subset for admin */}
+          {/* 4 ── Team */}
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
@@ -359,15 +337,11 @@ export function AppSidebar() {
         <SidebarFooter className="border-t border-border/30 py-2 px-1.5">
           <SidebarMenu className="gap-px px-0">
 
-            {/* In icon mode — show the expand button here so it's reachable */}
             <SidebarMenuItem className="group-data-[collapsible!=icon]:hidden">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <SidebarMenuButton
-                    onClick={() => {
-                      /* CollapseToggle handles this via SidebarRail;
-                         this is a fallback tap target in icon mode */
-                    }}
+                    onClick={() => {}}
                     className="rounded-xl h-10 hover:bg-primary/10 hover:text-primary text-muted-foreground transition-all justify-center"
                   >
                     <PanelLeftOpen className="w-[17px] h-[17px]" />
@@ -380,12 +354,10 @@ export function AppSidebar() {
               </Tooltip>
             </SidebarMenuItem>
 
-            {/* Settings — owner only */}
             {isOwner && (
               <NavItem href="/settings" icon={Settings} label="Studio Settings" />
             )}
 
-            {/* Sign out */}
             <SidebarMenuItem>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -410,15 +382,13 @@ export function AppSidebar() {
 }
 
 // ─── MOBILE TRIGGER ────────────────────────────────────────────────────────────
-// Drop this into your AppHeader for the mobile hamburger button.
-// It calls toggleSidebar which opens the Sheet on mobile (< lg breakpoint).
 export function MobileSidebarTrigger({ className }: { className?: string }) {
   return (
     <SidebarTrigger
       className={cn(
         'lg:hidden flex items-center justify-center w-10 h-10 rounded-xl',
         'hover:bg-primary/10 text-muted-foreground hover:text-primary transition-all',
-      className,
+        className,
       )}
     />
   );
