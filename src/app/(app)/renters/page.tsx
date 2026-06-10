@@ -59,7 +59,7 @@ import {
   toIsoDate,
 } from '@/lib/booth-rental-types';
 
-const RENTER_STATUS_CONFIG: Record
+const RENTER_STATUS_CONFIG: Record <
   RenterStatus,
   { label: string; badgeClass: string }
 > = {
