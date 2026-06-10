@@ -538,7 +538,7 @@ export default function RentersPage() {
                         : 'Month-to-month'}
                     </div>
                     {lease.signedDocumentUrl && (
-                      
+                      <a
                         href={lease.signedDocumentUrl}
                         target="_blank"
                         rel="noopener noreferrer"
