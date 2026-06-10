@@ -410,6 +410,7 @@ export default function ExpensesPage() {
                       <ExternalLink className="h-3 w-3" />
                     </a>
                   )}
+
                 </div>
               </div>
 
