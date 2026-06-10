@@ -399,7 +399,7 @@ export default function ExpensesPage() {
                   <span>{expense.date}</span>
                   {expense.notes && <span className="truncate">{expense.notes}</span>}
                   {expense.receiptUrl && (
-                    
+                    <a
                       href={expense.receiptUrl}
                       target="_blank"
                       rel="noopener noreferrer"
