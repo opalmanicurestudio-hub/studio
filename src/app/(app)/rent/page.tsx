@@ -356,13 +356,14 @@ export default function RentRollPage() {
     setPaymentRenter(renter);
   };
 
-  const handleRecordPayment = async () => {
+const handleRecordPayment = async () => {
     if (!firestore || !paymentRenter) return;
     const amountCents = Math.round(toNumber(paymentForm.amountDollars) * 100);
     if (amountCents <= 0) return;
     setSaving(true);
     try {
       const lease = leaseByRenter.get(paymentRenter.id);
+      const booth = lease ? boothById.get(lease.boothId) : undefined;
       const now = new Date().toISOString();
       const entries = ledgerByRenter.get(paymentRenter.id) ?? [];
 
@@ -386,35 +387,67 @@ export default function RentRollPage() {
         settledIds.push(charge.id);
       }
 
-      await addDoc(
-        collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId)),
-        {
-          leaseId: lease?.id ?? '',
-          renterId: paymentRenter.id,
-          boothId: lease?.boothId ?? null,
-          type: 'payment',
-          status: 'paid',
-          amountCents: -amountCents,
-          description: `Payment — ${PAYMENT_METHODS.find((m) => m.value === paymentForm.method)?.label ?? paymentForm.method}`,
-          dueDate: null,
-          paidAt: paymentForm.date,
-          method: paymentForm.method,
-          stripePaymentIntentId: null,
-          appliesToEntryIds: settledIds,
-          createdBy: 'owner',
-          note: paymentForm.note.trim(),
-          createdAt: now,
-          updatedAt: now,
-        }
+      const methodLabel =
+        PAYMENT_METHODS.find((m) => m.value === paymentForm.method)?.label ??
+        paymentForm.method;
+
+      const renterName = `${paymentRenter.firstName} ${paymentRenter.lastName}`;
+      const batch = writeBatch(firestore);
+
+      // Refs first so each ledger can cross-reference the other.
+      const paymentRef = doc(
+        collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))
+      );
+      const txnRef = doc(
+        collection(firestore, 'tenants', tenantId, 'transactions')
       );
 
+      // 1. Rent subledger payment (negative cents = credit)
+      batch.set(paymentRef, {
+        leaseId: lease?.id ?? '',
+        renterId: paymentRenter.id,
+        boothId: lease?.boothId ?? null,
+        type: 'payment',
+        status: 'paid',
+        amountCents: -amountCents,
+        description: `Payment — ${methodLabel}`,
+        dueDate: null,
+        paidAt: paymentForm.date,
+        method: paymentForm.method,
+        stripePaymentIntentId: null,
+        appliesToEntryIds: settledIds,
+        createdBy: 'owner',
+        note: paymentForm.note.trim(),
+        transactionId: txnRef.id,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      // 2. General-ledger income line (cents → DOLLARS, positive)
+      batch.set(txnRef, {
+        id: txnRef.id,
+        date: new Date(`${paymentForm.date}T12:00:00`).toISOString(),
+        description: `Booth rent — ${booth ? booth.name : 'booth'} — ${renterName}`,
+        clientOrVendor: renterName,
+        type: 'income',
+        context: 'Business',
+        category: 'Booth Rent',
+        amount: amountCents / 100,
+        paymentMethod: methodLabel,
+        hasReceipt: false,
+        sourceRentPaymentId: paymentRef.id,
+        createdAt: now,
+      });
+
+      // 3. Mark settled charges paid
       for (const chargeId of settledIds) {
-        await updateDoc(
+        batch.update(
           doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), chargeId),
           { status: 'paid', paidAt: paymentForm.date, updatedAt: now }
         );
       }
 
+      await batch.commit();
       setPaymentRenter(null);
     } finally {
       setSaving(false);
