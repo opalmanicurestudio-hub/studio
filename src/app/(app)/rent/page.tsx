@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 import {
   Dialog,
   DialogContent,
@@ -390,16 +391,17 @@ const handleRecordPayment = async () => {
       const methodLabel =
         PAYMENT_METHODS.find((m) => m.value === paymentForm.method)?.label ??
         paymentForm.method;
-
       const renterName = `${paymentRenter.firstName} ${paymentRenter.lastName}`;
+
       const batch = writeBatch(firestore);
 
-      // Refs first so each ledger can cross-reference the other.
+      // Refs first so each record can cross-reference the other.
       const paymentRef = doc(
         collection(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId))
       );
       const txnRef = doc(
-        collection(firestore, 'tenants', tenantId, 'transactions')
+        collection(firestore, 'tenants', tenantId, 'transactions'),
+        ledgerEntryId('booth_rent', paymentRef.id)
       );
 
       // 1. Rent subledger payment (negative cents = credit)
@@ -423,21 +425,18 @@ const handleRecordPayment = async () => {
         updatedAt: now,
       });
 
-      // 2. General-ledger income line (cents → DOLLARS, positive)
-      batch.set(txnRef, {
-        id: txnRef.id,
-        date: new Date(`${paymentForm.date}T12:00:00`).toISOString(),
+      // 2. General-ledger income line — routed through the canonical funnel.
+      const entry = buildLedgerEntry({
+        source: 'booth_rent',
+        sourceId: paymentRef.id,
+        amountCents,
+        category: 'Booth Rent',
         description: `Booth rent — ${booth ? booth.name : 'booth'} — ${renterName}`,
         clientOrVendor: renterName,
-        type: 'income',
-        context: 'Business',
-        category: 'Booth Rent',
-        amount: amountCents / 100,
+        date: paymentForm.date,
         paymentMethod: methodLabel,
-        hasReceipt: false,
-        sourceRentPaymentId: paymentRef.id,
-        createdAt: now,
       });
+      batch.set(txnRef, { ...entry, id: txnRef.id });
 
       // 3. Mark settled charges paid
       for (const chargeId of settledIds) {
@@ -453,7 +452,6 @@ const handleRecordPayment = async () => {
       setSaving(false);
     }
   };
-
   const handleAddCharge = async () => {
     if (!firestore || !chargeRenter) return;
     const amountCents = Math.round(toNumber(chargeForm.amountDollars) * 100);
