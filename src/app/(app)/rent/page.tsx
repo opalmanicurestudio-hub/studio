@@ -16,7 +16,6 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 import {
   Dialog,
   DialogContent,
@@ -60,6 +59,7 @@ import {
   computeLateFeeCents,
   buildRentRollSummary,
 } from '@/lib/booth-rental-types';
+import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 
 const PAYMENT_METHODS: { value: PaymentMethodKind; label: string }[] = [
   { value: 'cash', label: 'Cash' },
@@ -102,6 +102,71 @@ function enumerateDueDates(lease: Lease, todayIso: string): string[] {
     guard += 1;
   }
   return dates;
+}
+
+// ─── Charge settlement (display-only) ─────────────────────────────────────────
+// Derives each charge's paid/partial/unpaid state by applying payments
+// oldest-first. Purely for display — it writes nothing and mirrors the same
+// oldest-first order handleRecordPayment uses, so it always agrees with the
+// renter's computed balance.
+
+type ChargeSettlement = {
+  status: 'paid' | 'partial' | 'unpaid' | 'waived' | 'refunded';
+  paidCents: number;
+  remainingCents: number;
+};
+
+const SETTLEMENT_LABELS: Record<ChargeSettlement['status'], string> = {
+  paid: 'Paid',
+  partial: 'Partially paid',
+  unpaid: 'Unpaid',
+  waived: 'Waived',
+  refunded: 'Refunded',
+};
+
+function settleCharges(
+  entries: RentLedgerEntry[]
+): Map<string, ChargeSettlement> {
+  const result = new Map<string, ChargeSettlement>();
+
+  // Credit pool = all payments (negative entries), excluding refunded ones.
+  let credit = entries
+    .filter((e) => e.amountCents < 0 && e.status !== 'refunded')
+    .reduce((sum, e) => sum + Math.abs(e.amountCents), 0);
+
+  // Apply credit to charges oldest-first — same order as handleRecordPayment.
+  const charges = entries
+    .filter((e) => e.amountCents > 0)
+    .sort((a, b) =>
+      (a.dueDate ?? a.createdAt).localeCompare(b.dueDate ?? b.createdAt)
+    );
+
+  for (const charge of charges) {
+    if (charge.status === 'waived') {
+      result.set(charge.id, {
+        status: 'waived',
+        paidCents: 0,
+        remainingCents: 0,
+      });
+      continue;
+    }
+    if (charge.status === 'refunded') {
+      result.set(charge.id, {
+        status: 'refunded',
+        paidCents: 0,
+        remainingCents: 0,
+      });
+      continue;
+    }
+    const applied = Math.min(credit, charge.amountCents);
+    credit -= applied;
+    const remainingCents = charge.amountCents - applied;
+    const status =
+      applied === 0 ? 'unpaid' : remainingCents === 0 ? 'paid' : 'partial';
+    result.set(charge.id, { status, paidCents: applied, remainingCents });
+  }
+
+  return result;
 }
 
 interface PaymentFormState {
@@ -357,7 +422,7 @@ export default function RentRollPage() {
     setPaymentRenter(renter);
   };
 
-const handleRecordPayment = async () => {
+  const handleRecordPayment = async () => {
     if (!firestore || !paymentRenter) return;
     const amountCents = Math.round(toNumber(paymentForm.amountDollars) * 100);
     if (amountCents <= 0) return;
@@ -441,7 +506,11 @@ const handleRecordPayment = async () => {
       // 3. Mark settled charges paid
       for (const chargeId of settledIds) {
         batch.update(
-          doc(firestore, BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId), chargeId),
+          doc(
+            firestore,
+            BOOTH_RENTAL_COLLECTIONS.rentLedger(tenantId),
+            chargeId
+          ),
           { status: 'paid', paidAt: paymentForm.date, updatedAt: now }
         );
       }
@@ -452,6 +521,7 @@ const handleRecordPayment = async () => {
       setSaving(false);
     }
   };
+
   const handleAddCharge = async () => {
     if (!firestore || !chargeRenter) return;
     const amountCents = Math.round(toNumber(chargeForm.amountDollars) * 100);
@@ -502,6 +572,7 @@ const handleRecordPayment = async () => {
   const historyEntries = historyRenter
     ? ledgerByRenter.get(historyRenter.id) ?? []
     : [];
+  const chargeSettlements = settleCharges(historyEntries);
 
   return (
     <div className="p-6 md:p-8 space-y-6">
@@ -872,11 +943,29 @@ const handleRecordPayment = async () => {
               const amountClass = isCredit
                 ? 'text-emerald-600'
                 : 'text-foreground';
+              const settlement =
+                entry.amountCents > 0
+                  ? chargeSettlements.get(entry.id)
+                  : undefined;
               const canWaive =
                 entry.amountCents > 0 &&
                 entry.status !== 'paid' &&
                 entry.status !== 'waived' &&
-                entry.status !== 'refunded';
+                entry.status !== 'refunded' &&
+                settlement?.status !== 'paid';
+
+              const statusText = settlement
+                ? settlement.status === 'partial'
+                  ? `Partially paid · ${formatCents(settlement.remainingCents)} left`
+                  : SETTLEMENT_LABELS[settlement.status]
+                : entry.status;
+              const statusClass =
+                settlement?.status === 'partial'
+                  ? 'text-amber-600 font-medium'
+                  : settlement?.status === 'paid'
+                    ? 'text-emerald-600'
+                    : 'text-muted-foreground';
+
               return (
                 <div
                   key={entry.id}
@@ -888,14 +977,14 @@ const handleRecordPayment = async () => {
                         LEDGER_TYPE_LABELS[entry.type] ||
                         entry.type}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className={cn('text-xs', statusClass)}>
                       {entry.dueDate
                         ? `Due ${entry.dueDate}`
                         : entry.paidAt
                           ? `Paid ${entry.paidAt}`
                           : entry.createdAt.slice(0, 10)}
                       {' · '}
-                      {entry.status}
+                      {statusText}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
