@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 
 // ─── Lazy inits — must NOT be at module scope (build-time env vars unavailable) ─
 function getAdminDb() {
@@ -92,10 +93,34 @@ export async function POST(req: NextRequest) {
         seatNumber:            null,
       };
 
-      await db
-        .collection(`tenants/${meta.tenantId}/eventTickets`)
-        .doc(ticketId)
-        .set(ticket);
+      // ── Ticket + general-ledger income line, written atomically ──────────────
+      // The ledger transaction routes through the same canonical funnel the rest
+      // of the app uses. Its doc ID is derived from the Stripe session ID, so a
+      // retried webhook overwrites the same row instead of double-posting income.
+      const batch = db.batch();
+
+      batch.set(
+        db.collection(`tenants/${meta.tenantId}/eventTickets`).doc(ticketId),
+        ticket
+      );
+
+      const entry = buildLedgerEntry({
+        source:                'event_ticket',
+        sourceId:              session.id,
+        amountCents:           session.amount_total || 0,
+        category:              'Event Tickets',
+        description:           `Event ticket — ${meta.ticketName || 'General Admission'} — ${meta.guestName || 'Guest'}`,
+        clientOrVendor:        meta.guestName || 'Guest',
+        paymentMethod:         'Card (Stripe)',
+        relatedEventId:        meta.eventId,
+        stripePaymentIntentId: (session.payment_intent as string) || null,
+      });
+      const txnRef = db
+        .collection(`tenants/${meta.tenantId}/transactions`)
+        .doc(ledgerEntryId('event_ticket', session.id));
+      batch.set(txnRef, { ...entry, id: txnRef.id });
+
+      await batch.commit();
 
       // ── EMAIL stub ─────────────────────────────────────────────────────────
       // Uncomment when Resend is configured:
