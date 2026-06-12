@@ -48,6 +48,115 @@ export async function POST(req: NextRequest) {
     const session = event.data.object as Stripe.Checkout.Session;
     const meta    = session.metadata;
 
+    // ════════════════════════════════════════════════════════════════════════
+    // APPOINTMENT DEPOSIT branch
+    // Fires for sessions created by /api/stripe/deposit (metadata.type==='deposit').
+    // Marks the booking request paid, parks a deposit CREDIT on the client, and
+    // posts the deposit to the ledger. The credit is consumed later at POS
+    // checkout, which subtracts it so service revenue isn't double-counted.
+    // ════════════════════════════════════════════════════════════════════════
+    if (meta?.type === 'deposit') {
+      if (!meta.tenantId || !meta.bookingRequestId) {
+        console.error('[stripe/webhook] Deposit session missing metadata', session.id);
+        return NextResponse.json({ received: true });
+      }
+
+      try {
+        const db          = getAdminDb();
+        const tenantId    = meta.tenantId;
+        const amountCents = session.amount_total || 0;
+
+        // Idempotency: if a credit already exists for this Stripe session, stop.
+        const dupe = await db
+          .collection(`tenants/${tenantId}/depositCredits`)
+          .where('stripeSessionId', '==', session.id)
+          .limit(1)
+          .get();
+        if (!dupe.empty) {
+          console.log('[stripe/webhook] Deposit already recorded for session', session.id);
+          return NextResponse.json({ received: true });
+        }
+
+        // Pull whatever the booking request can tell us (tolerate it being gone).
+        let reqData: any = {};
+        try {
+          const reqSnap = await db.doc(`tenants/${tenantId}/bookingRequests/${meta.bookingRequestId}`).get();
+          if (reqSnap.exists) reqData = reqSnap.data() || {};
+        } catch { /* request not readable — fall back to metadata */ }
+
+        const clientEmail = (reqData.clientEmail || meta.clientEmail || '').toLowerCase().trim();
+        const clientName  = reqData.clientName  || meta.clientName  || 'Guest';
+        const clientId    = reqData.clientId    || null;
+        const serviceName = reqData.serviceName || meta.serviceName || '';
+        const creditId    = nanoid();
+        const nowISO      = new Date().toISOString();
+        const ledgerDocId = ledgerEntryId('appointment_deposit', session.id);
+
+        const batch = db.batch();
+
+        // 1) Mark the booking request paid
+        batch.set(
+          db.doc(`tenants/${tenantId}/bookingRequests/${meta.bookingRequestId}`),
+          {
+            depositStatus:         'paid',
+            depositPaidAt:         nowISO,
+            stripeSessionId:       session.id,
+            stripePaymentIntentId: (session.payment_intent as string) || null,
+          },
+          { merge: true }
+        );
+
+        // 2) Park the deposit as an available credit on the client
+        batch.set(
+          db.collection(`tenants/${tenantId}/depositCredits`).doc(creditId),
+          {
+            id:                    creditId,
+            tenantId,
+            bookingRequestId:      meta.bookingRequestId,
+            clientId,
+            clientEmail,
+            clientName,
+            serviceName,
+            amountCents,
+            amountDollars:         amountCents / 100,
+            status:                'available',           // → 'consumed' at checkout
+            appointmentId:         null,
+            stripeSessionId:       session.id,
+            stripePaymentIntentId: (session.payment_intent as string) || null,
+            ledgerSourceId:        ledgerDocId,
+            createdAt:             nowISO,
+            consumedAt:            null,
+          }
+        );
+
+        // 3) Post the deposit to the general ledger (idempotent doc id)
+        const entry = buildLedgerEntry({
+          source:                'appointment_deposit',
+          sourceId:              session.id,
+          amountCents,
+          category:              'Deposits',
+          description:           `Appointment deposit — ${serviceName || 'Service'} — ${clientName}`,
+          clientOrVendor:        clientName,
+          clientId:              clientId || undefined,
+          paymentMethod:         'Card (Stripe)',
+          stripePaymentIntentId: (session.payment_intent as string) || null,
+        });
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc(ledgerDocId);
+        batch.set(txnRef, { ...entry, id: txnRef.id });
+
+        await batch.commit();
+        console.log('[stripe/webhook] Deposit recorded:', creditId, 'for', clientEmail);
+      } catch (err: any) {
+        console.error('[stripe/webhook] Failed to record deposit:', err.message);
+        return NextResponse.json({ error: 'Failed to record deposit' }, { status: 500 });
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // EVENT TICKET branch (unchanged)
+    // ════════════════════════════════════════════════════════════════════════
     if (!meta?.tenantId || !meta?.eventId) {
       console.error('[stripe/webhook] Missing metadata on session', session.id);
       return NextResponse.json({ received: true });
