@@ -579,6 +579,27 @@ function POSPage() {
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
         const clientObj = (clients || []).find(c => c.id === effectiveClientId);
+
+        // ── DEPOSIT CREDIT lookup ───────────────────────────────────────────────
+        // Find an available prepaid deposit for this client (parked by the Stripe
+        // webhook when the deposit was paid online). Matched by clientId first,
+        // then by email. Only 'available' credits are eligible, so a deposit that
+        // was already consumed, refunded, or forfeited can never be applied here.
+        let depositCredit: { ref: any; amountCents?: number; amountDollars?: number; createdAt?: any } | null = null;
+        try {
+            const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
+            let creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', effectiveClientId)));
+            if (creditSnap.empty && clientObj?.email) {
+                creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
+            }
+            if (!creditSnap.empty) {
+                const found = creditSnap.docs.map(d => ({ ref: d.ref, ...(d.data() as any) }));
+                found.sort((a, b) => safeDate(b.createdAt).getTime() - safeDate(a.createdAt).getTime());
+                depositCredit = found[0];
+            }
+        } catch (e) { console.warn('[deposit-credit lookup]', e); }
+        const depositCreditDollars = depositCredit ? safeNumber((depositCredit as any).amountDollars ?? ((depositCredit as any).amountCents || 0) / 100) : 0;
+
         const recoveryAmount = safeNumber(paymentData.recoveryAmount);
         const recoveryReason = paymentData.recoveryReason || 'Service Recovery Adjustment';
         let totalLtvIncrease = 0; let totalCashIncrease = 0; let cashTipsTotal = 0;
@@ -678,7 +699,32 @@ function POSPage() {
 
         if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
         if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
-        if (paymentTab === 'cash' && activeTill) { const finalCashInput = totalCashIncrease + cashTipsTotal; batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate })); }
+
+        // ── DEPOSIT CREDIT application ──────────────────────────────────────────
+        // The deposit was already recognized as income when it was paid online, so
+        // we post an offsetting line here and the appointment nets to the service
+        // price (no double-count). Marking the credit 'consumed' in the same batch
+        // guarantees it is applied exactly once.
+        let cashDepositOffset = 0;
+        if (depositCredit && depositCreditDollars > 0) {
+            const firstAptId = readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.id || null;
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({
+                id: nanoid(), date: now,
+                description: 'Deposit applied (prepaid online)',
+                clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId,
+                type: 'expense', context: 'Business', category: 'Deposit Applied',
+                amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false, tenantId,
+            }));
+            batch.update((depositCredit as any).ref, sanitizeForFirestore({ status: 'consumed', consumedAt: now, appointmentId: firstAptId }));
+            // The deposit arrived by card (Stripe), not the cash drawer — so when the
+            // balance is settled in cash, the drawer only receives total minus deposit.
+            cashDepositOffset = Math.min(depositCreditDollars, totalCashIncrease);
+        }
+
+        if (paymentTab === 'cash' && activeTill) {
+            const finalCashInput = totalCashIncrease + cashTipsTotal - cashDepositOffset;
+            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease - cashDepositOffset), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate }));
+        }
 
         try {
             await batch.commit();
