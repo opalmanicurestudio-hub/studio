@@ -7,7 +7,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
-import { X as XIcon, ArrowRight } from 'lucide-react';
+import { X as XIcon, ArrowRight, ShieldCheck, Loader, AlertTriangle } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -55,6 +55,11 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [dialogService,   setDialogService]   = useState<any>(null);
   const [showPicker,      setShowPicker]      = useState(false);
 
+  // ── Deposit redirect / return state ─────────────────────────────────────────
+  const [redirecting,      setRedirecting]      = useState(false);
+  const [depositError,     setDepositError]     = useState<string | null>(null);
+  const [postBookingState, setPostBookingState] = useState<'success' | 'cancelled' | null>(null);
+
   const [loadingStyle] = useState<StyleConfig>(() => {
     try {
       if (typeof window === 'undefined') return DS;
@@ -75,6 +80,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       s.id = 'cf-anim'; s.textContent = ANIM_CSS;
       document.head.appendChild(s);
     }
+  }, []);
+
+  // Detect return from Stripe deposit checkout (?deposit=success | cancelled)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const sp = new URLSearchParams(window.location.search);
+    const dep = sp.get('deposit');
+    if (dep === 'success') setPostBookingState('success');
+    else if (dep === 'cancelled') setPostBookingState('cancelled');
   }, []);
 
   // Phase 1: Load tenant + saved page config
@@ -179,6 +193,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
 
   const data: PageData = { tenant, services, staff, events, tenantId };
 
+  // Clears the ?deposit= query param and dismisses the post-booking overlay
+  const dismissPostBooking = useCallback(() => {
+    try { window.history.replaceState({}, '', `/book/${tenantId}`); } catch {}
+    setPostBookingState(null);
+  }, [tenantId]);
+
   // Loading spinner
   if (!configReady) {
     return (
@@ -193,19 +213,126 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     apptDetails: any, signedForms: any[], setStep: (s: string) => void,
   ) => {
+    const depositAmount = Number(apptDetails?.depositAmount || 0);
     try {
       const db = getFirestore(getApp());
-      await addDoc(collection(db, `tenants/${tenantId}/bookingRequests`), {
+      const ref = await addDoc(collection(db, `tenants/${tenantId}/bookingRequests`), {
         ...formData, ...apptDetails, signedForms,
         status: 'pending', source: 'booking-page', createdAt: new Date(),
+        depositAmount,
+        depositStatus: depositAmount > 0 ? 'pending' : 'none',
       });
-      setStep('confirmation');
-    } catch (e) { console.error('[booking-confirm]', e); }
+
+      // No deposit → keep the existing in-sheet confirmation flow
+      if (depositAmount <= 0) { setStep('confirmation'); return; }
+
+      // Deposit required → hand off to Stripe secure checkout
+      setDepositError(null);
+      setRedirecting(true);
+      const origin = window.location.origin;
+      const res = await fetch('/api/stripe/deposit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          bookingRequestId: ref.id,
+          depositAmount,
+          clientName:  formData.clientName,
+          clientEmail: formData.clientEmail,
+          serviceName: dialogService?.name || '',
+          successUrl:  `${origin}/book/${tenantId}?deposit=success`,
+          cancelUrl:   `${origin}/book/${tenantId}?deposit=cancelled`,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.url) {
+        setRedirecting(false);
+        setDepositError(json?.error || 'Could not start secure checkout. Your spot is held — please try again.');
+        return;
+      }
+      window.location.href = json.url;
+    } catch (e) {
+      console.error('[booking-confirm]', e);
+      setRedirecting(false);
+      setDepositError('Something went wrong starting checkout. Please try again.');
+    }
   };
 
   return (
     <div className="w-full min-h-dvh overflow-x-hidden"
          style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.inter }}>
+
+      {/* Redirecting to Stripe overlay */}
+      {redirecting && (
+        <div className="fixed inset-0 z-[400] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="flex flex-col items-center gap-4 px-8 py-10 bg-white text-center"
+               style={{ borderRadius: br(resolvedStyle), maxWidth: '22rem' }}>
+            <Loader className="w-8 h-8 animate-spin" style={{ color: ac(resolvedStyle) }}/>
+            <p className="font-black text-sm uppercase tracking-widest text-slate-900" style={{ fontFamily: bf(resolvedStyle) }}>
+              Taking you to secure checkout…
+            </p>
+            <p className="text-[11px] font-medium text-slate-500">Please don't close this window.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Deposit error banner */}
+      {depositError && !redirecting && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[400] w-[92%] max-w-md">
+          <div className="flex items-start gap-3 p-4 bg-white shadow-2xl border-2 border-red-200"
+               style={{ borderRadius: br(resolvedStyle) }}>
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5"/>
+            <div className="flex-1">
+              <p className="font-black text-xs uppercase tracking-widest text-red-600">Checkout Issue</p>
+              <p className="text-[11px] font-medium text-slate-600 mt-1">{depositError}</p>
+            </div>
+            <button onClick={() => setDepositError(null)}
+                    className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
+              <XIcon className="w-4 h-4"/>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Post-deposit return: success / cancelled */}
+      {postBookingState && (
+        <div className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={dismissPostBooking}/>
+          <div className="relative w-full sm:max-w-md sm:mx-4 bg-white overflow-hidden p-8 text-center"
+               style={{ borderRadius: '24px 24px 0 0' }}>
+            {postBookingState === 'success' ? (
+              <>
+                <div className="w-16 h-16 mx-auto flex items-center justify-center mb-5"
+                     style={{ borderRadius: br(resolvedStyle), background: ac(resolvedStyle) + '15' }}>
+                  <ShieldCheck className="w-8 h-8" style={{ color: ac(resolvedStyle) }}/>
+                </div>
+                <h2 className="font-black text-xl uppercase tracking-tight text-slate-900 mb-2"
+                    style={{ fontFamily: hf(resolvedStyle) }}>Deposit Received</h2>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed mb-6">
+                  Your appointment request is reserved. We've emailed your confirmation and details.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 mx-auto flex items-center justify-center mb-5"
+                     style={{ borderRadius: br(resolvedStyle), background: '#f59e0b15' }}>
+                  <AlertTriangle className="w-8 h-8 text-amber-500"/>
+                </div>
+                <h2 className="font-black text-xl uppercase tracking-tight text-slate-900 mb-2"
+                    style={{ fontFamily: hf(resolvedStyle) }}>Deposit Not Completed</h2>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed mb-6">
+                  Your deposit wasn't completed, so your spot isn't reserved yet. You can start again whenever you're ready.
+                </p>
+              </>
+            )}
+            <button onClick={dismissPostBooking}
+                    className="w-full h-12 font-black text-xs uppercase tracking-widest text-white"
+                    style={{ borderRadius: br(resolvedStyle), background: ac(resolvedStyle) }}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Service picker modal */}
       {showPicker && (
