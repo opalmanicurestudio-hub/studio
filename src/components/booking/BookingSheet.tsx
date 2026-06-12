@@ -157,7 +157,7 @@ interface BookingSheetProps {
   tenant:         Tenant | null;
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
-    appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'>,
+    appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
     signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
     setBookingStep: (step: string) => void
   ) => void;
@@ -176,7 +176,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [date,                 setDate]                  = useState(new Date());
   const [selectedTime,         setSelectedTime]          = useState<string | null>(null);
   const [formAnswers,          setFormAnswers]           = useState<Record<string, Record<string, any>>>({});
-  const [isDepositPaid,        setIsDepositPaid]         = useState(false);
   const [bookedStaffId,        setBookedStaffId]         = useState<string | null>(null);
   const [inspirationPhotoUrl,  setInspirationPhotoUrl]   = useState<string>('');
   const { toast }     = useToast();
@@ -390,7 +389,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       if (initialStaffId) { setSelectedStaffId(initialStaffId); setCurrentStepIndex(1); }
       else { setSelectedStaffId('any'); setCurrentStepIndex(0); }
       setSelectedTime(null); setSelectedTierId('any'); setDate(new Date());
-      methods.reset(); setFormAnswers({}); setIsDepositPaid(false);
+      methods.reset(); setFormAnswers({});
       setBookedStaffId(null); setInspirationPhotoUrl('');
     }
   }, [open, initialStaffId, methods]);
@@ -422,7 +421,6 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       });
       if (!allCompleted) { toast({ variant: 'destructive', title: 'Incomplete Forms', description: 'Please fill out all required fields and sign all forms.' }); return; }
     }
-    if (currentStep === 'payment' && !isDepositPaid) { setIsDepositPaid(true); toast({ title: 'Deposit Paid!' }); }
     if (steps[currentStepIndex + 1] === 'confirmation') { handleSubmit(handleConfirmBooking)(); return; }
     setCurrentStepIndex(currentStepIndex + 1);
   };
@@ -470,6 +468,8 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
       startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
       status: 'confirmed', isWalkIn: false, source: 'online',
       inspirationPhotoUrl: inspirationPhotoUrl || undefined, notes: data.notes,
+      depositAmount: depositAmount,
+      depositStatus: depositAmount > 0 ? 'pending' : 'none',
     }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
   };
 
@@ -884,40 +884,35 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                     </div>
                   )}
 
-                  {/* ── Step: Payment ────────────────────────────────────── */}
+                  {/* ── Step: Deposit (handoff to secure checkout) ───────── */}
                   {currentStep === 'payment' && (
                     <div className="space-y-8 text-left">
                       <div className="space-y-2 text-left">
                         <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
                           <CreditCard className="w-6 h-6 text-primary" />Deposit
                         </h3>
-                        <p className="text-xs font-medium text-muted-foreground">Secure your spot with a partial payment.</p>
+                        <p className="text-xs font-medium text-muted-foreground">Secure your spot with a deposit. It's applied to your final total.</p>
                       </div>
                       <Card style={{ borderRadius: r3 }} className="border-4 shadow-2xl overflow-hidden text-left">
                         <CardHeader className="bg-muted/30 p-10 pb-6 text-center">
                           <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground mb-2">Required Today</p>
                           <p style={{ fontFamily: headingFont }} className="text-7xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</p>
                         </CardHeader>
-                        <CardContent className="p-10 space-y-8 text-left">
-                          <div className="space-y-4 text-left">
-                            <div className="space-y-2 text-left">
-                              <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Card Number</Label>
-                              <Input placeholder="•••• •••• •••• 1234" style={{ borderRadius: r2 }} className="h-14 border-2 font-mono text-lg shadow-inner" />
+                        <CardContent className="p-10 space-y-6 text-left">
+                          <div className="flex items-start gap-4">
+                            <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+                              <ShieldCheck className="w-6 h-6 text-primary" />
                             </div>
-                            <div className="grid grid-cols-2 gap-6">
-                              <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label>
-                                <Input placeholder="MM / YY" style={{ borderRadius: r }} className="h-12 border-2 text-center" />
-                              </div>
-                              <div className="space-y-2 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest ml-1">CVC</Label>
-                                <Input placeholder="•••" style={{ borderRadius: r }} className="h-12 border-2 text-center" />
-                              </div>
+                            <div className="space-y-1">
+                              <p className="text-sm font-black uppercase tracking-tight">Secure Card Checkout</p>
+                              <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+                                When you continue, we'll take you to our secure card checkout to pay your deposit. Once it's done, your appointment request is reserved.
+                              </p>
                             </div>
                           </div>
                           <div style={{ borderRadius: r2 }} className="flex items-center gap-3 p-4 bg-muted/20 text-xs text-muted-foreground font-medium italic text-left">
                             <Lock className="w-4 h-4 shrink-0" />
-                            Your payment information is encrypted and never stored on our servers.
+                            Payments are processed securely. Your card details are never stored on our servers.
                           </div>
                         </CardContent>
                       </Card>
@@ -953,8 +948,9 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                   currentStepIndex === 0 ? 'w-full' : 'flex-[2.5]'
                 )}
               >
-                {currentStep === 'summary' && depositAmount > 0 ? 'Pay Deposit' :
-                 currentStep === 'summary' || currentStep === 'payment' ? 'Finalize Booking' :
+                {currentStep === 'summary' && depositAmount > 0 ? 'Review Deposit' :
+                 currentStep === 'payment' ? 'Continue to Secure Checkout' :
+                 currentStep === 'summary' ? 'Finalize Booking' :
                  'Continue'}
                 <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
               </Button>
