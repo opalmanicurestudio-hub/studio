@@ -7,7 +7,6 @@ import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, getDoc, getDocs, collection, addDoc, setDoc } from 'firebase/firestore';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { CheckCircle2, ShieldCheck, CreditCard, Loader, AlertTriangle, Lock, FileSignature, Upload, Image as ImageIcon } from 'lucide-react';
@@ -114,8 +113,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
 
   const handleFiles = async (reqId: string, fileList: FileList | null, cfg: any) => {
     if (!fileList || fileList.length === 0) return;
-    let storage: any;
-    try { storage = getStorage(getApp()); } catch { setError('File upload is unavailable right now.'); return; }
     const existing = uploads[reqId] || [];
     const max = cfg?.maxCount ?? 5;
     const picked = Array.from(fileList).slice(0, Math.max(0, max - existing.length));
@@ -124,12 +121,19 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     try {
       for (const file of picked) {
         if (file.size > 10 * 1024 * 1024) { setError(`${file.name} is over 10MB and was skipped.`); continue; }
-        const safe = file.name.replace(/[^A-Za-z0-9._-]/g, '_');
-        const path = `tenants/${tenantId}/completions/${token}/${reqId}/${Date.now()}_${safe}`;
-        const r = storageRef(storage, path);
-        await uploadBytes(r, file);
-        const url = await getDownloadURL(r);
-        setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url, uploadedAt: new Date().toISOString() }] }));
+        // Upload via the server route (Admin SDK) so the public page bypasses Storage rules
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('tenantId', tenantId);
+        fd.append('token', token);
+        fd.append('reqId', reqId);
+        const res = await fetch('/api/completion/upload-file', { method: 'POST', body: fd });
+        const out = await res.json().catch(() => null);
+        if (out?.url) {
+          setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url: out.url, uploadedAt: new Date().toISOString() }] }));
+        } else {
+          setError(out?.error || `Couldn't upload ${file.name}.`);
+        }
       }
     } catch (e: any) { setError(`Upload failed: ${e.message}`); }
     finally { setUploading(false); }
