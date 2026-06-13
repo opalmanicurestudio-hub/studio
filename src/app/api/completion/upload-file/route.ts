@@ -1,49 +1,53 @@
 /**
  * API Route: POST /api/completion/upload-file
  * ─────────────────────────────────────────────────────────────────────────────
- * Accepts a multipart/form-data upload from the PUBLIC completion page.
- * Uses the Firebase Admin SDK server-side to write to Storage, bypassing
- * Storage security rules (same approach as /api/inquiry/upload-image).
+ * Public completion-page file upload via Firebase Admin (bypasses Storage rules),
+ * mirroring /api/inquiry/upload-image.
  *
  * File: src/app/api/completion/upload-file/route.ts
  *
- * Requires the same env vars you already use for inquiry uploads:
+ * Requires (same as inquiry uploads):
  *   FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL,
  *   FIREBASE_ADMIN_PRIVATE_KEY, FIREBASE_STORAGE_BUCKET
+ *
+ * Unlike the first version, this:
+ *  - throws the REAL init error instead of a generic "Storage not available"
+ *  - looks up its own named admin app specifically (not getApps()[0])
+ *  - passes the bucket name explicitly, so it does not depend on an app default
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 
-// Lazy-initialize Firebase Admin (shares the named 'admin' app with the inquiry route)
-let adminApp: any = null;
-let adminStorage: any = null;
+const APP_NAME = 'admin';
 
 async function getAdminStorage() {
-    if (adminStorage) return adminStorage;
-    try {
-        const { initializeApp, getApps, cert } = await import('firebase-admin/app');
-        const { getStorage } = await import('firebase-admin/storage');
+    const { initializeApp, getApps, cert } = await import('firebase-admin/app');
+    const { getStorage } = await import('firebase-admin/storage');
 
-        if (!getApps().length) {
-            adminApp = initializeApp({
-                credential: cert({
-                    projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
-                    clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-                    privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-                }),
-                storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-            }, 'admin');
-        } else {
-            adminApp = getApps().find(a => a.name === 'admin') || getApps()[0];
+    const existing = getApps().find((a: any) => a.name === APP_NAME);
+    let app = existing;
+
+    if (!app) {
+        const projectId   = process.env.FIREBASE_ADMIN_PROJECT_ID;
+        const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+        const privateKey  = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n');
+        if (!projectId || !clientEmail || !privateKey) {
+            throw new Error('Firebase Admin credentials missing - set FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL and FIREBASE_ADMIN_PRIVATE_KEY in Vercel.');
         }
-
-        adminStorage = getStorage(adminApp);
-        return adminStorage;
-    } catch (e) {
-        console.error('Firebase Admin init error:', e);
-        return null;
+        app = initializeApp({
+            credential: cert({ projectId, clientEmail, privateKey }),
+            storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+        }, APP_NAME);
     }
+
+    return getStorage(app);
+}
+
+function resolveBucket(storage: any) {
+    const name = process.env.FIREBASE_STORAGE_BUCKET;
+    if (name) return storage.bucket(name);            // explicit - most reliable
+    return storage.bucket();                           // default (requires app storageBucket)
 }
 
 const ALLOWED_PREFIXES = ['image/', 'application/pdf'];
@@ -66,9 +70,18 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'File too large (max 10MB)' }, { status: 400 });
         }
 
-        const storage = await getAdminStorage();
-        if (!storage) {
-            return NextResponse.json({ error: 'Storage not available' }, { status: 500 });
+        let storage: any;
+        try {
+            storage = await getAdminStorage();
+        } catch (initErr: any) {
+            return NextResponse.json({ error: initErr.message || 'Storage init failed' }, { status: 500 });
+        }
+
+        let bucket: any;
+        try {
+            bucket = resolveBucket(storage);
+        } catch (bErr: any) {
+            return NextResponse.json({ error: `Storage bucket unavailable - check FIREBASE_STORAGE_BUCKET. (${bErr.message})` }, { status: 500 });
         }
 
         const ext       = file.name.split('.').pop() || 'bin';
@@ -77,7 +90,6 @@ export async function POST(req: NextRequest) {
         const safeReq    = reqId.replace(/[^A-Za-z0-9_-]/g, '');
         const path       = `tenants/${tenantId}/completions/${safeToken}/${safeReq}/${filename}`;
 
-        const bucket  = storage.bucket();
         const fileRef = bucket.file(path);
         const buffer  = Buffer.from(await file.arrayBuffer());
 
@@ -91,7 +103,6 @@ export async function POST(req: NextRequest) {
         await fileRef.makePublic();
 
         const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
-
         return NextResponse.json({ url: publicUrl, name: file.name }, { status: 200 });
 
     } catch (e: any) {
