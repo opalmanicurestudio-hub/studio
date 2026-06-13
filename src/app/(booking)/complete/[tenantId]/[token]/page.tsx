@@ -2,12 +2,15 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, getDoc, getDocs, collection, addDoc, setDoc } from 'firebase/firestore';
 import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
-import { CheckCircle2, ShieldCheck, CreditCard, Loader, AlertTriangle, Lock, FileSignature } from 'lucide-react';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { loadStripe } from '@stripe/stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
+import { CheckCircle2, ShieldCheck, CreditCard, Loader, AlertTriangle, Lock, FileSignature, Upload, Image as ImageIcon } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /complete/[tenantId]/[token]
@@ -26,10 +29,21 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
   const [completion, setCompletion] = useState<any>(null);
   const [forms, setForms]           = useState<any[]>([]);
   const [answers, setAnswers]       = useState<Record<string, Record<string, any>>>({});
+  const [uploads, setUploads]       = useState<Record<string, any[]>>({});
+  const [uploading, setUploading]   = useState(false);
   const [accepted, setAccepted]     = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState<string | null>(null);
   const [returnState, setReturnState] = useState<null | 'success' | 'cancelled'>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+
+  // Stripe.js must be initialised for the studio's connected account (direct charges)
+  const stripePromise = useMemo(() => {
+    const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    if (!pk || !stripeAccountId) return null;
+    return loadStripe(pk, { stripeAccount: stripeAccountId });
+  }, [stripeAccountId]);
 
   const getDb = useCallback(() => {
     try { return getFirestore(getApp()); } catch { return null; }
@@ -85,10 +99,51 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     })
   );
 
+  // File requirements — accept either a simplified list (from quick-book) or the
+  // full requirements model filtered to file_upload. Config can be top-level or under .file
+  const fileReqs: any[] = (completion?.fileRequirements && completion.fileRequirements.length)
+    ? completion.fileRequirements
+    : ((completion?.requirements || []).filter((r: any) => r.type === 'file_upload'));
+  const fileCfg = (fr: any) => fr.file || fr;
+
+  const allFilesComplete = fileReqs.every((fr: any) => {
+    if (fr.required === false) return true;
+    const min = fileCfg(fr).minCount ?? 1;
+    return (uploads[fr.id] || []).length >= min;
+  });
+
+  const handleFiles = async (reqId: string, fileList: FileList | null, cfg: any) => {
+    if (!fileList || fileList.length === 0) return;
+    let storage: any;
+    try { storage = getStorage(getApp()); } catch { setError('File upload is unavailable right now.'); return; }
+    const existing = uploads[reqId] || [];
+    const max = cfg?.maxCount ?? 5;
+    const picked = Array.from(fileList).slice(0, Math.max(0, max - existing.length));
+    setError(null);
+    setUploading(true);
+    try {
+      for (const file of picked) {
+        if (file.size > 10 * 1024 * 1024) { setError(`${file.name} is over 10MB and was skipped.`); continue; }
+        const safe = file.name.replace(/[^A-Za-z0-9._-]/g, '_');
+        const path = `tenants/${tenantId}/completions/${token}/${reqId}/${Date.now()}_${safe}`;
+        const r = storageRef(storage, path);
+        await uploadBytes(r, file);
+        const url = await getDownloadURL(r);
+        setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url, uploadedAt: new Date().toISOString() }] }));
+      }
+    } catch (e: any) { setError(`Upload failed: ${e.message}`); }
+    finally { setUploading(false); }
+  };
+
+  const removeUpload = (reqId: string, idx: number) =>
+    setUploads(prev => ({ ...prev, [reqId]: (prev[reqId] || []).filter((_, i) => i !== idx) }));
+
   const handleSubmit = async () => {
     setError(null);
     if (!accepted) { setError('Please accept the policy and authorization to continue.'); return; }
     if (!allConsentsComplete) { setError('Please complete and sign all forms before continuing.'); return; }
+    if (!allFilesComplete) { setError('Please add the requested photos/files before continuing.'); return; }
+    if (uploading) { setError('Please wait for uploads to finish.'); return; }
     const db = getDb();
     if (!db) { setError('Connection problem — please try again.'); return; }
 
@@ -96,6 +151,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     try {
       const nowISO = new Date().toISOString();
       const signedForms = forms.map((f: any) => ({ formId: f.id, formTitle: f.title, formData: answers[f.id] || {} }));
+      const fileSubmissions = fileReqs.map((fr: any) => ({ requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Files', files: uploads[fr.id] || [] }));
       const policyAcceptance = {
         acceptedAt: nowISO,
         cardAuthorization: true,
@@ -110,7 +166,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
         clientId: completion?.clientId || null,
         clientName: completion?.clientName || null,
         clientEmail: completion?.clientEmail || null,
-        signedForms, policyAcceptance, submittedAt: nowISO,
+        signedForms, fileSubmissions, policyAcceptance, submittedAt: nowISO,
       });
 
       // 2) Best-effort write onto the appointment so the front desk sees it
@@ -118,14 +174,13 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
         if (completion?.appointmentId) {
           await setDoc(
             doc(db, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-            { signedForms, policyAcceptance, completionConsentsAt: nowISO },
+            { signedForms, policyAcceptance, requirementFiles: fileSubmissions, completionConsentsAt: nowISO },
             { merge: true }
           );
         }
       } catch { /* rules may restrict public writes — the audit record above is the source of truth */ }
 
-      // 3) Hand off to the combined checkout (deposit + card vault)
-      const origin = window.location.origin;
+      // 3) Get the embedded checkout client secret (renders inline — no redirect)
       const res = await fetch('/api/stripe/completion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,12 +193,15 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           clientEmail:   completion?.clientEmail,
           depositAmount: depositDollars,
           serviceName:   completion?.serviceName,
-          successUrl: `${origin}/complete/${tenantId}/${token}?completed=success`,
-          cancelUrl:  `${origin}/complete/${tenantId}/${token}?completed=cancelled`,
         }),
       });
       const out = await res.json().catch(() => null);
-      if (out?.url) { window.location.href = out.url; return; }
+      if (out?.clientSecret) {
+        setStripeAccountId(out.stripeAccountId || null);
+        setClientSecret(out.clientSecret);
+        setSubmitting(false);
+        return;
+      }
       setError(out?.error || 'Could not start checkout. Please contact the studio.');
       setSubmitting(false);
     } catch (e: any) {
@@ -184,6 +242,43 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
           <h1 className="text-xl font-black tracking-tight text-slate-900">Link not found</h1>
           <p className="text-sm text-slate-500">This link may have expired or already been completed. Please contact {studioName} for a new one.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (completion?.expiresAt && new Date(completion.expiresAt).getTime() < Date.now()) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-slate-50 p-6">
+        <div className="w-full max-w-md bg-white rounded-3xl border shadow-xl p-10 text-center space-y-4">
+          <AlertTriangle className="w-10 h-10 text-amber-500 mx-auto" />
+          <h1 className="text-xl font-black tracking-tight text-slate-900">This link has expired</h1>
+          <p className="text-sm text-slate-500">For your security, completion links are valid for a limited time. Please contact {studioName} and they'll send you a fresh one.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Inline payment — embedded Stripe Checkout, no redirect
+  if (clientSecret) {
+    return (
+      <div className="min-h-dvh bg-slate-50 py-8 px-4">
+        <div className="w-full max-w-lg mx-auto space-y-5">
+          <div className="text-center space-y-2 pt-4">
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{studioName}</p>
+            <h1 className="text-2xl font-black tracking-tight text-slate-900">{depositDollars > 0 ? 'Payment & card on file' : 'Save your card'}</h1>
+            <p className="text-sm text-slate-500">{depositDollars > 0 ? `Pay your $${depositDollars.toFixed(2)} deposit and save your card — all right here.` : 'Securely save your card to finish.'}</p>
+          </div>
+          <div className="bg-white rounded-2xl border shadow-sm p-2 sm:p-4 min-h-[300px]">
+            {stripePromise
+              ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => setReturnState('success') }}>
+                  <EmbeddedCheckout />
+                </EmbeddedCheckoutProvider>
+              : <div className="p-8 text-center text-sm text-slate-500">Payment can't load right now — please contact {studioName}.</div>}
+          </div>
+          <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400 pb-8">
+            <Lock className="w-3 h-3" /> Secured by Stripe · your card details never touch our servers
+          </p>
         </div>
       </div>
     );
@@ -240,6 +335,50 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
             </div>
           </div>
         ))}
+
+        {/* File / inspo uploads */}
+        {fileReqs.map((fr: any) => {
+          const cfg = fileCfg(fr);
+          const got = uploads[fr.id] || [];
+          const min = cfg.minCount ?? 1;
+          const max = cfg.maxCount ?? 5;
+          return (
+            <div key={fr.id} className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b">
+                <ImageIcon className="w-4 h-4" style={{ color: accent }} />
+                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{cfg.prompt || fr.label || 'Share files'}</h2>
+              </div>
+              <p className="text-xs text-slate-500">
+                Add up to {max} {max > 1 ? 'files' : 'file'}{min > 0 ? ` (at least ${min})` : ''}. Images or PDFs, up to 10MB each.
+              </p>
+              {got.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {got.map((f: any, i: number) => (
+                    <div key={i} className="relative rounded-xl border overflow-hidden bg-slate-50 aspect-square">
+                      {/\.(png|jpe?g|gif|webp)$/i.test(f.name)
+                        ? <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
+                        : <div className="flex items-center justify-center h-full text-[10px] p-2 text-center text-slate-500 break-all">{f.name}</div>}
+                      <button onClick={() => removeUpload(fr.id, i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {got.length < max && (
+                <label className="flex items-center justify-center gap-2 h-12 rounded-xl border-2 border-dashed cursor-pointer text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                  <Upload className="w-4 h-4" /> {uploading ? 'Uploading…' : got.length > 0 ? 'Add more' : 'Add photos'}
+                  <input
+                    type="file"
+                    multiple
+                    accept={(cfg.acceptedTypes || ['image/*']).join(',')}
+                    className="hidden"
+                    onChange={e => { handleFiles(fr.id, e.target.files, cfg); e.currentTarget.value = ''; }}
+                    disabled={uploading}
+                  />
+                </label>
+              )}
+            </div>
+          );
+        })}
 
         {/* Policy + card authorization */}
         <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
