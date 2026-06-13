@@ -122,6 +122,36 @@ export function isCreditExpired(expiresAt: any, now: Date = new Date()): boolean
   return toDate(expiresAt).getTime() < now.getTime();
 }
 
+// ─── Deposit AMOUNT calculation ───────────────────────────────────────────────
+// Single source of truth for "how big is the deposit" — mirrors the booking
+// sheet's logic so the phone-booking link and the online flow never disagree.
+// Returns integer CENTS. `depositsLive` gates the whole feature off when false.
+export interface DepositAmountInput {
+  service: any;          // expects depositType / depositSubType / depositAmount / price / cost
+  price: number;         // resolved service price (tier/staff applied), in dollars
+  depositsLive: boolean; // tenant.depositsLive === true
+  poorHistory?: boolean; // client has a weak no-show/cancel record (guardian surcharge)
+  guardianActive?: boolean;
+}
+
+export function computeDepositCents(input: DepositAmountInput): number {
+  const { service, price, depositsLive } = input;
+  if (!depositsLive || !service) return 0;
+  const guardianActive = input.guardianActive !== false;
+  const poorHistory = !!input.poorHistory;
+
+  const type = service.depositType;
+  if (type === 'none' && (!poorHistory || !guardianActive)) return 0;
+  if (guardianActive && poorHistory && type === 'none') return Math.round(Math.ceil(price * 0.5) * 100);
+  if (type === 'full')      return Math.round((price || 0) * 100);
+  if (type === 'breakeven') return Math.round((service.cost || 0) * 100);
+  if (type === 'deposit') {
+    if (service.depositSubType === 'percentage') return Math.round(price * ((service.depositAmount || 0) / 100) * 100);
+    return Math.round((service.depositAmount || 0) * 100);
+  }
+  return 0;
+}
+
 // ─── internals ───────────────────────────────────────────────────────────────
 function finalize(outcome: DepositOutcome, withinWindow: boolean, reason: string): ResolvedOutcome {
   return { outcome, withinWindow, reason, movesCash: outcome === 'refund' };
