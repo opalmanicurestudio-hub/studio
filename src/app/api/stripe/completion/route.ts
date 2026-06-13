@@ -1,0 +1,127 @@
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
+
+// ─── Lazy inits — must NOT be at module scope (build-time env vars unavailable) ─
+function getAdminDb() {
+  const { initializeApp, getApps, cert } = require('firebase-admin/app');
+  const { getFirestore } = require('firebase-admin/firestore');
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert({
+        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    });
+  }
+  return getFirestore();
+}
+
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Creates the Stripe Checkout for a booking-completion link (typically a phone
+// booking). ONE hosted session does both jobs:
+//
+//   • depositAmount > 0  → mode:'payment', collects the deposit AND saves the
+//     card for future off-session fees (payment_intent_data.setup_future_usage).
+//   • depositAmount == 0 → mode:'setup', just vaults the card (no charge).
+//
+// Either way a Stripe Customer is created so the saved card can be charged later.
+// The webhook reads metadata.type ('completion' | 'completion_setup') to vault
+// the card onto the client and (when present) post the deposit.
+//
+// The client must already have accepted policies + signed consents on the
+// completion page BEFORE this is called — that acceptance is the authorization
+// for the saved card.
+// ─────────────────────────────────────────────────────────────────────────────
+export async function POST(req: NextRequest) {
+  try {
+    const {
+      tenantId,
+      completionToken,
+      appointmentId,
+      clientId,
+      clientName,
+      clientEmail,
+      depositAmount = 0,
+      serviceName,
+      successUrl,
+      cancelUrl,
+    } = await req.json();
+
+    if (!tenantId || !completionToken || !clientEmail) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    const db = getAdminDb();
+    const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+    if (!tenantSnap.exists) {
+      return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
+    }
+    const stripeAccountId = tenantSnap.data()?.stripeAccountId;
+    if (!stripeAccountId) {
+      return NextResponse.json(
+        { error: 'This studio has not connected a payment account yet.' },
+        { status: 400 }
+      );
+    }
+
+    const metadata = {
+      tenantId,
+      completionToken,
+      appointmentId: appointmentId || '',
+      clientId:      clientId || '',
+      clientName:    clientName || '',
+      clientEmail:   clientEmail || '',
+      serviceName:   serviceName || '',
+    };
+
+    const stripe = getStripe();
+    const hasDeposit = Number(depositAmount) > 0;
+
+    const session = await stripe.checkout.sessions.create(
+      hasDeposit
+        ? {
+            mode:            'payment',
+            payment_method_types: ['card'],
+            customer_email:  clientEmail,
+            customer_creation: 'always',
+            line_items: [
+              {
+                price_data: {
+                  currency:    'usd',
+                  unit_amount: Math.round(Number(depositAmount) * 100),
+                  product_data: {
+                    name:        serviceName ? `Deposit — ${serviceName}` : 'Appointment Deposit',
+                    description: 'Secures your appointment and saves your card for any future fees per studio policy.',
+                  },
+                },
+                quantity: 1,
+              },
+            ],
+            // Charge the deposit now AND keep the card for future off-session fees.
+            payment_intent_data: { setup_future_usage: 'off_session' },
+            metadata:    { ...metadata, type: 'completion' },
+            success_url: successUrl,
+            cancel_url:  cancelUrl,
+          }
+        : {
+            mode:            'setup',
+            payment_method_types: ['card'],
+            customer_email:  clientEmail,
+            setup_intent_data: { metadata: { ...metadata, type: 'completion_setup' } },
+            metadata:    { ...metadata, type: 'completion_setup' },
+            success_url: successUrl,
+            cancel_url:  cancelUrl,
+          }
+    );
+
+    return NextResponse.json({ url: session.url, sessionId: session.id });
+  } catch (err: any) {
+    console.error('[stripe/completion]', err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
