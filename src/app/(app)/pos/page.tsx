@@ -1247,17 +1247,25 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
             }
 
             const aptId = _nanoid();
+            const checkInToken = _nanoid();
             const startTime = new Date(`${aptDate}T${aptTime}:00`);
             const endTime = addMinutes(startTime, selectedSvc?.duration || 60);
-            batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), sanitizeForFirestore({
+            // "First Available" must resolve to a real provider, or the appointment
+            // lands in no planner column and never shows on the staff portal.
+            const resolvedStaffId = selectedStaff === 'any' ? (staff.find((s: any) => s.active)?.id || null) : selectedStaff;
+            const aptDoc = sanitizeForFirestore({
                 id: aptId, tenantId, clientId, clientName,
                 serviceId: selectedService,
-                staffId: selectedStaff === 'any' ? null : selectedStaff,
+                staffId: resolvedStaffId,
+                checkInToken,
                 status: 'confirmed', source: 'pos_quick_book',
                 startTime: startTime.toISOString(), endTime: endTime.toISOString(),
                 createdAt: now, reminderSent: false,
                 ...(sendLink ? { completionStatus: 'pending', depositAmountCents: depositCents, depositStatus: depositCents > 0 ? 'pending' : 'none' } : {}),
-            }));
+            });
+            batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
+            // Mirror to the top-level check-in collection (parity with manual booking)
+            batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
 
             let link: string | null = null;
             if (sendLink) {
