@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -37,6 +36,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Appointment, type Client, type Service, Staff } from '@/lib/data';
+import { appointmentReadiness } from '@/lib/appointment-requirements';
 import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
@@ -123,7 +123,11 @@ export function AppointmentCard({
   }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
 
   const hasDeferredFee = safeNumber(appointment.checkoutState?.additionalCharge) > 0;
-  const hasInspiration = !!appointment.inspirationPhotoUrl;
+  const reqFiles = appointment.requirementFiles || [];
+  const hasInspiration = !!appointment.inspirationPhotoUrl || reqFiles.some((rf: any) => (rf.files || []).length > 0);
+  const reqReadiness = appointment.requirements ? appointmentReadiness(appointment.requirements) : null;
+  const setupPending = appointment.completionStatus === 'pending' || (reqReadiness ? reqReadiness.confirmationBlocking > 0 : false);
+  const awaitingReview = (reqReadiness?.awaitingReview || 0) > 0;
 
   const checkInIndicator = useMemo(() => {
     if (appointment.status === 'servicing' || appointment.status === 'completed') return null;
@@ -208,6 +212,30 @@ export function AppointmentCard({
                                     </Badge>
                                 </TooltipTrigger>
                                 <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Inspiration Photo Attached</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
+                    {setupPending && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Badge className="bg-amber-500 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                        <AlertTriangle className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PREP
+                                    </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Client setup incomplete — deposit, card, forms or photos outstanding</TooltipContent>
+                            </Tooltip>
+                        </TooltipProvider>
+                    )}
+                    {awaitingReview && (
+                        <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Badge className="bg-violet-600 text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm">
+                                        <FileImage className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />REVIEW
+                                    </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Photos / files submitted — awaiting your review</TooltipContent>
                             </Tooltip>
                         </TooltipProvider>
                     )}
