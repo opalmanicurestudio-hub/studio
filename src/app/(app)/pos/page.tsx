@@ -979,7 +979,7 @@ function POSPage() {
             <RecoveryOverrideDialog open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={(id: string) => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
-            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data: any) => { if (!selectedAppointment || !firestore || !tenantId) return; const batch = writeBatch(firestore); const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-'); const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId); const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments'; const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount }; batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true }); if (data.feeAmount > 0 && selectedAppointment.clientId) { batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); } await batch.commit(); setIsCancelDialogOpen(false); setIsDetailsOpen(false); }} />}
+            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data: any) => { if (!selectedAppointment || !firestore || !tenantId) return; const batch = writeBatch(firestore); const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-'); const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId); const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments'; const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount }; batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true }); if (data.feeAmount > 0 && selectedAppointment.clientId) { batch.update(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) }); } await batch.commit(); await settleDepositForCancellation(selectedAppointment, 'client_cancel'); setIsCancelDialogOpen(false); setIsDetailsOpen(false); }} />}
             <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id: string, state: any) => {
                     if (!firestore || !tenantId) return;
@@ -1100,6 +1100,29 @@ function POSPage() {
                     </div>
                 </SheetContent>
             </Sheet>
+
+            {/* ── DEPOSIT REFUND CONFIRM ── */}
+            <Dialog open={!!pendingRefund} onOpenChange={(o) => { if (!o) setPendingRefund(null); }}>
+                <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
+                    <DialogHeader className="p-6 pb-0">
+                        <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
+                            <Wallet className="w-5 h-5 text-primary" /> Refund Deposit?
+                        </DialogTitle>
+                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
+                            {pendingRefund?.reason}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="p-6 space-y-5">
+                        <p className="text-sm font-medium text-slate-600 leading-relaxed">
+                            Return <strong className="text-slate-900">${safeNumber(pendingRefund?.amount).toFixed(2)}</strong> to {pendingRefund?.clientName}? This sends the money back through Stripe and can't be undone. Skip to keep it as a credit toward their next visit instead.
+                        </p>
+                        <div className="flex gap-3">
+                            <Button onClick={() => setPendingRefund(null)} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Skip · keep as credit</Button>
+                            <Button onClick={handleConfirmRefund} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Refund ${safeNumber(pendingRefund?.amount).toFixed(2)}</Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}><DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent></Dialog>
         </div>
