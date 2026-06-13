@@ -1199,6 +1199,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
     const [aptDate, setAptDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
     const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 15), 'HH:mm'));
     const [sendLink, setSendLink] = React.useState(true);
+    const [requestFiles, setRequestFiles] = React.useState(false);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
     const [copied, setCopied] = React.useState(false);
@@ -1277,6 +1278,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                     serviceId: selectedService, serviceName: selectedSvc?.name || '',
                     depositAmountCents: depositCents,
                     requiredConsentFormIds: requiredFormIds,
+                    fileRequirements: requestFiles ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
                     status: 'pending', createdAt: now, expiresAt,
                 }));
                 const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -1421,6 +1423,21 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                     </div>
                 </div>
             </button>
+
+            {/* Request inspo photos sub-toggle */}
+            {sendLink && (
+              <button type="button" onClick={() => setRequestFiles(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", requestFiles ? "border-primary bg-primary/5" : "border-border bg-white")}>
+                <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" /> Request inspiration photos</p>
+                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">Client uploads reference photos in the same link (up to 5).</p>
+                    </div>
+                    <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", requestFiles ? "bg-primary" : "bg-slate-200")}>
+                        <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", requestFiles ? "left-[22px]" : "left-0.5")} />
+                    </div>
+                </div>
+              </button>
+            )}
 
             <div className="flex gap-3 pt-2">
                 <Button onClick={onCancel} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
