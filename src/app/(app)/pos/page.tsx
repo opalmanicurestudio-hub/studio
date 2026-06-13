@@ -1202,6 +1202,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
     const [copied, setCopied] = React.useState(false);
+    const [sendStatus, setSendStatus] = React.useState<any>(null);
 
     const filteredClients = React.useMemo(() => {
         if (!clientSearch.trim()) return clients.slice(0, 8);
@@ -1278,7 +1279,15 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
 
             if (link) {
                 setGeneratedLink(link);
-                toast({ title: 'Appointment booked', description: 'Send the secure link so the client can finish.' });
+                const clientPhone = selectedClient?.phone || newClientPhone;
+                try {
+                    const sr = await fetch('/api/notifications/send-completion-link', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ link, clientName, clientEmail: email.trim(), clientPhone, studioName: tenant?.name }),
+                    });
+                    setSendStatus(await sr.json().catch(() => null));
+                } catch { setSendStatus(null); }
+                toast({ title: 'Appointment booked', description: 'Secure link generated.' });
             } else {
                 onSuccess();
             }
@@ -1308,7 +1317,9 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                             {copied ? <><CheckCircle2 className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}
                         </Button>
                     </div>
-                    <p className="text-[10px] text-muted-foreground font-medium">Valid for 7 days. Sent to {email || 'the client'}.</p>
+                    {sendStatus && (sendStatus.smsSent || sendStatus.emailSent)
+                        ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''} · valid 7 days</p>
+                        : <p className="text-[10px] text-muted-foreground font-medium">{sendStatus && !sendStatus.smsConfigured && !sendStatus.emailConfigured ? "Auto-send isn't set up yet — copy the link to send it. " : ''}Valid for 7 days.</p>}
                 </div>
 
                 <Button onClick={onSuccess} variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Done</Button>
