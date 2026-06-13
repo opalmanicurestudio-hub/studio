@@ -155,6 +155,160 @@ export async function POST(req: NextRequest) {
     }
 
     // ════════════════════════════════════════════════════════════════════════
+    // BOOKING COMPLETION branch
+    // Fires for the completion link (phone bookings). Vaults the saved card onto
+    // the CLIENT PROFILE, posts the deposit if one was taken, and marks the
+    // APPOINTMENT secured. Policy acceptance + signed consents were already
+    // written by the completion page before this ran.
+    //   type 'completion'        → deposit was charged + card saved
+    //   type 'completion_setup'  → card saved only (no deposit)
+    // ════════════════════════════════════════════════════════════════════════
+    if (meta?.type === 'completion' || meta?.type === 'completion_setup') {
+      if (!meta.tenantId) {
+        return NextResponse.json({ received: true });
+      }
+
+      try {
+        const db          = getAdminDb();
+        const tenantId    = meta.tenantId;
+        const clientId    = meta.clientId || null;
+        const isDeposit   = meta.type === 'completion';
+        const amountCents = session.amount_total || 0;
+        const nowISO      = new Date().toISOString();
+
+        const stripe = getStripe();
+        const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+        const stripeAccountId = tenantSnap.data()?.stripeAccountId;
+        const reqOpts = stripeAccountId ? { stripeAccount: stripeAccountId } : undefined;
+
+        // Resolve the saved card (customer + payment method)
+        let customerId       = (session.customer as string) || null;
+        let paymentMethodId: string | null = null;
+        try {
+          if (isDeposit && session.payment_intent) {
+            const pi = await stripe.paymentIntents.retrieve(session.payment_intent as string, reqOpts as any);
+            paymentMethodId = (pi.payment_method as string) || null;
+            customerId      = customerId || (pi.customer as string) || null;
+          } else if (session.setup_intent) {
+            const si = await stripe.setupIntents.retrieve(session.setup_intent as string, reqOpts as any);
+            paymentMethodId = (si.payment_method as string) || null;
+            customerId      = customerId || (si.customer as string) || null;
+          }
+        } catch (e: any) {
+          console.error('[stripe/webhook] completion: could not resolve payment method', e.message);
+        }
+
+        // Card brand/last4 for display
+        let cardBrand: string | null = null, cardLast4: string | null = null, expMonth: number | null = null, expYear: number | null = null;
+        if (paymentMethodId) {
+          try {
+            const pm = await stripe.paymentMethods.retrieve(paymentMethodId, reqOpts as any);
+            cardBrand = pm.card?.brand || null;
+            cardLast4 = pm.card?.last4 || null;
+            expMonth  = pm.card?.exp_month || null;
+            expYear   = pm.card?.exp_year || null;
+          } catch { /* non-fatal */ }
+        }
+
+        const batch = db.batch();
+
+        // 1) CLIENT PROFILE — vault the card. `token` mirrors the field the cancel
+        //    dialog checks; customerId + paymentMethodId are what the charge route uses.
+        if (clientId && paymentMethodId) {
+          batch.set(
+            db.doc(`tenants/${tenantId}/clients/${clientId}`),
+            {
+              cardOnFile: {
+                token:           paymentMethodId,
+                customerId,
+                paymentMethodId,
+                brand:           cardBrand,
+                last4:           cardLast4,
+                expMonth,
+                expYear,
+                savedAt:         nowISO,
+                source:          'booking-completion',
+              },
+              cardOnFileSavedAt: nowISO,
+            },
+            { merge: true }
+          );
+        }
+
+        // 2) DEPOSIT — post to ledger + park a credit (idempotent), same as the
+        //    deposit branch, only when a deposit was actually charged.
+        if (isDeposit && amountCents > 0) {
+          const dupe = await db
+            .collection(`tenants/${tenantId}/depositCredits`)
+            .where('stripeSessionId', '==', session.id)
+            .limit(1)
+            .get();
+          if (dupe.empty) {
+            const ledgerDocId = ledgerEntryId('appointment_deposit', session.id);
+            const creditId    = nanoid();
+            batch.set(db.collection(`tenants/${tenantId}/depositCredits`).doc(creditId), {
+              id: creditId, tenantId, bookingRequestId: meta.appointmentId || null,
+              clientId, clientEmail: (meta.clientEmail || '').toLowerCase().trim(),
+              clientName: meta.clientName || 'Guest', serviceName: meta.serviceName || '',
+              amountCents, amountDollars: amountCents / 100, status: 'available',
+              appointmentId: meta.appointmentId || null, stripeSessionId: session.id,
+              stripePaymentIntentId: (session.payment_intent as string) || null,
+              ledgerSourceId: ledgerDocId, createdAt: nowISO, consumedAt: null,
+            });
+            const entry = buildLedgerEntry({
+              source: 'appointment_deposit', sourceId: session.id, amountCents,
+              category: 'Deposits',
+              description: `Appointment deposit — ${meta.serviceName || 'Service'} — ${meta.clientName || 'Client'}`,
+              clientOrVendor: meta.clientName || 'Client', clientId: clientId || undefined,
+              paymentMethod: 'Card (Stripe)', stripePaymentIntentId: (session.payment_intent as string) || null,
+            });
+            const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc(ledgerDocId);
+            batch.set(txnRef, { ...entry, id: txnRef.id });
+          }
+        }
+
+        // 3) APPOINTMENT — mark it fully secured.
+        if (meta.appointmentId) {
+          batch.set(
+            db.doc(`tenants/${tenantId}/appointments/${meta.appointmentId}`),
+            {
+              completionStatus: 'complete',
+              completedAt:      nowISO,
+              cardOnFileSecured: !!paymentMethodId,
+              ...(isDeposit && amountCents > 0 ? { depositStatus: 'paid', depositAmountCents: amountCents } : {}),
+            },
+            { merge: true }
+          );
+        }
+
+        // 4) COMPLETION TOKEN — close it out.
+        if (meta.completionToken) {
+          batch.set(
+            db.doc(`tenants/${tenantId}/bookingCompletions/${meta.completionToken}`),
+            { status: 'complete', completedAt: nowISO, cardSaved: !!paymentMethodId, depositPaid: isDeposit && amountCents > 0 },
+            { merge: true }
+          );
+        }
+
+        // 5) AUDIT
+        batch.set(db.collection(`tenants/${tenantId}/completionEvents`).doc(), {
+          tenantId, clientId, appointmentId: meta.appointmentId || null,
+          completionToken: meta.completionToken || null, type: meta.type,
+          cardSaved: !!paymentMethodId, depositCents: isDeposit ? amountCents : 0,
+          stripeSessionId: session.id, at: nowISO,
+        });
+
+        await batch.commit();
+        console.log('[stripe/webhook] Completion processed:', meta.completionToken, 'card:', !!paymentMethodId);
+      } catch (err: any) {
+        console.error('[stripe/webhook] Failed to process completion:', err.message);
+        return NextResponse.json({ error: 'Failed to process completion' }, { status: 500 });
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
     // EVENT TICKET branch (unchanged)
     // ════════════════════════════════════════════════════════════════════════
     if (!meta?.tenantId || !meta?.eventId) {
