@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
+import { resolveDepositPolicy, resolveDepositOutcome, hoursUntilStart, rolloverExpiryISO, isCreditExpired } from '@/lib/deposit-policy';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
@@ -248,6 +249,7 @@ function POSPage() {
     const [voidTransactionId, setVoidTransactionId] = useState<string | null>(null);
     const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
     const [isQuickBookOpen, setIsQuickBookOpen] = useState(false);
+    const [pendingRefund, setPendingRefund] = useState<any | null>(null);
 
     // ── NEW WALK-IN ALERT ─────────────────────────────────────────────────────
     const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
@@ -593,9 +595,11 @@ function POSPage() {
                 creditSnap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
             }
             if (!creditSnap.empty) {
-                const found = creditSnap.docs.map(d => ({ ref: d.ref, ...(d.data() as any) }));
+                const found = creditSnap.docs
+                    .map(d => ({ ref: d.ref, ...(d.data() as any) }))
+                    .filter((c: any) => !isCreditExpired(c.expiresAt));
                 found.sort((a, b) => safeDate(b.createdAt).getTime() - safeDate(a.createdAt).getTime());
-                depositCredit = found[0];
+                depositCredit = found[0] || null;
             }
         } catch (e) { console.warn('[deposit-credit lookup]', e); }
         const depositCreditDollars = depositCredit ? safeNumber((depositCredit as any).amountDollars ?? ((depositCredit as any).amountCents || 0) / 100) : 0;
@@ -733,6 +737,91 @@ function POSPage() {
         } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' }); }
         finally { setIsSubmitting(false); }
     };
+
+    // ── DEPOSIT ON CANCELLATION ─────────────────────────────────────────────
+    // Runs the policy engine and executes the outcome automatically:
+    //   rollover → keep the credit alive (+ expiry) so it applies to the next visit
+    //   forfeit  → close it; the studio keeps the recognized income
+    //   refund   → defer to a one-tap confirm (cash out is the only irreversible move)
+    // Every decision writes an audit record under depositDecisions.
+    const settleDepositForCancellation = useCallback(async (
+        appointment: any,
+        trigger: 'client_cancel' | 'no_show' | 'studio_cancel'
+    ) => {
+        if (!firestore || !tenantId || !appointment) return;
+        const clientId = appointment.clientId || null;
+        const clientObj = (clients || []).find(c => c.id === clientId);
+
+        let credit: any = null;
+        try {
+            const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
+            let snap: any = clientId
+                ? await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', clientId)))
+                : { empty: true, docs: [] };
+            if (snap.empty && clientObj?.email) {
+                snap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
+            }
+            if (!snap.empty) {
+                const found = snap.docs
+                    .map((d: any) => ({ ref: d.ref, ...(d.data() as any) }))
+                    .filter((c: any) => !isCreditExpired(c.expiresAt));
+                found.sort((a: any, b: any) => safeDate(b.createdAt).getTime() - safeDate(a.createdAt).getTime());
+                credit = found[0] || null;
+            }
+        } catch (e) { console.warn('[deposit cancel lookup]', e); }
+        if (!credit) return; // no live deposit on this booking — nothing to settle
+
+        const policy = resolveDepositPolicy(selectedTenant);
+        const hrs = hoursUntilStart(appointment.startTime);
+        const resolved = resolveDepositOutcome({ trigger, hoursUntilStart: hrs, policy });
+        const amount = safeNumber(credit.amountDollars ?? (credit.amountCents || 0) / 100);
+
+        // Refund is the only cash-out — defer to a confirm dialog rather than auto-firing.
+        if (resolved.outcome === 'refund') {
+            setPendingRefund({ creditId: credit.id, amount, clientName: clientObj?.name || credit.clientName || 'Client', reason: resolved.reason, appointmentId: appointment.id });
+            return;
+        }
+
+        const nowISO = new Date().toISOString();
+        const batch = writeBatch(firestore);
+        if (resolved.outcome === 'rollover') {
+            batch.set(credit.ref, sanitizeForFirestore({
+                status: 'available', rolledOver: true, rolledOverAt: nowISO,
+                rolledOverFromAppointmentId: appointment.id, expiresAt: rolloverExpiryISO(policy),
+                lastDecisionReason: resolved.reason,
+            }), { merge: true });
+        } else {
+            batch.set(credit.ref, sanitizeForFirestore({
+                status: 'forfeited', forfeitedAt: nowISO,
+                forfeitedFromAppointmentId: appointment.id, lastDecisionReason: resolved.reason,
+            }), { merge: true });
+        }
+        const auditRef = doc(collection(firestore, `tenants/${tenantId}/depositDecisions`));
+        batch.set(auditRef, sanitizeForFirestore({
+            id: auditRef.id, tenantId, creditId: credit.id, appointmentId: appointment.id,
+            clientId, clientName: clientObj?.name || credit.clientName || 'Client',
+            trigger, outcome: resolved.outcome, reason: resolved.reason,
+            amountDollars: amount, hoursUntilStart: hrs, decidedAt: nowISO,
+        }));
+        try {
+            await batch.commit();
+            toast({ title: resolved.outcome === 'rollover' ? 'Deposit rolled over' : 'Deposit forfeited', description: `$${amount.toFixed(2)} · ${resolved.reason}` });
+        } catch (e) { console.error('[deposit settle]', e); }
+    }, [firestore, tenantId, clients, selectedTenant, toast]);
+
+    const handleConfirmRefund = useCallback(async () => {
+        if (!pendingRefund || !tenantId) return;
+        try {
+            const res = await fetch('/api/stripe/deposit-refund', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId, creditId: pendingRefund.creditId }),
+            });
+            const out = await res.json().catch(() => null);
+            if (!res.ok || !out?.ok) { toast({ variant: 'destructive', title: 'Refund failed', description: out?.error || 'Could not refund the deposit.' }); }
+            else { toast({ title: 'Deposit refunded', description: `$${safeNumber(pendingRefund.amount).toFixed(2)} returned to ${pendingRefund.clientName}.` }); }
+        } catch (e: any) { toast({ variant: 'destructive', title: 'Refund failed', description: e.message }); }
+        finally { setPendingRefund(null); }
+    }, [pendingRefund, tenantId, toast]);
 
     const handleCancelAction = (id: string, isWalkIn: boolean) => {
         const isAssignedWalkIn = id.startsWith('apt-walkin-');
