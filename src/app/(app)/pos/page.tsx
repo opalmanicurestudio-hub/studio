@@ -26,14 +26,14 @@ import { AppHeader } from '@/components/shared/AppHeader';
 import { AddClientDialog, type ClientFormData } from '@/components/clients/AddClientDialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer, Trash2, Lock, Calendar, BookOpen } from 'lucide-react';
+import { Clock, Users, DollarSign, QrCode, Loader, Play, XCircle, Fingerprint, UserPlus, Sparkles, ChevronRight, ChevronLeft, ShoppingCart, Square, Wallet, AlertTriangle, MapPin, ShieldCheck, ArrowRight, Info, CheckCircle2, Ban, ShieldAlert, Landmark, Smartphone, Cake, Printer, Trash2, Lock, Calendar, BookOpen, Copy, Link2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, safeNumber } from '@/lib/utils';
 import { type Transaction } from '@/lib/financial-data';
-import { resolveDepositPolicy, resolveDepositOutcome, hoursUntilStart, rolloverExpiryISO, isCreditExpired } from '@/lib/deposit-policy';
+import { resolveDepositPolicy, resolveDepositOutcome, hoursUntilStart, rolloverExpiryISO, isCreditExpired, computeDepositCents } from '@/lib/deposit-policy';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
@@ -1107,6 +1107,7 @@ function POSPage() {
                             services={services || []}
                             staff={staff || []}
                             tenantId={tenantId || ''}
+                            tenant={selectedTenant}
                             firestore={firestore}
                             onSuccess={() => { setIsQuickBookOpen(false); toast({ title: "Appointment Booked" }); }}
                             onCancel={() => setIsQuickBookOpen(false)}
@@ -1183,18 +1184,24 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
 }
 
 // ─── QuickBookForm ─────────────────────────────────────────────────────────────
-// Minimal form to book an appointment directly from POS for call-ins/walk-ins
-export function QuickBookForm({ clients, services, staff, tenantId, firestore, onSuccess, onCancel }: any) {
+// Books a phone/call-in appointment from POS. When the service needs a deposit,
+// consent forms, or you simply want a card on file, it mints a secure completion
+// link the front desk sends — the client finishes the deposit + card + forms there.
+export function QuickBookForm({ clients, services, staff, tenantId, tenant, firestore, onSuccess, onCancel }: any) {
     const { toast } = useToast();
     const [clientSearch, setClientSearch] = React.useState('');
     const [selectedClient, setSelectedClient] = React.useState<any>(null);
     const [newClientName, setNewClientName] = React.useState('');
     const [newClientPhone, setNewClientPhone] = React.useState('');
+    const [email, setEmail] = React.useState('');
     const [selectedService, setSelectedService] = React.useState<string>('');
     const [selectedStaff, setSelectedStaff] = React.useState<string>('any');
     const [aptDate, setAptDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
     const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 15), 'HH:mm'));
+    const [sendLink, setSendLink] = React.useState(true);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
+    const [copied, setCopied] = React.useState(false);
 
     const filteredClients = React.useMemo(() => {
         if (!clientSearch.trim()) return clients.slice(0, 8);
@@ -1203,43 +1210,111 @@ export function QuickBookForm({ clients, services, staff, tenantId, firestore, o
     }, [clients, clientSearch]);
 
     const selectedSvc = services.find((s: any) => s.id === selectedService);
+    const staffMember = staff.find((s: any) => s.id === selectedStaff);
+
+    // Deposit + consent requirements — computed exactly like the online booking flow
+    const svcPrice = selectedSvc ? getServicePrice(selectedSvc, staffMember) : 0;
+    const depositCents = selectedSvc ? computeDepositCents({ service: selectedSvc, price: svcPrice, depositsLive: tenant?.depositsLive === true }) : 0;
+    const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
+    const alreadyHasCard = !!selectedClient?.cardOnFile?.token;
+
+    const copyLink = async () => {
+        if (!generatedLink) return;
+        try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+        catch { toast({ variant: 'destructive', title: 'Copy failed', description: 'Select and copy the link manually.' }); }
+    };
 
     const handleBook = async () => {
         if (!selectedService || !tenantId || !firestore) return;
         if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client Required' }); return; }
+        if (sendLink && !email.trim()) { toast({ variant: 'destructive', title: 'Email required', description: 'An email is needed to send the secure completion link.' }); return; }
         setIsSubmitting(true);
         const { nanoid: _nanoid } = await import('nanoid');
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
         try {
             let clientId = selectedClient?.id;
+            const clientName = selectedClient?.name || newClientName.trim();
             if (!clientId) {
                 clientId = _nanoid();
-                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), {
-                    id: clientId, name: newClientName.trim(), phone: newClientPhone, email: '',
+                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+                    id: clientId, name: clientName, phone: newClientPhone, email: email.trim(),
                     lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
-                });
+                }));
+            } else if (email.trim() && !selectedClient?.email) {
+                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { email: email.trim() }, { merge: true });
             }
+
             const aptId = _nanoid();
             const startTime = new Date(`${aptDate}T${aptTime}:00`);
             const endTime = addMinutes(startTime, selectedSvc?.duration || 60);
-            batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), {
-                id: aptId, tenantId, clientId,
-                clientName: selectedClient?.name || newClientName,
+            batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), sanitizeForFirestore({
+                id: aptId, tenantId, clientId, clientName,
                 serviceId: selectedService,
                 staffId: selectedStaff === 'any' ? null : selectedStaff,
-                status: 'confirmed',
-                source: 'pos_quick_book',
-                startTime: startTime.toISOString(),
-                endTime: endTime.toISOString(),
-                createdAt: now,
-                reminderSent: false,
-            });
+                status: 'confirmed', source: 'pos_quick_book',
+                startTime: startTime.toISOString(), endTime: endTime.toISOString(),
+                createdAt: now, reminderSent: false,
+                ...(sendLink ? { completionStatus: 'pending', depositAmountCents: depositCents, depositStatus: depositCents > 0 ? 'pending' : 'none' } : {}),
+            }));
+
+            let link: string | null = null;
+            if (sendLink) {
+                const token = _nanoid();
+                const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+                batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
+                    token, tenantId, appointmentId: aptId, clientId,
+                    clientName, clientEmail: email.trim().toLowerCase(),
+                    serviceId: selectedService, serviceName: selectedSvc?.name || '',
+                    depositAmountCents: depositCents,
+                    requiredConsentFormIds: requiredFormIds,
+                    status: 'pending', createdAt: now, expiresAt,
+                }));
+                const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                link = `${origin}/complete/${tenantId}/${token}`;
+            }
+
             await batch.commit();
-            onSuccess();
+
+            if (link) {
+                setGeneratedLink(link);
+                toast({ title: 'Appointment booked', description: 'Send the secure link so the client can finish.' });
+            } else {
+                onSuccess();
+            }
         } catch (e) { toast({ variant: 'destructive', title: 'Booking Failed' }); }
         finally { setIsSubmitting(false); }
     };
+
+    // ── Post-booking: show the secure link to copy/send ──────────────────────
+    if (generatedLink) {
+        return (
+            <div className="space-y-6">
+                <div className="text-center space-y-3 pt-2">
+                    <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
+                        <CheckCircle2 className="w-8 h-8 text-green-500" />
+                    </div>
+                    <p className="text-lg font-black uppercase tracking-tight text-slate-900">Appointment booked</p>
+                    <p className="text-xs text-muted-foreground font-medium max-w-xs mx-auto">
+                        Send this secure link to the client. They'll {depositCents > 0 ? `pay the $${(depositCents / 100).toFixed(2)} deposit, ` : ''}save their card{requiredFormIds.length > 0 ? `, and sign ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.
+                    </p>
+                </div>
+
+                <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Link2 className="w-3 h-3" /> Completion link</Label>
+                    <div className="flex items-center gap-2">
+                        <Input readOnly value={generatedLink} onFocus={(e) => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
+                        <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest shrink-0">
+                            {copied ? <><CheckCircle2 className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}
+                        </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground font-medium">Valid for 7 days. Sent to {email || 'the client'}.</p>
+                </div>
+
+                <Button onClick={onSuccess} variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Done</Button>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">
@@ -1249,7 +1324,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, firestore, o
                 {selectedClient ? (
                     <div className="flex items-center justify-between p-3 rounded-2xl border-2 border-primary/20 bg-primary/5">
                         <div><p className="font-black text-sm text-slate-900">{selectedClient.name}</p><p className="text-[10px] text-muted-foreground">{selectedClient.phone}</p></div>
-                        <Button variant="ghost" size="sm" onClick={() => setSelectedClient(null)} className="text-[10px] font-black uppercase">Change</Button>
+                        <Button variant="ghost" size="sm" onClick={() => { setSelectedClient(null); setEmail(''); }} className="text-[10px] font-black uppercase">Change</Button>
                     </div>
                 ) : (
                     <>
@@ -1257,7 +1332,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, firestore, o
                         {filteredClients.length > 0 && (
                             <div className="rounded-xl border-2 divide-y overflow-hidden">
                                 {filteredClients.map((c: any) => (
-                                    <button key={c.id} onClick={() => { setSelectedClient(c); setClientSearch(''); }} className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left">
+                                    <button key={c.id} onClick={() => { setSelectedClient(c); setClientSearch(''); setEmail(c.email || ''); }} className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left">
                                         <p className="font-bold text-sm text-slate-900">{c.name}</p>
                                         <p className="text-[10px] text-muted-foreground">{c.phone}</p>
                                     </button>
@@ -1273,6 +1348,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, firestore, o
                         )}
                     </>
                 )}
+                <Input type="email" placeholder="Email (for receipt & secure link)" value={email} onChange={e => setEmail(e.target.value)} className="h-11 rounded-xl border-2" />
             </div>
 
             {/* Service */}
@@ -1309,10 +1385,28 @@ export function QuickBookForm({ clients, services, staff, tenantId, firestore, o
                 </div>
             </div>
 
+            {/* Completion link toggle */}
+            <button type="button" onClick={() => setSendLink(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
+                <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" /> Send completion link</p>
+                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
+                            {selectedSvc
+                                ? <>Client secures a card on file{depositCents > 0 ? `, pays a $${(depositCents / 100).toFixed(2)} deposit` : ''}{requiredFormIds.length > 0 ? `, and signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.</>
+                                : <>Pick a service to see what the client will complete.</>}
+                            {alreadyHasCard && <span className="block mt-1 text-green-600 font-bold">This client already has a card on file.</span>}
+                        </p>
+                    </div>
+                    <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", sendLink ? "bg-primary" : "bg-slate-200")}>
+                        <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", sendLink ? "left-[22px]" : "left-0.5")} />
+                    </div>
+                </div>
+            </button>
+
             <div className="flex gap-3 pt-2">
                 <Button onClick={onCancel} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
                 <Button onClick={handleBook} disabled={isSubmitting || !selectedService || (!selectedClient && !newClientName.trim())} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-                    {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : 'Book Appointment →'}
+                    {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : sendLink ? 'Book & Get Link →' : 'Book Appointment →'}
                 </Button>
             </div>
         </div>
