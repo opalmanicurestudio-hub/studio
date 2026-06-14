@@ -7,16 +7,19 @@ import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
-  if (!getApps().length) {
-    initializeApp({
+  const APP_NAME = 'admin';
+  let app = getApps().find((a) => a.name === APP_NAME);
+  if (!app) {
+    app = initializeApp({
       credential: cert({
         projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
         clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
         privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       }),
-    });
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    }, APP_NAME);
   }
-  return getFirestore();
+  return getFirestore(app);
 }
 
 function getStripe() {
@@ -267,7 +270,29 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // 3) APPOINTMENT — mark it fully secured.
+        // 3) APPOINTMENT — mark it fully secured, and copy across what the client
+        //    submitted on the completion page (the public page can't write to the
+        //    appointment under Firestore rules, so we do it here with Admin rights).
+        let submissionData: any = null;
+        if (meta.completionToken) {
+          try {
+            const subSnap = await db
+              .collection(`tenants/${tenantId}/completionSubmissions`)
+              .where('token', '==', meta.completionToken)
+              .limit(5)
+              .get();
+            if (!subSnap.empty) {
+              // newest by submittedAt
+              const subs = subSnap.docs
+                .map((d: any) => d.data())
+                .sort((a: any, b: any) => String(b.submittedAt || '').localeCompare(String(a.submittedAt || '')));
+              submissionData = subs[0];
+            }
+          } catch (e: any) {
+            console.error('[stripe/webhook] completion: could not load submission', e.message);
+          }
+        }
+
         if (meta.appointmentId) {
           batch.set(
             db.doc(`tenants/${tenantId}/appointments/${meta.appointmentId}`),
@@ -276,6 +301,11 @@ export async function POST(req: NextRequest) {
               completedAt:      nowISO,
               cardOnFileSecured: !!paymentMethodId,
               ...(isDeposit && amountCents > 0 ? { depositStatus: 'paid', depositAmountCents: amountCents } : {}),
+              ...(submissionData ? {
+                signedForms:      submissionData.signedForms || [],
+                policyAcceptance: submissionData.policyAcceptance || null,
+                requirementFiles: submissionData.fileSubmissions || [],
+              } : {}),
             },
             { merge: true }
           );
