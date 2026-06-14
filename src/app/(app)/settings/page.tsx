@@ -516,12 +516,17 @@ function SettingsPageImpl() {
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
                   <StripeConnectSetup
-                    tenantId={tenantId || ''}
-                    stripeAccountId={(selectedTenant as any)?.stripeAccountId}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
+  tenantId={tenantId || ''}
+  stripeAccountId={(selectedTenant as any)?.stripeAccountId}
+  onDisconnect={async () => {
+    const res = await fetch('/api/stripe/disconnect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: tenantId }),  // tenantId here is actually the userId
+    });
+    if (!res.ok) throw new Error('Failed to disconnect');
+  }}
+/>
 
             {/* ── HOURS ── */}
             <TabsContent value="hours" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
