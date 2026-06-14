@@ -7,7 +7,7 @@ import { type WalkIn, type Staff, type Appointment, Service } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format } from 'date-fns';
 import { 
     Clock, Users, Trash2, TrendingUp, Printer, Car, MapPin, AlertTriangle, 
-    Fingerprint, Cake, UserPlus, Award, Repeat, ShieldAlert, MessageSquare, Ear
+    Fingerprint, Cake, UserPlus, Award, Repeat, ShieldAlert, MessageSquare, Ear, FileImage
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -73,6 +73,10 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     const hasPackage = (client?.activePackages?.length || 0) > 0;
     const isAutoCancelled = checkInStatus === 'auto_cancelled';
 
+    // Requirement status (scheduled appointments only -- walk-ins have no completion flow)
+    const setupPending = !isWalkIn && (item as any).completionStatus === 'pending';
+    const awaitingReview = !isWalkIn && (((item as any).requirementFiles?.length || 0) > 0) && !(item as any).requirementsReviewedAt;
+
     // FIX: Always pass item to onResolve so the details sheet receives the data
     const handleResolve = (e?: React.MouseEvent) => {
         e?.stopPropagation();
@@ -102,6 +106,16 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                             <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{customerName}</p>
                             {isMember && <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Award className="w-2 h-2 mr-0.5" /> MEM</Badge>}
                             {hasPackage && <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Repeat className="w-2 h-2 mr-0.5" /> PKG</Badge>}
+                            {setupPending && (
+                                <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                                    <Badge className="bg-amber-500 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><Clock className="w-2 h-2 mr-0.5" /> PREP</Badge>
+                                </TooltipTrigger><TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Client setup incomplete (deposit / card / forms)</TooltipContent></Tooltip></TooltipProvider>
+                            )}
+                            {awaitingReview && (
+                                <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                                    <Badge className="bg-violet-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm"><FileImage className="w-2 h-2 mr-0.5" /> REVIEW</Badge>
+                                </TooltipTrigger><TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Client uploaded photos awaiting review</TooltipContent></Tooltip></TooltipProvider>
+                            )}
                         </div>
                         <div className="flex items-center gap-3 mt-1">
                             <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5 opacity-60">
