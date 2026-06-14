@@ -140,9 +140,15 @@ export type Redemption = {
 export type CardOnFile = {
     brand: string;
     last4: string;
-    expiryMonth: number;
-    expiryYear: number;
+    expiryMonth?: number;
+    expiryYear?: number;
+    expMonth?: number;
+    expYear?: number;
     token: string;
+    customerId?: string;
+    paymentMethodId?: string;
+    savedAt?: string;
+    source?: string;
 };
 
 export type OneTimePerk = {
