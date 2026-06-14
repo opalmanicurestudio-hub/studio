@@ -17,7 +17,6 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid))
       );
     }
-
     // --- Tenant Root ---
     match /tenants/{tenantId} {
       allow get: if true;
@@ -25,7 +24,6 @@ service cloud.firestore {
       allow create: if isSignedIn(); // ← ADDED: allows new users to create their tenant on signup
       allow update: if isOwner(tenantId);
     }
-
     // --- Public Whitelist for Portal/Check-in ---
     match /tenants/{tenantId}/services/{serviceId} {
       allow get, list: if true;
@@ -44,7 +42,6 @@ service cloud.firestore {
       allow get, list: if true;
       allow write: if isStaff(tenantId);
     }
-
     // --- Concierge Logic ---
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
       allow create: if true; 
@@ -52,12 +49,23 @@ service cloud.firestore {
       allow list: if true;
       allow update: if isStaff(tenantId);
     }
-
     // --- Check-in & Public Tokens ---
     match /appointmentCheckIns/{token} {
       allow read, write: if true;
     }
-
+    // --- Booking completion link (PUBLIC) ---
+    // The completion page is unauthenticated: the client reads their token doc
+    // and creates a submission. Everything else stays staff-only. The appointment
+    // itself is NOT opened to the public — the Stripe webhook (Admin) copies the
+    // submitted forms/files onto the appointment server-side.
+    match /tenants/{tenantId}/bookingCompletions/{token} {
+      allow get: if true;
+      allow list, write: if isStaff(tenantId);
+    }
+    match /tenants/{tenantId}/completionSubmissions/{subId} {
+      allow create: if true;
+      allow read, update, delete: if isStaff(tenantId);
+    }
     match /tenants/{tenantId}/notifications/{notificationId} {
       allow create: if true; 
       allow get, list, update, delete: if isStaff(tenantId);
@@ -71,12 +79,10 @@ service cloud.firestore {
       allow create: if true;
       allow list, write: if isStaff(tenantId);
     }
-
     // --- Master Admin Access ---
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId);
     }
-
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
