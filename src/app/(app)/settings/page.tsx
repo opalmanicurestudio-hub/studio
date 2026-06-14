@@ -23,6 +23,7 @@ import { Switch } from '@/components/ui/switch';
 import { useFirebase, updateDocumentNonBlocking, useMemoFirebase, useCollection } from '@/firebase';
 import { doc, writeBatch, deleteField } from 'firebase/firestore';
 import { type Tenant, type ScheduleProfile, type DayHours, type Service, type PricingTier, type Staff, type RecoveryPreset, nanoid } from '@/lib/data';
+import { DEFAULT_DEPOSIT_POLICY } from '@/lib/deposit-policy';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -36,6 +37,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useForm, Controller } from 'react-hook-form';
 import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
@@ -408,6 +410,9 @@ function SettingsPageImpl() {
   const handleScheduleChange      = (day: string, updates: Partial<DayHours>) => setLocalSchedule((prev: any) => ({ ...prev, [day]: { ...prev[day], ...updates } }));
   const handleKioskScheduleChange = (day: string, updates: Partial<DayHours>) => setLocalKioskSchedule((prev: any) => ({ ...prev, [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates } }));
   const handlePolicyChange        = (id: string, updates: any) => setServicePolicies(prev => ({ ...prev, [id]: { ...prev[id], ...updates } }));
+  // Deposit policy lives on the tenant doc under `depositPolicy`; the rules engine
+  // (src/lib/deposit-policy.ts) reads it and falls back to DEFAULT_DEPOSIT_POLICY.
+  const handleDepositPolicyChange = (updates: any) => setTenantData(prev => ({ ...prev, depositPolicy: { ...(((prev as any).depositPolicy) || {}), ...updates } } as any));
   const handleAddPreset           = () => setTenantData(prev => ({ ...prev, recoveryPresets: [...(prev.recoveryPresets || []), { id: nanoid(), label: 'NEW PRESET', type: 'fixed', value: 0 }] }));
   const handleRemovePreset        = (id: string) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.filter(p => p.id !== id) }));
   const handleUpdatePreset        = (id: string, updates: Partial<RecoveryPreset>) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.map(p => p.id === id ? { ...p, ...updates } : p) }));
@@ -419,11 +424,21 @@ function SettingsPageImpl() {
     return services.filter(svc => svc.name.toLowerCase().includes(s) || (svc.category || '').toLowerCase().includes(s));
   }, [services, serviceSearch]);
 
+  // Active deposit policy for display — saved values over engine defaults.
+  const depositPolicy: any = { ...DEFAULT_DEPOSIT_POLICY, ...(((tenantData as any).depositPolicy) || {}) };
+  const depositOutcomeRules = [
+    { key: 'onEarlyCancel',  label: 'Client cancels EARLY',  desc: 'Outside the refund window' },
+    { key: 'onLateCancel',   label: 'Client cancels LATE',   desc: 'Inside the refund window'   },
+    { key: 'onNoShow',       label: 'Client NO-SHOWS',       desc: 'Never arrives'              },
+    { key: 'onStudioCancel', label: 'STUDIO cancels',        desc: 'Your side cancels'          },
+  ];
+
   const tabs = [
     { value: 'profile',    label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
     { value: 'hours',      label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience', label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
     { value: 'policies',   label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'payments',   label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
     { value: 'builder',    label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
     { value: 'kiosk',      label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
     { value: 'timeclock',  label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
@@ -486,6 +501,24 @@ function SettingsPageImpl() {
                     <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Business Label</Label>
                     <Input value={tenantData.name || ''} onChange={e => setTenantData(prev => ({ ...prev, name: e.target.value }))} disabled={!isEditing} placeholder="ENTER STUDIO NAME" className="h-14 rounded-2xl border-2 font-black uppercase text-lg md:text-xl tracking-tighter bg-white shadow-inner" />
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── PAYMENTS ── */}
+            <TabsContent value="payments" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={DollarSign} title="Payments & Payouts" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+                    Connect your Stripe account to collect deposits and fees. Funds are paid directly to your bank.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 md:p-8">
+                  <StripeConnectSetup
+                    tenantId={tenantId || ''}
+                    stripeAccountId={(selectedTenant as any)?.stripeAccountId}
+                  />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -680,6 +713,63 @@ function SettingsPageImpl() {
                   <SettingRow icon={Zap} title="Guest Autonomy: Fee Deferral" description="Allow guests to add rescheduling fees to their session bill">
                     <Switch checked={!!tenantData.allowGuestFeeDeferral} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowGuestFeeDeferral: val }))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-primary" />
                   </SettingRow>
+                </CardContent>
+              </Card>
+
+              {/* ── DEPOSIT GOVERNANCE ── */}
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Landmark} title="Deposit Governance" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Automate what happens to a deposit when a booking is cancelled or missed — set once, applied consistently.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                  <SettingRow icon={ShieldCheck} color="green" title="Collect Deposits (Live)" description="Master switch. While off, no deposits are charged anywhere — safe to leave off until you've tested end to end.">
+                    <Switch checked={!!(tenantData as any).depositsLive} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, depositsLive: val } as any))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-green-600" />
+                  </SettingRow>
+
+                  <Separator className="border-dashed" />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Refund Window (Hours)</Label>
+                      <Input type="number" value={(tenantData as any).depositPolicy?.refundWindowHours ?? ''} onChange={e => handleDepositPolicyChange({ refundWindowHours: parseInt(e.target.value) || 0 })} disabled={!isEditing} placeholder={String(DEFAULT_DEPOSIT_POLICY.refundWindowHours)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Cancellations earlier than this count as "early". Inside it counts as "late".</p>
+                    </div>
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Rollover Expires After (Days)</Label>
+                      <Input type="number" value={(tenantData as any).depositPolicy?.rolloverExpiryDays ?? ''} onChange={e => handleDepositPolicyChange({ rolloverExpiryDays: parseInt(e.target.value) || 0 })} disabled={!isEditing} placeholder={String(DEFAULT_DEPOSIT_POLICY.rolloverExpiryDays)} className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center" />
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">How long a rolled-over deposit stays usable on the client's next visit.</p>
+                    </div>
+                  </div>
+
+                  <Separator className="border-dashed" />
+
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 px-1"><Scale className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Automatic Outcomes</h3></div>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-1 leading-relaxed">Applied automatically so you're not deciding case by case. You can still override any single one at the moment of cancellation.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {depositOutcomeRules.map(rule => (
+                        <div key={rule.key} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
+                          <div className="space-y-0.5">
+                            <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{rule.label}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{rule.desc}</p>
+                          </div>
+                          <Select value={depositPolicy[rule.key]} onValueChange={(v: any) => handleDepositPolicyChange({ [rule.key]: v })} disabled={!isEditing}>
+                            <SelectTrigger className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><SelectValue /></SelectTrigger>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                              <SelectItem value="rollover" className="font-bold uppercase text-[10px] tracking-widest">Roll over to next visit</SelectItem>
+                              <SelectItem value="forfeit"  className="font-bold uppercase text-[10px] tracking-widest">Studio keeps it</SelectItem>
+                              <SelectItem value="refund"   className="font-bold uppercase text-[10px] tracking-widest">Refund to client</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">Refunds send money back through Stripe and can't be undone — that outcome asks for a one-tap confirmation before it runs. Rollover and forfeit move no money and run silently.</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
 
