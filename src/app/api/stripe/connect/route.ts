@@ -116,7 +116,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect(link.url);
   } catch (e: any) {
-    console.error('[stripe/connect] error:', e.message);
-    return NextResponse.redirect(`${ret}?stripe=error`);
+    console.error('[stripe/connect] error:', e?.message, e);
+    const reason = encodeURIComponent(e?.message || 'Unknown error');
+    return NextResponse.redirect(`${ret}?stripe=error&reason=${reason}`);
   }
 }
