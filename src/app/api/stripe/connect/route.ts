@@ -1,25 +1,3 @@
-/**
- * API Route: GET /api/stripe/connect   — Express + Account Links (hosted onboarding)
- * ─────────────────────────────────────────────────────────────────────────────
- * Backs the StripeConnectSetup "Connect with Stripe" button.
- *
- * File: src/app/api/stripe/connect/route.ts
- *
- * Flow (no OAuth, no dashboard redirect registration):
- *   START  — /api/stripe/connect?tenantId=XYZ
- *            • If the tenant has no connected account, create an Express account
- *              and save its id to tenants/{tid}.stripeAccountId immediately.
- *            • If it already has one, reuse it and refresh charge/onboarding flags.
- *            • Generate a hosted Account Link and redirect the studio to Stripe.
- *   RETURN — Stripe sends the studio's browser back to return_url (your settings
- *            page) with ?stripe=connected. The component reads that + the saved id.
- *
- * Env:
- *   STRIPE_SECRET_KEY
- *   NEXT_PUBLIC_APP_URL   (optional — falls back to the request origin)
- *   FIREBASE_ADMIN_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY
- */
-
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
@@ -49,12 +27,12 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || url.origin).replace(/\/$/, '');
 
-  const tenantId = url.searchParams.get('tenantId') || '';
-  if (!tenantId) {
+  // This is actually the user's UID, not the tenant doc ID
+  const userId = url.searchParams.get('tenantId') || '';
+  if (!userId) {
     return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
   }
 
-  // Where to send the studio back to after onboarding — the page they came from.
   const referer = req.headers.get('referer') || `${appUrl}/settings`;
   const ret = referer.split('?')[0];
 
@@ -62,16 +40,24 @@ export async function GET(req: NextRequest) {
     const stripe = getStripe();
     const db = getAdminDb();
 
-    const tenantRef  = db.doc(`tenants/${tenantId}`);
-    const tenantSnap = await tenantRef.get();
-    if (!tenantSnap.exists) {
-      return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
+    // ── Look up the tenant by userId instead of using the ID directly ──
+    const tenantsSnap = await db.collection('tenants')
+      .where('userId', '==', userId)
+      .limit(1)
+      .get();
+
+    if (tenantsSnap.empty) {
+      console.error('[stripe/connect] No tenant found for userId:', userId);
+      return NextResponse.redirect(`${ret}?stripe=error&reason=studio_not_found`);
     }
 
-    let accountId: string | undefined = tenantSnap.data()?.stripeAccountId;
+    const tenantRef  = tenantsSnap.docs[0].ref;
+    const tenantData = tenantsSnap.docs[0].data();
 
-    // Create the Express account on first connect.
+    let accountId: string | undefined = tenantData?.stripeAccountId;
+
     if (!accountId) {
+      // Create a new Express account
       const account = await stripe.accounts.create({
         type: 'express',
         capabilities: {
@@ -79,21 +65,26 @@ export async function GET(req: NextRequest) {
           transfers:     { requested: true },
         },
         business_profile: {
-          name: tenantSnap.data()?.name || undefined,
+          name: tenantData?.name || undefined,
         },
-        metadata: { tenantId },
+        metadata: { 
+          userId,
+          tenantId: tenantsSnap.docs[0].id,  // store the real tenant doc ID too
+        },
       });
       accountId = account.id;
+
+      // Save to the correct tenant doc
       await tenantRef.set(
         {
-          stripeAccountId:   accountId,
-          stripeConnectedAt: new Date().toISOString(),
+          stripeAccountId:      accountId,
+          stripeConnectedAt:    new Date().toISOString(),
           stripeChargesEnabled: false,
         },
         { merge: true }
       );
     } else {
-      // Reuse — refresh the onboarding/charge status so the rest of the app can gate on it.
+      // Refresh onboarding/charge status
       try {
         const acct = await stripe.accounts.retrieve(accountId);
         await tenantRef.set(
@@ -106,10 +97,10 @@ export async function GET(req: NextRequest) {
       } catch { /* non-fatal */ }
     }
 
-    // Hosted onboarding link. return_url = back to settings; refresh_url = remint if expired.
+    // Generate hosted onboarding link
     const link = await stripe.accountLinks.create({
       account:     accountId,
-      refresh_url: `${appUrl}/api/stripe/connect?tenantId=${encodeURIComponent(tenantId)}`,
+      refresh_url: `${appUrl}/api/stripe/connect?tenantId=${encodeURIComponent(userId)}`,
       return_url:  `${ret}?stripe=connected`,
       type:        'account_onboarding',
     });
