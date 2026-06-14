@@ -813,7 +813,7 @@ export default function ClientDetailPage() {
                         <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
                         <div className="text-left">
                           <p className="text-xs font-black uppercase tracking-tighter text-slate-900 text-left">{String(client.cardOnFile.brand || 'Card')} **** {String(client.cardOnFile.last4 || '****')}</p>
-                          <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber(client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expiryYear)}</p>
+                          <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber(client.cardOnFile.expMonth ?? client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expYear ?? client.cardOnFile.expiryYear)}
                         </div>
                       </div>
                       <button onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5 flex items-center justify-center rounded-lg transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
