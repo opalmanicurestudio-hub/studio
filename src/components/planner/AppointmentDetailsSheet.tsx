@@ -258,6 +258,31 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         status: 'pending', createdAt: new Date().toISOString(), expiresAt,
       });
       batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents });
+
+      // Audit trail — record exactly what was requested, by whom, and when.
+      const auditRef = doc(collection(firestore, `tenants/${tenantId}/completionRequests`));
+      batch.set(auditRef, {
+        id: auditRef.id,
+        tenantId,
+        appointmentId: appointment.id,
+        clientId: client.id,
+        clientName: client.name,
+        token,
+        requested: {
+          deposit: depositCents > 0,
+          card: true,
+          consentForms: requiredFormIds.length,
+          photos: requestPhotos,
+        },
+        depositAmountCents: depositCents,
+        channel: 'link',
+        status: 'sent',
+        source: 'appointment_details',
+        requestedBy: currentUser?.uid || null,
+        requestedAt: new Date().toISOString(),
+        expiresAt,
+      });
+
       await batch.commit();
       const link = `${window.location.origin}/complete/${tenantId}/${token}`;
       setReqLink(link);
