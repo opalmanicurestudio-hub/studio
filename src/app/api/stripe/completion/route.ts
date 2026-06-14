@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-// ─── Lazy inits — must NOT be at module scope (build-time env vars unavailable) ─
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
@@ -24,22 +23,6 @@ function getStripe() {
   return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Creates the Stripe Checkout for a booking-completion link (typically a phone
-// booking). ONE hosted session does both jobs:
-//
-//   • depositAmount > 0  → mode:'payment', collects the deposit AND saves the
-//     card for future off-session fees (payment_intent_data.setup_future_usage).
-//   • depositAmount == 0 → mode:'setup', just vaults the card (no charge).
-//
-// Either way a Stripe Customer is created so the saved card can be charged later.
-// The webhook reads metadata.type ('completion' | 'completion_setup') to vault
-// the card onto the client and (when present) post the deposit.
-//
-// The client must already have accepted policies + signed consents on the
-// completion page BEFORE this is called — that acceptance is the authorization
-// for the saved card.
-// ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const {
@@ -51,8 +34,6 @@ export async function POST(req: NextRequest) {
       clientEmail,
       depositAmount = 0,
       serviceName,
-      successUrl,
-      cancelUrl,
     } = await req.json();
 
     if (!tenantId || !completionToken || !clientEmail) {
@@ -64,10 +45,32 @@ export async function POST(req: NextRequest) {
     if (!tenantSnap.exists) {
       return NextResponse.json({ error: 'Studio not found' }, { status: 404 });
     }
+
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
       return NextResponse.json(
         { error: 'This studio has not connected a payment account yet.' },
+        { status: 400 }
+      );
+    }
+
+    // ── Verify the connected account exists and is usable ──────────────────
+    const stripe = getStripe();
+    let connectedAccount;
+    try {
+      connectedAccount = await stripe.accounts.retrieve(stripeAccountId);
+    } catch (e: any) {
+      console.error('[stripe/completion] Failed to retrieve connected account:', e.message);
+      return NextResponse.json(
+        { error: 'Could not verify the studio payment account. Please contact the studio.' },
+        { status: 400 }
+      );
+    }
+
+    if (connectedAccount.requirements?.disabled_reason) {
+      console.error('[stripe/completion] Connected account disabled:', connectedAccount.requirements.disabled_reason);
+      return NextResponse.json(
+        { error: 'The studio payment account needs attention. Please contact the studio.' },
         { status: 400 }
       );
     }
@@ -82,22 +85,22 @@ export async function POST(req: NextRequest) {
       serviceName:   serviceName || '',
     };
 
-    const stripe = getStripe();
     const hasDeposit = Number(depositAmount) > 0;
 
+    // ── Create session ON the connected account (second arg to stripe.*) ───
     const session = await stripe.checkout.sessions.create(
       hasDeposit
         ? {
-            ui_mode:         'embedded',
-            mode:            'payment',
+            ui_mode:              'embedded',
+            mode:                 'payment',
             payment_method_types: ['card'],
-            customer_email:  clientEmail,
-            customer_creation: 'always',
+            customer_email:       clientEmail,
+            customer_creation:    'always',
             line_items: [
               {
                 price_data: {
-                  currency:    'usd',
-                  unit_amount: Math.round(Number(depositAmount) * 100),
+                  currency:     'usd',
+                  unit_amount:  Math.round(Number(depositAmount) * 100),
                   product_data: {
                     name:        serviceName ? `Deposit — ${serviceName}` : 'Appointment Deposit',
                     description: 'Secures your appointment and saves your card for any future fees per studio policy.',
@@ -106,23 +109,28 @@ export async function POST(req: NextRequest) {
                 quantity: 1,
               },
             ],
-            // Charge the deposit now AND keep the card for future off-session fees.
             payment_intent_data: { setup_future_usage: 'off_session' },
             metadata:    { ...metadata, type: 'completion' },
             redirect_on_completion: 'never',
           }
         : {
-            ui_mode:         'embedded',
-            mode:            'setup',
+            ui_mode:              'embedded',
+            mode:                 'setup',
             payment_method_types: ['card'],
-            customer_email:  clientEmail,
-            setup_intent_data: { metadata: { ...metadata, type: 'completion_setup' } },
-            metadata:    { ...metadata, type: 'completion_setup' },
+            customer_email:       clientEmail,
+            setup_intent_data:    { metadata: { ...metadata, type: 'completion_setup' } },
+            metadata:             { ...metadata, type: 'completion_setup' },
             redirect_on_completion: 'never',
-          }
+          },
+      { stripeAccount: stripeAccountId }  // ← the critical fix
     );
 
-    return NextResponse.json({ clientSecret: session.client_secret, sessionId: session.id, stripeAccountId });
+    return NextResponse.json({
+      clientSecret:    session.client_secret,
+      sessionId:       session.id,
+      stripeAccountId,
+    });
+
   } catch (err: any) {
     console.error('[stripe/completion]', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
