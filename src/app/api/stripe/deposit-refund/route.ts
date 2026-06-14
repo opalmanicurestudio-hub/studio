@@ -5,16 +5,19 @@ import Stripe from 'stripe';
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore } = require('firebase-admin/firestore');
-  if (!getApps().length) {
-    initializeApp({
+  const APP_NAME = 'admin';
+  let app = getApps().find((a) => a.name === APP_NAME);
+  if (!app) {
+    app = initializeApp({
       credential: cert({
         projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
         clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
         privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       }),
-    });
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    }, APP_NAME);
   }
-  return getFirestore();
+  return getFirestore(app);
 }
 
 function getStripe() {
