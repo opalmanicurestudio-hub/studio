@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { type Appointment, type Service, type Staff } from '@/lib/data';
 import { parseISO, differenceInSeconds, differenceInMinutes } from 'date-fns';
 import { 
-    Clock, Check, Square, Award, Repeat, Trash2, Coffee, Zap, Workflow, ShieldAlert
+    Clock, Check, Square, Award, Repeat, Trash2, Coffee, Zap, Workflow, ShieldAlert, FileImage
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Progress } from '../ui/progress';
@@ -42,6 +42,10 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
     const hasRefreshments = refreshments.length > 0;
     const isMember = !!(client?.activeMembershipId || client?.subscription);
     const hasPackage = (client?.activePackages?.length || 0) > 0;
+
+    // Requirement status
+    const setupPending = appointment.completionStatus === 'pending';
+    const awaitingReview = ((appointment.requirementFiles?.length || 0) > 0) && !appointment.requirementsReviewedAt;
 
     useEffect(() => {
         let timer: NodeJS.Timeout | undefined;
@@ -115,6 +119,26 @@ export const InServiceAppointmentCard: React.FC<any> = ({ appointment, services,
                                                 </Badge>
                                             </TooltipTrigger>
                                             <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Amenities served during session</TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {setupPending && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Badge className="bg-amber-500 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                                    <Clock className="w-2 h-2 mr-0.5" /> PREP
+                                                </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Client setup incomplete (deposit / card / forms)</TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {awaitingReview && (
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Badge className="bg-violet-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                                    <FileImage className="w-2 h-2 mr-0.5" /> REVIEW
+                                                </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">Client uploaded photos awaiting review</TooltipContent>
                                         </Tooltip>
                                     )}
                                 </div>
