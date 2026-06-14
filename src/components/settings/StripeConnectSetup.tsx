@@ -23,6 +23,7 @@ export function StripeConnectSetup({ tenantId, stripeAccountId, onDisconnect }: 
   const [connecting,  setConnecting]  = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [accountInfo, setAccountInfo] = useState<any>(null);
+  const [errorMsg,    setErrorMsg]    = useState<string | null>(null);
 
   useEffect(() => {
     // Check URL params for connect callback result
@@ -30,11 +31,14 @@ export function StripeConnectSetup({ tenantId, stripeAccountId, onDisconnect }: 
     const stripeParam = params.get('stripe');
     if (stripeParam === 'connected') {
       setStatus('connected');
-      // Clean URL
       window.history.replaceState({}, '', window.location.pathname);
       return;
     }
     if (stripeParam === 'error') {
+      const reason = params.get('reason');
+      if (reason) {
+        try { setErrorMsg(decodeURIComponent(reason)); } catch { setErrorMsg(reason); }
+      }
       setStatus('error');
       window.history.replaceState({}, '', window.location.pathname);
       return;
@@ -50,7 +54,7 @@ export function StripeConnectSetup({ tenantId, stripeAccountId, onDisconnect }: 
 
   const handleConnect = () => {
     setConnecting(true);
-    // Redirect to Stripe Connect OAuth flow
+    // Redirect to the Stripe Connect onboarding flow (Express + Account Links)
     window.location.href = `/api/stripe/connect?tenantId=${tenantId}`;
   };
 
@@ -91,13 +95,13 @@ export function StripeConnectSetup({ tenantId, stripeAccountId, onDisconnect }: 
             {status === 'connected' ? 'Stripe Connected' :
              status === 'error'     ? 'Connection Failed' : 'Not Connected'}
           </p>
-          <p className={cn('text-[9px] font-bold mt-0.5',
+          <p className={cn('text-[9px] font-bold mt-0.5 break-words',
             status === 'connected' ? 'text-emerald-600' :
             status === 'error'     ? 'text-red-500' : 'text-slate-400')}>
             {status === 'connected'
               ? `Account ${accountInfo?.id?.slice(-8) || ''} · Payments enabled`
               : status === 'error'
-              ? 'Something went wrong — try connecting again'
+              ? (errorMsg || 'Something went wrong — try connecting again')
               : 'Connect your Stripe account to accept ticket payments'}
           </p>
         </div>
@@ -136,8 +140,8 @@ export function StripeConnectSetup({ tenantId, stripeAccountId, onDisconnect }: 
             <div className="space-y-1.5">
               {[
                 'You need a Stripe account (free to create at stripe.com)',
-                'Enable Stripe Connect in your Stripe dashboard → Platform settings',
-                'Add STRIPE_CONNECT_CLIENT_ID to your Vercel environment variables',
+                'Enable Stripe Connect in your Stripe dashboard',
+                'Add STRIPE_SECRET_KEY to your Vercel environment variables',
                 'Add NEXT_PUBLIC_APP_URL to your Vercel environment variables',
               ].map((step, i) => (
                 <div key={i} className="flex items-start gap-2">
