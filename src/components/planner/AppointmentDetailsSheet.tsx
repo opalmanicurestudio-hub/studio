@@ -47,6 +47,7 @@ import { Textarea } from '../ui/textarea';
 import Image from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { computeDepositCents } from '@/lib/deposit-policy';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -80,6 +81,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [isEscalating, setIsEscalating] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
   const [resolutionNote, setResolutionNote] = useState('');
+  const [isRequestOpen, setIsRequestOpen] = useState(false);
+  const [requestPhotos, setRequestPhotos] = useState(false);
+  const [reqLink, setReqLink] = useState<string | null>(null);
+  const [reqSending, setReqSending] = useState(false);
+  const [reqCopied, setReqCopied] = useState(false);
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -228,6 +234,42 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const mainStaffId = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
   const mainStaffMember = staff.find((s: Staff) => s.id === mainStaffId);
 
+  const cardSecured = !!(appointment.cardOnFileSecured || client.cardOnFile?.token);
+  const reqFiles = appointment.requirementFiles || [];
+
+  const handleSendRequirements = async () => {
+    if (!firestore || !tenantId || !appointment || !service) return;
+    if (!client?.email) { toast({ variant: 'destructive', title: 'Email needed', description: 'Add an email to this client first — the secure link is sent by email.' }); return; }
+    setReqSending(true);
+    try {
+      const token = nanoid();
+      const price = service.serviceTiers?.find((t: any) => t.tierId === mainStaffMember?.pricingTierId)?.price || service.price || 0;
+      const depositCents = computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true });
+      const requiredFormIds = service.requiredFormIds || [];
+      const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+      const batch = writeBatch(firestore);
+      batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), {
+        token, tenantId, appointmentId: appointment.id, clientId: client.id,
+        clientName: client.name, clientEmail: String(client.email).toLowerCase().trim(),
+        serviceId: service.id, serviceName: service.name,
+        depositAmountCents: depositCents,
+        requiredConsentFormIds: requiredFormIds,
+        fileRequirements: requestPhotos ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
+        status: 'pending', createdAt: new Date().toISOString(), expiresAt,
+      });
+      batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents });
+      await batch.commit();
+      const link = `${window.location.origin}/complete/${tenantId}/${token}`;
+      setReqLink(link);
+      try {
+        await fetch('/api/notifications/send-completion-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link, clientName: client.name, clientEmail: client.email, clientPhone: client.phone, studioName: selectedTenant?.name }) });
+      } catch {}
+      toast({ title: 'Requirements sent', description: 'Secure link generated and emailed to the client.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not send', description: e.message });
+    } finally { setReqSending(false); }
+  };
+
   // Shared inner content -- used by both mobile and desktop sheet
   const SheetBody = (
     <ScrollArea className="flex-1 overflow-y-auto">
@@ -293,6 +335,72 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
               <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
             </Button>
+          </div>
+        </div>
+
+        {/* Client Requirements */}
+        <div className="space-y-3 pt-4 border-t border-dashed">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Client Requirements</h3>
+            <Badge className={cn("text-[8px] font-black uppercase h-5 px-2 border-none text-white shadow-sm", appointment.completionStatus === 'complete' ? 'bg-green-500' : appointment.completionStatus === 'pending' ? 'bg-amber-500' : 'bg-slate-400')}>
+              {appointment.completionStatus === 'complete' ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Complete</> : appointment.completionStatus === 'pending' ? <><Clock className="w-2 h-2 mr-1" /> Awaiting Client</> : 'None Requested'}
+            </Badge>
+          </div>
+          <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-2.5 shadow-inner">
+            <div className="flex items-center justify-between text-[10px] font-black uppercase">
+              <span className="flex items-center gap-2 text-muted-foreground"><Wallet className="w-3 h-3 opacity-40" /> Deposit</span>
+              <span className={cn(appointment.depositStatus === 'paid' ? 'text-green-600' : appointment.depositAmountCents ? 'text-amber-600' : 'text-muted-foreground opacity-50')}>
+                {appointment.depositStatus === 'paid' ? `Paid $${((appointment.depositAmountCents || 0) / 100).toFixed(2)}` : appointment.depositAmountCents ? `Due $${((appointment.depositAmountCents) / 100).toFixed(2)}` : '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-black uppercase">
+              <span className="flex items-center gap-2 text-muted-foreground"><ShieldCheck className="w-3 h-3 opacity-40" /> Card on File</span>
+              <span className={cn(cardSecured ? 'text-green-600' : 'text-muted-foreground opacity-50')}>{cardSecured ? 'Secured' : 'Not on file'}</span>
+            </div>
+            {reqFiles.map((rf: any) => (
+              <div key={rf.requirementId} className="space-y-2 pt-1.5 border-t border-dashed border-muted/40">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase">
+                  <span className="flex items-center gap-2 text-muted-foreground"><FileImage className="w-3 h-3 opacity-40" /> {rf.label || 'Files'}</span>
+                  <span className="text-green-600">{(rf.files || []).length} received</span>
+                </div>
+                {(rf.files || []).length > 0 && (
+                  <div className="grid grid-cols-4 gap-2">
+                    {(rf.files || []).map((f: any, i: number) => (
+                      /\.(png|jpe?g|gif|webp)$/i.test(f.name)
+                        ? <button key={i} onClick={() => setExpandedImage(f.url)} className="relative aspect-square rounded-lg overflow-hidden border bg-muted/5 cursor-zoom-in"><img src={f.url} alt={f.name} className="w-full h-full object-cover" /></button>
+                        : <a key={i} href={f.url} target="_blank" rel="noreferrer" className="flex items-center justify-center aspect-square rounded-lg border bg-muted/5 text-[8px] p-1 text-center text-muted-foreground break-all">{f.name}</a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {!reqLink ? (
+              !isRequestOpen ? (
+                <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10 mt-1" onClick={() => setIsRequestOpen(true)}>
+                  <ArrowRight className="w-3 h-3 mr-2" /> Request from Client
+                </Button>
+              ) : (
+                <div className="space-y-3 pt-2 border-t border-dashed border-muted/40">
+                  <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn("w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all", requestPhotos ? "border-primary bg-primary/5" : "border-border bg-white")}>
+                    <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><FileImage className="w-3.5 h-3.5 text-primary" /> Request inspo photos</span>
+                    <div className={cn("w-9 h-5 rounded-full relative transition-colors shrink-0", requestPhotos ? "bg-primary" : "bg-slate-200")}><div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", requestPhotos ? "left-[18px]" : "left-0.5")} /></div>
+                  </button>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 leading-relaxed">Sends a secure link for deposit & card on file{(service.requiredFormIds || []).length > 0 ? ', consent forms' : ''}{requestPhotos ? ', and inspiration photos' : ''}.</p>
+                  <Button onClick={handleSendRequirements} disabled={reqSending} className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+                    {reqSending ? <Loader className="w-4 h-4 animate-spin" /> : 'Generate & Send Link'}
+                  </Button>
+                </div>
+              )
+            ) : (
+              <div className="space-y-2 pt-2 border-t border-dashed border-muted/40">
+                <div className="flex items-center gap-2">
+                  <input readOnly value={reqLink} onFocus={e => e.currentTarget.select()} className="flex-1 h-10 rounded-xl border-2 px-3 text-[10px] font-mono bg-white" />
+                  <Button onClick={() => { navigator.clipboard.writeText(reqLink!); setReqCopied(true); setTimeout(() => setReqCopied(false), 2000); }} className="h-10 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0">{reqCopied ? 'Copied' : 'Copy'}</Button>
+                </div>
+                <p className="text-[9px] font-black text-green-600 uppercase tracking-tight">Sent to {client.name} · valid 7 days</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -477,7 +585,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           )}
         >
           <SheetHeader className="border-b bg-muted/5 flex-shrink-0 p-5 md:p-8 md:pb-6">
-            {/* Drag handle on mobile */}
             {isMobile && (
               <div className="w-10 h-1 bg-muted-foreground/20 rounded-full mx-auto mb-3" />
             )}
