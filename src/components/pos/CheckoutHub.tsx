@@ -700,7 +700,7 @@ export const CheckoutHub = ({
         setStripePaymentId(data.paymentIntentId);
         toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
         // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
-        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId });
+        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
         setCardMode('select');
       } else {
         toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
@@ -729,7 +729,7 @@ export const CheckoutHub = ({
       saveCard:    saveNewCard && !!selectedClient,
     });
     if (result.ok) {
-      await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId });
+      await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
       setCardMode('select');
     }
   };
