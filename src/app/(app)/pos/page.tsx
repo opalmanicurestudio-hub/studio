@@ -894,7 +894,8 @@ function POSPage() {
             }
 
             batch.update(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }));
-            if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed' }));
+            // Use set+merge for root-level checkIn doc to avoid permission issues with update()
+            if (apt.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed', tenantId }), { merge: true });
 
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
@@ -952,8 +953,10 @@ function POSPage() {
         let cashDepositOffset = 0;
         if (depositCredit && depositCreditDollars > 0) {
             const firstAptId = readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.id || null;
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Deposit applied (prepaid online)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Deposit Applied', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false, tenantId }));
-            batch.update((depositCredit as any).ref, sanitizeForFirestore({ status: 'consumed', consumedAt: now, appointmentId: firstAptId }));
+            if (!paymentData.skipLedger) {
+              batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Deposit applied (prepaid online)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Deposit Applied', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false, tenantId }));
+            }
+            batch.set((depositCredit as any).ref, sanitizeForFirestore({ status: 'consumed', consumedAt: now, appointmentId: firstAptId }), { merge: true });
             cashDepositOffset = Math.min(depositCreditDollars, totalCashIncrease);
         }
 
@@ -966,7 +969,7 @@ function POSPage() {
             await batch.commit();
             toast({ title: "Checkout Successful" });
             setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set());
-        } catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Checkout Failed' }); }
+        } catch (e: any) { console.error('[handleCheckout] batch.commit failed:', e?.message, e?.code, e); toast({ variant: 'destructive', title: 'Checkout Failed', description: e?.message || 'Firestore batch error' }); }
         finally { setIsSubmitting(false); }
     };
 
