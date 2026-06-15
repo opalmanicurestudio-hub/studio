@@ -25,6 +25,7 @@ type LineItem = { label: string; amount: number; staff?: string };
 
 type ReceiptPayload = {
   clientName:    string;
+  cashierName?:  string;
   studioName:    string;
   studioPhone:   string;
   lineItems:     LineItem[];
@@ -83,6 +84,7 @@ function buildEmailHtml(r: ReceiptPayload): string {
     </div>
 
     <div style="border-top:1px solid #f3f4f6;padding:20px 32px;text-align:center;background:#f9fafb;">
+      ${r.cashierName ? `<p style="color:#9ca3af;font-size:12px;margin:0 0 4px;">Served by ${r.cashierName}</p>` : ''}
       <p style="color:#6b7280;font-size:13px;margin:0 0 4px;">Questions? We're happy to help.</p>
       ${r.studioPhone ? `<p style="color:#534AB7;font-size:13px;font-weight:600;margin:0;">${r.studioPhone}</p>` : ''}
     </div>
@@ -108,6 +110,7 @@ function buildSmsText(r: ReceiptPayload): string {
     r.change > 0.005 ? `Change: $${r.change.toFixed(2)}`        : null,
     ``,
     `Thank you, ${r.clientName.split(' ')[0]}!`,
+    r.cashierName ? `Served by ${r.cashierName}` : null,
     r.studioPhone ? r.studioPhone : null,
   ].filter(Boolean).join('\n');
   return lines;
