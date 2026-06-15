@@ -893,7 +893,7 @@ function POSPage() {
               });
             }
 
-batch.set(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }), { merge: true });
+            batch.set(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }), { merge: true });
             // Use set+merge for root-level checkIn doc to avoid permission issues with update()
             if (apt.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed', tenantId }), { merge: true });
 
@@ -901,7 +901,7 @@ batch.set(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: m
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
             involvedIds.forEach(sid => {
-if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }, { merge: true });
+                if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }, { merge: true });
             });
         }
 
@@ -910,7 +910,7 @@ if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 
             if (!paymentData.skipLedger) {
               batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Retail', amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId }));
             }
-            batch.update(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) });
+            batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true });
             batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` }));
             totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
         });
@@ -918,7 +918,7 @@ if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 
         if (clientObj && appliedAdjustments.size > 0) {
             const currentUnpaid = clientObj.unpaidFees || [];
             const settledTotal = Array.from(appliedAdjustments).reduce((sum, id) => { const fee = currentUnpaid.find(f => f.feeId === id); return sum + safeNumber(fee?.feeAmount); }, 0);
-            batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) });
+            batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), { unpaidFees: currentUnpaid.filter(f => !appliedAdjustments.has(f.feeId)), outstandingBalance: increment(-settledTotal) }, { merge: true });
             if (paymentData.paymentMethod === 'cash') totalCashIncrease += settledTotal;
             appliedAdjustments.forEach(id => { const fee = currentUnpaid.find(f => f.feeId === id); if (fee) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Debt Settlement: ${fee.reason}`, clientOrVendor: clientObj.name, clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Fee Recovery', amount: fee.feeAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId })); });
             totalLtvIncrease += settledTotal;
@@ -934,7 +934,7 @@ if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 
                 if (redeemedOffer.type === 'package') updates.activePackages = (clientObj.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
                 else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
-batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates, { merge: true });
+            batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates, { merge: true });
         }
 
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
@@ -962,7 +962,7 @@ batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates, 
 
         if (paymentTab === 'cash' && activeTill) {
             const finalCashInput = totalCashIncrease + cashTipsTotal - cashDepositOffset;
-            batch.update(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease - cashDepositOffset), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate }));
+            batch.set(doc(firestore, `tenants/${tenantId}/tillSessions`, activeTill.id), sanitizeForFirestore({ expectedCash: increment(finalCashInput), totalCashSales: increment(totalCashIncrease - cashDepositOffset), totalCashTips: increment(cashTipsTotal), ...cashTipsByStaffUpdate }), { merge: true });
         }
 
         try {
