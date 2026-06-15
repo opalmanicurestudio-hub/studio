@@ -934,7 +934,7 @@ if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 
                 if (redeemedOffer.type === 'package') updates.activePackages = (clientObj.activePackages || []).map(p => p.packageId === redeemedOffer.id ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
                 else { updates[`subscription.perkUsage.${redeemedOffer.itemId}`] = increment(1); updates['subscription.perkLastUsed'] = now; }
             }
-            batch.update(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates);
+batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates, { merge: true });
         }
 
         Object.entries(tipAllocations).forEach(([staffId, amount]) => {
