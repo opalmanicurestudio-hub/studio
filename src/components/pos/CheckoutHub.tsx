@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,7 +60,6 @@ import {
   WifiOff,
   Smartphone,
   Monitor,
-  Receipt,
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice, type RecoveryPreset } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -90,7 +89,7 @@ import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
-// ─── Try to use Terminal context if available ─────────────────────────────────
+// ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
 let useTerminalSafe: () => any = () => null;
 try {
   const mod = require('./StripeTerminalProvider');
@@ -114,7 +113,7 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin O
   const { toast } = useToast();
 
   const handleConfirm = () => {
-    const authorizedStaff = (staff || []).find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
+    const authorizedStaff = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
     if (!authorizedStaff) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager authorization required.' }); return; }
     if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
     onConfirm(authorizedStaff, reason);
@@ -228,19 +227,27 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess }: {
         status === 'waiting_for_card' ? 'border-primary/20 bg-primary/5 animate-pulse' :
         'border-border bg-muted/5')}>
         <div className="flex justify-center">
-          {status === 'succeeded'        ? <CheckCircle2 className="w-10 h-10 text-green-500" /> :
-           status === 'failed'           ? <XCircle className="w-10 h-10 text-destructive" /> :
-           status === 'waiting_for_card' ? <CreditCard className="w-10 h-10 text-primary animate-bounce" /> :
+          {status === 'succeeded'          ? <CheckCircle2 className="w-10 h-10 text-green-500" /> :
+           status === 'failed'             ? <XCircle className="w-10 h-10 text-destructive" /> :
+           status === 'waiting_for_card'   ? <CreditCard className="w-10 h-10 text-primary animate-bounce" /> :
            <Loader className="w-10 h-10 text-primary animate-spin" />}
         </div>
         <div>
-          <p className="font-black uppercase tracking-widest text-sm text-slate-900">{statusLabel[status] || status}</p>
+          <p className="font-black uppercase tracking-widest text-sm text-slate-900">
+            {statusLabel[status] || status}
+          </p>
           {status === 'waiting_for_card' && (
-            <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">Tap, insert, or swipe on the reader</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase mt-1">
+              Tap, insert, or swipe on the reader
+            </p>
           )}
-          {error && <p className="text-[10px] font-bold text-destructive uppercase mt-1">{error}</p>}
+          {error && (
+            <p className="text-[10px] font-bold text-destructive uppercase mt-1">{error}</p>
+          )}
         </div>
-        <p className="font-black text-2xl font-mono text-primary tracking-tighter">${safeNumber(amount).toFixed(2)}</p>
+        <p className="font-black text-2xl font-mono text-primary tracking-tighter">
+          ${safeNumber(amount).toFixed(2)}
+        </p>
       </div>
       {(status === 'waiting_for_card' || status === 'idle') && (
         <Button variant="outline" onClick={() => { terminal?.cancelPayment(); onCancel(); }}
@@ -249,7 +256,8 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess }: {
         </Button>
       )}
       {status === 'failed' && (
-        <Button variant="outline" onClick={onCancel} className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+        <Button variant="outline" onClick={onCancel}
+          className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
           Try Again
         </Button>
       )}
@@ -258,27 +266,33 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess }: {
 };
 
 // ─── EmbeddedCardForm ─────────────────────────────────────────────────────────
+// Uses Stripe.js to collect a new card, charge it, and optionally save to profile
 const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, onSuccess, onCancel }: {
-  tenantId:     string;
-  clientId?:    string;
+  tenantId:    string;
+  clientId?:   string;
   clientEmail?: string;
-  amount:       number;
-  saveCard:     boolean;
-  onSuccess:    (paymentIntentId: string) => void;
-  onCancel:     () => void;
+  amount:      number;
+  saveCard:    boolean;
+  onSuccess:   (paymentIntentId: string) => void;
+  onCancel:    () => void;
 }) => {
   const { toast } = useToast();
-  const mountRef    = useRef<HTMLDivElement>(null);
-  const elementsRef = useRef<any>(null);
-  const cardRef     = useRef<any>(null);
+  const mountRef     = useRef<HTMLDivElement>(null);
+  const elementsRef  = useRef<any>(null);
+  const cardRef      = useRef<any>(null);
   const [isReady,    setIsReady]    = useState(false);
   const [isLoading,  setIsLoading]  = useState(true);
   const [isCharging, setIsCharging] = useState(false);
   const [cardError,  setCardError]  = useState<string | null>(null);
 
+  const mountRef2 = React.useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    let destroyed = false;
+    let stripe: any;
+    let card: any;
+
     const init = async () => {
+      // Load Stripe.js
       if (!(window as any).Stripe) {
         await new Promise<void>((resolve) => {
           const s = document.createElement('script');
@@ -287,27 +301,34 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
           document.head.appendChild(s);
         });
       }
+
+      // Get publishable key + connected account from server
       const res = await fetch('/api/stripe/publishable-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId }),
       });
       const { publishableKey, stripeAccountId } = await res.json();
-      if (!publishableKey || destroyed) { setIsLoading(false); return; }
+      if (!publishableKey) { setIsLoading(false); return; }
 
-      const stripe   = (window as any).Stripe(publishableKey, { stripeAccount: stripeAccountId });
+      stripe = (window as any).Stripe(publishableKey, { stripeAccount: stripeAccountId });
       const elements = stripe.elements();
       elementsRef.current = elements;
-      (elements as any)._stripe = stripe;
 
-      const card = elements.create('card', {
+      card = elements.create('card', {
         style: {
-          base: { fontSize: '16px', color: '#0f172a', fontFamily: 'inherit', '::placeholder': { color: '#94a3b8' } },
+          base: {
+            fontSize:        '16px',
+            color:           '#0f172a',
+            fontFamily:      'inherit',
+            '::placeholder': { color: '#94a3b8' },
+          },
           invalid: { color: '#ef4444' },
         },
         hidePostalCode: false,
       });
-      if (mountRef.current && !destroyed) {
+
+      if (mountRef.current) {
         card.mount(mountRef.current);
         cardRef.current = card;
         card.on('ready', () => setIsReady(true));
@@ -315,34 +336,60 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
         setIsLoading(false);
       }
     };
-    init().catch((err) => { console.error('Stripe init error:', err); setIsLoading(false); setCardError('Failed to load payment form. Please refresh and try again.'); });
-    return () => { destroyed = true; try { cardRef.current?.destroy(); } catch {} };
+
+    init().catch(console.error);
+
+    return () => {
+      try { cardRef.current?.destroy(); } catch {}
+    };
   }, [tenantId]);
 
   const handleCharge = async () => {
     if (!cardRef.current || !elementsRef.current) return;
-    setIsCharging(true); setCardError(null);
+    setIsCharging(true);
+    setCardError(null);
+
     try {
-      const piRes  = await fetch('/api/stripe/pos-payment-intent', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Studio Services' }),
+      // 1. Create PaymentIntent on server
+      const piRes = await fetch('/api/stripe/pos-payment-intent', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tenantId, clientId, amountCents: Math.round(amount * 100), saveCard, description: 'Studio Services' }),
       });
       const piData = await piRes.json();
       if (!piData.clientSecret) throw new Error(piData.error || 'Could not create payment');
 
-      const stripeInstance = (elementsRef.current as any)._stripe;
-      const confirmResult  = await stripeInstance.confirmCardPayment(piData.clientSecret, {
-        payment_method: { card: cardRef.current, billing_details: { email: clientEmail || undefined } },
+      // 2. Confirm on client
+      const stripe = (window as any).Stripe;
+      // Re-use the same instance we mounted with
+      const confirmResult = await (elementsRef.current as any)._stripe.confirmCardPayment(piData.clientSecret, {
+        payment_method: {
+          card: cardRef.current,
+          billing_details: { email: clientEmail || undefined },
+        },
         ...(saveCard ? { setup_future_usage: 'off_session' } : {}),
       });
-      if (confirmResult.error) { setCardError(confirmResult.error.message || 'Card declined'); setIsCharging(false); return; }
 
+      if (confirmResult.error) {
+        setCardError(confirmResult.error.message || 'Card declined');
+        setIsCharging(false);
+        return;
+      }
+
+      // 3. If save requested, notify server to vault the card
       if (saveCard && clientId && confirmResult.paymentIntent?.payment_method) {
         await fetch('/api/stripe/vault-card', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tenantId, clientId, paymentIntentId: confirmResult.paymentIntent.id, customerId: piData.customerId }),
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            tenantId,
+            clientId,
+            paymentIntentId: confirmResult.paymentIntent.id,
+            customerId:      piData.customerId,
+          }),
         });
       }
+
       onSuccess(confirmResult.paymentIntent?.id || '');
     } catch (err: any) {
       setCardError(err.message);
@@ -365,9 +412,15 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
         </p>
       )}
       <div className="flex gap-3">
-        <Button variant="outline" onClick={onCancel} disabled={isCharging} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-        <Button onClick={handleCharge} disabled={!isReady || isCharging} className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-          {isCharging ? <><Loader className="w-4 h-4 animate-spin mr-2" /> Processing...</> : <><CreditCard className="w-4 h-4 mr-2" /> Charge ${safeNumber(amount).toFixed(2)}</>}
+        <Button variant="outline" onClick={onCancel} disabled={isCharging}
+          className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
+          Cancel
+        </Button>
+        <Button onClick={handleCharge} disabled={!isReady || isCharging}
+          className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+          {isCharging
+            ? <><Loader className="w-4 h-4 animate-spin mr-2" /> Processing...</>
+            : <><CreditCard className="w-4 h-4 mr-2" /> Charge ${safeNumber(amount).toFixed(2)}</>}
         </Button>
       </div>
       {saveCard && (
@@ -379,107 +432,8 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   );
 };
 
-// ─── ArrearsBanner ────────────────────────────────────────────────────────────
-// Shows outstanding balance and unpaid fees for the selected client.
-// Allows the technician to add individual fees to the cart for settlement,
-// or collect the full balance as a line item.
-const ArrearsBanner = ({
-  client,
-  onAddFeeToCart,
-  onCollectFullBalance,
-  appliedAdjustments,
-}: {
-  client: Client;
-  onAddFeeToCart: (feeId: string) => void;
-  onCollectFullBalance: () => void;
-  appliedAdjustments: Set<string>;
-}) => {
-  const balance    = safeNumber((client as any).outstandingBalance);
-  const unpaidFees = (client as any).unpaidFees as Array<{ feeId: string; reason: string; feeAmount: number; appointmentDate?: string }> || [];
-
-  if (balance <= 0 && unpaidFees.length === 0) return null;
-
-  const allApplied = unpaidFees.length > 0 && unpaidFees.every(f => appliedAdjustments.has(f.feeId));
-
-  return (
-    <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="rounded-[1.5rem] border-2 border-destructive/30 bg-destructive/[0.03] overflow-hidden shadow-lg shadow-destructive/5">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-destructive/10 bg-destructive/5">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-destructive/10 rounded-xl">
-              <Receipt className="w-4 h-4 text-destructive" />
-            </div>
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-widest text-destructive">Outstanding Balance</p>
-              <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-widest">
-                {unpaidFees.length > 0 ? `${unpaidFees.length} unpaid item${unpaidFees.length > 1 ? 's' : ''}` : 'Balance on account'}
-              </p>
-            </div>
-          </div>
-          <p className="font-black font-mono text-xl text-destructive tracking-tighter">${balance.toFixed(2)}</p>
-        </div>
-
-        {/* Individual fee line items */}
-        {unpaidFees.length > 0 && (
-          <div className="divide-y divide-destructive/10">
-            {unpaidFees.map((fee) => {
-              const isApplied = appliedAdjustments.has(fee.feeId);
-              return (
-                <div key={fee.feeId} className="flex items-center gap-3 px-5 py-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-black uppercase tracking-tight text-slate-800 truncate">{fee.reason}</p>
-                    {fee.appointmentDate && (
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-50">
-                        {new Date(fee.appointmentDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </p>
-                    )}
-                  </div>
-                  <p className="font-black font-mono text-sm text-destructive shrink-0">${safeNumber(fee.feeAmount).toFixed(2)}</p>
-                  <Button
-                    size="sm"
-                    variant={isApplied ? 'secondary' : 'outline'}
-                    onClick={() => onAddFeeToCart(fee.feeId)}
-                    disabled={isApplied}
-                    className={cn(
-                      'h-7 px-3 rounded-xl font-black uppercase text-[8px] tracking-widest shrink-0 border-2',
-                      isApplied
-                        ? 'bg-green-500/10 border-green-500/20 text-green-700'
-                        : 'border-destructive/20 text-destructive hover:bg-destructive/5'
-                    )}
-                  >
-                    {isApplied ? <><Check className="w-3 h-3 mr-1" />Added</> : 'Add to Bill'}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Collect full balance CTA — only show if not all fees are already applied */}
-        {!allApplied && (
-          <div className="px-5 py-4 border-t border-destructive/10 bg-destructive/[0.02]">
-            <Button
-              variant="outline"
-              onClick={onCollectFullBalance}
-              className="w-full h-10 rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[10px] tracking-widest hover:bg-destructive/5 bg-white"
-            >
-              <Wallet className="w-3.5 h-3.5 mr-2" />
-              Collect Full Balance — ${balance.toFixed(2)}
-            </Button>
-          </div>
-        )}
-
-        {allApplied && (
-          <div className="px-5 py-3 border-t border-green-200 bg-green-50/50 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-            <p className="text-[10px] font-black uppercase text-green-700 tracking-widest">All arrears added to this bill</p>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-};
+// We need useRef in EmbeddedCardForm
+import { useRef } from 'react';
 
 // ─── CheckoutHub ──────────────────────────────────────────────────────────────
 export const CheckoutHub = ({
@@ -535,33 +489,40 @@ export const CheckoutHub = ({
   const { selectedTenant }                                = useTenant();
   const { toast }                                         = useToast();
 
-  const [isWaiveAuthOpen,   setIsPointOfSaleWaiveAuthOpen] = useState(false);
-  const [pendingWaiveAptId, setPendingWaiveAptId]          = useState<string | null>(null);
-  const [clientSearch,      setClientSearch]               = useState('');
+  const [isWaiveAuthOpen,    setIsPointOfSaleWaiveAuthOpen] = useState(false);
+  const [pendingWaiveAptId,  setPendingWaiveAptId]          = useState<string | null>(null);
+  const [clientSearch,       setClientSearch]               = useState('');
 
-  const [recoveryAmount,     setRecoveryAmount]     = useState<number>(0);
-  const [recoveryReason,     setRecoveryReason]     = useState('');
-  const [isRecoveryActive,   setIsRecoveryActive]   = useState(false);
-  const [showPinEntry,       setShowPinEntry]        = useState(false);
-  const [overridePin,        setOverridePin]         = useState('');
-  const [overrideReason,     setOverrideReason]      = useState('');
-  const [isOverrideUnlocked, setIsOverrideUnlocked] = useState(false);
+  const [recoveryAmount,    setRecoveryAmount]    = useState<number>(0);
+  const [recoveryReason,    setRecoveryReason]    = useState('');
+  const [isRecoveryActive,  setIsRecoveryActive]  = useState(false);
+  const [showPinEntry,      setShowPinEntry]       = useState(false);
+  const [overridePin,       setOverridePin]        = useState('');
+  const [overrideReason,    setOverrideReason]     = useState('');
+  const [isOverrideUnlocked,setIsOverrideUnlocked]= useState(false);
 
-  type CardMode = 'select' | 'cof_confirm' | 'terminal' | 'new_card';
+  // ── Card payment sub-mode ──────────────────────────────────────────────────
+  // 'select'       = choose which card method
+  // 'cof_confirm'  = confirming card-on-file charge
+  // 'cof_charging' = actively charging card on file
+  // 'terminal'     = terminal reader flow
+  // 'new_card'     = embedded browser card form
+  type CardMode = 'select' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
   const [cardMode,        setCardMode]        = useState<CardMode>('select');
   const [isCofCharging,   setIsCofCharging]   = useState(false);
   const [saveNewCard,     setSaveNewCard]      = useState(true);
   const [stripePaymentId, setStripePaymentId] = useState<string | null>(null);
 
-  const terminal       = useTerminalSafe();
+  const terminal = useTerminalSafe();
+
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
   const selectedClient = useMemo(
-    () => (clients || []).find((c: Client) => c.id === selectedClientId),
+    () => clients.find((c: Client) => c.id === selectedClientId),
     [selectedClientId, clients]
   );
 
-  const hasCardOnFile   = !!(selectedClient?.cardOnFile?.token);
+  const hasCardOnFile = !!(selectedClient?.cardOnFile?.token || selectedClient?.cardOnFile?.paymentMethodId);
   const readerConnected = terminal?.readerStatus === 'connected';
 
   const isBirthdayToday = useMemo(() => {
@@ -571,53 +532,23 @@ export const CheckoutHub = ({
     return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
   }, [selectedClient]);
 
-  const isMember   = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
+  const isMember  = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
   const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
 
-  // ── Client list resolution ─────────────────────────────────────────────────
-  const resolvedPayerOptions = useMemo(() => {
-    const opts = payerOptions || [];
-    return opts.length > 0 ? opts : (clients || []);
-  }, [payerOptions, clients]);
-
   const filteredPayerOptions = useMemo(() => {
-    if (!clientSearch.trim()) return resolvedPayerOptions;
-    const s = clientSearch.toLowerCase();
-    return resolvedPayerOptions.filter((c: Client) =>
-      c.name?.toLowerCase().includes(s) ||
-      (c.email && c.email.toLowerCase().includes(s)) ||
-      (c.phone && c.phone.includes(s))
+    const listToFilter = payerOptions || [];
+    if (!clientSearch.trim()) return listToFilter;
+    const search = clientSearch.toLowerCase();
+    return listToFilter.filter((c: Client) =>
+      c.name.toLowerCase().includes(search) ||
+      (c.email && c.email.toLowerCase().includes(search)) ||
+      (c.phone && c.phone.includes(search))
     );
-  }, [resolvedPayerOptions, clientSearch]);
-
-  // ── Arrears helpers ────────────────────────────────────────────────────────
-  const clientBalance  = safeNumber((selectedClient as any)?.outstandingBalance);
-  const clientUnpaidFees: Array<{ feeId: string; reason: string; feeAmount: number; appointmentDate?: string }> =
-    (selectedClient as any)?.unpaidFees || [];
-  const hasArrears = clientBalance > 0 || clientUnpaidFees.length > 0;
-
-  const handleAddFeeToCart = useCallback((feeId: string) => {
-    onApplyAdjustmentToggle(feeId, true);
-  }, [onApplyAdjustmentToggle]);
-
-  const handleCollectFullBalance = useCallback(() => {
-    // Add all unapplied fees to the cart
-    clientUnpaidFees.forEach(fee => {
-      if (!(appliedAdjustments as Set<string>)?.has(fee.feeId)) {
-        onApplyAdjustmentToggle(fee.feeId, true);
-      }
-    });
-    // If there's a balance with no itemized fees, surface a recovery amount
-    if (clientUnpaidFees.length === 0 && clientBalance > 0) {
-      setIsRecoveryActive(true);
-      setRecoveryAmount(0); // balance collection isn't a discount, don't subtract
-      toast({ title: 'Balance Noted', description: `$${clientBalance.toFixed(2)} balance will be collected with this transaction.` });
-    }
-  }, [clientUnpaidFees, clientBalance, appliedAdjustments, onApplyAdjustmentToggle, toast]);
+  }, [payerOptions, clientSearch]);
 
   const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
-    if (newQuantity <= 0) onCartChange((cart || []).filter((item: any) => item.id !== itemId));
-    else onCartChange((cart || []).map((item: any) => item.id === itemId ? { ...item, quantity: newQuantity } : item));
+    if (newQuantity <= 0) onCartChange(cart.filter((item: any) => item.id !== itemId));
+    else onCartChange(cart.map((item: any) => item.id === itemId ? { ...item, quantity: newQuantity } : item));
   };
 
   const cartServiceIds = useMemo(() => {
@@ -637,14 +568,14 @@ export const CheckoutHub = ({
         });
       }
     });
-    return (staff || []).filter((s: Staff) => staffIds.has(s.id));
+    return staff.filter((s: Staff) => staffIds.has(s.id));
   }, [appointmentsData, staff]);
 
   const handleTotalTipChange = useCallback((value: number) => {
     const roundedValue = Number(safeNumber(value).toFixed(2));
     setTipAmount(roundedValue);
     if (allInvolvedStaff.length > 0) {
-      const splitAmount    = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
+      const splitAmount = Number((roundedValue / allInvolvedStaff.length).toFixed(2));
       const newAllocations: Record<string, number> = {};
       let currentTotal = 0;
       allInvolvedStaff.forEach((member: Staff, index: number) => {
@@ -666,7 +597,7 @@ export const CheckoutHub = ({
   const handleApplyDiscount = (code: string) => {
     const codeUpper = code.trim().toUpperCase();
     if (!codeUpper) return;
-    const d = (discounts || []).find((d: any) => d.code.toUpperCase() === codeUpper);
+    const d = discounts.find((d: any) => d.code.toUpperCase() === codeUpper);
     if (d && d.isActive) {
       const isCompatible = !d.applicableServiceIds || d.applicableServiceIds.length === 0 || d.applicableServiceIds.some((id: string) => cartServiceIds.includes(id));
       if (!isCompatible) return toast({ variant: 'destructive', title: 'Incompatible Code' });
@@ -679,14 +610,14 @@ export const CheckoutHub = ({
 
   const isPerkExhausted = (client: Client, perkId: string, membership: Membership) => {
     if (!client.subscription || client.subscription.status !== 'active') return true;
-    const usageCount  = safeNumber(client.subscription?.perkUsage?.[perkId]);
-    const perkDef     = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
-    const limit       = safeNumber(perkDef?.quantity || 1);
+    const usageCount = safeNumber(client.subscription?.perkUsage?.[perkId]);
+    const perkDef    = membership.includedServices?.find(s => s.id === perkId) || membership.includedAddOns?.find(a => a.id === perkId);
+    const limit      = safeNumber(perkDef?.quantity || 1);
     if (usageCount >= limit) return true;
     if (!client.subscription?.nextBillingDate) return false;
     const lastUsedStr = client.subscription.perkLastUsed;
     if (!lastUsedStr) return false;
-    const lastUsed    = safeDate(lastUsedStr);
+    const lastUsed   = safeDate(lastUsedStr);
     const nextBilling = safeDate(client.subscription.nextBillingDate);
     const cycleStart  = membership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1);
     if (!isAfter(lastUsed, cycleStart)) return false;
@@ -749,85 +680,34 @@ export const CheckoutHub = ({
     }
   };
 
-  // ── Totals ─────────────────────────────────────────────────────────────────
-  const resolvedTax       = safeNumber(tax);
-  const isCartEmpty       = (appointmentsData || []).length === 0 && (cart || []).length === 0 && ((appliedAdjustments as Set<string>)?.size || 0) === 0;
-  const totalDiscount     = safeNumber(discount) + safeNumber(membershipDiscount);
-  const totalWithRecovery = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
-  const isFullyComped     = Math.round(recoveryAmount * 100) >= Math.round(subtotal * 100) && subtotal > 0;
-  const finalTotal        = isFullyComped
-    ? Math.max(0, tipAmount)
-    : Math.max(0, subtotal - totalWithRecovery + resolvedTax + tipAmount);
-
-  const autonomyLimit          = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
-  const autonomyPercent        = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
-  const currentRecoveryPercent = subtotal > 0 ? (recoveryAmount / subtotal) * 100 : 0;
-  const isOverAutonomy         = (autonomyLimit > 0 && recoveryAmount > autonomyLimit) || (autonomyPercent > 0 && currentRecoveryPercent > autonomyPercent);
-
-  useEffect(() => { setCardMode('select'); }, [paymentTab]);
-
-  const resolvedTenantId = tenantId || selectedTenant?.id || null;
-
-  // ── Card on file charge (POS mode) ────────────────────────────────────────
-  // FIX: passes mode:'pos' so the API uses on_session confirmation instead of
-  // off_session, preventing authentication_required declines at POS.
-  // FIX: idempotency key now includes a time bucket so retries work correctly.
+  // ── Card on file charge ────────────────────────────────────────────────────
   const handleCofCharge = async () => {
-    if (!selectedClient || !resolvedTenantId) {
-      toast({ variant: 'destructive', title: 'Missing Data', description: 'Client or tenant ID is not available.' });
-      return;
-    }
+    if (!selectedClient || !tenantId) return;
     setIsCofCharging(true);
     try {
       const res = await fetch('/api/stripe/charge-card', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          tenantId:    resolvedTenantId,
+          tenantId,
           clientId:    selectedClient.id,
           amountCents: Math.round(finalTotal * 100),
           description: 'Studio Services — POS Checkout',
           category:    'Service Revenue',
-          mode:        'pos',   // ← KEY FIX: client is present
         }),
       });
-
-      let data: any = {};
-      try { data = await res.json(); } catch {
-        throw new Error(`Server error (status ${res.status})`);
-      }
-
-      if (!res.ok || !data.ok) {
-        throw new Error(data.reason || data.error || `Charge failed (${res.status})`);
-      }
-
-      // Handle 3DS / requires_action (rare for saved cards but possible)
-      if (data.requiresAction && data.clientSecret) {
-        toast({ variant: 'destructive', title: 'Authentication Required', description: 'Ask the client to complete card verification, then retry.' });
+      const data = await res.json();
+      if (data.ok) {
+        setStripePaymentId(data.paymentIntentId);
+        toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
+        // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
+        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId });
         setCardMode('select');
-        setIsCofCharging(false);
-        return;
+      } else {
+        toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
+        setCardMode('select');
       }
-
-      setStripePaymentId(data.paymentIntentId);
-      toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
-
-      try {
-        await onCheckout({
-          paymentMethod:         'card_on_file',
-          amountTendered:        finalTotal,
-          recoveryAmount,
-          recoveryReason,
-          stripePaymentIntentId: data.paymentIntentId,
-          isEscalated:           isOverrideUnlocked,
-        });
-      } catch (checkoutErr: any) {
-        console.error('onCheckout failed:', checkoutErr);
-        toast({ variant: 'destructive', title: 'Checkout Record Error', description: checkoutErr?.message || 'Payment collected but record may not have saved — check transaction log.' });
-      }
-      setCardMode('select');
     } catch (err: any) {
-      console.error('[COF charge]', err);
       toast({ variant: 'destructive', title: 'Charge Failed', description: err.message });
       setCardMode('select');
     } finally {
@@ -843,21 +723,33 @@ export const CheckoutHub = ({
     }
     setCardMode('terminal');
     const result = await terminal.collectPayment({
-      tenantId:    resolvedTenantId,
+      tenantId,
       clientId:    selectedClient?.id,
       amountCents: Math.round(finalTotal * 100),
       description: 'Studio Services',
       saveCard:    saveNewCard && !!selectedClient,
     });
     if (result.ok) {
-      try {
-        await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, isEscalated: isOverrideUnlocked });
-      } catch (checkoutErr: any) {
-        toast({ variant: 'destructive', title: 'Checkout Record Error', description: checkoutErr?.message || 'Payment collected but record may not have saved.' });
-      }
+      await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId });
       setCardMode('select');
     }
   };
+
+  const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
+  const totalDiscount     = safeNumber(discount) + safeNumber(membershipDiscount);
+  const totalWithRecovery = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
+  const isFullyComped     = Math.round(recoveryAmount * 100) >= Math.round(subtotal * 100) && subtotal > 0;
+  const finalTotal        = isFullyComped
+    ? Math.max(0, tipAmount)
+    : Math.max(0, subtotal - totalWithRecovery + (subtotal * 0.07) + tipAmount);
+
+  const autonomyLimit          = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
+  const autonomyPercent        = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
+  const currentRecoveryPercent = subtotal > 0 ? (recoveryAmount / subtotal) * 100 : 0;
+  const isOverAutonomy         = (autonomyLimit > 0 && recoveryAmount > autonomyLimit) || (autonomyPercent > 0 && currentRecoveryPercent > autonomyPercent);
+
+  // Reset card mode when payment tab changes
+  useEffect(() => { setCardMode('select'); }, [paymentTab]);
 
   return (
     <div className="flex flex-col space-y-6 md:space-y-10 text-left">
@@ -891,7 +783,6 @@ export const CheckoutHub = ({
                       {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
                       {isMember   && <Badge className="bg-indigo-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
                       {hasPackage && <Badge className="bg-teal-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
-                      {hasArrears && <Badge variant="destructive" className="h-5 px-1 font-black uppercase hidden sm:flex border-none animate-pulse">Arrears</Badge>}
                     </div>
                   </div>
                 ) : (
@@ -918,36 +809,18 @@ export const CheckoutHub = ({
                 <ScrollArea className={cn('-mx-2 px-2', isGroupCheckout ? 'h-auto' : 'h-[300px] md:h-[350px]')}>
                   <div className="space-y-2 pb-4">
                     {!isGroupCheckout && (
-                      <button className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border" onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); setClientSearch(''); }}>
+                      <button className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border" onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}>
                         <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
                         <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
                       </button>
                     )}
-                    {filteredPayerOptions.length === 0 && clientSearch.trim() !== '' && (
-                      <div className="py-8 text-center opacity-40">
-                        <User className="w-8 h-8 mx-auto mb-2" />
-                        <p className="text-[10px] font-black uppercase tracking-widest">No clients found</p>
-                        <p className="text-[9px] font-bold uppercase opacity-60 mt-1">Try a different name, email, or phone</p>
-                      </div>
-                    )}
                     {filteredPayerOptions.map((c: Client) => {
-                      const cMember  = !!(c.activeMembershipId || c.subscription);
-                      const cPkg     = (c.activePackages?.length || 0) > 0;
-                      const cArrears = safeNumber((c as any).outstandingBalance) > 0;
+                      const cMember = !!(c.activeMembershipId || c.subscription);
+                      const cPkg    = (c.activePackages?.length || 0) > 0;
                       return (
-                        <button key={c.id} className={cn('w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl', selectedClientId === c.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-primary/5 hover:border-primary/10')} onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); setClientSearch(''); }}>
-                          <div className="relative shrink-0">
-                            <Avatar className="h-10 w-10 border-2 border-background shadow-sm rounded-xl"><AvatarImage src={c.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback></Avatar>
-                            {cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>
-                              {cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
-                              {cArrears && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">Arrears</Badge>}
-                            </div>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p>
-                          </div>
+                        <button key={c.id} className={cn('w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl', selectedClientId === c.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-primary/5 hover:border-primary/10')} onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}>
+                          <div className="relative shrink-0"><Avatar className="h-10 w-10 border-2 border-background shadow-sm rounded-xl"><AvatarImage src={c.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback></Avatar>{cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}</div>
+                          <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>{cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}</div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p></div>
                           {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
                         </button>
                       );
@@ -957,7 +830,7 @@ export const CheckoutHub = ({
               </div>
               {!isGroupCheckout && (
                 <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
-                  <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); setClientSearch(''); onAddClientClick(); }}><UserPlus className="w-4 h-4 mr-2" />Register New Client Profile</Button>
+                  <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}><UserPlus className="w-4 h-4 mr-2" />Register New Client Profile</Button>
                 </DialogFooter>
               )}
             </DialogContent>
@@ -965,29 +838,6 @@ export const CheckoutHub = ({
           <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
         </div>
       </div>
-
-      {/* ── Arrears Banner — shown whenever selected client has a balance ── */}
-      <AnimatePresence>
-        {selectedClient && hasArrears && (
-          <ArrearsBanner
-            client={selectedClient}
-            onAddFeeToCart={handleAddFeeToCart}
-            onCollectFullBalance={handleCollectFullBalance}
-            appliedAdjustments={appliedAdjustments || new Set()}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* ── Birthday banner ── */}
-      {selectedClient && isBirthdayToday && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
-            <Cake className="h-5 w-5 text-pink-500" />
-            <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest">Birthday Protocol Active</AlertTitle>
-            <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">It's {selectedClient.name.split(' ')[0]}'s special day. Consider a complimentary enhancement or birthday gift.</AlertDescription>
-          </Alert>
-        </motion.div>
-      )}
 
       {/* ── Service Recovery ── */}
       {!isCartEmpty && (
@@ -1075,6 +925,17 @@ export const CheckoutHub = ({
         </div>
       )}
 
+      {/* ── Birthday banner ── */}
+      {selectedClient && isBirthdayToday && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
+          <Alert className="bg-pink-500/5 border-pink-500/20 border-2 rounded-2xl p-4 shadow-lg shadow-pink-500/5">
+            <Cake className="h-5 w-5 text-pink-500" />
+            <AlertTitle className="text-[10px] font-black uppercase text-pink-600 tracking-widest">Birthday Protocol Active</AlertTitle>
+            <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">It's {selectedClient.name.split(' ')[0]}'s special day. Consider a complimentary enhancement or birthday gift.</AlertDescription>
+          </Alert>
+        </motion.div>
+      )}
+
       {/* ── Entitlements ── */}
       {selectedClient && availableEntitlements.length > 0 && (
         <div className="space-y-4">
@@ -1087,11 +948,7 @@ export const CheckoutHub = ({
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{ent.subLabel}</p>
                 </div>
                 <div className="text-right ml-4 shrink-0">
-                  {redeemedOffer?.itemId === ent.itemId
-                    ? <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge>
-                    : ent.exhausted
-                    ? <div className="flex flex-col items-end gap-1"><Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge><span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span></div>
-                    : <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-2 text-indigo-600 border-indigo-500/20">{ent.usage}</Badge>}
+                  {redeemedOffer?.itemId === ent.itemId ? <Badge className="bg-green-500 text-white border-none h-5 px-2 font-black text-[8px] uppercase">Applied</Badge> : ent.exhausted ? <div className="flex flex-col items-end gap-1"><Badge variant="destructive" className="h-5 px-2 font-black text-[8px] uppercase border-none animate-pulse">Exhausted</Badge><span className="text-[7px] font-black uppercase opacity-40">{ent.usage}</span></div> : <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase border-2 text-indigo-600 border-indigo-500/20">{ent.usage}</Badge>}
                 </div>
               </Button>
             ))}
@@ -1115,16 +972,16 @@ export const CheckoutHub = ({
           </div>
         ) : (
           <div className="space-y-3">
-            {(appointmentsData || []).map((data: any) => {
+            {appointmentsData.map((data: any) => {
               const isRedeemed            = redeemedOffer?.itemId === data.service.id;
               const addOns                = (data.appointment.addOnIds || []).map((id: any) => services.find((s: any) => s.id === id)).filter(Boolean);
               const refreshmentsInSession = data.appointment.checkoutState?.refreshments || [];
               const overrides             = data.appointment.checkoutState?.serviceStaffOverrides || {};
               const mainStaffId           = overrides[data.service.id] || data.appointment.staffId;
-              const mainStaffMember       = (staff || []).find((s: any) => s.id === mainStaffId);
+              const mainStaffMember       = staff.find((s: any) => s.id === mainStaffId);
               const adjustments           = data.appointment.checkoutState?.adjustments;
               const additionalCharge      = safeNumber(data.appointment.checkoutState?.additionalCharge);
-              const isWaived              = waivedAppointmentFees?.has(data.appointment.id);
+              const isWaived              = waivedAppointmentFees.has(data.appointment.id);
               return (
                 <Card key={data.appointment.id} className={cn('overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all', isRedeemed ? 'border-primary bg-primary/5 shadow-lg' : 'border-border/50 bg-muted/5')}>
                   <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
@@ -1144,8 +1001,8 @@ export const CheckoutHub = ({
                     {addOns.length > 0 && (
                       <div className="space-y-2 pl-4 border-l-2 border-primary/10">
                         {addOns.map((addon: any) => {
-                          const addonStaffId    = overrides[addon.id] || data.appointment.staffId;
-                          const addonStaff      = (staff || []).find((s: any) => s.id === addonStaffId);
+                          const addonStaffId = overrides[addon.id] || data.appointment.staffId;
+                          const addonStaff   = staff.find((s: any) => s.id === addonStaffId);
                           const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                           return (
                             <div key={addon.id} className="space-y-0.5">
@@ -1188,7 +1045,7 @@ export const CheckoutHub = ({
                 </Card>
               );
             })}
-            {(cart || []).map((item: any) => (
+            {cart.map((item: any) => (
               <div key={item.id} className="p-3 md:p-4 rounded-2xl md:rounded-3xl bg-muted/20 border-2 border-transparent hover:border-primary/10 transition-all flex items-center gap-3 md:gap-4 group shadow-sm">
                 <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-slate-900 truncate">{item.name}</p><p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{item.type}</p></div>
                 <div className="flex items-center gap-2 md:gap-3">
@@ -1202,12 +1059,12 @@ export const CheckoutHub = ({
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4" /></Button>
               </div>
             ))}
-            {Array.from(appliedAdjustments || []).map((id: any) => {
-              const fee = (clients || []).flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
+            {Array.from(appliedAdjustments).map((id: any) => {
+              const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
               return (
                 <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/5 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 shadow-sm">
                   <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
-                  <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason || 'Outstanding Fee'}</p><p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p></div>
+                  <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p><p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p></div>
                   <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${safeNumber(fee?.feeAmount).toFixed(2)}</p>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id, false)}><XCircle className="h-4 w-4" /></Button>
                 </div>
@@ -1250,34 +1107,62 @@ export const CheckoutHub = ({
             <TabsTrigger value="other" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Landmark className="w-3 h-3 mr-1.5" /> OTHER</TabsTrigger>
           </TabsList>
 
+          {/* ── CARD TAB ── */}
           <AnimatePresence mode="wait">
             {paymentTab === 'card' && cardMode === 'select' && (
               <motion.div key="card-select" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4 space-y-3">
+
+                {/* Card on file option */}
                 {hasCardOnFile && (
-                  <button onClick={() => setCardMode('cof_confirm')} className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02] hover:border-primary/40 hover:bg-primary/5 transition-all group text-left">
+                  <button onClick={() => setCardMode('cof_confirm')}
+                    className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02] hover:border-primary/40 hover:bg-primary/5 transition-all group text-left">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
+                      <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
+                        <CreditCard className="w-5 h-5 text-primary" />
+                      </div>
                       <div>
-                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{String(selectedClient?.cardOnFile?.brand || 'Card')} •••• {String(selectedClient?.cardOnFile?.last4 || '****')}</p>
+                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">
+                          {String(selectedClient?.cardOnFile?.brand || 'Card')} •••• {String(selectedClient?.cardOnFile?.last4 || '****')}
+                        </p>
                         <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Card on File · Tap to charge</p>
                       </div>
                     </div>
                     <ArrowRight className="w-4 h-4 text-primary opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                   </button>
                 )}
-                <button onClick={handleTerminalPayment} disabled={!readerConnected} className={cn('w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all group text-left', readerConnected ? 'border-green-200 bg-green-50/50 hover:border-green-300 hover:bg-green-50' : 'border-border bg-muted/10 opacity-50 cursor-not-allowed')}>
+
+                {/* Terminal reader option */}
+                <button onClick={handleTerminalPayment}
+                  disabled={!readerConnected}
+                  className={cn('w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all group text-left',
+                    readerConnected
+                      ? 'border-green-200 bg-green-50/50 hover:border-green-300 hover:bg-green-50'
+                      : 'border-border bg-muted/10 opacity-50 cursor-not-allowed')}>
                   <div className="flex items-center gap-3">
-                    <div className={cn('p-2 rounded-xl shadow-sm border', readerConnected ? 'bg-white border-green-200' : 'bg-muted/20 border-border')}><Monitor className={cn('w-5 h-5', readerConnected ? 'text-green-600' : 'text-muted-foreground')} /></div>
+                    <div className={cn('p-2 rounded-xl shadow-sm border', readerConnected ? 'bg-white border-green-200' : 'bg-muted/20 border-border')}>
+                      <Monitor className={cn('w-5 h-5', readerConnected ? 'text-green-600' : 'text-muted-foreground')} />
+                    </div>
                     <div>
-                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{readerConnected ? terminal?.connectedReader?.label || 'Terminal Reader' : 'Terminal Reader'}</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{readerConnected ? 'Tap / Insert / Swipe' : 'No reader paired — configure in Settings'}</p>
+                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">
+                        {readerConnected ? terminal?.connectedReader?.label || 'Terminal Reader' : 'Terminal Reader'}
+                      </p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
+                        {readerConnected ? 'Tap / Insert / Swipe' : 'No reader paired — configure in Settings'}
+                      </p>
                     </div>
                   </div>
-                  {readerConnected ? <ArrowRight className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" /> : <Badge variant="outline" className="border-2 font-black text-[8px] uppercase h-5 px-2">Setup</Badge>}
+                  {readerConnected
+                    ? <ArrowRight className="w-4 h-4 text-green-600 opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
+                    : <Badge variant="outline" className="border-2 font-black text-[8px] uppercase h-5 px-2">Setup</Badge>}
                 </button>
-                <button onClick={() => setCardMode('new_card')} className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-border bg-white hover:border-primary/20 hover:bg-primary/[0.01] transition-all group text-left">
+
+                {/* New card (embedded form) option */}
+                <button onClick={() => setCardMode('new_card')}
+                  className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-border bg-white hover:border-primary/20 hover:bg-primary/[0.01] transition-all group text-left">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-muted/20 rounded-xl shadow-sm border border-border"><Plus className="w-5 h-5 text-slate-500" /></div>
+                    <div className="p-2 bg-muted/20 rounded-xl shadow-sm border border-border">
+                      <Plus className="w-5 h-5 text-slate-500" />
+                    </div>
                     <div>
                       <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">New Card</p>
                       <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Enter card details manually</p>
@@ -1285,9 +1170,14 @@ export const CheckoutHub = ({
                   </div>
                   <ArrowRight className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity shrink-0" />
                 </button>
+
+                {/* Save card toggle for new card */}
                 {selectedClient && (
-                  <button type="button" onClick={() => setSaveNewCard(v => !v)} className={cn('w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all text-left', saveNewCard ? 'border-primary/20 bg-primary/5' : 'border-border bg-white')}>
-                    <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><Lock className="w-3 h-3 text-primary" /> Save card to profile</span>
+                  <button type="button" onClick={() => setSaveNewCard(v => !v)}
+                    className={cn('w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all text-left', saveNewCard ? 'border-primary/20 bg-primary/5' : 'border-border bg-white')}>
+                    <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                      <Lock className="w-3 h-3 text-primary" /> Save card to profile
+                    </span>
                     <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', saveNewCard ? 'bg-primary' : 'bg-slate-200')}>
                       <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', saveNewCard ? 'left-[18px]' : 'left-0.5')} />
                     </div>
@@ -1296,53 +1186,50 @@ export const CheckoutHub = ({
               </motion.div>
             )}
 
+            {/* ── Card on file confirmation ── */}
             {paymentTab === 'card' && cardMode === 'cof_confirm' && selectedClient && (
               <motion.div key="cof-confirm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <CardOnFileConfirm client={selectedClient} amount={finalTotal} onConfirm={handleCofCharge} onCancel={() => setCardMode('select')} isProcessing={isCofCharging} />
+                <CardOnFileConfirm
+                  client={selectedClient}
+                  amount={finalTotal}
+                  onConfirm={handleCofCharge}
+                  onCancel={() => setCardMode('select')}
+                  isProcessing={isCofCharging}
+                />
               </motion.div>
             )}
 
+            {/* ── Terminal payment UI ── */}
             {paymentTab === 'card' && cardMode === 'terminal' && (
               <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <TerminalPaymentUI amount={finalTotal} onCancel={() => setCardMode('select')} onSuccess={() => setCardMode('select')} />
+                <TerminalPaymentUI
+                  amount={finalTotal}
+                  onCancel={() => setCardMode('select')}
+                  onSuccess={() => setCardMode('select')}
+                />
               </motion.div>
             )}
 
-            {paymentTab === 'card' && cardMode === 'new_card' && (
+            {/* ── Embedded new card form ── */}
+            {paymentTab === 'card' && cardMode === 'new_card' && tenantId && (
               <motion.div key="new-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                {resolvedTenantId ? (
-                  <EmbeddedCardForm
-                    tenantId={resolvedTenantId}
-                    clientId={selectedClient?.id}
-                    clientEmail={selectedClient?.email}
-                    amount={finalTotal}
-                    saveCard={saveNewCard && !!selectedClient}
-                    onSuccess={async (paymentIntentId) => {
-                      toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
-                      try {
-                        await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId, isEscalated: isOverrideUnlocked });
-                      } catch (checkoutErr: any) {
-                        toast({ variant: 'destructive', title: 'Checkout Record Error', description: checkoutErr?.message || 'Payment collected but record may not have saved.' });
-                      }
-                      setCardMode('select');
-                    }}
-                    onCancel={() => setCardMode('select')}
-                  />
-                ) : (
-                  <div className="pt-4 border-t border-dashed space-y-3">
-                    <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5">
-                      <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
-                      <div>
-                        <p className="text-[11px] font-black uppercase text-destructive">Studio Not Configured</p>
-                        <p className="text-[9px] font-bold text-destructive/60 uppercase">Tenant ID is missing. Check Settings &gt; Payments.</p>
-                      </div>
-                    </div>
-                    <Button variant="outline" onClick={() => setCardMode('select')} className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px]">Go Back</Button>
-                  </div>
-                )}
+                <EmbeddedCardForm
+                  tenantId={tenantId}
+                  clientId={selectedClient?.id}
+                  clientEmail={selectedClient?.email}
+                  amount={finalTotal}
+                  saveCard={saveNewCard && !!selectedClient}
+                  onSuccess={async (paymentIntentId) => {
+                    toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
+                    await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId });
+                    setCardMode('select');
+                  }}
+                  onCancel={() => setCardMode('select')}
+                />
               </motion.div>
             )}
 
+            {/* ── Cash tab ── */}
             {paymentTab === 'cash' && (
               <motion.div key="cash" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
                 <Card className="border-2 border-primary/20 bg-primary/5 rounded-2xl shadow-inner">
@@ -1373,8 +1260,8 @@ export const CheckoutHub = ({
         </div>
         {finalTotal > 0 && (
           <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-            <p>Studio Tax ({selectedTenant?.taxRate ? `${selectedTenant.taxRate}%` : '7%'})</p>
-            <p className="font-mono text-[11px] md:text-xs">${resolvedTax.toFixed(2)}</p>
+            <p>Studio Tax (7%)</p>
+            <p className="font-mono text-[11px] md:text-xs">${(subtotal * 0.07).toFixed(2)}</p>
           </div>
         )}
         {totalDiscount > 0 && !isRecoveryActive && (
@@ -1411,11 +1298,15 @@ export const CheckoutHub = ({
               <p className="text-[10px] font-black uppercase text-destructive tracking-widest">Manager override required before checkout</p>
             </div>
           )}
-          {(cardMode === 'select' || paymentTab !== 'card') && (
+          {/* Main authorize button — hidden when a Stripe flow is in progress */}
+          {cardMode === 'select' || paymentTab !== 'card' ? (
             <Button
               className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight"
               onClick={() => {
-                if (paymentTab === 'card') return;
+                if (paymentTab === 'card') {
+                  // If no sub-mode chosen yet, default to showing the selector
+                  return;
+                }
                 onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked });
               }}
               disabled={
@@ -1424,7 +1315,7 @@ export const CheckoutHub = ({
                 isCartEmpty ||
                 (isGroupCheckout && !selectedClientId) ||
                 (isOverAutonomy && !isOverrideUnlocked) ||
-                (paymentTab === 'card' && cardMode === 'select')
+                (paymentTab === 'card' && cardMode === 'select') // card mode requires sub-selection
               }
             >
               {isSubmitting
@@ -1435,12 +1326,12 @@ export const CheckoutHub = ({
                 ? 'FINALIZE FREE SESSION'
                 : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`}
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
 
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
-      <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff || []} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
+      <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
     </div>
   );
 };
