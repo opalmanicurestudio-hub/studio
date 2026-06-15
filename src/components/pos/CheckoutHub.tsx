@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -266,7 +266,6 @@ const TerminalPaymentUI = ({ amount, onCancel, onSuccess }: {
 };
 
 // ─── EmbeddedCardForm ─────────────────────────────────────────────────────────
-// Uses Stripe.js to collect a new card, charge it, and optionally save to profile
 const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, onSuccess, onCancel }: {
   tenantId:    string;
   clientId?:   string;
@@ -285,11 +284,8 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   const [isCharging, setIsCharging] = useState(false);
   const [cardError,  setCardError]  = useState<string | null>(null);
 
-  const mountRef2 = React.useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    let stripe: any;
-    let card: any;
+    let destroyed = false;
 
     const init = async () => {
       // Load Stripe.js
@@ -309,13 +305,15 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
         body: JSON.stringify({ tenantId }),
       });
       const { publishableKey, stripeAccountId } = await res.json();
-      if (!publishableKey) { setIsLoading(false); return; }
+      if (!publishableKey || destroyed) { setIsLoading(false); return; }
 
-      stripe = (window as any).Stripe(publishableKey, { stripeAccount: stripeAccountId });
+      const stripe = (window as any).Stripe(publishableKey, { stripeAccount: stripeAccountId });
       const elements = stripe.elements();
       elementsRef.current = elements;
+      // Attach stripe instance so confirmCardPayment can reach it
+      (elements as any)._stripe = stripe;
 
-      card = elements.create('card', {
+      const card = elements.create('card', {
         style: {
           base: {
             fontSize:        '16px',
@@ -328,7 +326,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
         hidePostalCode: false,
       });
 
-      if (mountRef.current) {
+      if (mountRef.current && !destroyed) {
         card.mount(mountRef.current);
         cardRef.current = card;
         card.on('ready', () => setIsReady(true));
@@ -337,9 +335,14 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       }
     };
 
-    init().catch(console.error);
+    init().catch((err) => {
+      console.error('Stripe init error:', err);
+      setIsLoading(false);
+      setCardError('Failed to load payment form. Please refresh and try again.');
+    });
 
     return () => {
+      destroyed = true;
       try { cardRef.current?.destroy(); } catch {}
     };
   }, [tenantId]);
@@ -359,10 +362,9 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       const piData = await piRes.json();
       if (!piData.clientSecret) throw new Error(piData.error || 'Could not create payment');
 
-      // 2. Confirm on client
-      const stripe = (window as any).Stripe;
-      // Re-use the same instance we mounted with
-      const confirmResult = await (elementsRef.current as any)._stripe.confirmCardPayment(piData.clientSecret, {
+      // 2. Confirm on client using the attached stripe instance
+      const stripeInstance = (elementsRef.current as any)._stripe;
+      const confirmResult = await stripeInstance.confirmCardPayment(piData.clientSecret, {
         payment_method: {
           card: cardRef.current,
           billing_details: { email: clientEmail || undefined },
@@ -432,9 +434,6 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   );
 };
 
-// We need useRef in EmbeddedCardForm
-import { useRef } from 'react';
-
 // ─── CheckoutHub ──────────────────────────────────────────────────────────────
 export const CheckoutHub = ({
   cart,
@@ -502,11 +501,6 @@ export const CheckoutHub = ({
   const [isOverrideUnlocked,setIsOverrideUnlocked]= useState(false);
 
   // ── Card payment sub-mode ──────────────────────────────────────────────────
-  // 'select'       = choose which card method
-  // 'cof_confirm'  = confirming card-on-file charge
-  // 'cof_charging' = actively charging card on file
-  // 'terminal'     = terminal reader flow
-  // 'new_card'     = embedded browser card form
   type CardMode = 'select' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
   const [cardMode,        setCardMode]        = useState<CardMode>('select');
   const [isCofCharging,   setIsCofCharging]   = useState(false);
@@ -700,7 +694,6 @@ export const CheckoutHub = ({
       if (data.ok) {
         setStripePaymentId(data.paymentIntentId);
         toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
-        // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
         await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId });
         setCardMode('select');
       } else {
@@ -750,6 +743,10 @@ export const CheckoutHub = ({
 
   // Reset card mode when payment tab changes
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
+
+  // ── Resolved tenantId with fallback ───────────────────────────────────────
+  // tenantId may arrive as undefined on first render; also try selectedTenant as backup
+  const resolvedTenantId = tenantId || selectedTenant?.id || null;
 
   return (
     <div className="flex flex-col space-y-6 md:space-y-10 text-left">
@@ -1211,21 +1208,37 @@ export const CheckoutHub = ({
             )}
 
             {/* ── Embedded new card form ── */}
-            {paymentTab === 'card' && cardMode === 'new_card' && tenantId && (
+            {paymentTab === 'card' && cardMode === 'new_card' && (
               <motion.div key="new-card" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <EmbeddedCardForm
-                  tenantId={tenantId}
-                  clientId={selectedClient?.id}
-                  clientEmail={selectedClient?.email}
-                  amount={finalTotal}
-                  saveCard={saveNewCard && !!selectedClient}
-                  onSuccess={async (paymentIntentId) => {
-                    toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
-                    await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId });
-                    setCardMode('select');
-                  }}
-                  onCancel={() => setCardMode('select')}
-                />
+                {resolvedTenantId ? (
+                  <EmbeddedCardForm
+                    tenantId={resolvedTenantId}
+                    clientId={selectedClient?.id}
+                    clientEmail={selectedClient?.email}
+                    amount={finalTotal}
+                    saveCard={saveNewCard && !!selectedClient}
+                    onSuccess={async (paymentIntentId) => {
+                      toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
+                      await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId });
+                      setCardMode('select');
+                    }}
+                    onCancel={() => setCardMode('select')}
+                  />
+                ) : (
+                  // Fallback if tenantId is still resolving
+                  <div className="pt-4 border-t border-dashed space-y-3">
+                    <div className="flex items-center gap-3 p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5">
+                      <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
+                      <div>
+                        <p className="text-[11px] font-black uppercase text-destructive">Studio Not Configured</p>
+                        <p className="text-[9px] font-bold text-destructive/60 uppercase">Tenant ID is missing. Check your Stripe connection in Settings → Payments.</p>
+                      </div>
+                    </div>
+                    <Button variant="outline" onClick={() => setCardMode('select')} className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px]">
+                      Go Back
+                    </Button>
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -1298,15 +1311,12 @@ export const CheckoutHub = ({
               <p className="text-[10px] font-black uppercase text-destructive tracking-widest">Manager override required before checkout</p>
             </div>
           )}
-          {/* Main authorize button — hidden when a Stripe flow is in progress */}
-          {cardMode === 'select' || paymentTab !== 'card' ? (
+          {/* Main authorize button — hidden when a Stripe card flow is in progress */}
+          {(cardMode === 'select' || paymentTab !== 'card') && (
             <Button
               className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight"
               onClick={() => {
-                if (paymentTab === 'card') {
-                  // If no sub-mode chosen yet, default to showing the selector
-                  return;
-                }
+                if (paymentTab === 'card') return; // sub-selection handles checkout
                 onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked });
               }}
               disabled={
@@ -1315,7 +1325,7 @@ export const CheckoutHub = ({
                 isCartEmpty ||
                 (isGroupCheckout && !selectedClientId) ||
                 (isOverAutonomy && !isOverrideUnlocked) ||
-                (paymentTab === 'card' && cardMode === 'select') // card mode requires sub-selection
+                (paymentTab === 'card' && cardMode === 'select')
               }
             >
               {isSubmitting
@@ -1326,7 +1336,7 @@ export const CheckoutHub = ({
                 ? 'FINALIZE FREE SESSION'
                 : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`}
             </Button>
-          ) : null}
+          )}
         </div>
       </div>
 
