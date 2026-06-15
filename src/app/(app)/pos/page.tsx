@@ -1105,6 +1105,7 @@ function POSPage() {
         tipAllocations, setTipAllocations, activeTill, staff, role,
         onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
         tenantId, // ← CRITICAL: enables card-on-file charging and embedded card form
+        cashierName: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || (staff || []).find((s: any) => s.role === 'owner')?.name || '',
     };
 
     if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
