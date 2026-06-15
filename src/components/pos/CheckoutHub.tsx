@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -285,8 +285,6 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   const [isCharging, setIsCharging] = useState(false);
   const [cardError,  setCardError]  = useState<string | null>(null);
 
-  const mountRef2 = React.useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     let stripe: any;
     let card: any;
@@ -432,8 +430,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
   );
 };
 
-// We need useRef in EmbeddedCardForm
-import { useRef } from 'react';
+
 
 // ─── CheckoutHub ──────────────────────────────────────────────────────────────
 export const CheckoutHub = ({
