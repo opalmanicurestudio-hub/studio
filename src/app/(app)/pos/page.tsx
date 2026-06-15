@@ -907,11 +907,25 @@ function POSPage() {
 
         retailItems.forEach(item => {
             const productValue = item.price * item.quantity;
+            // Differentiate ledger category by item type
+            const itemCategory =
+              item.type === 'service'    ? 'Service Revenue' :
+              item.type === 'membership' ? 'Membership Sales' :
+              item.type === 'package'    ? 'Package Sales' :
+              'Retail';
+            const itemDescription =
+              item.type === 'service'    ? `Service (POS): ${item.quantity}x ${item.name}` :
+              item.type === 'membership' ? `Membership: ${item.name}` :
+              item.type === 'package'    ? `Package: ${item.name}` :
+              `Retail Product: ${item.quantity}x ${item.name}`;
             if (!paymentData.skipLedger) {
-              batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Retail: ${item.quantity}x ${item.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Retail', amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId }));
+              batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: itemDescription, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: itemCategory, amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId }));
             }
-            batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true });
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` }));
+            // Only decrement inventory for physical products
+            if (item.type === 'product') {
+              batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true });
+              batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` }));
+            }
             totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
         });
 
@@ -948,6 +962,12 @@ function POSPage() {
         if (!paymentData.skipLedger) {
           if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
           if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
+          // Post tax as its own ledger line so gross revenue + tax = total collected
+          const taxAmount = Number((subtotalCalc * 0.07).toFixed(2));
+          if (taxAmount > 0) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Sales Tax (7%)`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tax Collected', amount: taxAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId }));
+            totalLtvIncrease += taxAmount;
+          }
         }
 
         let cashDepositOffset = 0;
