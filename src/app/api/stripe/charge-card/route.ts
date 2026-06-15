@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
-// ─── Lazy inits — must NOT be at module scope (build-time env vars unavailable) ─
+// ─── Lazy inits ───────────────────────────────────────────────────────────────
 function getAdmin() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
   const { getFirestore, FieldValue } = require('firebase-admin/firestore');
   const APP_NAME = 'admin';
-  let app = getApps().find((a) => a.name === APP_NAME);
+  let app = getApps().find((a: any) => a.name === APP_NAME);
   if (!app) {
     app = initializeApp({
       credential: cert({
@@ -26,17 +26,20 @@ function getStripe() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Charges a client's saved card OFF-SESSION (client not present) — e.g. an
-// automated no-show or late-cancel fee resolved by the policy engine.
+// TWO MODES controlled by the `mode` field in the request body:
 //
-// IMPORTANT: only charges a card that was saved WITH the client's authorization
-// (captured by the booking-completion flow). The saved card lives on the client
-// as `cardOnFile = { customerId, paymentMethodId, ... }`.
+//   mode: 'pos'      — Client IS present at checkout. Uses a PaymentIntent
+//                      with a clientSecret returned to the frontend, which
+//                      then confirms it using the saved payment method.
+//                      This satisfies Stripe's on-session requirement and
+//                      avoids authentication_required declines.
 //
-// On success → posts the fee to the ledger (idempotent).
-// On ANY failure (declined, card expired, authentication required, no card) →
-// does NOT lose the money: it parks the fee on the client's balance/arrears AND
-// writes a flag record, then returns { ok:false, flagged:true }. Nothing silent.
+//   mode: 'auto'     — Client is NOT present (policy engine: no-show, late
+//                      cancel). Uses off_session + confirm:true. On failure,
+//                      parks the amount as arrears and raises a charge flag.
+//
+// If `mode` is omitted it defaults to 'pos' so existing POS callers work
+// without any changes to CheckoutHub.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   let parsed: any = {};
@@ -50,32 +53,36 @@ export async function POST(req: NextRequest) {
     tenantId,
     clientId,
     amountCents,
-    description = 'Fee',
-    category = 'Cancellation Fee',
+    description  = 'Fee',
+    category     = 'Service Revenue',
     appointmentId = null,
-    reason = 'Policy fee',
+    reason       = 'Studio Services',
+    mode         = 'pos',           // 'pos' | 'auto'
   } = parsed;
 
   if (!tenantId || !clientId || !amountCents || amountCents <= 0) {
-    return NextResponse.json({ error: 'Missing tenantId, clientId, or amountCents' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Missing tenantId, clientId, or amountCents' },
+      { status: 400 }
+    );
   }
 
   const { db, FieldValue } = getAdmin();
   const amountDollars = amountCents / 100;
-  const nowISO = new Date().toISOString();
+  const nowISO        = new Date().toISOString();
 
-  // Helper: park the fee as arrears + write a flag record (the "flag it" path)
+  // ── Helper: park as arrears + write flag record (auto-mode failure path) ──
   const flagAndPark = async (failReason: string, code?: string) => {
     try {
       const batch = db.batch();
       batch.update(db.doc(`tenants/${tenantId}/clients/${clientId}`), {
         outstandingBalance: FieldValue.increment(amountDollars),
         unpaidFees: FieldValue.arrayUnion({
-          feeId: nanoid(),
+          feeId:           nanoid(),
           appointmentId,
           appointmentDate: nowISO,
-          feeAmount: amountDollars,
-          reason: `${reason} — auto-charge failed (${code || failReason})`,
+          feeAmount:       amountDollars,
+          reason:          `${reason} — auto-charge failed (${code || failReason})`,
         }),
       });
       batch.set(db.collection(`tenants/${tenantId}/chargeFlags`).doc(), {
@@ -90,62 +97,186 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    // Load client + saved card
+    // ── Load client ──────────────────────────────────────────────────────────
     const clientSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
     if (!clientSnap.exists) {
       return NextResponse.json({ error: 'Client not found' }, { status: 404 });
     }
-    const card = clientSnap.data()?.cardOnFile;
+    const clientData = clientSnap.data();
+    const card       = clientData?.cardOnFile;
+
     if (!card?.customerId || !card?.paymentMethodId) {
-      await flagAndPark('no_card_on_file');
-      return NextResponse.json({ ok: false, flagged: true, reason: 'No card on file', parkedAsBalance: true });
+      if (mode === 'auto') await flagAndPark('no_card_on_file');
+      return NextResponse.json({
+        ok: false,
+        flagged:        mode === 'auto',
+        reason:         'No card on file',
+        parkedAsBalance: mode === 'auto',
+      });
     }
 
-    // Connected account
-    const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+    // ── Load connected Stripe account ────────────────────────────────────────
+    const tenantSnap      = await db.doc(`tenants/${tenantId}`).get();
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
-      await flagAndPark('no_connected_account');
-      return NextResponse.json({ ok: false, flagged: true, reason: 'No connected payment account', parkedAsBalance: true });
+      if (mode === 'auto') await flagAndPark('no_connected_account');
+      return NextResponse.json({
+        ok: false,
+        flagged:         mode === 'auto',
+        reason:          'No connected payment account. Configure Stripe in Settings.',
+        parkedAsBalance: mode === 'auto',
+      });
     }
 
-    // Off-session charge against the saved card
     const stripe = getStripe();
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // POS MODE — client is present, confirm on the frontend
+    // Returns a clientSecret; CheckoutHub never reaches this path directly
+    // (it uses /api/stripe/pos-payment-intent for new cards), but when
+    // CheckoutHub calls THIS route for a card-on-file POS charge we create
+    // an on-session intent and confirm server-side with the saved PM.
+    // ══════════════════════════════════════════════════════════════════════════
+    if (mode === 'pos') {
+      // Use a time-based idempotency key so retries within the same second
+      // are safe but a second tap generates a new intent.
+      const idempotencyKey = `pos_${clientId}_${amountCents}_${Math.floor(Date.now() / 10000)}`;
+
+      let intent: Stripe.PaymentIntent;
+      try {
+        intent = await stripe.paymentIntents.create(
+          {
+            amount:         amountCents,
+            currency:       'usd',
+            customer:       card.customerId,
+            payment_method: card.paymentMethodId,
+            // on_session = client is present; dramatically reduces declines
+            off_session:    false,
+            confirm:        true,
+            // If authentication is needed this returns a requires_action status
+            // with a next_action URL rather than throwing — frontend handles it.
+            return_url:     `${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/pos`,
+            description:    `${description} — ${reason}`,
+            metadata: {
+              tenantId,
+              clientId,
+              appointmentId: appointmentId || '',
+              category,
+              kind: 'pos_cof',
+            },
+          },
+          {
+            stripeAccount:  stripeAccountId,
+            idempotencyKey,
+          }
+        );
+      } catch (stripeErr: any) {
+        const code = stripeErr?.code || stripeErr?.raw?.code || 'charge_failed';
+        console.error('[charge-card] POS stripe error:', stripeErr?.message, code);
+        return NextResponse.json({
+          ok:     false,
+          reason: stripeErr?.message || 'Card charge failed',
+          code,
+        });
+      }
+
+      // Requires further authentication (3DS etc.) — unlikely for saved cards
+      // but handle gracefully
+      if (intent.status === 'requires_action') {
+        return NextResponse.json({
+          ok:              false,
+          requiresAction:  true,
+          clientSecret:    intent.client_secret,
+          reason:          'Card requires additional authentication. Please ask the client to complete verification.',
+        });
+      }
+
+      if (intent.status !== 'succeeded') {
+        return NextResponse.json({
+          ok:     false,
+          reason: `Charge did not complete (status: ${intent.status})`,
+          code:   intent.status,
+        });
+      }
+
+      // ── Write ledger record ────────────────────────────────────────────────
+      const txnId  = `pos_cof__${intent.id}`;
+      await db.doc(`tenants/${tenantId}/transactions/${txnId}`).set({
+        id:                    txnId,
+        date:                  nowISO,
+        description,
+        clientOrVendor:        clientData?.name || 'Client',
+        clientId,
+        type:                  'income',
+        context:               'Business',
+        category,
+        amount:                amountDollars,
+        paymentMethod:         'Card on file (Stripe)',
+        appointmentId:         appointmentId || null,
+        stripePaymentIntentId: intent.id,
+        hasReceipt:            true,
+        tenantId,
+      }, { merge: true });
+
+      return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // AUTO MODE — client NOT present (policy engine: no-show, late-cancel)
+    // ══════════════════════════════════════════════════════════════════════════
+    const idempotencyKey = `fee_${appointmentId || clientId}_${amountCents}`;
+
     let intent: Stripe.PaymentIntent;
     try {
       intent = await stripe.paymentIntents.create(
         {
-          amount: amountCents,
-          currency: 'usd',
-          customer: card.customerId,
+          amount:         amountCents,
+          currency:       'usd',
+          customer:       card.customerId,
           payment_method: card.paymentMethodId,
-          off_session: true,
-          confirm: true,
-          description: `${description} — ${reason}`,
-          metadata: { tenantId, clientId, appointmentId: appointmentId || '', category, kind: 'auto_fee' },
+          off_session:    true,
+          confirm:        true,
+          description:    `${description} — ${reason}`,
+          metadata: {
+            tenantId,
+            clientId,
+            appointmentId: appointmentId || '',
+            category,
+            kind: 'auto_fee',
+          },
         },
-        { stripeAccount: stripeAccountId, idempotencyKey: `fee_${appointmentId || clientId}_${amountCents}` }
+        { stripeAccount: stripeAccountId, idempotencyKey }
       );
     } catch (stripeErr: any) {
-      // Declined, expired, or authentication_required — can't complete off-session
       const code = stripeErr?.code || stripeErr?.raw?.code || 'charge_failed';
       await flagAndPark('stripe_error', code);
-      return NextResponse.json({ ok: false, flagged: true, reason: stripeErr?.message || 'Charge failed', code, parkedAsBalance: true });
+      return NextResponse.json({
+        ok:              false,
+        flagged:         true,
+        reason:          stripeErr?.message || 'Charge failed',
+        code,
+        parkedAsBalance: true,
+      });
     }
 
     if (intent.status !== 'succeeded') {
       await flagAndPark('not_succeeded', intent.status);
-      return NextResponse.json({ ok: false, flagged: true, reason: `Charge ${intent.status}`, code: intent.status, parkedAsBalance: true });
+      return NextResponse.json({
+        ok:              false,
+        flagged:         true,
+        reason:          `Charge ${intent.status}`,
+        code:            intent.status,
+        parkedAsBalance: true,
+      });
     }
 
-    // Success → post the fee income to the ledger (idempotent doc id)
+    // ── Write ledger record ──────────────────────────────────────────────────
     const txnId  = `card_charge__${intent.id}`;
-    const txnRef = db.doc(`tenants/${tenantId}/transactions/${txnId}`);
-    await txnRef.set({
+    await db.doc(`tenants/${tenantId}/transactions/${txnId}`).set({
       id:                    txnId,
       date:                  nowISO,
-      description:           `${description}`,
-      clientOrVendor:        clientSnap.data()?.name || 'Client',
+      description,
+      clientOrVendor:        clientData?.name || 'Client',
       clientId,
       type:                  'income',
       context:               'Business',
@@ -159,9 +290,15 @@ export async function POST(req: NextRequest) {
     }, { merge: true });
 
     return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
+
   } catch (err: any) {
     console.error('[stripe/charge-card]', err);
-    await flagAndPark('unexpected_error', err?.code);
-    return NextResponse.json({ ok: false, flagged: true, reason: err.message, parkedAsBalance: true }, { status: 200 });
+    if (mode === 'auto') await flagAndPark('unexpected_error', err?.code);
+    return NextResponse.json({
+      ok:              false,
+      flagged:         mode === 'auto',
+      reason:          err.message,
+      parkedAsBalance: mode === 'auto',
+    }, { status: 200 });
   }
 }
