@@ -1234,6 +1234,8 @@ export const CheckoutHub = ({
               <motion.div key="cash" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
                 <CashCheckout
                   finalTotal={finalTotal}
+                  subtotal={subtotal}
+                  tax={subtotal * 0.07}
                   amountTendered={amountTendered}
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
@@ -1245,8 +1247,43 @@ export const CheckoutHub = ({
                   selectedClientId={selectedClientId}
                   isOverAutonomy={isOverAutonomy}
                   isOverrideUnlocked={isOverrideUnlocked}
-                  clientEmail={clients.find((c: Client) => c.id === selectedClientId)?.email || ''}
-                  clientPhone={clients.find((c: Client) => c.id === selectedClientId)?.phone || ''}
+                  clientEmail={selectedClient?.email || ''}
+                  clientPhone={selectedClient?.phone || ''}
+                  clientName={selectedClient?.name || 'Guest'}
+                  discountValue={safeNumber(discount) + safeNumber(membershipDiscount)}
+                  recoveryAmount={recoveryAmount}
+                  lineItems={[
+                    ...appointmentsData.flatMap((data: any) => {
+                      const overrides = data.appointment.checkoutState?.serviceStaffOverrides || {};
+                      const mainStaffId = overrides[data.service?.id] || data.appointment.staffId;
+                      const mainStaff = staff?.find((s: any) => s.id === mainStaffId);
+                      const lines = [];
+                      if (data.service) {
+                        lines.push({
+                          label:  data.service.name,
+                          amount: getServicePrice(data.service, data.staff),
+                          type:   'service' as const,
+                          staff:  mainStaff?.name?.split(' ')[0] || undefined,
+                        });
+                      }
+                      (data.appointment.addOnIds || []).forEach((id: string) => {
+                        const addon = services?.find((s: any) => s.id === id);
+                        if (addon) {
+                          const addonStaff = staff?.find((s: any) => s.id === (overrides[id] || data.appointment.staffId));
+                          lines.push({ label: `+ ${addon.name}`, amount: getServicePrice(addon, addonStaff), type: 'addon' as const, staff: addonStaff?.name?.split(' ')[0] || undefined });
+                        }
+                      });
+                      (data.appointment.checkoutState?.refreshments || []).forEach((r: any) => {
+                        if (safeNumber(r.price) > 0) lines.push({ label: r.name, amount: safeNumber(r.price) * safeNumber(r.quantity || 1), type: 'refreshment' as const });
+                      });
+                      return lines;
+                    }),
+                    ...cart.map((item: any) => ({
+                      label:  item.name,
+                      amount: item.price * item.quantity,
+                      type:   (item.type === 'service' ? 'service' : 'retail') as any,
+                    })),
+                  ]}
                 />
               </motion.div>
             )}
