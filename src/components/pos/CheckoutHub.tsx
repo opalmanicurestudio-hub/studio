@@ -87,6 +87,7 @@ import {
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
+import { CashCheckout } from './CashCheckout';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
@@ -1231,55 +1232,22 @@ export const CheckoutHub = ({
             {/* ── Cash tab ── */}
             {paymentTab === 'cash' && (
               <motion.div key="cash" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="pt-4">
-                <Card className="border-2 border-primary/20 bg-primary/5 rounded-2xl shadow-inner">
-                  <CardContent className="p-4 space-y-4">
-                    {/* Quick amount buttons */}
-                    <div className="space-y-2">
-                      <Label className="text-[9px] font-black uppercase text-primary/60">Quick Tender</Label>
-                      <div className="grid grid-cols-4 gap-2">
-                        {[
-                          Math.ceil(finalTotal / 5) * 5,
-                          Math.ceil(finalTotal / 10) * 10,
-                          Math.ceil(finalTotal / 20) * 20,
-                          Math.ceil(finalTotal / 50) * 50,
-                        ].filter((v, i, arr) => arr.indexOf(v) === i && v >= finalTotal).slice(0, 4).map(amt => (
-                          <button key={amt} onClick={() => setAmountTendered(amt)}
-                            className={cn('h-10 rounded-xl border-2 font-black text-[10px] tracking-widest transition-all',
-                              amountTendered === amt
-                                ? 'border-primary bg-primary text-white'
-                                : 'border-primary/20 bg-white text-primary hover:bg-primary/5')}>
-                            ${amt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-[9px] font-black uppercase text-primary/60">Amount Tendered</Label>
-                      <div className="relative">
-                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                        <Input type="number" value={amountTendered || ''} onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)} className="h-12 pl-8 text-xl font-black font-mono border-2 rounded-xl bg-white shadow-sm" placeholder="0.00" />
-                      </div>
-                    </div>
-                    <div className="space-y-2 pt-2 border-t border-dashed border-primary/10">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] font-black uppercase text-primary/60">Amount Due</span>
-                        <span className="font-black font-mono text-primary">${finalTotal.toFixed(2)}</span>
-                      </div>
-                      {amountTendered > 0 && amountTendered < finalTotal && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-[9px] font-black uppercase text-destructive">Still Owed</span>
-                          <span className="font-black font-mono text-destructive">${(finalTotal - amountTendered).toFixed(2)}</span>
-                        </div>
-                      )}
-                      {amountTendered >= finalTotal && finalTotal > 0 && (
-                        <div className="flex justify-between items-center p-2 rounded-xl bg-green-50 border border-green-200">
-                          <span className="text-[9px] font-black uppercase text-green-700">Change Due</span>
-                          <span className="text-xl font-black font-mono text-green-700">${(amountTendered - finalTotal).toFixed(2)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                <CashCheckout
+                  finalTotal={finalTotal}
+                  amountTendered={amountTendered}
+                  setAmountTendered={setAmountTendered}
+                  tipAmount={tipAmount}
+                  onTipChange={handleTotalTipChange}
+                  onCheckout={() => onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })}
+                  isSubmitting={isSubmitting}
+                  isCartEmpty={isCartEmpty}
+                  isGroupCheckout={isGroupCheckout}
+                  selectedClientId={selectedClientId}
+                  isOverAutonomy={isOverAutonomy}
+                  isOverrideUnlocked={isOverrideUnlocked}
+                  clientEmail={clients.find((c: Client) => c.id === selectedClientId)?.email || ''}
+                  clientPhone={clients.find((c: Client) => c.id === selectedClientId)?.phone || ''}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1332,14 +1300,13 @@ export const CheckoutHub = ({
               <p className="text-[10px] font-black uppercase text-destructive tracking-widest">Manager override required before checkout</p>
             </div>
           )}
-          {/* Main authorize button — shown for cash/other, hidden during Stripe card flows */}
-          {(paymentTab === 'cash' || paymentTab === 'other') && (
+          {/* Cash handled inside CashCheckout component — only show button for OTHER */}
+          {paymentTab === 'other' && (
             <Button
               className="w-full h-14 md:h-16 text-base md:text-xl font-black rounded-2xl md:rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight"
               onClick={() => onCheckout({ paymentMethod: paymentTab, amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })}
               disabled={
                 isSubmitting ||
-                (paymentTab === 'cash' && (amountTendered < finalTotal || finalTotal <= 0)) ||
                 isCartEmpty ||
                 (isGroupCheckout && !selectedClientId) ||
                 (isOverAutonomy && !isOverrideUnlocked)
@@ -1349,8 +1316,6 @@ export const CheckoutHub = ({
                 ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" />
                 : finalTotal <= 0
                 ? 'FINALIZE FREE SESSION'
-                : paymentTab === 'cash'
-                ? <><Banknote className="w-5 h-5 mr-2" />COLLECT ${safeNumber(finalTotal).toFixed(2)} CASH</>
                 : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`}
             </Button>
           )}
