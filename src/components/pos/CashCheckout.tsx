@@ -14,6 +14,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
 
 const BILLS = [1, 5, 10, 20, 50, 100];
+const COINS = [0.25, 0.50, 0.75, 1.00];
 
 export type ReceiptLineItem = {
   label:   string;
@@ -61,11 +62,11 @@ export function CashCheckout({
   selectedClientId,
   isOverAutonomy,
   isOverrideUnlocked,
-  clientEmail  = '',
-  clientPhone  = '',
-  clientName   = 'Guest',
-  cashierName  = '',
-  lineItems    = [],
+  clientEmail    = '',
+  clientPhone    = '',
+  clientName     = 'Guest',
+  cashierName    = '',
+  lineItems      = [],
   discountValue  = 0,
   recoveryAmount = 0,
 }: CashCheckoutProps) {
@@ -84,6 +85,7 @@ export function CashCheckout({
   const isExact     = Math.abs(amountTendered - finalTotal) < 0.01 && amountTendered > 0;
   const isUnderpaid = amountTendered > 0 && amountTendered < finalTotal - 0.005;
   const stillOwed   = Math.max(0, finalTotal - amountTendered);
+  const showCoins   = amountTendered > 0 || stillOwed < 1.5;
   const canCheckout = amountTendered >= finalTotal - 0.005 && finalTotal > 0 &&
     !isCartEmpty && !(isGroupCheckout && !selectedClientId) &&
     !(isOverAutonomy && !isOverrideUnlocked);
@@ -171,7 +173,7 @@ export function CashCheckout({
         @media print { body { padding: 0; } }
       </style></head><body>
       <h1>${r.studioName}</h1>
-      <div class="sub">${r.date}<br>Guest: ${r.clientName}</div>
+      <div class="sub">${r.date}<br>Guest: ${r.clientName}${r.cashierName ? `<br>Served by: ${r.cashierName}` : ''}</div>
       <hr>
       ${r.lineItems.map(l => `<div class="row"><span>${l.label}${l.staff ? ` · ${l.staff}` : ''}</span><span>$${l.amount.toFixed(2)}</span></div>`).join('')}
       <hr>
@@ -184,7 +186,7 @@ export function CashCheckout({
       <hr>
       <div class="row bold"><span>Cash tendered</span><span>$${r.tendered.toFixed(2)}</span></div>
       ${r.change > 0.005 ? `<div class="row green bold"><span>Change returned</span><span>$${r.change.toFixed(2)}</span></div>` : ''}
-      <div class="footer">Thank you, ${r.clientName}!<br>We appreciate your business.<br>${r.studioPhone ? r.studioPhone : ''}</div>
+      <div class="footer">Thank you, ${r.clientName.split(' ')[0]}!<br>We appreciate your business.${r.studioPhone ? `<br>${r.studioPhone}` : ''}</div>
       </body></html>`);
     win.document.close();
     setTimeout(() => { win.print(); }, 300);
@@ -193,11 +195,13 @@ export function CashCheckout({
   return (
     <div className="space-y-4">
 
+      {/* Amount due */}
       <div className="flex items-center justify-between px-1">
         <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Amount Due</span>
         <span className="text-2xl font-black font-mono text-primary tracking-tighter">${finalTotal.toFixed(2)}</span>
       </div>
 
+      {/* Line items toggle */}
       {lineItems.length > 0 && (
         <button
           onClick={() => setShowLines(v => !v)}
@@ -223,85 +227,122 @@ export function CashCheckout({
                 </div>
               ))}
               <div className="pt-2 border-t border-dashed space-y-1">
-                <div className="flex justify-between text-[11px] text-muted-foreground"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
-                {discountValue > 0 && <div className="flex justify-between text-[11px] text-primary"><span>Discount</span><span>-${discountValue.toFixed(2)}</span></div>}
-                {recoveryAmount > 0 && <div className="flex justify-between text-[11px] text-amber-600"><span>Service adjustment</span><span>-${recoveryAmount.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-[11px] text-muted-foreground"><span>Tax (7%)</span><span>${tax.toFixed(2)}</span></div>
-                {tipAmount > 0 && <div className="flex justify-between text-[11px] text-muted-foreground"><span>Gratuity</span><span>${tipAmount.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-[12px] font-black pt-1 border-t border-dashed"><span>Total</span><span>${finalTotal.toFixed(2)}</span></div>
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span>Subtotal</span><span>${subtotal.toFixed(2)}</span>
+                </div>
+                {discountValue > 0 && (
+                  <div className="flex justify-between text-[11px] text-primary">
+                    <span>Discount</span><span>-${discountValue.toFixed(2)}</span>
+                  </div>
+                )}
+                {recoveryAmount > 0 && (
+                  <div className="flex justify-between text-[11px] text-amber-600">
+                    <span>Service adjustment</span><span>-${recoveryAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span>Tax (7%)</span><span>${tax.toFixed(2)}</span>
+                </div>
+                {tipAmount > 0 && (
+                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                    <span>Gratuity</span><span>${tipAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-[12px] font-black pt-1 border-t border-dashed">
+                  <span>Total</span><span>${finalTotal.toFixed(2)}</span>
+                </div>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* Quick tender */}
       <div className="space-y-2">
         <div className="flex items-center justify-between px-1">
           <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Quick Tender</Label>
-          <button onClick={() => setAmountTendered(finalTotal)} className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline flex items-center gap-1">
+          <button
+            onClick={() => setAmountTendered(finalTotal)}
+            className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline flex items-center gap-1">
             <Zap className="w-2.5 h-2.5" /> Exact
           </button>
         </div>
+
         {/* Bills */}
         <div className="grid grid-cols-6 gap-1.5">
           {BILLS.map(bill => (
-            <button key={bill}
-              onClick={() => setAmountTendered(amountTendered + bill)}
-              className={cn('h-11 rounded-xl border-2 font-black text-xs tracking-tight transition-all active:scale-95',
+            <button
+              key={bill}
+              onClick={() => setAmountTendered(Number((amountTendered + bill).toFixed(2)))}
+              className={cn(
+                'h-11 rounded-xl border-2 font-black text-xs tracking-tight transition-all active:scale-95',
                 amountTendered === bill
                   ? 'border-primary bg-primary text-white shadow-lg shadow-primary/20'
-                  : 'border-border bg-white text-slate-900 hover:border-primary/30 hover:bg-primary/5')}>
+                  : 'border-border bg-white text-slate-900 hover:border-primary/30 hover:bg-primary/5'
+              )}>
               ${bill}
             </button>
           ))}
         </div>
-        {/* Coins — shown when change is getting close or tendered is set */}
-        {(amountTendered > 0 || stillOwed < 1.5) && (
+
+        {/* Coins — appear when close to total or after tender starts */}
+        {showCoins && (
           <div className="grid grid-cols-4 gap-1.5">
-            {[0.25, 0.50, 0.75, 1.00].map(coin => (
-              <button key={coin}
+            {COINS.map(coin => (
+              <button
+                key={coin}
                 onClick={() => setAmountTendered(Number((amountTendered + coin).toFixed(2)))}
-                className={cn('h-9 rounded-xl border-2 font-black text-[10px] tracking-tight transition-all active:scale-95 text-muted-foreground',
-                  'border-border bg-muted/20 hover:border-primary/30 hover:bg-primary/5 hover:text-primary')}>
-                ¢{(coin * 100).toFixed(0)}
+                className="h-9 rounded-xl border-2 font-black text-[10px] tracking-tight transition-all active:scale-95 border-border bg-muted/20 text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-primary">
+                {coin === 1.00 ? '$1' : `¢${(coin * 100).toFixed(0)}`}
               </button>
             ))}
           </div>
         )}
+
         {/* Smart round-up amounts */}
         <div className="grid grid-cols-3 gap-1.5">
           {quickAmounts.map(amt => (
-            <button key={amt}
+            <button
+              key={amt}
               onClick={() => setAmountTendered(amt)}
-              className={cn('h-9 rounded-xl border-2 font-black text-[11px] tracking-tight transition-all active:scale-95',
+              className={cn(
+                'h-9 rounded-xl border-2 font-black text-[11px] tracking-tight transition-all active:scale-95',
                 Math.abs(amountTendered - amt) < 0.01
                   ? 'border-primary bg-primary text-white'
-                  : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10')}>
+                  : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
+              )}>
               ${amt % 1 === 0 ? amt : amt.toFixed(2)}
             </button>
           ))}
         </div>
       </div>
 
+      {/* Manual entry */}
       <div className="relative">
         <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
         <Input
-          type="number" inputMode="decimal"
+          type="number"
+          inputMode="decimal"
           value={amountTendered || ''}
           onChange={e => setAmountTendered(parseFloat(e.target.value) || 0)}
           onFocus={e => e.currentTarget.select()}
           className="h-14 pl-10 text-2xl font-black font-mono border-2 rounded-2xl bg-white shadow-inner text-slate-900"
-          placeholder={finalTotal.toFixed(2)} />
+          placeholder={finalTotal.toFixed(2)}
+        />
         {amountTendered > 0 && (
-          <button onClick={() => setAmountTendered(0)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive transition-colors">
+          <button
+            onClick={() => setAmountTendered(0)}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive transition-colors">
             <RotateCcw className="w-4 h-4" />
           </button>
         )}
       </div>
 
+      {/* Still owed */}
       <AnimatePresence>
         {isUnderpaid && (
-          <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
+          <motion.div
+            initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             className="flex items-center justify-between px-4 py-3 rounded-2xl bg-destructive/5 border-2 border-destructive/20">
             <span className="text-[10px] font-black uppercase text-destructive">Still Owed</span>
             <span className="text-xl font-black font-mono text-destructive">${stillOwed.toFixed(2)}</span>
@@ -309,30 +350,39 @@ export function CashCheckout({
         )}
       </AnimatePresence>
 
+      {/* Change due */}
       <AnimatePresence>
         {hasChange && (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
             className="rounded-2xl border-2 border-green-200 bg-green-50 overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4">
               <div>
                 <p className="text-[9px] font-black uppercase tracking-widest text-green-700">Change Due</p>
-                <p className="text-4xl font-black font-mono text-green-700 tracking-tighter leading-none mt-1">${change.toFixed(2)}</p>
+                <p className="text-4xl font-black font-mono text-green-700 tracking-tighter leading-none mt-1">
+                  ${change.toFixed(2)}
+                </p>
               </div>
               <div className="text-right space-y-2">
-                <button onClick={handleKeepChangeAsTip}
+                <button
+                  onClick={handleKeepChangeAsTip}
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-600 text-white font-black text-[10px] uppercase tracking-widest hover:bg-green-700 transition-colors active:scale-95 w-full justify-center">
                   <Gift className="w-3.5 h-3.5" /> Keep as Tip
                 </button>
-                <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase text-center">Tip becomes ${(safeNumber(tipAmount) + change).toFixed(2)}</p>
+                <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase text-center">
+                  Tip becomes ${(safeNumber(tipAmount) + change).toFixed(2)}
+                </p>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* Exact badge */}
       <AnimatePresence>
         {isExact && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="flex items-center justify-center gap-2 py-1">
             <CheckCircle2 className="w-4 h-4 text-green-600" />
             <span className="text-[10px] font-black uppercase tracking-widest text-green-700">Exact Change</span>
@@ -340,60 +390,115 @@ export function CashCheckout({
         )}
       </AnimatePresence>
 
+      {/* Receipt section */}
       <div className="space-y-2 pt-2 border-t border-dashed">
-        <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Receipt</Label>
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={handlePrint}
-            className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 border-border bg-white hover:border-primary/20 hover:bg-primary/5 transition-all active:scale-95">
-            <Printer className="w-5 h-5 text-slate-500" />
-            <span className="text-[9px] font-black uppercase">Print</span>
-          </button>
-          <button onClick={() => { setReceiptMode(receiptMode === 'email' ? 'none' : 'email'); setReceiptSent(false); }}
-            className={cn('flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all active:scale-95',
-              receiptMode === 'email' ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-white text-slate-500 hover:border-primary/20')}>
-            <Mail className="w-5 h-5" />
-            <span className="text-[9px] font-black uppercase">Email</span>
-          </button>
-          <button onClick={() => { setReceiptMode(receiptMode === 'sms' ? 'none' : 'sms'); setReceiptSent(false); }}
-            className={cn('flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all active:scale-95',
-              receiptMode === 'sms' ? 'border-primary bg-primary/5 text-primary' : 'border-border bg-white text-slate-500 hover:border-primary/20')}>
-            <Phone className="w-5 h-5" />
-            <span className="text-[9px] font-black uppercase">Text</span>
+        <div className="flex items-center justify-between px-1">
+          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Receipt</Label>
+          <button
+            onClick={() => setNoReceipt(v => !v)}
+            className={cn(
+              'flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest transition-colors',
+              noReceipt ? 'text-destructive' : 'text-muted-foreground hover:text-slate-700'
+            )}>
+            <div className={cn('w-7 h-4 rounded-full relative transition-colors', noReceipt ? 'bg-destructive/20' : 'bg-muted')}>
+              <div className={cn('absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all border',
+                noReceipt ? 'left-[14px] border-destructive/40' : 'left-0.5 border-border')} />
+            </div>
+            No receipt
           </button>
         </div>
-        </div>
+
+        {cashierName && (
+          <p className="text-[9px] font-bold text-muted-foreground uppercase px-1">
+            <span className="opacity-40">Cashier:</span> {cashierName}
+          </p>
         )}
-        <AnimatePresence>
-          {!noReceipt && (receiptMode === 'email' || receiptMode === 'sms') && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-2">
-              <Input
-                type={receiptMode === 'email' ? 'email' : 'tel'}
-                placeholder={receiptMode === 'email' ? 'client@email.com' : '+1 (555) 000-0000'}
-                value={receiptContact} onChange={e => setReceiptContact(e.target.value)}
-                className="h-11 rounded-xl border-2" />
-              <Button onClick={handleSendReceipt} disabled={!receiptContact.trim() || isSending || receiptSent}
-                variant="outline" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
-                {isSending ? <><Loader className="w-3.5 h-3.5 animate-spin mr-2" /> Sending...</>
-                  : receiptSent ? <><CheckCircle2 className="w-3.5 h-3.5 mr-2 text-green-600" /> Sent</>
-                  : receiptMode === 'email' ? <><Mail className="w-3.5 h-3.5 mr-2" /> Send Email Receipt</>
-                  : <><Phone className="w-3.5 h-3.5 mr-2" /> Send Text Receipt</>}
-              </Button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+
+        {!noReceipt && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={handlePrint}
+                className="flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 border-border bg-white hover:border-primary/20 hover:bg-primary/5 transition-all active:scale-95">
+                <Printer className="w-5 h-5 text-slate-500" />
+                <span className="text-[9px] font-black uppercase">Print</span>
+              </button>
+              <button
+                onClick={() => { setReceiptMode(receiptMode === 'email' ? 'none' : 'email'); setReceiptSent(false); }}
+                className={cn(
+                  'flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all active:scale-95',
+                  receiptMode === 'email'
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-border bg-white text-slate-500 hover:border-primary/20'
+                )}>
+                <Mail className="w-5 h-5" />
+                <span className="text-[9px] font-black uppercase">Email</span>
+              </button>
+              <button
+                onClick={() => { setReceiptMode(receiptMode === 'sms' ? 'none' : 'sms'); setReceiptSent(false); }}
+                className={cn(
+                  'flex flex-col items-center gap-1.5 p-3 rounded-2xl border-2 transition-all active:scale-95',
+                  receiptMode === 'sms'
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-border bg-white text-slate-500 hover:border-primary/20'
+                )}>
+                <Phone className="w-5 h-5" />
+                <span className="text-[9px] font-black uppercase">Text</span>
+              </button>
+            </div>
+
+            <AnimatePresence>
+              {(receiptMode === 'email' || receiptMode === 'sms') && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
+                  className="space-y-2">
+                  <Input
+                    type={receiptMode === 'email' ? 'email' : 'tel'}
+                    placeholder={receiptMode === 'email' ? 'client@email.com' : '+1 (555) 000-0000'}
+                    value={receiptContact}
+                    onChange={e => setReceiptContact(e.target.value)}
+                    className="h-11 rounded-xl border-2"
+                  />
+                  <Button
+                    onClick={handleSendReceipt}
+                    disabled={!receiptContact.trim() || isSending || receiptSent}
+                    variant="outline"
+                    className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
+                    {isSending
+                      ? <><Loader className="w-3.5 h-3.5 animate-spin mr-2" /> Sending...</>
+                      : receiptSent
+                      ? <><CheckCircle2 className="w-3.5 h-3.5 mr-2 text-green-600" /> Sent</>
+                      : receiptMode === 'email'
+                      ? <><Mail className="w-3.5 h-3.5 mr-2" /> Send Email Receipt</>
+                      : <><Phone className="w-3.5 h-3.5 mr-2" /> Send Text Receipt</>}
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
         {noReceipt && (
-          <p className="text-[9px] font-bold text-destructive/60 uppercase text-center py-1">No receipt — guest declined</p>
+          <p className="text-[9px] font-bold text-destructive/60 uppercase text-center py-1">
+            No receipt — guest declined
+          </p>
         )}
       </div>
 
+      {/* Collect button */}
       <Button
         className="w-full h-16 text-xl font-black rounded-3xl shadow-2xl shadow-primary/30 transition-all hover:scale-105 active:scale-95 uppercase tracking-tight"
-        onClick={onCheckout} disabled={!canCheckout || isSubmitting}>
-        {isSubmitting ? <Loader className="animate-spin h-7 w-7" />
-          : finalTotal <= 0 ? 'Finalize Free Session'
-          : hasChange ? <><Banknote className="w-6 h-6 mr-2" /> Collect ${amountTendered.toFixed(2)} · Change ${change.toFixed(2)}</>
-          : isExact ? <><Banknote className="w-6 h-6 mr-2" /> Collect ${finalTotal.toFixed(2)} · Exact</>
-          : <><Banknote className="w-6 h-6 mr-2" /> Collect ${finalTotal.toFixed(2)}</>}
+        onClick={onCheckout}
+        disabled={!canCheckout || isSubmitting}>
+        {isSubmitting
+          ? <Loader className="animate-spin h-7 w-7" />
+          : finalTotal <= 0
+          ? 'Finalize Free Session'
+          : hasChange
+          ? <span className="flex items-center"><Banknote className="w-6 h-6 mr-2" /> Collect ${amountTendered.toFixed(2)} · Change ${change.toFixed(2)}</span>
+          : isExact
+          ? <span className="flex items-center"><Banknote className="w-6 h-6 mr-2" /> Collect ${finalTotal.toFixed(2)} · Exact</span>
+          : <span className="flex items-center"><Banknote className="w-6 h-6 mr-2" /> Collect ${finalTotal.toFixed(2)}</span>}
       </Button>
 
       {!canCheckout && !isSubmitting && isUnderpaid && (
