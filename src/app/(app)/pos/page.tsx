@@ -951,7 +951,15 @@ function POSPage() {
             batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientObj.id), updates, { merge: true });
         }
 
-        Object.entries(tipAllocations).forEach(([staffId, amount]) => {
+        // If no tip allocations exist (retail-only sale) but a tip was given,
+        // assign to the first available staff member or the current user's staff record
+        const effectiveTipAllocations = { ...tipAllocations };
+        if (tipAmount > 0 && Object.keys(effectiveTipAllocations).length === 0) {
+            const fallbackStaff = (staff || []).find((s: any) => s.active) || null;
+            const fallbackId = fallbackStaff?.id || currentUser?.uid || 'unassigned';
+            effectiveTipAllocations[fallbackId] = tipAmount;
+        }
+        Object.entries(effectiveTipAllocations).forEach(([staffId, amount]) => {
             const finalAmount = safeNumber(amount);
             if (finalAmount > 0) {
                 batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Gratuity', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tips', amount: finalAmount, paymentMethod: paymentData.paymentMethod, staffId, hasReceipt: true, tenantId }));
