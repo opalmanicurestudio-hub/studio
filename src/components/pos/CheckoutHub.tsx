@@ -88,6 +88,7 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { CashCheckout } from './CashCheckout';
+import { GuestSearch } from './GuestSearch';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
@@ -506,7 +507,7 @@ export const CheckoutHub = ({
   // 'cof_charging' = actively charging card on file
   // 'terminal'     = terminal reader flow
   // 'new_card'     = embedded browser card form
-  type CardMode = 'select' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
+  type CardMode = 'select' | 'cof_tip' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
   const [cardMode,        setCardMode]        = useState<CardMode>('select');
   const [isCofCharging,   setIsCofCharging]   = useState(false);
   const [saveNewCard,     setSaveNewCard]      = useState(true);
@@ -758,86 +759,21 @@ export const CheckoutHub = ({
       {/* ── Payer selector ── */}
       <div className="flex-shrink-0 text-left">
         {isGroupCheckout && !selectedClientId && !isCartEmpty && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
-            <Alert variant="destructive" className="border-2 border-primary/20 bg-primary/5 rounded-2xl p-4 shadow-xl shadow-primary/5">
-              <Users className="h-5 w-5 text-primary" />
-              <AlertTitle className="text-[10px] font-black uppercase text-primary tracking-widest">Group Protocol Required</AlertTitle>
-              <AlertDescription className="text-[10px] font-bold uppercase text-slate-600 opacity-80 leading-tight mt-1">Multiple guests detected. Please identify the primary account for settlement.</AlertDescription>
-            </Alert>
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-2">
+            <div className="flex items-center gap-2 px-1 py-2 rounded-xl bg-primary/5 border border-primary/20">
+              <Users className="w-3.5 h-3.5 text-primary shrink-0" />
+              <p className="text-[9px] font-black uppercase tracking-widest text-primary">Select primary payer for this group</p>
+            </div>
           </motion.div>
         )}
-        <div className="flex gap-2 mt-2">
-          <Dialog open={isPayerDialogOpen} onOpenChange={setIsPayerDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className={cn('h-12 md:h-14 rounded-2xl border-2 font-black uppercase tracking-tight shadow-inner bg-muted/5 flex-1 justify-between px-4', isGroupCheckout && !selectedClientId && !isCartEmpty && 'border-primary animate-pulse bg-primary/5 ring-4 ring-primary/10')} onClick={() => setIsPayerDialogOpen(true)}>
-                {selectedClient ? (
-                  <div className="flex items-center gap-3">
-                    <div className="relative shrink-0">
-                      <Avatar className="h-7 w-7 md:h-8 md:w-8 border-2 shadow-sm rounded-xl">
-                        <AvatarImage src={selectedClient.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-[10px] md:text-xs bg-primary/10 text-primary">{(selectedClient.name || 'C')?.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      {isMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2 h-2" /></div>}
-                    </div>
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="truncate text-xs">{selectedClient.name}</span>
-                      {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
-                      {isMember   && <Badge className="bg-indigo-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">MEM</Badge>}
-                      {hasPackage && <Badge className="bg-teal-600 text-white border-none h-5 px-1 font-black uppercase hidden sm:flex">PKG</Badge>}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    {isGroupCheckout ? <Users className="w-4 h-4 text-primary" /> : <User className="w-4 h-4" />}
-                    <span className={cn('text-xs md:text-sm', isGroupCheckout ? 'text-primary' : 'opacity-40')}>{isGroupCheckout ? 'Select Primary Payee...' : 'Search Payer...'}</span>
-                  </div>
-                )}
-                <ChevronDown className="h-4 w-4 opacity-40 ml-2 shrink-0" />
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md rounded-[3rem] p-0 border-4 overflow-hidden shadow-3xl bg-background">
-              <DialogHeader className="p-6 pb-4 border-b bg-muted/5">
-                <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">{isGroupCheckout ? 'Identify Group Payer' : 'Guest Search'}</DialogTitle>
-                <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{isGroupCheckout ? 'The only available options are the guests being serviced in this group.' : 'Attribute this sale to a guest dossier.'}</DialogDescription>
-              </DialogHeader>
-              <div className="p-6 space-y-6">
-                {!isGroupCheckout && (
-                  <div className="relative">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
-                    <Input placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-sm tracking-tight" autoFocus />
-                  </div>
-                )}
-                <ScrollArea className={cn('-mx-2 px-2', isGroupCheckout ? 'h-auto' : 'h-[300px] md:h-[350px]')}>
-                  <div className="space-y-2 pb-4">
-                    {!isGroupCheckout && (
-                      <button className="w-full text-left p-4 hover:bg-muted/50 transition-all flex items-center gap-4 border-2 rounded-2xl border-transparent hover:border-border" onClick={() => { setSelectedClientId(null); setIsPayerDialogOpen(false); }}>
-                        <div className="p-3 bg-muted rounded-xl shadow-inner"><User className="w-5 h-5 text-muted-foreground" /></div>
-                        <span className="font-black uppercase tracking-widest text-[11px] text-slate-600">WALK-IN GUEST (ANONYMOUS)</span>
-                      </button>
-                    )}
-                    {filteredPayerOptions.map((c: Client) => {
-                      const cMember = !!(c.activeMembershipId || c.subscription);
-                      const cPkg    = (c.activePackages?.length || 0) > 0;
-                      return (
-                        <button key={c.id} className={cn('w-full text-left p-4 transition-all flex items-center gap-4 border-2 rounded-2xl', selectedClientId === c.id ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-primary/5 hover:border-primary/10')} onClick={() => { setSelectedClientId(c.id); setIsPayerDialogOpen(false); }}>
-                          <div className="relative shrink-0"><Avatar className="h-10 w-10 border-2 border-background shadow-sm rounded-xl"><AvatarImage src={c.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs">{(c.name || 'C')[0]}</AvatarFallback></Avatar>{cMember && <div className="absolute -top-1 -right-1 bg-indigo-600 text-white p-0.5 rounded shadow-sm border border-background"><Award className="w-2.5 h-2.5" /></div>}</div>
-                          <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="font-black uppercase tracking-tight text-xs text-slate-900 truncate">{c.name}</p>{cPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}</div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate">{c.email || c.phone || 'No contact on file'}</p></div>
-                          {selectedClientId === c.id && <CheckCircle className="ml-auto w-5 h-5 text-primary" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </ScrollArea>
-              </div>
-              {!isGroupCheckout && (
-                <DialogFooter className="p-6 pt-0 bg-muted/5 border-t">
-                  <Button variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 bg-white" onClick={() => { setIsPayerDialogOpen(false); onAddClientClick(); }}><UserPlus className="w-4 h-4 mr-2" />Register New Client Profile</Button>
-                </DialogFooter>
-              )}
-            </DialogContent>
-          </Dialog>
-          <Button variant="outline" size="icon" className="h-12 w-12 md:h-14 md:w-14 rounded-2xl border-2 shadow-sm shrink-0 bg-white/50 backdrop-blur-sm" onClick={onScanClick}><QrCode className="w-6 h-6 opacity-40" /></Button>
-        </div>
+        <GuestSearch
+          clients={clients || []}
+          selectedClientId={selectedClientId}
+          onSelect={(id) => setSelectedClientId(id)}
+          onAddNew={onAddClientClick}
+          isGroupCheckout={isGroupCheckout}
+          payerOptions={payerOptions || []}
+        />
       </div>
 
       {/* ── Service Recovery ── */}
@@ -1115,7 +1051,7 @@ export const CheckoutHub = ({
 
                 {/* Card on file option */}
                 {hasCardOnFile && (
-                  <button onClick={() => setCardMode('cof_confirm')}
+                  <button onClick={() => setCardMode('cof_tip')}
                     className="w-full flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02] hover:border-primary/40 hover:bg-primary/5 transition-all group text-left">
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10">
@@ -1188,13 +1124,109 @@ export const CheckoutHub = ({
             )}
 
             {/* ── Card on file confirmation ── */}
+            {/* ── Client-facing tip screen (card on file) ── */}
+            {paymentTab === 'card' && cardMode === 'cof_tip' && selectedClient && (() => {
+              const presets = [0, 10, 18, 20, 25];
+              const baseForTip = subtotal; // tip on pre-tax subtotal
+              return (
+                <motion.div key="cof-tip" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4 space-y-6">
+                  {/* Client-facing header */}
+                  <div className="text-center space-y-1 py-4">
+                    <p className="text-[9px] font-black uppercase tracking-[0.25em] text-muted-foreground">Turn screen toward client</p>
+                    <p className="text-2xl font-black uppercase tracking-tighter text-slate-900">Add a Gratuity?</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">Your technician appreciates your support</p>
+                  </div>
+
+                  {/* Preset tip % buttons — large for client tapping */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {presets.filter(p => p > 0).map(pct => {
+                      const tipAmt = Number((baseForTip * (pct / 100)).toFixed(2));
+                      const isSelected = Math.abs(tipAmount - tipAmt) < 0.01;
+                      return (
+                        <button key={pct}
+                          onClick={() => handleTotalTipChange(tipAmt)}
+                          className={cn(
+                            'h-20 rounded-2xl border-2 font-black transition-all active:scale-95 flex flex-col items-center justify-center gap-1',
+                            isSelected
+                              ? 'border-primary bg-primary text-white shadow-xl shadow-primary/30'
+                              : 'border-border bg-white text-slate-900 hover:border-primary/30 hover:bg-primary/5'
+                          )}>
+                          <span className="text-2xl">{pct}%</span>
+                          <span className={cn('text-[11px] font-black', isSelected ? 'text-white/80' : 'text-muted-foreground')}>
+                            ${tipAmt.toFixed(2)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {/* No tip */}
+                    <button
+                      onClick={() => handleTotalTipChange(0)}
+                      className={cn(
+                        'h-20 rounded-2xl border-2 font-black transition-all active:scale-95 flex flex-col items-center justify-center gap-1 col-span-2',
+                        tipAmount === 0
+                          ? 'border-slate-300 bg-slate-100 text-slate-500'
+                          : 'border-dashed border-border bg-white text-muted-foreground hover:bg-muted/20'
+                      )}>
+                      <span className="text-base uppercase tracking-widest">No Tip</span>
+                    </button>
+                  </div>
+
+                  {/* Custom tip amount */}
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground text-center">Or enter custom amount</p>
+                    <div className="relative">
+                      <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        value={tipAmount > 0 && ![10,18,20,25].map(p => Number((baseForTip * p / 100).toFixed(2))).includes(tipAmount) ? tipAmount : ''}
+                        onChange={e => handleTotalTipChange(parseFloat(e.target.value) || 0)}
+                        onFocus={e => e.currentTarget.select()}
+                        placeholder="0.00"
+                        className="h-14 pl-10 text-2xl font-black font-mono border-2 rounded-2xl bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Total preview */}
+                  <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10 space-y-2">
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span className="font-bold uppercase">Subtotal</span>
+                      <span className="font-mono">${subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground">
+                      <span className="font-bold uppercase">Tax</span>
+                      <span className="font-mono">${(subtotal * 0.07).toFixed(2)}</span>
+                    </div>
+                    {tipAmount > 0 && (
+                      <div className="flex justify-between text-[11px] text-primary">
+                        <span className="font-black uppercase">Gratuity</span>
+                        <span className="font-mono font-black">${tipAmount.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-base font-black border-t border-primary/10 pt-2">
+                      <span className="uppercase text-primary">Total</span>
+                      <span className="font-mono text-primary">${finalTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    onClick={() => setCardMode('cof_confirm')}
+                    className="w-full h-14 rounded-2xl font-black uppercase text-[11px] tracking-widest shadow-xl shadow-primary/20">
+                    Continue to Charge →
+                  </Button>
+                </motion.div>
+              );
+            })()}
+
+            {/* ── Card on file confirmation ── */}
             {paymentTab === 'card' && cardMode === 'cof_confirm' && selectedClient && (
               <motion.div key="cof-confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4">
                 <CardOnFileConfirm
                   client={selectedClient}
                   amount={finalTotal}
                   onConfirm={handleCofCharge}
-                  onCancel={() => setCardMode('select')}
+                  onCancel={() => setCardMode('cof_tip')}
                   isProcessing={isCofCharging}
                 />
               </motion.div>
