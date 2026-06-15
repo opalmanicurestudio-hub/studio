@@ -210,6 +210,281 @@ const IdentityMatchDialog = ({ open, onOpenChange, walkIn, matchedClient, onLink
     );
 };
 
+// ─── VoidAuthForm ──────────────────────────────────────────────────────────────
+export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string, reason: string) => void; onCancel: () => void }) {
+    const [pin, setPin] = React.useState('');
+    const [reason, setReason] = React.useState('');
+    return (
+        <div className="mt-4 p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 space-y-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-destructive">Manager Authorization Required</p>
+            <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Manager PIN</Label>
+                    <Input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="••••" className="h-10 rounded-xl text-center font-black text-lg tracking-widest border-2" />
+                </div>
+                <div className="space-y-1.5">
+                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
+                    <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe void reason" className="h-10 rounded-xl border-2" />
+                </div>
+            </div>
+            <div className="flex gap-2">
+                <Button onClick={() => onConfirm(pin, reason)} disabled={pin.length < 4 || !reason.trim()} variant="destructive" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">Authorize Void</Button>
+                <Button onClick={onCancel} variant="ghost" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</Button>
+            </div>
+        </div>
+    );
+}
+
+// ─── QuickBookForm ─────────────────────────────────────────────────────────────
+export function QuickBookForm({ clients, services, staff, tenantId, tenant, firestore, onSuccess, onCancel }: any) {
+    const { toast } = useToast();
+    const [clientSearch, setClientSearch] = React.useState('');
+    const [selectedClient, setSelectedClient] = React.useState<any>(null);
+    const [newClientName, setNewClientName] = React.useState('');
+    const [newClientPhone, setNewClientPhone] = React.useState('');
+    const [email, setEmail] = React.useState('');
+    const [selectedService, setSelectedService] = React.useState<string>('');
+    const [selectedStaff, setSelectedStaff] = React.useState<string>('any');
+    const [aptDate, setAptDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
+    const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 15), 'HH:mm'));
+    const [sendLink, setSendLink] = React.useState(true);
+    const [requestFiles, setRequestFiles] = React.useState(false);
+    const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
+    const [copied, setCopied] = React.useState(false);
+    const [sendStatus, setSendStatus] = React.useState<any>(null);
+
+    const filteredClients = React.useMemo(() => {
+        if (!clientSearch.trim()) return clients.slice(0, 8);
+        const s = clientSearch.toLowerCase();
+        return clients.filter((c: any) => c.name?.toLowerCase().includes(s) || c.phone?.includes(s) || c.email?.toLowerCase().includes(s)).slice(0, 8);
+    }, [clients, clientSearch]);
+
+    const selectedSvc = services.find((s: any) => s.id === selectedService);
+    const staffMember = staff.find((s: any) => s.id === selectedStaff);
+
+    const svcPrice = selectedSvc ? getServicePrice(selectedSvc, staffMember) : 0;
+    const depositCents = selectedSvc ? computeDepositCents({ service: selectedSvc, price: svcPrice, depositsLive: tenant?.depositsLive === true }) : 0;
+    const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
+    const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
+
+    const copyLink = async () => {
+        if (!generatedLink) return;
+        try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+        catch { toast({ variant: 'destructive', title: 'Copy failed', description: 'Select and copy the link manually.' }); }
+    };
+
+    const handleBook = async () => {
+        if (!selectedService || !tenantId || !firestore) return;
+        if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client Required' }); return; }
+        if (sendLink && !email.trim()) { toast({ variant: 'destructive', title: 'Email required', description: 'An email is needed to send the secure completion link.' }); return; }
+        setIsSubmitting(true);
+        const { nanoid: _nanoid } = await import('nanoid');
+        const batch = writeBatch(firestore);
+        const now = new Date().toISOString();
+        try {
+            let clientId = selectedClient?.id;
+            const clientName = selectedClient?.name || newClientName.trim();
+            if (!clientId) {
+                clientId = _nanoid();
+                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+                    id: clientId, name: clientName, phone: newClientPhone, email: email.trim(),
+                    lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
+                }));
+            } else if (email.trim() && !selectedClient?.email) {
+                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { email: email.trim() }, { merge: true });
+            }
+
+            const aptId = _nanoid();
+            const checkInToken = _nanoid();
+            const startTime = new Date(`${aptDate}T${aptTime}:00`);
+            const endTime = addMinutes(startTime, selectedSvc?.duration || 60);
+            const resolvedStaffId = selectedStaff === 'any' ? (staff.find((s: any) => s.active)?.id || null) : selectedStaff;
+            const aptDoc = sanitizeForFirestore({
+                id: aptId, tenantId, clientId, clientName,
+                serviceId: selectedService,
+                staffId: resolvedStaffId,
+                checkInToken,
+                status: 'confirmed', source: 'pos_quick_book',
+                startTime: startTime.toISOString(), endTime: endTime.toISOString(),
+                createdAt: now, reminderSent: false,
+                ...(sendLink ? { completionStatus: 'pending', depositAmountCents: depositCents, depositStatus: depositCents > 0 ? 'pending' : 'none' } : {}),
+            });
+            batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
+            batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
+
+            let link: string | null = null;
+            if (sendLink) {
+                const token = _nanoid();
+                const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+                batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
+                    token, tenantId, appointmentId: aptId, clientId,
+                    clientName, clientEmail: email.trim().toLowerCase(),
+                    serviceId: selectedService, serviceName: selectedSvc?.name || '',
+                    depositAmountCents: depositCents,
+                    requiredConsentFormIds: requiredFormIds,
+                    fileRequirements: requestFiles ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
+                    status: 'pending', createdAt: now, expiresAt,
+                }));
+                const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                link = `${origin}/complete/${tenantId}/${token}`;
+            }
+
+            await batch.commit();
+
+            if (link) {
+                setGeneratedLink(link);
+                const clientPhone = selectedClient?.phone || newClientPhone;
+                try {
+                    const sr = await fetch('/api/notifications/send-completion-link', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ link, clientName, clientEmail: email.trim(), clientPhone, studioName: tenant?.name }),
+                    });
+                    setSendStatus(await sr.json().catch(() => null));
+                } catch { setSendStatus(null); }
+                toast({ title: 'Appointment booked', description: 'Secure link generated.' });
+            } else {
+                onSuccess();
+            }
+        } catch (e) { toast({ variant: 'destructive', title: 'Booking Failed' }); }
+        finally { setIsSubmitting(false); }
+    };
+
+    if (generatedLink) {
+        return (
+            <div className="space-y-6">
+                <div className="text-center space-y-3 pt-2">
+                    <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
+                        <CheckCircle2 className="w-8 h-8 text-green-500" />
+                    </div>
+                    <p className="text-lg font-black uppercase tracking-tight text-slate-900">Appointment booked</p>
+                    <p className="text-xs text-muted-foreground font-medium max-w-xs mx-auto">
+                        Send this secure link to the client. They'll {depositCents > 0 ? `pay the $${(depositCents / 100).toFixed(2)} deposit, ` : ''}save their card{requiredFormIds.length > 0 ? `, and sign ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.
+                    </p>
+                </div>
+                <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Link2 className="w-3 h-3" /> Completion link</Label>
+                    <div className="flex items-center gap-2">
+                        <Input readOnly value={generatedLink} onFocus={(e) => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
+                        <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest shrink-0">
+                            {copied ? <><CheckCircle2 className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}
+                        </Button>
+                    </div>
+                    {sendStatus && (sendStatus.smsSent || sendStatus.emailSent)
+                        ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''} · valid 7 days</p>
+                        : <p className="text-[10px] text-muted-foreground font-medium">{sendStatus && !sendStatus.smsConfigured && !sendStatus.emailConfigured ? "Auto-send isn't set up yet — copy the link to send it. " : ''}Valid for 7 days.</p>}
+                </div>
+                <Button onClick={onSuccess} variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Done</Button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client</Label>
+                {selectedClient ? (
+                    <div className="flex items-center justify-between p-3 rounded-2xl border-2 border-primary/20 bg-primary/5">
+                        <div><p className="font-black text-sm text-slate-900">{selectedClient.name}</p><p className="text-[10px] text-muted-foreground">{selectedClient.phone}</p></div>
+                        <Button variant="ghost" size="sm" onClick={() => { setSelectedClient(null); setEmail(''); }} className="text-[10px] font-black uppercase">Change</Button>
+                    </div>
+                ) : (
+                    <>
+                        <Input placeholder="Search by name or phone..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="h-12 rounded-xl border-2" />
+                        {filteredClients.length > 0 && (
+                            <div className="rounded-xl border-2 divide-y overflow-hidden">
+                                {filteredClients.map((c: any) => (
+                                    <button key={c.id} onClick={() => { setSelectedClient(c); setClientSearch(''); setEmail(c.email || ''); }} className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left">
+                                        <p className="font-bold text-sm text-slate-900">{c.name}</p>
+                                        <p className="text-[10px] text-muted-foreground">{c.phone}</p>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                        {clientSearch && filteredClients.length === 0 && (
+                            <div className="space-y-3 p-4 rounded-xl border-2 border-dashed">
+                                <p className="text-[10px] font-bold uppercase text-muted-foreground">New Client</p>
+                                <Input placeholder="Full name" value={newClientName} onChange={e => setNewClientName(e.target.value)} className="h-10 rounded-xl border-2" />
+                                <Input placeholder="Phone number" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} className="h-10 rounded-xl border-2" />
+                            </div>
+                        )}
+                    </>
+                )}
+                <Input type="email" placeholder="Email (for receipt & secure link)" value={email} onChange={e => setEmail(e.target.value)} className="h-11 rounded-xl border-2" />
+            </div>
+
+            <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Service</Label>
+                <select value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
+                    <option value="">Select service…</option>
+                    {services.filter((s: any) => s.type === 'service').map((s: any) => (
+                        <option key={s.id} value={s.id}>{s.name} ({s.duration}m)</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="space-y-2">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Provider</Label>
+                <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
+                    <option value="any">First Available</option>
+                    {staff.filter((s: any) => s.active).map((s: any) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
+                    <input type="date" value={aptDate} onChange={e => setAptDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+                </div>
+                <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Time</Label>
+                    <input type="time" value={aptTime} onChange={e => setAptTime(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+                </div>
+            </div>
+
+            <button type="button" onClick={() => setSendLink(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
+                <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" /> Send completion link</p>
+                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
+                            {selectedSvc
+                                ? <>Client secures a card on file{depositCents > 0 ? `, pays a $${(depositCents / 100).toFixed(2)} deposit` : ''}{requiredFormIds.length > 0 ? `, and signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.</>
+                                : <>Pick a service to see what the client will complete.</>}
+                            {alreadyHasCard && <span className="block mt-1 text-green-600 font-bold">This client already has a card on file.</span>}
+                        </p>
+                    </div>
+                    <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", sendLink ? "bg-primary" : "bg-slate-200")}>
+                        <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", sendLink ? "left-[22px]" : "left-0.5")} />
+                    </div>
+                </div>
+            </button>
+
+            {sendLink && (
+              <button type="button" onClick={() => setRequestFiles(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", requestFiles ? "border-primary bg-primary/5" : "border-border bg-white")}>
+                <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" /> Request inspiration photos</p>
+                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">Client uploads reference photos in the same link (up to 5).</p>
+                    </div>
+                    <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", requestFiles ? "bg-primary" : "bg-slate-200")}>
+                        <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", requestFiles ? "left-[22px]" : "left-0.5")} />
+                    </div>
+                </div>
+              </button>
+            )}
+
+            <div className="flex gap-3 pt-2">
+                <Button onClick={onCancel} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
+                <Button onClick={handleBook} disabled={isSubmitting || !selectedService || (!selectedClient && !newClientName.trim())} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+                    {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : sendLink ? 'Book & Get Link →' : 'Book Appointment →'}
+                </Button>
+            </div>
+        </div>
+    );
+}
+
 function POSPage() {
     const isMobile = useIsMobile();
     const { inventory, services, appointments: appointmentsFromInventory, clients, walkIns, staff, transactions, memberships, packages, resources, discounts, tillSessions, isLoading: isInventoryLoading } = useInventory();
@@ -251,7 +526,6 @@ function POSPage() {
     const [isQuickBookOpen, setIsQuickBookOpen] = useState(false);
     const [pendingRefund, setPendingRefund] = useState<any | null>(null);
 
-    // ── NEW WALK-IN ALERT ─────────────────────────────────────────────────────
     const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
     const prevWalkInCountRef = useRef<number>(0);
 
@@ -272,7 +546,7 @@ function POSPage() {
                     gain.gain.setValueAtTime(0.1, ctx.currentTime);
                     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
                     osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
-                } catch { /* audio unavailable */ }
+                } catch { }
                 setTimeout(() => setNewWalkInAlert(null), 5000);
             }
         }
@@ -418,97 +692,58 @@ function POSPage() {
         batch.commit().then(() => toast({ title: "Service Started" }));
     };
 
-    // ── PATCHED: handleAssignStaff with conflict check ────────────────────────
     const handleAssignStaff = useCallback((walkIn: WalkIn, staffId: string) => {
         if (!firestore || !tenantId || !services) return;
-
         const personServices = (walkIn.serviceIds || []).map(id => (services || []).find(s => s.id === id)).filter(Boolean) as Service[];
         const estimatedDuration = personServices.reduce((acc, s) => acc + (s.duration || 0) + (s.padBefore || 0) + (s.padAfter || 0), 0);
         const now = new Date();
         const walkInEndsAt = addMinutes(now, estimatedDuration);
-
-        // Check for appointment conflict
         const upcomingConflict = (appointmentsFromInventory || []).find(a =>
             a.staffId === staffId &&
             (a.status === 'confirmed' || a.status === 'deposit_pending') &&
             safeDate(a.startTime) > now &&
             safeDate(a.startTime) < walkInEndsAt
         );
-
         if (upcomingConflict) {
             const conflictTime = format(safeDate(upcomingConflict.startTime), 'h:mm a');
             const conflictClient = clients?.find(c => c.id === upcomingConflict.clientId);
-            toast({
-                variant: 'destructive',
-                title: 'Scheduling Conflict',
-                description: `This provider has ${conflictClient?.name || 'a client'} booked at ${conflictTime} — ${estimatedDuration}m service may overlap.`
-            });
+            toast({ variant: 'destructive', title: 'Scheduling Conflict', description: `This provider has ${conflictClient?.name || 'a client'} booked at ${conflictTime} — ${estimatedDuration}m service may overlap.` });
         }
-
         const walkInRef = doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id);
         updateDocumentNonBlocking(walkInRef, { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: now.toISOString() });
-
         const appointmentId = `apt-walkin-${walkIn.id}`;
-        setDocumentNonBlocking(
-            doc(firestore, 'tenants', tenantId, 'appointments', appointmentId),
-            { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: now.toISOString(), endTime: addMinutes(now, estimatedDuration).toISOString() },
-            {}
-        );
-
+        setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: now.toISOString(), endTime: addMinutes(now, estimatedDuration).toISOString() }, {});
         toast({ title: "Staff Assigned" + (upcomingConflict ? " ⚠ Conflict detected" : "") });
     }, [firestore, tenantId, services, appointmentsFromInventory, clients, toast]);
 
-    // ── PATCHED: handleAssignNext with fair_play sort + conflict awareness ────
     const handleAssignNext = useCallback(() => {
         if (!firestore || !tenantId || !walkIns || !staff || !services) return;
         const waitingQueue = [...walkIns].filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || safeDate(a.checkInTime).getTime()) - (b.queueOrder || safeDate(b.checkInTime).getTime()));
         if (waitingQueue.length === 0) return;
         const nextGuest = waitingQueue[0];
-
-        // PATCHED: includes 'available' status + acceptingWalkIns check
-        const idleStaff = staff.filter((s: any) =>
-            s.active &&
-            !s.onBreak &&
-            (s.status === 'idle' || s.status === 'available' || !s.status) &&
-            s.acceptingWalkIns !== false
-        );
+        const idleStaff = staff.filter((s: any) => s.active && !s.onBreak && (s.status === 'idle' || s.status === 'available' || !s.status) && s.acceptingWalkIns !== false);
         if (idleStaff.length === 0) return;
-
-        // PATCHED: conflict-aware — skip staff with upcoming appointment overlap
         const walkInDuration = nextGuest.serviceIds.reduce((acc: number, sid: string) => {
             const svc = services.find((ser: Service) => ser.id === sid);
             return acc + (svc?.duration || 0) + (svc?.padBefore || 0) + (svc?.padAfter || 0);
         }, 0);
         const walkInEndsAt = addMinutes(new Date(), walkInDuration);
-
         const qualified = idleStaff.filter((s: any) => {
             const hasSkills = nextGuest.serviceIds.every((sid: string) => {
                 const svc = services.find((ser: Service) => ser.id === sid);
                 return !svc?.requiredSkills?.length || svc.requiredSkills.every((skill: string) => (s.skillSet || []).includes(skill));
             });
             if (!hasSkills) return false;
-            const hasConflict = (appointmentsFromInventory || []).some(a =>
-                a.staffId === s.id &&
-                (a.status === 'confirmed' || a.status === 'deposit_pending') &&
-                safeDate(a.startTime) > new Date() &&
-                safeDate(a.startTime) < walkInEndsAt
-            );
+            const hasConflict = (appointmentsFromInventory || []).some(a => a.staffId === s.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > new Date() && safeDate(a.startTime) < walkInEndsAt);
             return !hasConflict;
         });
         if (qualified.length === 0) return;
-
-        // PATCHED: fair_play uses lastWalkInCompletedAt with fallback
         const selected = [...qualified].sort((a: any, b: any) => {
             if (assignmentMode === 'ordered_list') return (a.turnOrder || 999) - (b.turnOrder || 999);
-            const aTime = a.lastWalkInCompletedAt
-                ? new Date(a.lastWalkInCompletedAt).getTime()
-                : a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
-            const bTime = b.lastWalkInCompletedAt
-                ? new Date(b.lastWalkInCompletedAt).getTime()
-                : b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
+            const aTime = a.lastWalkInCompletedAt ? new Date(a.lastWalkInCompletedAt).getTime() : a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0;
+            const bTime = b.lastWalkInCompletedAt ? new Date(b.lastWalkInCompletedAt).getTime() : b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0;
             return aTime - bTime;
         })[0];
-
         handleAssignStaff(nextGuest, selected.id);
     }, [firestore, tenantId, walkIns, staff, services, assignmentMode, appointmentsFromInventory, handleAssignStaff]);
 
@@ -582,11 +817,6 @@ function POSPage() {
         const now = new Date().toISOString();
         const clientObj = (clients || []).find(c => c.id === effectiveClientId);
 
-        // ── DEPOSIT CREDIT lookup ───────────────────────────────────────────────
-        // Find an available prepaid deposit for this client (parked by the Stripe
-        // webhook when the deposit was paid online). Matched by clientId first,
-        // then by email. Only 'available' credits are eligible, so a deposit that
-        // was already consumed, refunded, or forfeited can never be applied here.
         let depositCredit: { ref: any; amountCents?: number; amountDollars?: number; createdAt?: any } | null = null;
         try {
             const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
@@ -653,13 +883,8 @@ function POSPage() {
             const involvedIds = new Set<string>();
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
-
-            // PATCHED: write 'available' + lastWalkInCompletedAt (fixes fair_play rotation)
             involvedIds.forEach(sid => {
-                if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), {
-                    status: 'available',
-                    lastWalkInCompletedAt: now
-                });
+                if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now });
             });
         }
 
@@ -704,24 +929,11 @@ function POSPage() {
         if (discountValue > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Promotion Applied`, clientOrVendor: 'Internal', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: discountValue, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
         if (recoveryAmount > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Service Recovery: ${recoveryReason}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Discounts', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, tenantId }));
 
-        // ── DEPOSIT CREDIT application ──────────────────────────────────────────
-        // The deposit was already recognized as income when it was paid online, so
-        // we post an offsetting line here and the appointment nets to the service
-        // price (no double-count). Marking the credit 'consumed' in the same batch
-        // guarantees it is applied exactly once.
         let cashDepositOffset = 0;
         if (depositCredit && depositCreditDollars > 0) {
             const firstAptId = readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.id || null;
-            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({
-                id: nanoid(), date: now,
-                description: 'Deposit applied (prepaid online)',
-                clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId,
-                type: 'expense', context: 'Business', category: 'Deposit Applied',
-                amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false, tenantId,
-            }));
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Deposit applied (prepaid online)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Deposit Applied', amount: depositCreditDollars, paymentMethod: 'Deposit', hasReceipt: false, tenantId }));
             batch.update((depositCredit as any).ref, sanitizeForFirestore({ status: 'consumed', consumedAt: now, appointmentId: firstAptId }));
-            // The deposit arrived by card (Stripe), not the cash drawer — so when the
-            // balance is settled in cash, the drawer only receives total minus deposit.
             cashDepositOffset = Math.min(depositCreditDollars, totalCashIncrease);
         }
 
@@ -738,84 +950,44 @@ function POSPage() {
         finally { setIsSubmitting(false); }
     };
 
-    // ── DEPOSIT ON CANCELLATION ─────────────────────────────────────────────
-    // Runs the policy engine and executes the outcome automatically:
-    //   rollover → keep the credit alive (+ expiry) so it applies to the next visit
-    //   forfeit  → close it; the studio keeps the recognized income
-    //   refund   → defer to a one-tap confirm (cash out is the only irreversible move)
-    // Every decision writes an audit record under depositDecisions.
-    const settleDepositForCancellation = useCallback(async (
-        appointment: any,
-        trigger: 'client_cancel' | 'no_show' | 'studio_cancel'
-    ) => {
+    const settleDepositForCancellation = useCallback(async (appointment: any, trigger: 'client_cancel' | 'no_show' | 'studio_cancel') => {
         if (!firestore || !tenantId || !appointment) return;
         const clientId = appointment.clientId || null;
         const clientObj = (clients || []).find(c => c.id === clientId);
-
         let credit: any = null;
         try {
             const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
-            let snap: any = clientId
-                ? await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', clientId)))
-                : { empty: true, docs: [] };
-            if (snap.empty && clientObj?.email) {
-                snap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
-            }
+            let snap: any = clientId ? await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', clientId))) : { empty: true, docs: [] };
+            if (snap.empty && clientObj?.email) snap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
             if (!snap.empty) {
-                const found = snap.docs
-                    .map((d: any) => ({ ref: d.ref, ...(d.data() as any) }))
-                    .filter((c: any) => !isCreditExpired(c.expiresAt));
+                const found = snap.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt));
                 found.sort((a: any, b: any) => safeDate(b.createdAt).getTime() - safeDate(a.createdAt).getTime());
                 credit = found[0] || null;
             }
         } catch (e) { console.warn('[deposit cancel lookup]', e); }
-        if (!credit) return; // no live deposit on this booking — nothing to settle
-
+        if (!credit) return;
         const policy = resolveDepositPolicy(selectedTenant);
         const hrs = hoursUntilStart(appointment.startTime);
         const resolved = resolveDepositOutcome({ trigger, hoursUntilStart: hrs, policy });
         const amount = safeNumber(credit.amountDollars ?? (credit.amountCents || 0) / 100);
-
-        // Refund is the only cash-out — defer to a confirm dialog rather than auto-firing.
-        if (resolved.outcome === 'refund') {
-            setPendingRefund({ creditId: credit.id, amount, clientName: clientObj?.name || credit.clientName || 'Client', reason: resolved.reason, appointmentId: appointment.id });
-            return;
-        }
-
+        if (resolved.outcome === 'refund') { setPendingRefund({ creditId: credit.id, amount, clientName: clientObj?.name || credit.clientName || 'Client', reason: resolved.reason, appointmentId: appointment.id }); return; }
         const nowISO = new Date().toISOString();
         const batch = writeBatch(firestore);
         if (resolved.outcome === 'rollover') {
-            batch.set(credit.ref, sanitizeForFirestore({
-                status: 'available', rolledOver: true, rolledOverAt: nowISO,
-                rolledOverFromAppointmentId: appointment.id, expiresAt: rolloverExpiryISO(policy),
-                lastDecisionReason: resolved.reason,
-            }), { merge: true });
+            batch.set(credit.ref, sanitizeForFirestore({ status: 'available', rolledOver: true, rolledOverAt: nowISO, rolledOverFromAppointmentId: appointment.id, expiresAt: rolloverExpiryISO(policy), lastDecisionReason: resolved.reason }), { merge: true });
         } else {
-            batch.set(credit.ref, sanitizeForFirestore({
-                status: 'forfeited', forfeitedAt: nowISO,
-                forfeitedFromAppointmentId: appointment.id, lastDecisionReason: resolved.reason,
-            }), { merge: true });
+            batch.set(credit.ref, sanitizeForFirestore({ status: 'forfeited', forfeitedAt: nowISO, forfeitedFromAppointmentId: appointment.id, lastDecisionReason: resolved.reason }), { merge: true });
         }
         const auditRef = doc(collection(firestore, `tenants/${tenantId}/depositDecisions`));
-        batch.set(auditRef, sanitizeForFirestore({
-            id: auditRef.id, tenantId, creditId: credit.id, appointmentId: appointment.id,
-            clientId, clientName: clientObj?.name || credit.clientName || 'Client',
-            trigger, outcome: resolved.outcome, reason: resolved.reason,
-            amountDollars: amount, hoursUntilStart: hrs, decidedAt: nowISO,
-        }));
-        try {
-            await batch.commit();
-            toast({ title: resolved.outcome === 'rollover' ? 'Deposit rolled over' : 'Deposit forfeited', description: `$${amount.toFixed(2)} · ${resolved.reason}` });
-        } catch (e) { console.error('[deposit settle]', e); }
+        batch.set(auditRef, sanitizeForFirestore({ id: auditRef.id, tenantId, creditId: credit.id, appointmentId: appointment.id, clientId, clientName: clientObj?.name || credit.clientName || 'Client', trigger, outcome: resolved.outcome, reason: resolved.reason, amountDollars: amount, hoursUntilStart: hrs, decidedAt: nowISO }));
+        try { await batch.commit(); toast({ title: resolved.outcome === 'rollover' ? 'Deposit rolled over' : 'Deposit forfeited', description: `$${amount.toFixed(2)} · ${resolved.reason}` }); }
+        catch (e) { console.error('[deposit settle]', e); }
     }, [firestore, tenantId, clients, selectedTenant, toast]);
 
     const handleConfirmRefund = useCallback(async () => {
         if (!pendingRefund || !tenantId) return;
         try {
-            const res = await fetch('/api/stripe/deposit-refund', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId, creditId: pendingRefund.creditId }),
-            });
+            const res = await fetch('/api/stripe/deposit-refund', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, creditId: pendingRefund.creditId }) });
             const out = await res.json().catch(() => null);
             if (!res.ok || !out?.ok) { toast({ variant: 'destructive', title: 'Refund failed', description: out?.error || 'Could not refund the deposit.' }); }
             else { toast({ title: 'Deposit refunded', description: `$${safeNumber(pendingRefund.amount).toFixed(2)} returned to ${pendingRefund.clientName}.` }); }
@@ -849,47 +1021,18 @@ function POSPage() {
     const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const newSession: any = { ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
     const handleCloseTill = (data: any) => { if (!firestore || !tenantId || !activeTill) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'tillSessions', activeTill.id), sanitizeForFirestore({ ...data, status: 'closed', closedAt: new Date().toISOString() })); toast({ title: "Till Session Finalized" }); };
 
-    // ── VOID TRANSACTION ─────────────────────────────────────────────────────
     const handleVoidTransaction = async (txId: string, authorizerPin: string, reason: string) => {
         if (!firestore || !tenantId) return;
-        // Verify manager PIN
-        const authSnap = await getDocs(query(
-            collection(firestore, `tenants/${tenantId}/staff`),
-            where('pin', '==', authorizerPin)
-        ));
+        const authSnap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', authorizerPin)));
         const authorizer = authSnap.docs[0];
-        if (!authorizer || !['admin','owner'].includes(authorizer.data().role)) {
-            toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN required to void transactions.' });
-            return;
-        }
+        if (!authorizer || !['admin','owner'].includes(authorizer.data().role)) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'Manager PIN required to void transactions.' }); return; }
         const txRef = doc(firestore, `tenants/${tenantId}/transactions`, txId);
         const batch = writeBatch(firestore);
-        batch.update(txRef, sanitizeForFirestore({
-            voided: true,
-            voidedAt: new Date().toISOString(),
-            voidedBy: authorizer.id,
-            voidReason: reason,
-        }));
-        // Write a reversal transaction
+        batch.update(txRef, sanitizeForFirestore({ voided: true, voidedAt: new Date().toISOString(), voidedBy: authorizer.id, voidReason: reason }));
         const reversalRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
         const originalTx = transactions?.find(t => t.id === txId);
         if (originalTx) {
-            batch.set(reversalRef, sanitizeForFirestore({
-                id: reversalRef.id,
-                date: new Date().toISOString(),
-                description: `VOID: ${originalTx.description}`,
-                clientOrVendor: originalTx.clientOrVendor,
-                clientId: originalTx.clientId,
-                type: originalTx.type === 'income' ? 'expense' : 'income',
-                context: 'Business',
-                category: 'Void',
-                amount: originalTx.amount,
-                paymentMethod: originalTx.paymentMethod,
-                voidOf: txId,
-                notes: reason,
-                hasReceipt: false,
-                tenantId,
-            }));
+            batch.set(reversalRef, sanitizeForFirestore({ id: reversalRef.id, date: new Date().toISOString(), description: `VOID: ${originalTx.description}`, clientOrVendor: originalTx.clientOrVendor, clientId: originalTx.clientId, type: originalTx.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', amount: originalTx.amount, paymentMethod: originalTx.paymentMethod, voidOf: txId, notes: reason, hasReceipt: false, tenantId }));
         }
         await batch.commit();
         toast({ title: 'Transaction Voided', description: `Reversal recorded. Authorized by ${authorizer.data().name}.` });
@@ -910,6 +1053,7 @@ function POSPage() {
         waivedAppointmentFees, onWaiveFeeToggle: (id: string, waive: boolean, authorizerId?: string, reason?: string) => { setWaivedAppointmentFees(prev => { const next = new Map(prev); if (waive && authorizerId && reason) next.set(id, { authorizerId, reason }); else next.delete(id); return next; }); },
         tipAllocations, setTipAllocations, activeTill, staff, role,
         onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
+        tenantId, // ← CRITICAL: enables card-on-file charging and embedded card form
     };
 
     if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
@@ -929,47 +1073,78 @@ function POSPage() {
                         {isOwnerOrAdminUser && (<Button variant={activeTill ? "outline" : "default"} onClick={() => setIsTillManagementOpen(true)} className={cn("h-14 md:h-20 px-8 rounded-3xl font-black uppercase text-xs shadow-xl border-4 flex flex-col items-center justify-center gap-1", activeTill ? "border-green-500/20 bg-green-500/5 text-green-700" : "shadow-primary/20")}><Landmark className="w-5 h-5 mb-1" /> {activeTill ? `Till: $${safeNumber(activeTill.expectedCash).toFixed(2)}` : "Open Studio Till"}</Button>)}
                     </div>
                     <div className="grid gap-10 grid-cols-1">
-                        {/* ── QUICK ACTION BAR ── */}
                         <div className="flex items-center gap-3 flex-wrap">
-                            <Button onClick={() => setIsQuickBookOpen(true)} variant="outline"
-                                className="h-10 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 gap-2">
+                            <Button onClick={() => setIsQuickBookOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 gap-2">
                                 <Calendar className="w-4 h-4" /> Quick Book
                             </Button>
-                            <Button onClick={() => setIsVoidDialogOpen(true)} variant="outline"
-                                className="h-10 px-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-600 font-black uppercase text-[10px] tracking-widest hover:bg-red-100 gap-2"
-                                disabled={!transactions?.some(t => isToday(safeDate(t.date)) && !t.voided)}>
+                            <Button onClick={() => setIsVoidDialogOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-600 font-black uppercase text-[10px] tracking-widest hover:bg-red-100 gap-2" disabled={!transactions?.some(t => isToday(safeDate(t.date)) && !t.voided)}>
                                 <XCircle className="w-4 h-4" /> Void Tx
                             </Button>
                         </div>
 
                         <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
-                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={useMemo(() => {
-                  const sizes = new Map<string, number>();
-                  (walkIns || []).forEach((w: any) => {
-                    if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize);
-                    else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
-                  });
-                  return sizes;
-                }, [walkIns])} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } }} />
-                        <div className="space-y-4 text-left"><h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3><RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => {}} /></div>
+
+                        <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={useMemo(() => { const sizes = new Map<string, number>(); (walkIns || []).forEach((w: any) => { if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize); else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1); }); return sizes; }, [walkIns])} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } }} />
+
+                        <div className="space-y-4 text-left">
+                            <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3>
+                            <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => {}} />
+                        </div>
                     </div>
                 </main>
+
                 <aside className={cn("hidden lg:flex border-l-4 border-muted/30 bg-white flex-col h-full transition-all duration-500 relative overflow-hidden", isCartCollapsed ? "w-20" : "w-full")}>
-                    {!isCartCollapsed ? (<div className="flex flex-col h-full w-full"><div className="absolute top-6 left-[-24px] z-50"><Button variant="outline" size="icon" onClick={() => setIsCartCollapsed(true)} className="h-12 w-12 rounded-2xl border-4 border-white bg-white shadow-xl hover:bg-muted text-slate-400 group transition-all"><ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" /></Button></div><div className="absolute inset-0 flex flex-col"><ScrollArea className="flex-1"><div className="p-6 pb-40"><CheckoutHub {...checkoutHubProps} /></div></ScrollArea></div></div>) : (<div className="flex flex-col items-center py-8 gap-8 h-full"><button onClick={() => setIsCartCollapsed(false)} className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm flex items-center justify-center"><ChevronLeft className="h-6 w-6" /></button><div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180"><span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span><span className="font-black text-primary text-xl mt-6 tracking-tighter">${totalCalc.toFixed(2)}</span></div><div className="mt-auto pb-8"><Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{retailItems.length + selectedAppointmentIds.size}</Badge></div></div>)}
+                    {!isCartCollapsed ? (
+                        <div className="flex flex-col h-full w-full">
+                            <div className="absolute top-6 left-[-24px] z-50">
+                                <Button variant="outline" size="icon" onClick={() => setIsCartCollapsed(true)} className="h-12 w-12 rounded-2xl border-4 border-white bg-white shadow-xl hover:bg-muted text-slate-400 group transition-all"><ChevronRight className="h-6 w-6 group-hover:translate-x-0.5 transition-transform" /></Button>
+                            </div>
+                            <div className="absolute inset-0 flex flex-col">
+                                <ScrollArea className="flex-1">
+                                    <div className="p-6 pb-40">
+                                        <CheckoutHub {...checkoutHubProps} />
+                                    </div>
+                                </ScrollArea>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center py-8 gap-8 h-full">
+                            <button onClick={() => setIsCartCollapsed(false)} className="h-12 w-12 rounded-2xl bg-primary/5 text-primary hover:bg-primary/10 shadow-sm flex items-center justify-center"><ChevronLeft className="h-6 w-6" /></button>
+                            <div className="flex flex-col items-center gap-1 [writing-mode:vertical-lr] rotate-180">
+                                <span className="font-black uppercase tracking-[0.3em] text-sm text-slate-900 opacity-40">Current Sale</span>
+                                <span className="font-black text-primary text-xl mt-6 tracking-tighter">${totalCalc.toFixed(2)}</span>
+                            </div>
+                            <div className="mt-auto pb-8">
+                                <Badge className="rounded-full h-8 w-8 flex items-center justify-center p-0 font-black bg-primary text-white border-none shadow-lg animate-in zoom-in duration-300">{retailItems.length + selectedAppointmentIds.size}</Badge>
+                            </div>
+                        </div>
+                    )}
                 </aside>
             </div>
 
-            {isMobile && (<div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40"><Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}><SheetTrigger asChild><Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">View Cart (${totalCalc.toFixed(2)})</Button></SheetTrigger><SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background"><SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0"><SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle></SheetHeader><div className="flex-1 overflow-y-auto"><div className="p-6 pb-24"><CheckoutHub {...checkoutHubProps} /></div></div></SheetContent></Sheet></div>)}
+            {isMobile && (
+                <div className="fixed bottom-0 left-0 right-0 p-4 bg-background/80 border-t backdrop-blur-xl lg:hidden z-40">
+                    <Sheet open={isCartSheetOpen} onOpenChange={setIsCartSheetOpen}>
+                        <SheetTrigger asChild>
+                            <Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-tight shadow-2xl shadow-primary/30">View Cart (${totalCalc.toFixed(2)})</Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[95dvh] p-0 flex flex-col border-none rounded-t-[3rem] bg-background">
+                            <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0">
+                                <SheetTitle className="text-2xl font-black uppercase tracking-tighter">Current Sale</SheetTitle>
+                            </SheetHeader>
+                            <div className="flex-1 overflow-y-auto">
+                                <div className="p-6 pb-24">
+                                    <CheckoutHub {...checkoutHubProps} />
+                                </div>
+                            </div>
+                        </SheetContent>
+                    </Sheet>
+                </div>
+            )}
 
-            {/* ── NEW WALK-IN ALERT TOAST ── */}
             <AnimatePresence>
                 {newWalkInAlert && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 60, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                        className="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-primary text-primary-foreground px-6 py-4 rounded-2xl shadow-2xl shadow-primary/30 flex items-center gap-3 border border-primary/20 whitespace-nowrap"
-                    >
+                    <motion.div initial={{ opacity: 0, y: 60, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 20, scale: 0.95 }} className="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-primary text-primary-foreground px-6 py-4 rounded-2xl shadow-2xl shadow-primary/30 flex items-center gap-3 border border-primary/20 whitespace-nowrap">
                         <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
                         <p className="font-black uppercase tracking-widest text-xs">{newWalkInAlert}</p>
                     </motion.div>
@@ -979,8 +1154,15 @@ function POSPage() {
             <RecoveryOverrideDialog open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={(id: string) => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
-            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data: any) => { if (!selectedAppointment || !firestore || !tenantId) return; const batch = writeBatch(firestore); const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-'); const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId); const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments'; const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount }; batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true }); await batch.commit();
-                // Settle the cancellation fee per the chosen protocol
+            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data: any) => {
+                if (!selectedAppointment || !firestore || !tenantId) return;
+                const batch = writeBatch(firestore);
+                const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-');
+                const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId);
+                const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments';
+                const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount };
+                batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true });
+                await batch.commit();
                 if (data.feeAmount > 0 && selectedAppointment.clientId) {
                     if (data.paymentMethod === 'card_on_file') {
                         try {
@@ -993,45 +1175,27 @@ function POSPage() {
                         updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) });
                     }
                 }
-                await settleDepositForCancellation(selectedAppointment, data.reason === 'no-show' ? 'no_show' : 'client_cancel'); setIsCancelDialogOpen(false); setIsDetailsOpen(false); }} />}
+                await settleDepositForCancellation(selectedAppointment, data.reason === 'no-show' ? 'no_show' : 'client_cancel');
+                setIsCancelDialogOpen(false);
+                setIsDetailsOpen(false);
+            }} />}
             <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id: string, state: any) => {
-                    if (!firestore || !tenantId) return;
-                    const apt = (appointmentsFromInventory || []).find(a => a.id === id);
-                    const batch = writeBatch(firestore);
-                    // Send appointment to checkout queue
-                    batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), sanitizeForFirestore({
-                      status: 'ready_for_checkout',
-                      checkoutState: state,
-                      actualEndTime: new Date().toISOString()
-                    }));
-                    // FIX: free the staff member so they appear available for next guest
-                    if (apt?.staffId) {
-                      batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), {
-                        status: 'available',
-                        lastWalkInCompletedAt: new Date().toISOString()
-                      });
-                    }
-                    await batch.commit();
-                    setIsTechnicianReviewOpen(false);
-                  }} />}
+                if (!firestore || !tenantId) return;
+                const apt = (appointmentsFromInventory || []).find(a => a.id === id);
+                const batch = writeBatch(firestore);
+                batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), sanitizeForFirestore({ status: 'ready_for_checkout', checkoutState: state, actualEndTime: new Date().toISOString() }));
+                if (apt?.staffId) { batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'available', lastWalkInCompletedAt: new Date().toISOString() }); }
+                await batch.commit();
+                setIsTechnicianReviewOpen(false);
+            }} />}
             <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
             <CheckInConfirmationDialog open={!!pendingCheckInItem} onOpenChange={() => setPendingCheckInItem(null)} item={pendingCheckInItem} services={services || []} tenant={selectedTenant} onConfirm={handleResolveCheckInConfirmation} />
 
-            {/* ── IDENTITY MATCH DIALOG (with type guard fix) ── */}
-            <IdentityMatchDialog
-                open={!!pendingIdentityMatch}
-                onOpenChange={() => setPendingIdentityMatch(null)}
-                walkIn={pendingIdentityMatch}
-                matchedClient={pendingIdentityMatch?.matchedClient}
+            <IdentityMatchDialog open={!!pendingIdentityMatch} onOpenChange={() => setPendingIdentityMatch(null)} walkIn={pendingIdentityMatch} matchedClient={pendingIdentityMatch?.matchedClient}
                 onLinkSession={async (matchedClient: any) => {
                     if (!firestore || !tenantId || !pendingIdentityMatch) return;
-                    // PATCHED: guard against non-walk-in items crashing
-                    if (pendingIdentityMatch.type !== 'walk-in') {
-                        toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' });
-                        setPendingIdentityMatch(null);
-                        return;
-                    }
+                    if (pendingIdentityMatch.type !== 'walk-in') { toast({ title: 'Cannot link', description: 'Identity matching only applies to walk-in guests.' }); setPendingIdentityMatch(null); return; }
                     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/walkIns`, pendingIdentityMatch.id), { clientId: matchedClient.id, customerName: matchedClient.name });
                     toast({ title: "Session Linked", description: `Today's visit linked to ${matchedClient.name}.` });
                     setPendingIdentityMatch(null);
@@ -1048,89 +1212,50 @@ function POSPage() {
                     toast({ title: "Profile Merged", description: `${matchedClient.name}'s profile updated and session linked.` });
                     setPendingIdentityMatch(null);
                 }}
-                onKeepSeparate={() => {
-                    toast({ title: "Kept Separate", description: "Walk-in will be treated as a new guest." });
-                    setPendingIdentityMatch(null);
-                }}
+                onKeepSeparate={() => { toast({ title: "Kept Separate", description: "Walk-in will be treated as a new guest." }); setPendingIdentityMatch(null); }}
             />
 
-            {/* ── VOID TRANSACTION DIALOG ── */}
             <Dialog open={isVoidDialogOpen} onOpenChange={setIsVoidDialogOpen}>
                 <DialogContent className="sm:max-w-lg rounded-[2rem] border-4 shadow-2xl">
                     <DialogHeader className="p-6 pb-0">
-                        <DialogTitle className="text-xl font-black uppercase tracking-tighter text-destructive flex items-center gap-2">
-                            <XCircle className="w-5 h-5" /> Void Transaction
-                        </DialogTitle>
-                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
-                            Select a today's transaction to void. Manager authorization required.
-                        </DialogDescription>
+                        <DialogTitle className="text-xl font-black uppercase tracking-tighter text-destructive flex items-center gap-2"><XCircle className="w-5 h-5" /> Void Transaction</DialogTitle>
+                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select today's transaction to void. Manager authorization required.</DialogDescription>
                     </DialogHeader>
                     <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
-                        {(transactions || [])
-                            .filter(t => isToday(safeDate(t.date)) && !t.voided && t.type === 'income')
-                            .sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime())
-                            .map(tx => (
-                                <button key={tx.id} onClick={() => setVoidTransactionId(voidTransactionId === tx.id ? null : tx.id)}
-                                    className={cn("w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left",
-                                        voidTransactionId === tx.id ? "border-destructive bg-destructive/5" : "border-border hover:border-destructive/30")}>
-                                    <div>
-                                        <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{tx.description}</p>
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase mt-0.5">{format(safeDate(tx.date), 'h:mm a')} · {tx.paymentMethod}</p>
-                                    </div>
-                                    <p className={cn("font-black text-lg", voidTransactionId === tx.id ? "text-destructive" : "text-slate-900")}>${safeNumber(tx.amount).toFixed(2)}</p>
-                                </button>
-                            ))}
-                        {voidTransactionId && (
-                            <VoidAuthForm
-                                onConfirm={(pin, reason) => handleVoidTransaction(voidTransactionId, pin, reason)}
-                                onCancel={() => setVoidTransactionId(null)}
-                            />
-                        )}
+                        {(transactions || []).filter(t => isToday(safeDate(t.date)) && !t.voided && t.type === 'income').sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime()).map(tx => (
+                            <button key={tx.id} onClick={() => setVoidTransactionId(voidTransactionId === tx.id ? null : tx.id)} className={cn("w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left", voidTransactionId === tx.id ? "border-destructive bg-destructive/5" : "border-border hover:border-destructive/30")}>
+                                <div>
+                                    <p className="text-[11px] font-black uppercase tracking-tight text-slate-900">{tx.description}</p>
+                                    <p className="text-[9px] font-bold text-muted-foreground uppercase mt-0.5">{format(safeDate(tx.date), 'h:mm a')} · {tx.paymentMethod}</p>
+                                </div>
+                                <p className={cn("font-black text-lg", voidTransactionId === tx.id ? "text-destructive" : "text-slate-900")}>${safeNumber(tx.amount).toFixed(2)}</p>
+                            </button>
+                        ))}
+                        {voidTransactionId && <VoidAuthForm onConfirm={(pin, reason) => handleVoidTransaction(voidTransactionId, pin, reason)} onCancel={() => setVoidTransactionId(null)} />}
                     </div>
                 </DialogContent>
             </Dialog>
 
-            {/* ── QUICK BOOK SHEET ── */}
             <Sheet open={isQuickBookOpen} onOpenChange={setIsQuickBookOpen}>
                 <SheetContent side="right" className="w-full sm:max-w-xl flex flex-col p-0 overflow-hidden">
                     <SheetHeader className="p-6 border-b bg-muted/5 flex-shrink-0">
-                        <SheetTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
-                            <BookOpen className="w-5 h-5 text-primary" /> Quick Book — Call-In
-                        </SheetTitle>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">
-                            Book an appointment directly from the POS for walk-in or call-in guests.
-                        </p>
+                        <SheetTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><BookOpen className="w-5 h-5 text-primary" /> Quick Book — Call-In</SheetTitle>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">Book an appointment directly from the POS for walk-in or call-in guests.</p>
                     </SheetHeader>
                     <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        <QuickBookForm
-                            clients={clients || []}
-                            services={services || []}
-                            staff={staff || []}
-                            tenantId={tenantId || ''}
-                            tenant={selectedTenant}
-                            firestore={firestore}
-                            onSuccess={() => { setIsQuickBookOpen(false); toast({ title: "Appointment Booked" }); }}
-                            onCancel={() => setIsQuickBookOpen(false)}
-                        />
+                        <QuickBookForm clients={clients || []} services={services || []} staff={staff || []} tenantId={tenantId || ''} tenant={selectedTenant} firestore={firestore} onSuccess={() => { setIsQuickBookOpen(false); toast({ title: "Appointment Booked" }); }} onCancel={() => setIsQuickBookOpen(false)} />
                     </div>
                 </SheetContent>
             </Sheet>
 
-            {/* ── DEPOSIT REFUND CONFIRM ── */}
             <Dialog open={!!pendingRefund} onOpenChange={(o) => { if (!o) setPendingRefund(null); }}>
                 <DialogContent className="sm:max-w-md rounded-[2rem] border-4 shadow-2xl">
                     <DialogHeader className="p-6 pb-0">
-                        <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
-                            <Wallet className="w-5 h-5 text-primary" /> Refund Deposit?
-                        </DialogTitle>
-                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">
-                            {pendingRefund?.reason}
-                        </DialogDescription>
+                        <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2"><Wallet className="w-5 h-5 text-primary" /> Refund Deposit?</DialogTitle>
+                        <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">{pendingRefund?.reason}</DialogDescription>
                     </DialogHeader>
                     <div className="p-6 space-y-5">
-                        <p className="text-sm font-medium text-slate-600 leading-relaxed">
-                            Return <strong className="text-slate-900">${safeNumber(pendingRefund?.amount).toFixed(2)}</strong> to {pendingRefund?.clientName}? This sends the money back through Stripe and can't be undone. Skip to keep it as a credit toward their next visit instead.
-                        </p>
+                        <p className="text-sm font-medium text-slate-600 leading-relaxed">Return <strong className="text-slate-900">${safeNumber(pendingRefund?.amount).toFixed(2)}</strong> to {pendingRefund?.clientName}? This sends the money back through Stripe and can't be undone. Skip to keep it as a credit toward their next visit instead.</p>
                         <div className="flex gap-3">
                             <Button onClick={() => setPendingRefund(null)} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Skip · keep as credit</Button>
                             <Button onClick={handleConfirmRefund} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Refund ${safeNumber(pendingRefund?.amount).toFixed(2)}</Button>
@@ -1139,7 +1264,13 @@ function POSPage() {
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}><DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center"><DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader><div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div><DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter></DialogContent></Dialog>
+            <Dialog open={isPrintDialogOpen} onOpenChange={setIsPrintDialogOpen}>
+                <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center">
+                    <DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader>
+                    <div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div>
+                    <DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
@@ -1149,302 +1280,5 @@ export default function POSPageWrapper() {
         <Suspense fallback={<div className="flex h-[100dvh] w-full flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>}>
             <POSPage />
         </Suspense>
-    );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUPPORTING COMPONENTS — add these to a separate file or inline above POSPage
-// File: src/components/pos/QuickBookForm.tsx  and  src/components/pos/VoidAuthForm.tsx
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ─── VoidAuthForm ──────────────────────────────────────────────────────────────
-// Small inline form for manager PIN + reason when voiding a transaction
-export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string, reason: string) => void; onCancel: () => void }) {
-    const [pin, setPin] = React.useState('');
-    const [reason, setReason] = React.useState('');
-    return (
-        <div className="mt-4 p-4 rounded-2xl border-2 border-destructive/20 bg-destructive/5 space-y-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-destructive">Manager Authorization Required</p>
-            <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Manager PIN</Label>
-                    <Input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="••••" className="h-10 rounded-xl text-center font-black text-lg tracking-widest border-2" />
-                </div>
-                <div className="space-y-1.5">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
-                    <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe void reason" className="h-10 rounded-xl border-2" />
-                </div>
-            </div>
-            <div className="flex gap-2">
-                <Button onClick={() => onConfirm(pin, reason)} disabled={pin.length < 4 || !reason.trim()} variant="destructive" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">Authorize Void</Button>
-                <Button onClick={onCancel} variant="ghost" className="flex-1 h-10 rounded-xl font-black uppercase text-[10px] tracking-widest">Cancel</Button>
-            </div>
-        </div>
-    );
-}
-
-// ─── QuickBookForm ─────────────────────────────────────────────────────────────
-// Books a phone/call-in appointment from POS. When the service needs a deposit,
-// consent forms, or you simply want a card on file, it mints a secure completion
-// link the front desk sends — the client finishes the deposit + card + forms there.
-export function QuickBookForm({ clients, services, staff, tenantId, tenant, firestore, onSuccess, onCancel }: any) {
-    const { toast } = useToast();
-    const [clientSearch, setClientSearch] = React.useState('');
-    const [selectedClient, setSelectedClient] = React.useState<any>(null);
-    const [newClientName, setNewClientName] = React.useState('');
-    const [newClientPhone, setNewClientPhone] = React.useState('');
-    const [email, setEmail] = React.useState('');
-    const [selectedService, setSelectedService] = React.useState<string>('');
-    const [selectedStaff, setSelectedStaff] = React.useState<string>('any');
-    const [aptDate, setAptDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
-    const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 15), 'HH:mm'));
-    const [sendLink, setSendLink] = React.useState(true);
-    const [requestFiles, setRequestFiles] = React.useState(false);
-    const [isSubmitting, setIsSubmitting] = React.useState(false);
-    const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
-    const [copied, setCopied] = React.useState(false);
-    const [sendStatus, setSendStatus] = React.useState<any>(null);
-
-    const filteredClients = React.useMemo(() => {
-        if (!clientSearch.trim()) return clients.slice(0, 8);
-        const s = clientSearch.toLowerCase();
-        return clients.filter((c: any) => c.name?.toLowerCase().includes(s) || c.phone?.includes(s) || c.email?.toLowerCase().includes(s)).slice(0, 8);
-    }, [clients, clientSearch]);
-
-    const selectedSvc = services.find((s: any) => s.id === selectedService);
-    const staffMember = staff.find((s: any) => s.id === selectedStaff);
-
-    // Deposit + consent requirements — computed exactly like the online booking flow
-    const svcPrice = selectedSvc ? getServicePrice(selectedSvc, staffMember) : 0;
-    const depositCents = selectedSvc ? computeDepositCents({ service: selectedSvc, price: svcPrice, depositsLive: tenant?.depositsLive === true }) : 0;
-    const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
-    const alreadyHasCard = !!selectedClient?.cardOnFile?.token;
-
-    const copyLink = async () => {
-        if (!generatedLink) return;
-        try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-        catch { toast({ variant: 'destructive', title: 'Copy failed', description: 'Select and copy the link manually.' }); }
-    };
-
-    const handleBook = async () => {
-        if (!selectedService || !tenantId || !firestore) return;
-        if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client Required' }); return; }
-        if (sendLink && !email.trim()) { toast({ variant: 'destructive', title: 'Email required', description: 'An email is needed to send the secure completion link.' }); return; }
-        setIsSubmitting(true);
-        const { nanoid: _nanoid } = await import('nanoid');
-        const batch = writeBatch(firestore);
-        const now = new Date().toISOString();
-        try {
-            let clientId = selectedClient?.id;
-            const clientName = selectedClient?.name || newClientName.trim();
-            if (!clientId) {
-                clientId = _nanoid();
-                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
-                    id: clientId, name: clientName, phone: newClientPhone, email: email.trim(),
-                    lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
-                }));
-            } else if (email.trim() && !selectedClient?.email) {
-                batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { email: email.trim() }, { merge: true });
-            }
-
-            const aptId = _nanoid();
-            const checkInToken = _nanoid();
-            const startTime = new Date(`${aptDate}T${aptTime}:00`);
-            const endTime = addMinutes(startTime, selectedSvc?.duration || 60);
-            // "First Available" must resolve to a real provider, or the appointment
-            // lands in no planner column and never shows on the staff portal.
-            const resolvedStaffId = selectedStaff === 'any' ? (staff.find((s: any) => s.active)?.id || null) : selectedStaff;
-            const aptDoc = sanitizeForFirestore({
-                id: aptId, tenantId, clientId, clientName,
-                serviceId: selectedService,
-                staffId: resolvedStaffId,
-                checkInToken,
-                status: 'confirmed', source: 'pos_quick_book',
-                startTime: startTime.toISOString(), endTime: endTime.toISOString(),
-                createdAt: now, reminderSent: false,
-                ...(sendLink ? { completionStatus: 'pending', depositAmountCents: depositCents, depositStatus: depositCents > 0 ? 'pending' : 'none' } : {}),
-            });
-            batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
-            // Mirror to the top-level check-in collection (parity with manual booking)
-            batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
-
-            let link: string | null = null;
-            if (sendLink) {
-                const token = _nanoid();
-                const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-                batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
-                    token, tenantId, appointmentId: aptId, clientId,
-                    clientName, clientEmail: email.trim().toLowerCase(),
-                    serviceId: selectedService, serviceName: selectedSvc?.name || '',
-                    depositAmountCents: depositCents,
-                    requiredConsentFormIds: requiredFormIds,
-                    fileRequirements: requestFiles ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
-                    status: 'pending', createdAt: now, expiresAt,
-                }));
-                const origin = typeof window !== 'undefined' ? window.location.origin : '';
-                link = `${origin}/complete/${tenantId}/${token}`;
-            }
-
-            await batch.commit();
-
-            if (link) {
-                setGeneratedLink(link);
-                const clientPhone = selectedClient?.phone || newClientPhone;
-                try {
-                    const sr = await fetch('/api/notifications/send-completion-link', {
-                        method: 'POST', headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ link, clientName, clientEmail: email.trim(), clientPhone, studioName: tenant?.name }),
-                    });
-                    setSendStatus(await sr.json().catch(() => null));
-                } catch { setSendStatus(null); }
-                toast({ title: 'Appointment booked', description: 'Secure link generated.' });
-            } else {
-                onSuccess();
-            }
-        } catch (e) { toast({ variant: 'destructive', title: 'Booking Failed' }); }
-        finally { setIsSubmitting(false); }
-    };
-
-    // ── Post-booking: show the secure link to copy/send ──────────────────────
-    if (generatedLink) {
-        return (
-            <div className="space-y-6">
-                <div className="text-center space-y-3 pt-2">
-                    <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
-                        <CheckCircle2 className="w-8 h-8 text-green-500" />
-                    </div>
-                    <p className="text-lg font-black uppercase tracking-tight text-slate-900">Appointment booked</p>
-                    <p className="text-xs text-muted-foreground font-medium max-w-xs mx-auto">
-                        Send this secure link to the client. They'll {depositCents > 0 ? `pay the $${(depositCents / 100).toFixed(2)} deposit, ` : ''}save their card{requiredFormIds.length > 0 ? `, and sign ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.
-                    </p>
-                </div>
-
-                <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Link2 className="w-3 h-3" /> Completion link</Label>
-                    <div className="flex items-center gap-2">
-                        <Input readOnly value={generatedLink} onFocus={(e) => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
-                        <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest shrink-0">
-                            {copied ? <><CheckCircle2 className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}
-                        </Button>
-                    </div>
-                    {sendStatus && (sendStatus.smsSent || sendStatus.emailSent)
-                        ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''} · valid 7 days</p>
-                        : <p className="text-[10px] text-muted-foreground font-medium">{sendStatus && !sendStatus.smsConfigured && !sendStatus.emailConfigured ? "Auto-send isn't set up yet — copy the link to send it. " : ''}Valid for 7 days.</p>}
-                </div>
-
-                <Button onClick={onSuccess} variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Done</Button>
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-6">
-            {/* Client */}
-            <div className="space-y-3">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client</Label>
-                {selectedClient ? (
-                    <div className="flex items-center justify-between p-3 rounded-2xl border-2 border-primary/20 bg-primary/5">
-                        <div><p className="font-black text-sm text-slate-900">{selectedClient.name}</p><p className="text-[10px] text-muted-foreground">{selectedClient.phone}</p></div>
-                        <Button variant="ghost" size="sm" onClick={() => { setSelectedClient(null); setEmail(''); }} className="text-[10px] font-black uppercase">Change</Button>
-                    </div>
-                ) : (
-                    <>
-                        <Input placeholder="Search by name or phone..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="h-12 rounded-xl border-2" />
-                        {filteredClients.length > 0 && (
-                            <div className="rounded-xl border-2 divide-y overflow-hidden">
-                                {filteredClients.map((c: any) => (
-                                    <button key={c.id} onClick={() => { setSelectedClient(c); setClientSearch(''); setEmail(c.email || ''); }} className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left">
-                                        <p className="font-bold text-sm text-slate-900">{c.name}</p>
-                                        <p className="text-[10px] text-muted-foreground">{c.phone}</p>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                        {clientSearch && filteredClients.length === 0 && (
-                            <div className="space-y-3 p-4 rounded-xl border-2 border-dashed">
-                                <p className="text-[10px] font-bold uppercase text-muted-foreground">New Client</p>
-                                <Input placeholder="Full name" value={newClientName} onChange={e => setNewClientName(e.target.value)} className="h-10 rounded-xl border-2" />
-                                <Input placeholder="Phone number" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} className="h-10 rounded-xl border-2" />
-                            </div>
-                        )}
-                    </>
-                )}
-                <Input type="email" placeholder="Email (for receipt & secure link)" value={email} onChange={e => setEmail(e.target.value)} className="h-11 rounded-xl border-2" />
-            </div>
-
-            {/* Service */}
-            <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Service</Label>
-                <select value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
-                    <option value="">Select service…</option>
-                    {services.filter((s: any) => s.type === 'service').map((s: any) => (
-                        <option key={s.id} value={s.id}>{s.name} ({s.duration}m)</option>
-                    ))}
-                </select>
-            </div>
-
-            {/* Staff */}
-            <div className="space-y-2">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Provider</Label>
-                <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
-                    <option value="any">First Available</option>
-                    {staff.filter((s: any) => s.active).map((s: any) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                </select>
-            </div>
-
-            {/* Date + Time */}
-            <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
-                    <input type="date" value={aptDate} onChange={e => setAptDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
-                </div>
-                <div className="space-y-2">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Time</Label>
-                    <input type="time" value={aptTime} onChange={e => setAptTime(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
-                </div>
-            </div>
-
-            {/* Completion link toggle */}
-            <button type="button" onClick={() => setSendLink(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
-                <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" /> Send completion link</p>
-                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-                            {selectedSvc
-                                ? <>Client secures a card on file{depositCents > 0 ? `, pays a $${(depositCents / 100).toFixed(2)} deposit` : ''}{requiredFormIds.length > 0 ? `, and signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.</>
-                                : <>Pick a service to see what the client will complete.</>}
-                            {alreadyHasCard && <span className="block mt-1 text-green-600 font-bold">This client already has a card on file.</span>}
-                        </p>
-                    </div>
-                    <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", sendLink ? "bg-primary" : "bg-slate-200")}>
-                        <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", sendLink ? "left-[22px]" : "left-0.5")} />
-                    </div>
-                </div>
-            </button>
-
-            {/* Request inspo photos sub-toggle */}
-            {sendLink && (
-              <button type="button" onClick={() => setRequestFiles(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", requestFiles ? "border-primary bg-primary/5" : "border-border bg-white")}>
-                <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                        <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" /> Request inspiration photos</p>
-                        <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">Client uploads reference photos in the same link (up to 5).</p>
-                    </div>
-                    <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", requestFiles ? "bg-primary" : "bg-slate-200")}>
-                        <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", requestFiles ? "left-[22px]" : "left-0.5")} />
-                    </div>
-                </div>
-              </button>
-            )}
-
-            <div className="flex gap-3 pt-2">
-                <Button onClick={onCancel} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-                <Button onClick={handleBook} disabled={isSubmitting || !selectedService || (!selectedClient && !newClientName.trim())} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-                    {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : sendLink ? 'Book & Get Link →' : 'Book Appointment →'}
-                </Button>
-            </div>
-        </div>
     );
 }
