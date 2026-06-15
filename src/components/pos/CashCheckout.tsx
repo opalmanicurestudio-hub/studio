@@ -40,6 +40,7 @@ interface CashCheckoutProps {
   clientEmail?:       string;
   clientPhone?:       string;
   clientName?:        string;
+  cashierName?:       string;
   lineItems?:         ReceiptLineItem[];
   discountValue?:     number;
   recoveryAmount?:    number;
@@ -60,10 +61,11 @@ export function CashCheckout({
   selectedClientId,
   isOverAutonomy,
   isOverrideUnlocked,
-  clientEmail = '',
-  clientPhone = '',
-  clientName  = 'Guest',
-  lineItems   = [],
+  clientEmail  = '',
+  clientPhone  = '',
+  clientName   = 'Guest',
+  cashierName  = '',
+  lineItems    = [],
   discountValue  = 0,
   recoveryAmount = 0,
 }: CashCheckoutProps) {
@@ -75,6 +77,7 @@ export function CashCheckout({
   const [receiptSent,    setReceiptSent]    = useState(false);
   const [isSending,      setIsSending]      = useState(false);
   const [showLines,      setShowLines]      = useState(false);
+  const [noReceipt,      setNoReceipt]      = useState(false);
 
   const change      = Math.max(0, amountTendered - finalTotal);
   const hasChange   = change > 0.005;
@@ -109,6 +112,7 @@ export function CashCheckout({
 
   const buildReceiptPayload = () => ({
     clientName,
+    cashierName,
     studioName:    selectedTenant?.name || 'Studio',
     studioPhone:   selectedTenant?.twilioPhoneNumber || '',
     lineItems,
@@ -238,6 +242,7 @@ export function CashCheckout({
             <Zap className="w-2.5 h-2.5" /> Exact
           </button>
         </div>
+        {/* Bills */}
         <div className="grid grid-cols-6 gap-1.5">
           {BILLS.map(bill => (
             <button key={bill}
@@ -250,6 +255,20 @@ export function CashCheckout({
             </button>
           ))}
         </div>
+        {/* Coins — shown when change is getting close or tendered is set */}
+        {(amountTendered > 0 || stillOwed < 1.5) && (
+          <div className="grid grid-cols-4 gap-1.5">
+            {[0.25, 0.50, 0.75, 1.00].map(coin => (
+              <button key={coin}
+                onClick={() => setAmountTendered(Number((amountTendered + coin).toFixed(2)))}
+                className={cn('h-9 rounded-xl border-2 font-black text-[10px] tracking-tight transition-all active:scale-95 text-muted-foreground',
+                  'border-border bg-muted/20 hover:border-primary/30 hover:bg-primary/5 hover:text-primary')}>
+                ¢{(coin * 100).toFixed(0)}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Smart round-up amounts */}
         <div className="grid grid-cols-3 gap-1.5">
           {quickAmounts.map(amt => (
             <button key={amt}
@@ -342,8 +361,10 @@ export function CashCheckout({
             <span className="text-[9px] font-black uppercase">Text</span>
           </button>
         </div>
+        </div>
+        )}
         <AnimatePresence>
-          {(receiptMode === 'email' || receiptMode === 'sms') && (
+          {!noReceipt && (receiptMode === 'email' || receiptMode === 'sms') && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-2">
               <Input
                 type={receiptMode === 'email' ? 'email' : 'tel'}
@@ -360,6 +381,9 @@ export function CashCheckout({
             </motion.div>
           )}
         </AnimatePresence>
+        {noReceipt && (
+          <p className="text-[9px] font-bold text-destructive/60 uppercase text-center py-1">No receipt — guest declined</p>
+        )}
       </div>
 
       <Button
