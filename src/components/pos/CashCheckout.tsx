@@ -325,7 +325,9 @@ export function CashCheckout({
           ? <Loader className="animate-spin h-7 w-7" />
           : finalTotal <= 0
           ? 'Finalize Free Session'
-          : <><Banknote className="w-6 h-6 mr-2" /> Collect ${finalTotal.toFixed(2)}</>}
+          : amountTendered > finalTotal
+          ? <><Banknote className="w-6 h-6 mr-2" /> Collect ${amountTendered.toFixed(2)} · Change ${change.toFixed(2)}</>
+          : <><Banknote className="w-6 h-6 mr-2" /> Collect ${finalTotal.toFixed(2)}{isExact ? ' · Exact' : ''}</>}
       </Button>
 
       {!canCheckout && !isSubmitting && amountTendered > 0 && amountTendered < finalTotal && (
