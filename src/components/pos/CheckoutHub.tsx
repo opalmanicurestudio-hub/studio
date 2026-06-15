@@ -533,15 +533,17 @@ export const CheckoutHub = ({
   const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
 
   const filteredPayerOptions = useMemo(() => {
-    const listToFilter = payerOptions || [];
-    if (!clientSearch.trim()) return listToFilter;
+    // Group checkout: only show clients from selected appointments
+    // Individual checkout: search the full client list
+    const listToFilter = isGroupCheckout ? (payerOptions || []) : (clients || []);
+    if (!clientSearch.trim()) return listToFilter.slice(0, 8);
     const search = clientSearch.toLowerCase();
     return listToFilter.filter((c: Client) =>
       c.name.toLowerCase().includes(search) ||
       (c.email && c.email.toLowerCase().includes(search)) ||
       (c.phone && c.phone.includes(search))
-    );
-  }, [payerOptions, clientSearch]);
+    ).slice(0, 20);
+  }, [payerOptions, clients, clientSearch, isGroupCheckout]);
 
   const handleUpdateQuantity = (itemId: string, newQuantity: number) => {
     if (newQuantity <= 0) onCartChange(cart.filter((item: any) => item.id !== itemId));
