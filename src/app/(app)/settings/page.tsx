@@ -17,6 +17,7 @@ import {
   Activity, Tag, Shield, Star, Landmark, PlusCircle, LayoutGrid, Sparkles,
   Flame, Workflow, Printer, QrCode, Scale as ScaleIcon, HeartHandshake, Trash2,
   FileWarning, MapPin, Timer, TrendingUp, Bell, Coffee as BreakIcon, Eye,
+  Monitor,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -38,6 +39,8 @@ import { useForm, Controller } from 'react-hook-form';
 import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
+// ─── Terminal reader settings panel ───────────────────────────────────────────
+import { TerminalSettings } from '@/components/pos/TerminalSettings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
@@ -360,15 +363,12 @@ function SettingsPageImpl() {
   };
 
   // ─── SAVE ─────────────────────────────────────────────────────────────────
-  // bookingPageSettings is intentionally excluded — it's owned by the Page Builder.
-  // Writing it here would overwrite cfPageConfig that the builder saved.
   const handleSave = async () => {
     if (!selectedTenant || !firestore) return;
     try {
       const batch     = writeBatch(firestore);
       const tenantRef = doc(firestore, 'tenants', selectedTenant.id);
 
-      // Strip bookingPageSettings so we never clobber the page builder's cfPageConfig
       const { bookingPageSettings: _pageBuilderOwned, ...tenantDataToSave } = tenantData as any;
 
       const finalData = {
@@ -410,8 +410,6 @@ function SettingsPageImpl() {
   const handleScheduleChange      = (day: string, updates: Partial<DayHours>) => setLocalSchedule((prev: any) => ({ ...prev, [day]: { ...prev[day], ...updates } }));
   const handleKioskScheduleChange = (day: string, updates: Partial<DayHours>) => setLocalKioskSchedule((prev: any) => ({ ...prev, [day]: { ...(prev?.[day] || { enabled: false, start: '09:00 AM', end: '05:00 PM' }), ...updates } }));
   const handlePolicyChange        = (id: string, updates: any) => setServicePolicies(prev => ({ ...prev, [id]: { ...prev[id], ...updates } }));
-  // Deposit policy lives on the tenant doc under `depositPolicy`; the rules engine
-  // (src/lib/deposit-policy.ts) reads it and falls back to DEFAULT_DEPOSIT_POLICY.
   const handleDepositPolicyChange = (updates: any) => setTenantData(prev => ({ ...prev, depositPolicy: { ...(((prev as any).depositPolicy) || {}), ...updates } } as any));
   const handleAddPreset           = () => setTenantData(prev => ({ ...prev, recoveryPresets: [...(prev.recoveryPresets || []), { id: nanoid(), label: 'NEW PRESET', type: 'fixed', value: 0 }] }));
   const handleRemovePreset        = (id: string) => setTenantData(prev => ({ ...prev, recoveryPresets: prev.recoveryPresets?.filter(p => p.id !== id) }));
@@ -424,7 +422,6 @@ function SettingsPageImpl() {
     return services.filter(svc => svc.name.toLowerCase().includes(s) || (svc.category || '').toLowerCase().includes(s));
   }, [services, serviceSearch]);
 
-  // Active deposit policy for display — saved values over engine defaults.
   const depositPolicy: any = { ...DEFAULT_DEPOSIT_POLICY, ...(((tenantData as any).depositPolicy) || {}) };
   const depositOutcomeRules = [
     { key: 'onEarlyCancel',  label: 'Client cancels EARLY',  desc: 'Outside the refund window' },
@@ -433,12 +430,16 @@ function SettingsPageImpl() {
     { key: 'onStudioCancel', label: 'STUDIO cancels',        desc: 'Your side cancels'          },
   ];
 
+  // ── Tab definitions ────────────────────────────────────────────────────────
+  // Terminal tab added here — no save button needed; TerminalSettings manages
+  // its own reader pairing state via the StripeTerminalProvider context.
   const tabs = [
     { value: 'profile',    label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
     { value: 'hours',      label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience', label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
     { value: 'policies',   label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
     { value: 'payments',   label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
+    { value: 'terminal',   label: 'Terminal Reader',            icon: <Monitor className="w-4 h-4" />     },
     { value: 'builder',    label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
     { value: 'kiosk',      label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
     { value: 'timeclock',  label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
@@ -461,13 +462,16 @@ function SettingsPageImpl() {
               <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Studio Orchestration & Governance</p>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              {isEditing ? (
-                <>
-                  <Button variant="ghost" onClick={() => { setIsEditing(false); setGeoInitialized(false); }} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
-                  <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
-                </>
-              ) : (
-                <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 border-primary/20 bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-primary/90 transition-all active:scale-95"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
+              {/* Hide save/cancel on terminal tab — it manages its own state */}
+              {activeTab !== 'terminal' && (
+                isEditing ? (
+                  <>
+                    <Button variant="ghost" onClick={() => { setIsEditing(false); setGeoInitialized(false); }} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
+                    <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 px-8 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" />Save Archive</Button>
+                  </>
+                ) : (
+                  <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 px-8 rounded-2xl border-2 border-primary/20 bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-xl hover:bg-primary/90 transition-all active:scale-95"><Edit className="mr-2 h-4 w-4" />Modify Logic</Button>
+                )
               )}
             </div>
           </div>
@@ -514,7 +518,7 @@ function SettingsPageImpl() {
                     Connect your Stripe account to collect deposits and fees. Funds are paid directly to your bank.
                   </CardDescription>
                 </CardHeader>
-               <CardContent className="p-6 md:p-8">
+                <CardContent className="p-6 md:p-8">
                   <StripeConnectSetup
                     tenantId={tenantId || ''}
                     stripeAccountId={(selectedTenant as any)?.stripeAccountId}
@@ -527,6 +531,24 @@ function SettingsPageImpl() {
                       if (!res.ok) throw new Error('Failed to disconnect');
                     }}
                   />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── TERMINAL READER ── */}
+            {/* This tab is intentionally outside the normal edit/save flow.
+                TerminalSettings uses the StripeTerminalProvider context to scan,
+                pair, and disconnect readers in real time — no Firestore writes needed. */}
+            <TabsContent value="terminal" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Monitor} title="Terminal Reader" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+                    Pair and manage your Stripe card reader for in-person payments at checkout.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 md:p-8">
+                  <TerminalSettings />
                 </CardContent>
               </Card>
             </TabsContent>
@@ -728,15 +750,13 @@ function SettingsPageImpl() {
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Landmark} title="Deposit Governance" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Automate what happens to a deposit when a booking is cancelled or missed — set once, applied consistently.</CardDescription>
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Automate what happens to a deposit when a booking is cancelled or missed.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-8 text-left">
-                  <SettingRow icon={ShieldCheck} color="green" title="Collect Deposits (Live)" description="Master switch. While off, no deposits are charged anywhere — safe to leave off until you've tested end to end.">
+                  <SettingRow icon={ShieldCheck} color="green" title="Collect Deposits (Live)" description="Master switch. While off, no deposits are charged anywhere.">
                     <Switch checked={!!(tenantData as any).depositsLive} onCheckedChange={(val) => setTenantData(prev => ({ ...prev, depositsLive: val } as any))} disabled={!isEditing} className="scale-125 data-[state=checked]:bg-green-600" />
                   </SettingRow>
-
                   <Separator className="border-dashed" />
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Refund Window (Hours)</Label>
@@ -749,12 +769,9 @@ function SettingsPageImpl() {
                       <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">How long a rolled-over deposit stays usable on the client's next visit.</p>
                     </div>
                   </div>
-
                   <Separator className="border-dashed" />
-
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 px-1"><Scale className="w-5 h-5 text-primary" /><h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-900">Automatic Outcomes</h3></div>
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 ml-1 leading-relaxed">Applied automatically so you're not deciding case by case. You can still override any single one at the moment of cancellation.</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {depositOutcomeRules.map(rule => (
                         <div key={rule.key} className="p-5 rounded-[2rem] border-2 bg-slate-50 border-slate-200 space-y-3">
@@ -775,7 +792,7 @@ function SettingsPageImpl() {
                     </div>
                     <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3">
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">Refunds send money back through Stripe and can't be undone — that outcome asks for a one-tap confirmation before it runs. Rollover and forfeit move no money and run silently.</p>
+                      <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">Refunds send money back through Stripe and can't be undone — that outcome asks for a one-tap confirmation before it runs.</p>
                     </div>
                   </div>
                 </CardContent>
@@ -822,33 +839,21 @@ function SettingsPageImpl() {
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
                   <SectionHeader icon={Globe} title="Booking Architecture" />
-                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-                    Design and publish your guest-facing booking page.
-                  </CardDescription>
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Design and publish your guest-facing booking page.</CardDescription>
                 </CardHeader>
                 <CardContent className="p-6 md:p-8 space-y-6">
-                  {/* Primary CTA */}
                   <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
                     <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
                       <Sparkles className="w-7 h-7 text-primary" />
                     </div>
                     <div className="flex-1 space-y-1.5 text-center sm:text-left">
                       <p className="text-base font-black uppercase tracking-tight text-slate-900">Page Builder</p>
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
-                        Drag sections, choose fonts and colors, upload images, and configure every block of your
-                        public booking page — all in one visual editor.
-                      </p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">Drag sections, choose fonts and colors, upload images, and configure every block of your public booking page.</p>
                     </div>
-                    <a
-                      href="/studio/page-builder"
-                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap"
-                    >
-                      Open Builder
-                      <ArrowRight className="w-4 h-4" />
+                    <a href="/studio/page-builder" className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap">
+                      Open Builder <ArrowRight className="w-4 h-4" />
                     </a>
                   </div>
-
-                  {/* What the builder controls */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {[
                       { icon: Palette,     label: 'Brand kit & colors'     },
@@ -864,22 +869,14 @@ function SettingsPageImpl() {
                       </div>
                     ))}
                   </div>
-
-                  {/* Live page URL */}
                   {selectedTenant && (
                     <div className="flex items-center justify-between gap-4 p-5 rounded-[2rem] border-2 border-dashed border-border bg-muted/5">
                       <div className="space-y-1 min-w-0">
                         <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Your live booking page</p>
                         <p className="text-xs font-black text-slate-700 truncate font-mono">/book/{selectedTenant.id}</p>
                       </div>
-                      <a
-                        href={`/book/${selectedTenant.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 flex items-center gap-1.5 h-9 px-4 rounded-xl border-2 border-border bg-white font-black uppercase text-[9px] tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        View Live
+                      <a href={`/book/${selectedTenant.id}`} target="_blank" rel="noopener noreferrer" className="shrink-0 flex items-center gap-1.5 h-9 px-4 rounded-xl border-2 border-border bg-white font-black uppercase text-[9px] tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary transition-all">
+                        <Eye className="w-3.5 h-3.5" /> View Live
                       </a>
                     </div>
                   )}
