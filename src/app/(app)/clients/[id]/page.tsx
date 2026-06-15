@@ -230,6 +230,13 @@ export default function ClientDetailPage() {
   }, [firestore, tenantId, clientId]);
   const { data: allRequests } = useCollection(refreshmentRequestsQuery);
 
+  // Load all transactions for this client directly
+  const clientTxnQuery = useMemoFirebase(() => {
+      if (!firestore || !tenantId || !clientId) return null;
+      return query(collection(firestore, `tenants/${tenantId}/transactions`), where('clientId', '==', clientId));
+  }, [firestore, tenantId, clientId]);
+  const { data: clientTransactions } = useCollection<any>(clientTxnQuery);
+
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -698,6 +705,94 @@ export default function ClientDetailPage() {
               </TabsContent>
 
               <TabsContent value="ledger" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+
+                {/* ── Full transaction history ── */}
+                <div className="space-y-4 text-left">
+                  <div className="flex items-center justify-between px-1">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Transaction History</h3>
+                    <span className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{(clientTransactions || []).length} records</span>
+                  </div>
+                  {(clientTransactions || []).length > 0 ? (() => {
+                    // Group by checkoutSessionId so related line items are collapsed together
+                    const sorted = [...(clientTransactions || [])].sort((a: any, b: any) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
+                    const sessionMap = new Map<string, any[]>();
+                    const ungrouped: any[] = [];
+                    sorted.forEach((txn: any) => {
+                      if (txn.checkoutSessionId) {
+                        if (!sessionMap.has(txn.checkoutSessionId)) sessionMap.set(txn.checkoutSessionId, []);
+                        sessionMap.get(txn.checkoutSessionId)!.push(txn);
+                      } else { ungrouped.push(txn); }
+                    });
+                    const renderTxn = (txn: any) => (
+                      <div key={txn.id} className={cn("flex items-center justify-between p-3 rounded-xl border bg-white/50 text-left",
+                        txn.type === 'income' ? 'border-green-100' : txn.type === 'reversal' ? 'border-slate-100 opacity-60' : 'border-destructive/10')}>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-black text-[10px] uppercase tracking-tight text-slate-900 truncate">{String(txn.description || 'Transaction')}</p>
+                          <Badge className={cn("h-3.5 px-1 text-[7px] font-black uppercase border-none mt-0.5",
+                            txn.category === 'Service Revenue' ? 'bg-indigo-100 text-indigo-700' :
+                            txn.category === 'Tips' ? 'bg-amber-100 text-amber-700' :
+                            txn.category === 'Tax Collected' ? 'bg-slate-100 text-slate-600' :
+                            txn.category === 'Retail' ? 'bg-teal-100 text-teal-700' :
+                            'bg-muted text-muted-foreground')}>{txn.category}</Badge>
+                        </div>
+                        <p className={cn("font-black font-mono text-sm shrink-0 ml-3",
+                          txn.type === 'income' ? 'text-green-600' : txn.type === 'reversal' ? 'text-slate-400' : 'text-destructive')}>
+                          {txn.type === 'income' ? '+' : txn.type === 'reversal' ? '' : '-'}${safeNumber(txn.amount).toFixed(2)}
+                        </p>
+                      </div>
+                    );
+                    return (
+                      <div className="space-y-3">
+                        {Array.from(sessionMap.entries()).map(([sid, txns]) => {
+                          const first = txns[0];
+                          const income = txns.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+                          const expense = txns.filter((t: any) => t.type === 'expense').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+                          const net = income - expense;
+                          return (
+                            <div key={sid} className="rounded-2xl border-2 border-primary/10 bg-primary/[0.02] overflow-hidden">
+                              <div className="flex items-center justify-between px-4 py-3 border-b border-primary/10 bg-primary/[0.03]">
+                                <div>
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">{format(safeDate(first.date), 'MMM d, yyyy · h:mm a')}</p>
+                                  <p className="text-[10px] font-black uppercase text-slate-700">{first.paymentMethod} · {txns.length} line{txns.length !== 1 ? 's' : ''}</p>
+                                </div>
+                                <p className="font-black font-mono text-base text-primary">${net.toFixed(2)}</p>
+                              </div>
+                              <div className="p-3 space-y-1.5">{txns.map(renderTxn)}</div>
+                            </div>
+                          );
+                        })}
+                        {ungrouped.map((txn: any) => (
+                          <div key={txn.id} className={cn("flex items-center justify-between p-4 rounded-2xl border-2 bg-white text-left",
+                            txn.type === 'income' ? 'border-green-100' : txn.type === 'reversal' ? 'border-slate-100 opacity-60' : 'border-destructive/10')}>
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <div className={cn("p-2 rounded-xl shrink-0",
+                                txn.type === 'income' ? 'bg-green-50 text-green-600' : txn.type === 'reversal' ? 'bg-muted text-muted-foreground' : 'bg-destructive/10 text-destructive')}>
+                                {txn.type === 'income' ? <TrendingUp className="w-3.5 h-3.5" /> : txn.type === 'reversal' ? <RefreshCw className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                              </div>
+                              <div className="min-w-0 text-left">
+                                <p className="font-black text-[11px] uppercase tracking-tight text-slate-900 truncate">{String(txn.description || 'Transaction')}</p>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(txn.date), 'MMM d, yyyy · h:mm a')}</p>
+                              </div>
+                            </div>
+                            <p className={cn("font-black font-mono text-sm shrink-0 ml-3",
+                              txn.type === 'income' ? 'text-green-600' : txn.type === 'reversal' ? 'text-slate-400' : 'text-destructive')}>
+                              {txn.type === 'income' ? '+' : txn.type === 'reversal' ? '' : '-'}${safeNumber(txn.amount).toFixed(2)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })() : (
+                    <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
+                      <History className="w-10 h-10" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">No transactions on file</p>
+                    </div>
+                  )}
+                </div>
+
+                <Separator className="border-dashed" />
+
+                {/* ── Unpaid fees ── */}
                 <div className="space-y-4 text-left">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-destructive ml-1 text-left">Unpaid Protocol Fees</h3>
                   {client.unpaidFees && client.unpaidFees.length > 0 ? (
@@ -714,7 +809,10 @@ export default function ClientDetailPage() {
                     </div>
                   ) : <div className="py-10 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3"><CheckCircle2 className="w-10 h-10" /><p className="text-[10px] font-black uppercase tracking-widest">Account Clear</p></div>}
                 </div>
+
                 <Separator className="border-dashed" />
+
+                {/* ── Redemptions ── */}
                 <div className="space-y-4 text-left">
                   <h3 className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 text-left">Certified Redemptions & Waivers</h3>
                   <div className="grid gap-3 text-left">
