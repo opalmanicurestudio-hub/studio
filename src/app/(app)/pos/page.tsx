@@ -893,7 +893,7 @@ function POSPage() {
               });
             }
 
-            batch.update(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }));
+batch.set(appointmentRef, sanitizeForFirestore({ status: 'completed', revenue: mainPartRevenue + addOnServices.reduce((s: number, a: any) => s + getServicePrice(a, staff.find(st => st.id === (overrides[a.id] || apt.staffId))), 0), actualEndTime: now }), { merge: true });
             // Use set+merge for root-level checkIn doc to avoid permission issues with update()
             if (apt.checkInToken) batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'completed', tenantId }), { merge: true });
 
@@ -901,7 +901,7 @@ function POSPage() {
             if (apt.staffId) involvedIds.add(apt.staffId);
             if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
             involvedIds.forEach(sid => {
-                if (sid) batch.update(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now });
+if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }, { merge: true });
             });
         }
 
