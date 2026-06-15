@@ -135,7 +135,6 @@ const AppointmentHistoryCard = ({
   appointment: any;
   onRebook: (appointment: Appointment) => void;
 }) => {
-  // Use verified transaction data if available, fall back to scheduled price
   const displayTotal = appointment.realTotal !== null && appointment.realTotal !== undefined
     ? appointment.realTotal
     : safeNumber(appointment.revenue || appointment.service?.price || 0);
@@ -173,7 +172,6 @@ const AppointmentHistoryCard = ({
           </Badge>
         </div>
 
-        {/* Line-item breakdown from real transactions */}
         {appointment.hasRealData && appointment.aptTransactions?.length > 0 && (
           <div className="space-y-1.5 pt-2 border-t border-dashed">
             {appointment.aptTransactions
@@ -242,14 +240,12 @@ export default function ClientDetailPage() {
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
 
   const handleRebook = (apt: any) => {
-    // Navigate to planner with appointmentId so it can open the booking dialog pre-filled
     const params = new URLSearchParams({
       rebook_apt_id: apt.id,
     });
     router.push(`/planner?${params.toString()}`);
   };
 
-  // Build appointment list with REAL transaction data attached
   const appointmentsForThisClient = useMemo(() => {
     return (allAppointments || [])
       .filter(apt => apt.clientId === clientId)
@@ -813,7 +809,7 @@ export default function ClientDetailPage() {
                         <div className="p-2 bg-white rounded-xl shadow-sm border border-primary/10"><CreditCard className="w-5 h-5 text-primary" /></div>
                         <div className="text-left">
                           <p className="text-xs font-black uppercase tracking-tighter text-slate-900 text-left">{String(client.cardOnFile.brand || 'Card')} **** {String(client.cardOnFile.last4 || '****')}</p>
-                          <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber(client.cardOnFile.expMonth ?? client.cardOnFile.expiryMonth)}/{safeNumber(client.cardOnFile.expYear ?? client.cardOnFile.expiryYear)}
+                          <p className="text-[8px] font-bold text-muted-foreground uppercase text-left">Exp: {safeNumber((client.cardOnFile as any).expMonth ?? client.cardOnFile.expiryMonth)}/{safeNumber((client.cardOnFile as any).expYear ?? client.cardOnFile.expiryYear)}</p>
                         </div>
                       </div>
                       <button onClick={() => setIsEditClientOpen(true)} className="h-8 w-8 text-primary hover:bg-primary/5 flex items-center justify-center rounded-lg transition-colors"><RefreshCw className="w-3.5 h-3.5" /></button>
