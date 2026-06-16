@@ -213,11 +213,16 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
           Color Key — Category Classification
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-          {Object.entries(CATEGORY_COLORS).map(([cat, style]) => (
-            <span key={cat} style={{ background: style.bg, color: style.text, padding: '2px 8px', borderRadius: '12px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {style.label}
-            </span>
-          ))}
+          {(() => {
+            const seen = new Set<string>();
+            return Object.entries(CATEGORY_COLORS)
+              .filter(([, style]) => { if (seen.has(style.label)) return false; seen.add(style.label); return true; })
+              .map(([cat, style]) => (
+                <span key={cat} style={{ background: style.bg, color: style.text, padding: '2px 8px', borderRadius: '12px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {style.label}
+                </span>
+              ));
+          })()}
         </div>
       </div>
 
