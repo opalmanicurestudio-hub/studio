@@ -17,6 +17,7 @@ import {
   AlertCircle, Info, Check, ShieldCheck, FlaskConical,
 } from 'lucide-react';
 import { nanoid } from 'nanoid';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useSearchParams } from 'next/navigation';
 import { setDoc, doc, collection } from 'firebase/firestore';
@@ -99,6 +100,9 @@ function EvidenceBuilderDialog({
   const [step,            setStep]            = useState<'review' | 'submitting' | 'done'>('review');
   const [extraNotes,      setExtraNotes]      = useState(dispute.notes || '');
   const [uploadedFiles,   setUploadedFiles]   = useState<File[]>([]);
+  const [uploadedUrls,    setUploadedUrls]    = useState<{ file: File; url: string; purpose: string }[]>([]);
+  const [isUploading,     setIsUploading]     = useState(false);
+  const { firebaseApp }   = useFirebase();
   const [isSubmitting,    setIsSubmitting]    = useState(false);
 
   const daysLeft = getDaysUntilDeadline(dispute.deadline);
@@ -124,6 +128,50 @@ function EvidenceBuilderDialog({
     return lines;
   };
 
+  const FILE_PURPOSES = [
+    { value: 'customer_communication', label: 'Text / Email Screenshot' },
+    { value: 'service_documentation',  label: 'Before / After Photo'    },
+    { value: 'customer_signature',     label: 'Signed Document'         },
+    { value: 'receipt',                label: 'Receipt / Invoice'       },
+    { value: 'uncategorized_file',     label: 'Other Evidence'          },
+  ];
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, purpose: string) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length || !firebaseApp || !dispute.tenantId) return;
+
+    // Stripe allows max 5 files total
+    const remainingSlots = 5 - uploadedUrls.length - (dispute.consentFormUrls?.length || 0) - (dispute.signatureUrls?.length || 0) - (dispute.receiptUrl ? 1 : 0);
+    if (remainingSlots <= 0) {
+      toast({ variant: 'destructive', title: 'File limit reached', description: 'Stripe accepts a maximum of 5 evidence files.' });
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const storage = getStorage(firebaseApp);
+      const newUrls: { file: File; url: string; purpose: string }[] = [];
+
+      for (const file of files.slice(0, remainingSlots)) {
+        const fileId  = nanoid();
+        const ext     = file.name.split('.').pop() || 'jpg';
+        const path    = `tenants/${dispute.tenantId}/dispute-evidence/${dispute.id}/${fileId}.${ext}`;
+        const fileRef = storageRef(storage, path);
+        await uploadBytes(fileRef, file);
+        const url = await getDownloadURL(fileRef);
+        newUrls.push({ file, url, purpose });
+      }
+
+      setUploadedUrls(prev => [...prev, ...newUrls]);
+      toast({ title: `${newUrls.length} file${newUrls.length > 1 ? 's' : ''} uploaded`, description: 'Will be included in evidence submission.' });
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Upload failed', description: err.message });
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
@@ -140,6 +188,7 @@ function EvidenceBuilderDialog({
           signatureUrls:         dispute.signatureUrls   || [],
           receiptUrl:            dispute.receiptUrl,
           extraNotes,
+          additionalFiles:       uploadedUrls.map(u => ({ url: u.url, purpose: u.purpose })),
         }),
       });
 
@@ -279,6 +328,70 @@ function EvidenceBuilderDialog({
                 <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
                   Be specific. Mention the service name, date, staff member, and what was completed.
                 </p>
+              </div>
+
+              {/* Manual file uploads */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                    Upload Additional Evidence
+                  </p>
+                  <span className="text-[9px] font-black text-muted-foreground opacity-60 uppercase">
+                    {uploadedUrls.length + (dispute.consentFormUrls?.length || 0) + (dispute.signatureUrls?.length || 0) + (dispute.receiptUrl ? 1 : 0)} / 5 files
+                  </span>
+                </div>
+
+                <div className="p-3 rounded-xl bg-slate-50 border-2 border-dashed border-slate-200 text-[10px] font-bold text-muted-foreground">
+                  Screenshots of texts, emails, before/after photos, signed documents — anything that supports your case.
+                </div>
+
+                {/* Upload buttons by purpose */}
+                <div className="grid grid-cols-1 gap-2">
+                  {FILE_PURPOSES.map(p => (
+                    <label key={p.value} className={cn(
+                      'flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all',
+                      'border-slate-200 bg-white hover:border-primary/30 hover:bg-primary/5'
+                    )}>
+                      <Upload className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex-1">{p.label}</span>
+                      {isUploading
+                        ? <Loader className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                        : <span className="text-[9px] font-bold text-muted-foreground opacity-60">Tap to select</span>}
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        multiple
+                        className="hidden"
+                        onChange={e => handleFileSelect(e, p.value)}
+                        disabled={isUploading}
+                      />
+                    </label>
+                  ))}
+                </div>
+
+                {/* Uploaded files preview */}
+                {uploadedUrls.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-green-600">Uploaded Files</p>
+                    {uploadedUrls.map((u, i) => (
+                      <div key={i} className="flex items-center gap-3 p-2.5 rounded-xl bg-green-50 border border-green-200">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[10px] font-black text-green-800 truncate">{u.file.name}</p>
+                          <p className="text-[9px] font-bold text-green-600 opacity-70">
+                            {FILE_PURPOSES.find(p => p.value === u.purpose)?.label}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setUploadedUrls(prev => prev.filter((_, j) => j !== i))}
+                          className="text-red-400 hover:text-red-600 transition-colors p-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Evidence preview */}
