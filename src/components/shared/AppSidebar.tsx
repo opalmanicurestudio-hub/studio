@@ -12,7 +12,7 @@ import {
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
-  Armchair, KeyRound, HandCoins, Receipt, Wallet,
+  Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -39,16 +39,6 @@ export const ClarityFlowLogo = ({ className }: { className?: string }) => (
 );
 
 // ─── NAV SECTIONS ──────────────────────────────────────────────────────────────
-// Ordered by daily workflow frequency:
-//   1. Daily Hub       — touched every session
-//   2. Clients         — constant but not every minute
-//   3. Studio Assets   — weekly configuration
-//   4. Team            — scheduling & staff
-//   5. Financial Suite — periodic deep-dives
-//   6. Booth Rental    — renters, leases, and rent collection
-//   7. Events          — as needed
-//   8. Public Portals  — rarely accessed, critical when needed
-
 const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
@@ -85,11 +75,12 @@ const TEAM_ADMIN = [
 ];
 
 const FINANCIAL_SUITE = [
-  { href: '/financials', icon: Landmark,   label: 'Foundation (TMHR)' },
-  { href: '/ledger',     icon: BookText,   label: 'Ledger'            },
-  { href: '/bills',      icon: CreditCard, label: 'Obligations'       },
-  { href: '/payday',     icon: DollarSign, label: 'Payday'            },
-  { href: '/reports',    icon: BarChart,   label: 'Analytics'         },
+  { href: '/financials', icon: Landmark,      label: 'Foundation (TMHR)' },
+  { href: '/ledger',     icon: BookText,      label: 'Ledger'            },
+  { href: '/disputes',   icon: AlertTriangle, label: 'Dispute Center'    },
+  { href: '/bills',      icon: CreditCard,    label: 'Obligations'       },
+  { href: '/payday',     icon: DollarSign,    label: 'Payday'            },
+  { href: '/reports',    icon: BarChart,      label: 'Analytics'         },
 ];
 
 const BOOTH_RENTAL = [
@@ -116,17 +107,15 @@ const PUBLIC_PORTALS = [
 
 // ─── NAV ITEM ──────────────────────────────────────────────────────────────────
 function NavItem({
-  href, icon: Icon, label, isPortal = false, tenantId,
+  href, icon: Icon, label, isPortal = false, tenantId, badge,
 }: {
-  href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string;
+  href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string; badge?: number;
 }) {
   const pathname    = usePathname();
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
 
-  // Portals open in new tab with the tenantId appended
   const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
-  // Exact match, or a true child route (prevents /rent matching /renters)
   const isActive  = !isPortal && (
     pathname === href || pathname.startsWith(`${href}/`)
   );
@@ -145,7 +134,14 @@ function NavItem({
       )}
     >
       <Link href={finalHref} target={isPortal ? '_blank' : undefined}>
-        <Icon className="w-[17px] h-[17px] shrink-0" />
+        <div className="relative shrink-0">
+          <Icon className="w-[17px] h-[17px]" />
+          {badge !== undefined && badge > 0 && (
+            <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[7px] font-black rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">
+              {badge > 9 ? '9+' : badge}
+            </span>
+          )}
+        </div>
         <span>{label}</span>
         {isPortal && !isCollapsed && (
           <ExternalLink className="ml-auto w-3 h-3 opacity-30 shrink-0" />
@@ -164,7 +160,7 @@ function NavItem({
             align="center"
             className="font-black uppercase text-[9px] tracking-widest rounded-xl border-2 shadow-xl"
           >
-            {label}
+            {label}{badge !== undefined && badge > 0 ? ` (${badge})` : ''}
           </TooltipContent>
         </Tooltip>
       </SidebarMenuItem>
@@ -175,12 +171,13 @@ function NavItem({
 }
 
 function NavSection({
-  label, items, isPortal, tenantId,
+  label, items, isPortal, tenantId, badges,
 }: {
-  label: string;
-  items: { href: string; icon: any; label: string }[];
+  label:    string;
+  items:    { href: string; icon: any; label: string }[];
   isPortal?: boolean;
   tenantId?: string;
+  badges?:  Record<string, number>;
 }) {
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
@@ -197,7 +194,9 @@ function NavSection({
         {items.map(item => (
           <NavItem
             key={item.href} {...item}
-            isPortal={isPortal} tenantId={tenantId}
+            isPortal={isPortal}
+            tenantId={tenantId}
+            badge={badges?.[item.href]}
           />
         ))}
       </SidebarMenu>
@@ -233,6 +232,16 @@ export function AppSidebar() {
   const handleLogout = async () => {
     if (auth) { await signOut(auth); router.push('/login'); }
   };
+
+  // Badge counts — add open dispute count here
+  // This is a lightweight approach: read from TenantContext if dispute count is stored there,
+  // or pass 0 and let the Dispute Center show the count internally.
+  // To show live badge: store openDisputeCount on the tenant doc and read it via selectedTenant.
+  const openDisputeCount = (selectedTenant as any)?.openDisputeCount || 0;
+
+  const financialBadges = openDisputeCount > 0
+    ? { '/disputes': openDisputeCount }
+    : undefined;
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -302,7 +311,11 @@ export function AppSidebar() {
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Financial Suite" items={FINANCIAL_SUITE} />
+              <NavSection
+                label="Financial Suite"
+                items={FINANCIAL_SUITE}
+                badges={financialBadges}
+              />
             </>
           )}
 
