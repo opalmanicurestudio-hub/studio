@@ -1456,17 +1456,16 @@ export const CheckoutHub = ({
 
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
       <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
+      {activeConsentForm && selectedClient && (
+        <ConsentSignatureDialog
+          open={signatureOpen}
+          onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
+          form={activeConsentForm}
+          client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
+          tenantId={tenantId!}
+          onComplete={handleSignatureComplete}
+        />
+      )}
     </div>
-
-    {activeConsentForm && selectedClient && (
-      <ConsentSignatureDialog
-        open={signatureOpen}
-        onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
-        form={activeConsentForm}
-        client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
-        tenantId={tenantId!}
-        onComplete={handleSignatureComplete}
-      />
-    )}
   );
 };
