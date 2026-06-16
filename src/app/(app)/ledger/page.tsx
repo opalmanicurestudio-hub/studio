@@ -122,10 +122,11 @@ function buildPrintHtml(
   const staffChip = (id?: string) => {
     const { name, avatar, initials } = staffInfo(id);
     if (name === '—') return '—';
+    const firstName = name.split(' ')[0];
     const imgTag = avatar
-      ? `<img src="${'${avatar}'}" style="width:18px;height:18px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
-      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:7px;font-weight:900;vertical-align:middle;margin-right:4px;">${'${initials}'}</span>`;
-    return imgTag + `<span style="vertical-align:middle;">${'${name}'.split(' ')[0]}</span>`;
+      ? '<img src="' + avatar + '" style="width:18px;height:18px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:4px;" />'
+      : '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:7px;font-weight:900;vertical-align:middle;margin-right:4px;">' + initials + '</span>';
+    return imgTag + '<span style="vertical-align:middle;font-size:10px;color:#374151;">' + firstName + '</span>';
   };
   const fmtD = (d: any, s: string) => { try { return format(new Date(d), s); } catch { return '—'; } };
   const periodLabel = dateRange?.from && dateRange?.to
@@ -179,10 +180,14 @@ function buildPrintHtml(
     imgCounter++;
   });
 
-  // ── Legend HTML ─────────────────────────────────────────────────────────────
-  const legendHtml = Object.entries(PRINT_CATEGORY_COLORS).map(([, cs]) =>
-    `<span style="background:${cs.bg};color:${cs.text};padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;">${cs.label}</span>`
-  ).join(' ');
+  // ── Legend HTML — deduplicated by label ──────────────────────────────────────
+  const legendHtml = (() => {
+    const seen = new Set<string>();
+    return Object.entries(PRINT_CATEGORY_COLORS)
+      .filter(([, cs]) => { if (seen.has(cs.label)) return false; seen.add(cs.label); return true; })
+      .map(([, cs]) => '<span style="background:' + cs.bg + ';color:' + cs.text + ';padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">' + cs.label + '</span>')
+      .join(' ');
+  })();
 
   // ── Session rows ────────────────────────────────────────────────────────────
   const sessionRows = sessions.map(s => {
