@@ -90,15 +90,8 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
-// Dynamic import so missing ConsentSignatureDialog file won't crash CheckoutHub
-const ConsentSignatureDialog = React.lazy(() =>
-  import('@/components/consents/ConsentSignatureDialog').then(m => ({ default: m.ConsentSignatureDialog })).catch(() => ({ default: () => null }))
-);
-type SignatureRecord = {
-  id: string; formId: string; formTitle: string; clientId: string; clientName: string;
-  tenantId: string; appointmentId?: string; signatureUrl: string; signatureData: string;
-  formSnapshot: any; signedAt: string; ipAddress?: string;
-};
+import { ConsentSignatureDialog } from '@/components/consents/ConsentSignatureDialog';
+import type { SignatureRecord } from '@/components/consents/ConsentSignatureDialog';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
@@ -1490,18 +1483,16 @@ export const CheckoutHub = ({
 
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
       <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
-      {activeConsentForm && selectedClient && (
-        <React.Suspense fallback={null}>
-          <ConsentSignatureDialog
-            open={signatureOpen}
-            onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
-            form={activeConsentForm}
-            client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
-            tenantId={tenantId!}
-            appointmentId={appointmentsData?.[0]?.appointment?.id || undefined}
-            onComplete={handleSignatureComplete}
-          />
-        </React.Suspense>
+      {activeConsentForm && selectedClient && signatureOpen && (
+        <ConsentSignatureDialog
+          open={signatureOpen}
+          onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
+          form={activeConsentForm}
+          client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
+          tenantId={tenantId!}
+          appointmentId={appointmentsData?.[0]?.appointment?.id || undefined}
+          onComplete={handleSignatureComplete}
+        />
       )}
     </div>
   );
