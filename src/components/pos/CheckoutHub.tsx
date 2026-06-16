@@ -87,12 +87,9 @@ import {
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
-import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { useFirebase, setDocumentNonBlocking } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
-import { ConsentSignatureDialog } from '@/components/consents/ConsentSignatureDialog';
-import type { SignatureRecord } from '@/components/consents/ConsentSignatureDialog';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
@@ -492,7 +489,7 @@ export const CheckoutHub = ({
   const { services, inventory }                           = useInventory();
   const { selectedTenant }                                = useTenant();
   const { toast }                                         = useToast();
-  const { firestore, firebaseApp }                        = useFirebase();
+  const { firestore }                                     = useFirebase();
 
   const [isWaiveAuthOpen,    setIsPointOfSaleWaiveAuthOpen] = useState(false);
   const [pendingWaiveAptId,  setPendingWaiveAptId]          = useState<string | null>(null);
@@ -514,9 +511,6 @@ export const CheckoutHub = ({
   // 'new_card'     = embedded browser card form
   type CardMode = 'select' | 'cof_tip' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
   const [cardMode,        setCardMode]        = useState<CardMode>('select');
-  const [pendingCheckout, setPendingCheckout] = useState<Parameters<typeof onCheckout>[0] | null>(null);
-  const [signatureOpen,   setSignatureOpen]   = useState(false);
-  const [activeConsentForm, setActiveConsentForm] = useState<any | null>(null);
   const [isCofCharging,   setIsCofCharging]   = useState(false);
   const [saveNewCard,     setSaveNewCard]      = useState(true);
   const [stripePaymentId, setStripePaymentId] = useState<string | null>(null);
@@ -542,20 +536,7 @@ export const CheckoutHub = ({
 
   const isMember  = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
 
-  // Fetch consent forms for signature collection at checkout
-  // Wrapped defensively — if collection isn't set up yet, returns null gracefully
-  const consentFormsQuery = useMemoFirebase(() => {
-    if (!firestore || !tenantId) return null;
-    try { return collection(firestore, `tenants/${tenantId}/consentForms`); }
-    catch { return null; }
-  }, [firestore, tenantId]);
-  const { data: consentForms = [] } = useCollection<any>(consentFormsQuery) || {};
-  // Only auto-prompt for forms explicitly marked requiresSignature
-  // If none are marked, don't interrupt checkout automatically
-  const checkoutConsentForm = useMemo(() =>
-    (consentForms || []).find((f: any) => f.requiresSignature) || null,
-    [consentForms]
-  );
+  const checkoutConsentForm = null;
   const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
 
   const filteredPayerOptions = useMemo(() => {
@@ -727,14 +708,8 @@ export const CheckoutHub = ({
         toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
         // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
         // Save COF payment intent id for after signature
-        setPendingCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
-        if (checkoutConsentForm && selectedClient) {
-          setActiveConsentForm(checkoutConsentForm);
-          setSignatureOpen(true);
-        } else {
-          await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
-          setCardMode('select');
-        }
+        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
+        setCardMode('select');
       } else {
         toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
         setCardMode('select');
@@ -762,14 +737,8 @@ export const CheckoutHub = ({
       saveCard:    saveNewCard && !!selectedClient,
     });
     if (result.ok) {
-      setPendingCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
-      if (checkoutConsentForm && selectedClient) {
-        setActiveConsentForm(checkoutConsentForm);
-        setSignatureOpen(true);
-      } else {
-        await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
-        setCardMode('select');
-      }
+      await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
+      setCardMode('select');
     }
   };
 
@@ -789,36 +758,7 @@ export const CheckoutHub = ({
   // Reset card mode when payment tab changes
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
 
-  const handleSignatureComplete = async (record: SignatureRecord) => {
-    // Save signature to Firestore if available
-    if (firestore && tenantId) {
-      try {
-        const sigRef = doc(firestore, `tenants/${tenantId}/signatures`, record.id);
-        await setDoc(sigRef, record);
-      } catch (err) {
-        console.warn('[signature save]', err);
-      }
-    }
-    // Always complete the checkout even if signature save failed
-    if (pendingCheckout) {
-      await onCheckout(pendingCheckout);
-      setPendingCheckout(null);
-    }
-    setSignatureOpen(false);
-    setActiveConsentForm(null);
-    setCardMode('select');
-  };
 
-  const handleSignatureSkip = async () => {
-    // Allow checkout without signature if owner skips
-    if (pendingCheckout) {
-      await onCheckout(pendingCheckout);
-      setPendingCheckout(null);
-    }
-    setSignatureOpen(false);
-    setActiveConsentForm(null);
-    setCardMode('select');
-  };
 
   return (
     <div className="flex flex-col space-y-6 md:space-y-10 text-left">
@@ -1321,15 +1261,8 @@ export const CheckoutHub = ({
                   saveCard={saveNewCard && !!selectedClient}
                   onSuccess={async (paymentIntentId) => {
                     toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
-                    const manualPayload = { paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId };
-                    if (checkoutConsentForm && selectedClient) {
-                      setPendingCheckout(manualPayload);
-                      setActiveConsentForm(checkoutConsentForm);
-                      setSignatureOpen(true);
-                    } else {
-                      await onCheckout(manualPayload);
-                      setCardMode('select');
-                    }
+                    await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId });
+                    setCardMode('select');
                   }}
                   onCancel={() => setCardMode('select')}
                 />
@@ -1347,16 +1280,7 @@ export const CheckoutHub = ({
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
                   onTipChange={handleTotalTipChange}
-                  onCheckout={() => {
-                    const cashPayload = { paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked };
-                    if (checkoutConsentForm && selectedClient) {
-                      setPendingCheckout(cashPayload);
-                      setActiveConsentForm(checkoutConsentForm);
-                      setSignatureOpen(true);
-                    } else {
-                      onCheckout(cashPayload);
-                    }
-                  }}
+                  onCheckout={() => onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })}
                   isSubmitting={isSubmitting}
                   isCartEmpty={isCartEmpty}
                   isGroupCheckout={isGroupCheckout}
@@ -1484,17 +1408,7 @@ export const CheckoutHub = ({
 
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
       <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
-      {activeConsentForm && selectedClient && signatureOpen && (
-        <ConsentSignatureDialog
-          open={signatureOpen}
-          onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
-          form={activeConsentForm}
-          client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
-          tenantId={tenantId!}
-          appointmentId={appointmentsData?.[0]?.appointment?.id || undefined}
-          onComplete={handleSignatureComplete}
-        />
-      )}
+
     </div>
   );
 };
