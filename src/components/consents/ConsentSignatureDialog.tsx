@@ -38,21 +38,26 @@ export interface SignatureRecord {
 }
 
 // ─── Signature Canvas ─────────────────────────────────────────────────────────
-function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }) {
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
-  const isDrawing  = useRef(false);
-  const lastPos    = useRef<{ x: number; y: number } | null>(null);
-  const hasStrokes = useRef(false);
+// Uses a forwarded ref so the parent can call toDataURL() directly on the element
+function SignatureCanvas({
+  canvasRef,
+  onSign,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement>;
+  onSign: (hasSignature: boolean) => void;
+}) {
+  const isDrawing = useRef(false);
+  const lastPos   = useRef<{ x: number; y: number } | null>(null);
 
   const getPos = (e: MouseEvent | TouchEvent, canvas: HTMLCanvasElement) => {
-    const rect = canvas.getBoundingClientRect();
+    const rect   = canvas.getBoundingClientRect();
     const scaleX = canvas.width  / rect.width;
     const scaleY = canvas.height / rect.height;
     if ('touches' in e) {
-      const touch = e.touches[0];
-      return { x: (touch.clientX - rect.left) * scaleX, y: (touch.clientY - rect.top) * scaleY };
+      const t = e.touches[0];
+      return { x: (t.clientX - rect.left) * scaleX, y: (t.clientY - rect.top) * scaleY };
     }
-    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+    return { x: ((e as MouseEvent).clientX - rect.left) * scaleX, y: ((e as MouseEvent).clientY - rect.top) * scaleY };
   };
 
   const startDrawing = useCallback((e: MouseEvent | TouchEvent) => {
@@ -61,7 +66,7 @@ function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }
     if (!canvas) return;
     isDrawing.current = true;
     lastPos.current   = getPos(e, canvas);
-  }, []);
+  }, [canvasRef]);
 
   const draw = useCallback((e: MouseEvent | TouchEvent) => {
     e.preventDefault();
@@ -69,7 +74,6 @@ function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }
     const canvas = canvasRef.current;
     const ctx    = canvas?.getContext('2d');
     if (!canvas || !ctx || !lastPos.current) return;
-
     const pos = getPos(e, canvas);
     ctx.beginPath();
     ctx.moveTo(lastPos.current.x, lastPos.current.y);
@@ -79,11 +83,9 @@ function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }
     ctx.lineCap     = 'round';
     ctx.lineJoin    = 'round';
     ctx.stroke();
-
-    lastPos.current  = pos;
-    hasStrokes.current = true;
+    lastPos.current = pos;
     onSign(true);
-  }, [onSign]);
+  }, [canvasRef, onSign]);
 
   const stopDrawing = useCallback(() => {
     isDrawing.current = false;
@@ -93,7 +95,6 @@ function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     canvas.addEventListener('mousedown',  startDrawing, { passive: false });
     canvas.addEventListener('mousemove',  draw,         { passive: false });
     canvas.addEventListener('mouseup',    stopDrawing);
@@ -101,7 +102,6 @@ function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }
     canvas.addEventListener('touchstart', startDrawing, { passive: false });
     canvas.addEventListener('touchmove',  draw,         { passive: false });
     canvas.addEventListener('touchend',   stopDrawing);
-
     return () => {
       canvas.removeEventListener('mousedown',  startDrawing);
       canvas.removeEventListener('mousemove',  draw);
@@ -111,14 +111,13 @@ function SignatureCanvas({ onSign }: { onSign: (hasSignature: boolean) => void }
       canvas.removeEventListener('touchmove',  draw);
       canvas.removeEventListener('touchend',   stopDrawing);
     };
-  }, [startDrawing, draw, stopDrawing]);
+  }, [canvasRef, startDrawing, draw, stopDrawing]);
 
   const clear = () => {
     const canvas = canvasRef.current;
     const ctx    = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    hasStrokes.current = false;
     onSign(false);
   };
 
@@ -155,9 +154,6 @@ export function ConsentSignatureDialog({
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const scrollRef     = useRef<HTMLDivElement>(null);
 
-  // Find the actual canvas element inside SignatureCanvas
-  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
   useEffect(() => {
     if (open) { setHasSigned(false); setIsSubmitting(false); setHasScrolled(false); }
   }, [open]);
@@ -173,9 +169,9 @@ export function ConsentSignatureDialog({
     setIsSubmitting(true);
 
     try {
-      // Get signature data from canvas
-      const canvas = document.querySelector('#consent-signature-canvas') as HTMLCanvasElement;
-      if (!canvas) throw new Error('Canvas not found');
+      // Get signature data from canvas via ref
+      const canvas = canvasRef.current;
+      if (!canvas) throw new Error('Signature canvas not found');
 
       const signatureData = canvas.toDataURL('image/png');
       const sigId         = nanoid();
@@ -291,91 +287,11 @@ export function ConsentSignatureDialog({
               </p>
             </div>
 
-            {/* Canvas with stable ID so we can query it */}
-            <div className="relative">
-              <canvas
-                id="consent-signature-canvas"
-                width={680}
-                height={200}
-                className="w-full border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50 touch-none cursor-crosshair"
-                style={{ touchAction: 'none' }}
-                onMouseDown={(e) => {
-                  const canvas = e.currentTarget;
-                  const ctx = canvas.getContext('2d');
-                  if (!ctx) return;
-                  const startDraw = (ev: MouseEvent) => {
-                    const rect   = canvas.getBoundingClientRect();
-                    const scaleX = canvas.width  / rect.width;
-                    const scaleY = canvas.height / rect.height;
-                    ctx.beginPath();
-                    ctx.moveTo((ev.clientX - rect.left) * scaleX, (ev.clientY - rect.top) * scaleY);
-                    const draw = (ev2: MouseEvent) => {
-                      ctx.lineTo((ev2.clientX - rect.left) * scaleX, (ev2.clientY - rect.top) * scaleY);
-                      ctx.strokeStyle = '#0f172a';
-                      ctx.lineWidth   = 2.5;
-                      ctx.lineCap     = 'round';
-                      ctx.lineJoin    = 'round';
-                      ctx.stroke();
-                      setHasSigned(true);
-                    };
-                    const stop = () => {
-                      window.removeEventListener('mousemove', draw);
-                      window.removeEventListener('mouseup',   stop);
-                    };
-                    window.addEventListener('mousemove', draw);
-                    window.addEventListener('mouseup',   stop);
-                  };
-                  startDraw(e.nativeEvent);
-                }}
-                onTouchStart={(e) => {
-                  e.preventDefault();
-                  const canvas = e.currentTarget;
-                  const ctx    = canvas.getContext('2d');
-                  if (!ctx) return;
-                  const rect   = canvas.getBoundingClientRect();
-                  const scaleX = canvas.width  / rect.width;
-                  const scaleY = canvas.height / rect.height;
-                  const touch  = e.touches[0];
-                  ctx.beginPath();
-                  ctx.moveTo((touch.clientX - rect.left) * scaleX, (touch.clientY - rect.top) * scaleY);
-                  const drawTouch = (ev: TouchEvent) => {
-                    ev.preventDefault();
-                    const t = ev.touches[0];
-                    ctx.lineTo((t.clientX - rect.left) * scaleX, (t.clientY - rect.top) * scaleY);
-                    ctx.strokeStyle = '#0f172a';
-                    ctx.lineWidth   = 2.5;
-                    ctx.lineCap     = 'round';
-                    ctx.lineJoin    = 'round';
-                    ctx.stroke();
-                    setHasSigned(true);
-                  };
-                  const stopTouch = () => {
-                    canvas.removeEventListener('touchmove', drawTouch);
-                    canvas.removeEventListener('touchend',  stopTouch);
-                  };
-                  canvas.addEventListener('touchmove', drawTouch, { passive: false });
-                  canvas.addEventListener('touchend',  stopTouch);
-                }}
-              />
-              <button
-                onClick={() => {
-                  const canvas = document.getElementById('consent-signature-canvas') as HTMLCanvasElement;
-                  const ctx    = canvas?.getContext('2d');
-                  if (canvas && ctx) {
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    setHasSigned(false);
-                  }
-                }}
-                className="absolute top-3 right-3 p-2 rounded-xl bg-white border-2 border-slate-200 text-slate-400 hover:text-destructive hover:border-destructive/20 transition-all"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-              {!hasSigned && (
-                <p className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-black uppercase tracking-widest text-slate-300 pointer-events-none select-none">
-                  Sign here
-                </p>
-              )}
-            </div>
+            {/* Signature canvas — ref-based for reliable data extraction */}
+            <SignatureCanvas
+              canvasRef={canvasRef}
+              onSign={setHasSigned}
+            />
 
             <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
               By signing above, {client.name} acknowledges reading and agreeing to the terms of this document. This signature is legally binding.
