@@ -87,6 +87,7 @@ import {
 import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
+import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
 import { ConsentSignatureDialog, type SignatureRecord } from '@/components/consents/ConsentSignatureDialog';
@@ -489,6 +490,7 @@ export const CheckoutHub = ({
   const { services, inventory }                           = useInventory();
   const { selectedTenant }                                = useTenant();
   const { toast }                                         = useToast();
+  const { firestore, firebaseApp }                        = useFirebase();
 
   const [isWaiveAuthOpen,    setIsPointOfSaleWaiveAuthOpen] = useState(false);
   const [pendingWaiveAptId,  setPendingWaiveAptId]          = useState<string | null>(null);
