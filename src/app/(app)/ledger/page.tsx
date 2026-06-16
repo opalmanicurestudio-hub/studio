@@ -90,7 +90,20 @@ const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: s
   'Strategic Adjustment':{ bg: '#fff7ed', text: '#b45309', label: 'Adjustment' },
 };
 
-const getCatStyle = (cat: string) => PRINT_CATEGORY_COLORS[cat] || { bg: '#f9fafb', text: '#374151', label: cat };
+// Auto-generate a consistent color for unknown/custom categories
+// Uses a simple hash of the category name to pick from a palette
+const AUTO_PALETTE = [
+  { bg: '#fef3c7', text: '#92400e' }, { bg: '#d1fae5', text: '#065f46' },
+  { bg: '#e0e7ff', text: '#3730a3' }, { bg: '#fce7f3', text: '#9d174d' },
+  { bg: '#cffafe', text: '#164e63' }, { bg: '#fef9c3', text: '#713f12' },
+  { bg: '#f0fdf4', text: '#14532d' }, { bg: '#fdf4ff', text: '#701a75' },
+];
+const hashStr = (s: string) => s.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+const getCatStyle = (cat: string) => {
+  if (PRINT_CATEGORY_COLORS[cat]) return PRINT_CATEGORY_COLORS[cat];
+  const palette = AUTO_PALETTE[Math.abs(hashStr(cat)) % AUTO_PALETTE.length];
+  return { ...palette, label: cat };
+};
 const sessionRefNum = (sid: string) => `REF-${sid.slice(-6).toUpperCase()}`;
 const txnRefNum     = (id: string)  => `TXN-${id.slice(-6).toUpperCase()}`;
 
@@ -100,7 +113,20 @@ function buildPrintHtml(
   summary: { revenue: number; cogs: number; grossProfit: number; operatingExpenses: number; net: number },
   dateRange: DateRange | undefined,
 ) {
-  const staffName = (id?: string) => id ? (staff.find((s: Staff) => s.id === id)?.name || '—') : '—';
+  const staffInfo = (id?: string) => {
+    const s = id ? staff.find((s: Staff) => s.id === id) : null;
+    return { name: s?.name || '—', avatar: (s as any)?.avatarUrl || '', initials: (s?.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() };
+  };
+  const staffName = (id?: string) => staffInfo(id).name;
+  // Renders a small inline staff chip with avatar for print HTML
+  const staffChip = (id?: string) => {
+    const { name, avatar, initials } = staffInfo(id);
+    if (name === '—') return '—';
+    const imgTag = avatar
+      ? `<img src="${'${avatar}'}" style="width:18px;height:18px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:7px;font-weight:900;vertical-align:middle;margin-right:4px;">${'${initials}'}</span>`;
+    return imgTag + `<span style="vertical-align:middle;">${'${name}'.split(' ')[0]}</span>`;
+  };
   const fmtD = (d: any, s: string) => { try { return format(new Date(d), s); } catch { return '—'; } };
   const periodLabel = dateRange?.from && dateRange?.to
     ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}`
@@ -132,15 +158,25 @@ function buildPrintHtml(
   transactions.filter(t => t.type === 'income').forEach(t => catMap.set(t.category, (catMap.get(t.category) || 0) + t.amount));
   const catTotals = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
 
-  // ── Appendix items (receipts with image URLs) ───────────────────────────────
-  const appendix: { refNum: string; desc: string; date: string; client: string; url?: string }[] = [];
+  // ── Appendix items with sequential IMG numbers ──────────────────────────────
+  type AppendixItem = { refNum: string; imgNum: number; desc: string; date: string; client: string; url?: string };
+  const appendix: AppendixItem[] = [];
+  // Build a map: txnId -> imgNum so we can reference it inline in session rows
+  const imgNumMap = new Map<string, number>();
+  let imgCounter = 1;
+
+  // First pass: collect all receipt items to assign numbers sequentially
   sessions.forEach(s => {
     s.txns.filter(t => (t as any).receiptUrl).forEach(t => {
-      appendix.push({ refNum: `${s.refNum}-${t.id.slice(-4).toUpperCase()}`, desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: s.first.clientOrVendor || 'Guest', url: (t as any).receiptUrl });
+      imgNumMap.set(t.id, imgCounter);
+      appendix.push({ refNum: s.refNum, imgNum: imgCounter, desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: s.first.clientOrVendor || 'Guest', url: (t as any).receiptUrl });
+      imgCounter++;
     });
   });
   ungrouped.filter(t => (t as any).receiptUrl).forEach(t => {
-    appendix.push({ refNum: txnRefNum(t.id), desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: t.clientOrVendor || 'Unknown', url: (t as any).receiptUrl });
+    imgNumMap.set(t.id, imgCounter);
+    appendix.push({ refNum: txnRefNum(t.id), imgNum: imgCounter, desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: t.clientOrVendor || 'Unknown', url: (t as any).receiptUrl });
+    imgCounter++;
   });
 
   // ── Legend HTML ─────────────────────────────────────────────────────────────
@@ -154,10 +190,12 @@ function buildPrintHtml(
       const cs = getCatStyle(t.category);
       const sn = staffName((t as any).staffId);
       const amtColor = t.category === 'Tips' ? '#854d0e' : t.category === 'Tax Collected' ? '#374151' : t.type === 'expense' ? '#991b1b' : '#166534';
+      const imgNum = imgNumMap.get(t.id);
+      const imgBadge = imgNum ? `<span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;margin-left:4px;">IMG-${imgNum}</span>` : '';
       return `<tr style="border-bottom:1px dashed #f3f4f6;">
-        <td style="padding:5px 8px;font-size:10px;width:50%;">
+        <td style="padding:5px 8px;font-size:10px;width:52%;">
           <span style="background:${cs.bg};color:${cs.text};padding:1px 5px;border-radius:8px;font-size:8px;font-weight:700;margin-right:4px;">${cs.label}</span>
-          ${t.description}${sn !== '—' ? `<span style="color:#9ca3af;font-size:9px;"> · ${sn.split(' ')[0]}</span>` : ''}
+          ${t.description}${sn !== '—' ? `<span style="color:#9ca3af;font-size:9px;"> · </span>${staffChip((t as any).staffId)}` : ''}${imgBadge}
         </td>
         <td style="padding:5px 8px;font-size:10px;color:#6b7280;">${fmtD(t.date, 'h:mm a')}</td>
         <td style="padding:5px 8px;font-size:10px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${t.type === 'expense' ? '-' : ''}$${t.amount.toFixed(2)}</td>
@@ -193,12 +231,14 @@ function buildPrintHtml(
   const ungroupedRows = ungrouped.map((t, i) => {
     const cs = getCatStyle(t.category);
     const amtColor = t.type === 'income' ? '#166534' : '#991b1b';
+    const uImgNum = imgNumMap.get(t.id);
+    const uImgBadge = uImgNum ? ` <span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;">IMG-${uImgNum}</span>` : '';
     return `<tr style="border-bottom:1px solid #f3f4f6;background:${i % 2 === 0 ? '#fff' : '#fafafa'};">
       <td style="padding:6px 8px;font-size:10px;font-family:monospace;color:#9ca3af;">${txnRefNum(t.id)}</td>
       <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${fmtD(t.date, 'MMM d, h:mm a')}</td>
-      <td style="padding:6px 8px;font-size:11px;"><div style="font-weight:600;">${t.description}</div><div style="font-size:9px;color:#9ca3af;">${t.clientOrVendor}</div></td>
+      <td style="padding:6px 8px;font-size:11px;"><div style="font-weight:600;">${t.description}${uImgBadge}</div><div style="font-size:9px;color:#9ca3af;">${t.clientOrVendor}</div></td>
       <td style="padding:6px 8px;"><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;">${cs.label}</span></td>
-      <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${staffName((t as any).staffId).split(' ')[0]}</td>
+      <td style="padding:6px 8px;font-size:10px;">${staffChip((t as any).staffId)}</td>
       <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${t.paymentMethod}</td>
       <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${t.type === 'income' ? '+' : '-'}$${t.amount.toFixed(2)}</td>
     </tr>`;
@@ -208,17 +248,22 @@ function buildPrintHtml(
   const appendixHtml = appendix.length > 0 ? `
     <div style="page-break-before:always;margin-top:40px;">
       <h2>Appendix A — Receipt Documentation (${appendix.length} attachments)</h2>
-      <p style="font-size:10px;color:#6b7280;margin-bottom:16px;">Reference numbers below correspond to REF/TXN codes shown in the transaction detail above.</p>
+      <p style="font-size:10px;color:#6b7280;margin-bottom:16px;">Images numbered IMG-1 through IMG-${appendix.length}. Each number appears on the corresponding transaction row above for easy cross-referencing.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         ${appendix.map(item => `
           <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
-            <div style="background:#f8fafc;padding:8px 12px;border-bottom:1px solid #e5e7eb;">
-              <div style="font-family:monospace;font-size:10px;font-weight:900;color:#374151;">${item.refNum}</div>
-              <div style="font-size:11px;font-weight:600;color:#111;">${item.desc}</div>
-              <div style="font-size:9px;color:#9ca3af;">${item.client} · ${item.date}</div>
+            <div style="background:#111;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="color:#fff;font-size:14px;font-weight:900;font-family:monospace;letter-spacing:0.05em;">IMG-${item.imgNum}</div>
+                <div style="color:#9ca3af;font-size:9px;font-family:monospace;">${item.refNum}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="color:#e5e7eb;font-size:11px;font-weight:600;">${item.desc}</div>
+                <div style="color:#6b7280;font-size:9px;">${item.client} · ${item.date}</div>
+              </div>
             </div>
             ${item.url
-              ? `<div style="padding:8px;"><img src="${item.url}" alt="Receipt" style="width:100%;max-height:280px;object-fit:contain;display:block;" /></div>`
+              ? `<div style="padding:8px;background:#fff;"><img src="${item.url}" alt="Receipt IMG-${item.imgNum}" style="width:100%;max-height:280px;object-fit:contain;display:block;" /></div>`
               : `<div style="padding:24px;text-align:center;color:#d1d5db;font-size:10px;font-weight:700;text-transform:uppercase;">POS receipt — view in ClarityFlow</div>`}
           </div>`).join('')}
       </div>
