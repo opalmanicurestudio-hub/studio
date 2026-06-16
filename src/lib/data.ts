@@ -649,8 +649,11 @@ export type ConsentForm = {
   totalClients?: number;
   isPasswordProtected: boolean;
   notifyOnEdit: boolean;
+  requiresSignature?: boolean;   // if true, signature dialog shown at POS checkout
+  content?: string;              // plain text fallback if no structured fields
   fields?: FormField[];
 };
+ 
 
 export type TicketData = {
   business: {
