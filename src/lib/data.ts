@@ -230,6 +230,11 @@ export type Client = {
     phone: string;
   };
   birthday?: string;
+  // Dispute tracking
+  hasOpenDispute?: boolean;
+  disputeCount?: number;
+  lastDisputeAt?: string;
+  lastDisputeReason?: string;
 };
 
 export type SubscriptionInstance = {
@@ -451,7 +456,7 @@ export type Appointment = {
   automatedRescheduleOffered?: boolean;
   requiredResourceIds?: string[];
   recurrenceId?: string;
-  cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other';
+  cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other' | 'automation';
   cancellationFeeApplied?: number;
   cancellationFeeWaived?: boolean;
   cancellationPaymentStatus?: 'paid' | 'unpaid' | 'waived';
@@ -471,6 +476,36 @@ export type Appointment = {
   resolutionNotes?: string;
   resolvedAt?: string;
   resolvedBy?: string;
+  // Completion link fields
+  completionStatus?: 'pending' | 'complete';
+  depositAmountCents?: number;
+  depositStatus?: 'pending' | 'paid' | 'none';
+  signedForms?: { formId: string; formTitle: string; formData: Record<string, any> }[];
+  requirementFiles?: { requirementId: string; label: string; files: any[] }[];
+  healthDisclosedAt?: string;
+  // Automation fields written by Cloud Function
+  automationState?: {
+    depositReminderSentAt?: string | null;
+    depositReminderCount?: number;
+    depositAutoCancelledAt?: string | null;
+    formReminderSentAt?: string | null;
+    formReminderCount?: number;
+    formGateActiveAt?: string | null;
+    cardReminderSentAt?: string | null;
+    cardRequiredAt?: string | null;
+    photoReminderSentAt?: string | null;
+    healthGateActiveAt?: string | null;
+    balanceNotifiedAt?: string | null;
+    lastCheckedAt?: string;
+  };
+  readinessFlags?: {
+    healthGateActive?: boolean;
+    formGateActive?: boolean;
+    depositRequired?: boolean;
+    cardRequired?: boolean;
+    balanceRequired?: boolean;
+    needsConsultationBuffer?: boolean;
+  };
 };
 
 export type EventChecklistItem = {
@@ -649,11 +684,10 @@ export type ConsentForm = {
   totalClients?: number;
   isPasswordProtected: boolean;
   notifyOnEdit: boolean;
-  requiresSignature?: boolean;   // if true, signature dialog shown at POS checkout
-  content?: string;              // plain text fallback if no structured fields
+  requiresSignature?: boolean;  // if true, signature collected at POS checkout
+  content?: string;             // plain text fallback when no structured fields
   fields?: FormField[];
 };
- 
 
 export type TicketData = {
   business: {
@@ -718,7 +752,6 @@ export interface PageBuilderConfig {
   bodyFont:    string;
 }
 
-// ─── Booking theme type ───────────────────────────────────────────────────────
 export type BookingTheme =
   | 'editorial'
   | 'soft_spa'
@@ -735,18 +768,14 @@ export type BookingPageSettings = {
     heroSubtitle?: string;
     welcomeMessage?: string;
     primaryColor?: string;
-    // ── Theme ──────────────────────────────────────────────────────────────
     theme?: BookingTheme;
-    // ── Page Builder config ────────────────────────────────────────────────
     pageConfig?: PageBuilderConfig;
-    // ── Section visibility ─────────────────────────────────────────────────
     showTeam?: boolean;
     showReviews?: boolean;
     showFaq?: boolean;
     showGallery?: boolean;
     showMemberships?: boolean;
     showPackages?: boolean;
-    // ── Section title overrides ────────────────────────────────────────────
     servicesSectionTitle?: string;
     teamSectionTitle?: string;
     faqSectionTitle?: string;
@@ -754,7 +783,6 @@ export type BookingPageSettings = {
     gallerySectionTitle?: string;
     policiesSectionTitle?: string;
     contactSectionTitle?: string;
-    // ── Content ────────────────────────────────────────────────────────────
     faqs?: BookingFAQItem[];
     gallery?: BookingGalleryItem[];
 };
@@ -765,9 +793,7 @@ export type KioskSettings = {
     showWordmark?: boolean;
     welcomeMessage?: string;
     primaryColor?: string;
-    // ── Kiosk visual theme ─────────────────────────────────────────────────
     theme?: 'light' | 'dark' | 'rose' | 'sage' | 'slate';
-    // ── Hours ──────────────────────────────────────────────────────────────
     useSpecificHours?: boolean;
     kioskSchedule?: {
         [day: string]: DayHours;
@@ -779,6 +805,26 @@ export type RecoveryPreset = {
     label: string;
     type: 'fixed' | 'percentage';
     value: number;
+};
+
+// ─── Appointment automation types ─────────────────────────────────────────────
+export type AutomationSeverity = 'warn' | 'require' | 'auto_cancel';
+
+export type AutomationTrigger = {
+  enabled:           boolean;
+  severity:          AutomationSeverity;
+  firstWindowHours:  number;
+  secondWindowHours?: number;
+  canDisable:        boolean;
+};
+
+export type AppointmentAutomations = {
+  depositNotPaid:         AutomationTrigger;
+  consentFormUnsigned:    AutomationTrigger;
+  noCardOnFile:           AutomationTrigger;
+  referencePhotosMissing: AutomationTrigger;
+  healthFormMissing:      AutomationTrigger;
+  outstandingBalance:     AutomationTrigger;
 };
 
 export type Tenant = {
@@ -845,6 +891,7 @@ export type Tenant = {
   paymentGateway?: 'none' | 'stripe' | 'square';
   gatewayApiKey?: string;
   autoProcessMemberships?: boolean;
+  depositsLive?: boolean;
 
   // ── Recovery & Governance ──────────────────────────────────────────────
   maxAutonomousRecoveryAmount?: number;
@@ -852,13 +899,36 @@ export type Tenant = {
   escalationPolicy?: string;
   recoveryPresets?: RecoveryPreset[];
 
+  // ── Appointment automations ────────────────────────────────────────────
+  appointmentAutomations?: AppointmentAutomations;
+
+  // ── Dispute tracking (sidebar badge) ──────────────────────────────────
+  openDisputeCount?: number;
+
+  // ── Stripe ─────────────────────────────────────────────────────────────
+  stripeAccountId?: string;
+  stripeCustomerId?: string;
+  stripeOnboardingComplete?: boolean;
+  stripeChargesEnabled?: boolean;
+  stripePayoutsEnabled?: boolean;
+  stripeSubscriptionId?: string;
+  stripePriceId?: string;
+  currentPeriodEnd?: string;
+  trialEnd?: string;
+  planId?: string;
+  gracePeriodEndsAt?: string;
+  accessLocked?: boolean;
+  lastPaymentAt?: string;
+  trialEndingWarningSent?: boolean;
+  stripeAccountUpdatedAt?: string;
+
   // ── Booking page ───────────────────────────────────────────────────────
   bookingPageSettings?: BookingPageSettings;
 
   // ── Kiosk ──────────────────────────────────────────────────────────────
   kioskSettings?: KioskSettings;
 
-  // ── Studio location (for geo-fencing) ─────────────────────────────────
+  // ── Studio location ────────────────────────────────────────────────────
   studioAddress?: string;
   studioAddressParts?: {
     street: string;
@@ -877,25 +947,28 @@ export type Tenant = {
   geoFenceBreakRadiusMeters?: number;
   geoFenceFailBehavior?: 'warn' | 'block';
 
-  // ── Time clock — clock-in restrictions ────────────────────────────────
+  // ── Time clock ─────────────────────────────────────────────────────────
   earlyClockInMinutes?: number;
   requireAppointmentToClockIn?: boolean;
   blockClockInOnExpiredLicense?: boolean;
   minimumShiftMinutes?: number;
   requireManagerOverrideForLateClockIn?: boolean;
-
-  // ── Time clock — overtime ──────────────────────────────────────────────
   dailyOvertimeHours?: number;
   overtimeThresholdHours?: number;
   overtimeMultiplier?: number;
   autoClockOutHours?: number;
   overtimeAlertHours?: number;
-
-  // ── Time clock — break policy ──────────────────────────────────────────
   minimumBreakMinutes?: number;
   maximumBreakMinutes?: number;
   requiredBreakAfterHours?: number;
   paidBreakMinutes?: number;
+
+  // ── Cancellation policy text (for completion page) ─────────────────────
+  cancellationPolicyText?: string;
+  depositPolicy?: { version?: string };
+  refundPolicy?: string;
+  ownerEmail?: string;
+  email?: string;
 };
 
 export type Resource = {
@@ -1100,8 +1173,6 @@ export const getServicePrice = (
 export { nanoid };
 
 // ─── STUDIO EVENT TYPE ────────────────────────────────────────────────────────
-// Separate from the planner Event type to avoid collection collision.
-// Stored in tenants/${tenantId}/studioEvents
 export type StudioEvent = {
   id: string;
   tenantId: string;
