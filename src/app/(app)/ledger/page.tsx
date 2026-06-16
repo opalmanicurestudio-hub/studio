@@ -72,75 +72,216 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
 
 // ─── Fast Print ───────────────────────────────────────────────────────────────
 // Opens a new window and writes pre-built HTML — no React re-render, no delay.
+
+const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
+  'Service Revenue':    { bg: '#dbeafe', text: '#1e40af', label: 'Service' },
+  'Tips':               { bg: '#fef9c3', text: '#854d0e', label: 'Tip' },
+  'Tax Collected':      { bg: '#f3f4f6', text: '#374151', label: 'Tax' },
+  'Retail':             { bg: '#dcfce7', text: '#166534', label: 'Retail' },
+  'Retail Product':     { bg: '#dcfce7', text: '#166534', label: 'Retail' },
+  'Membership Sales':   { bg: '#ede9fe', text: '#5b21b6', label: 'Membership' },
+  'Package Sales':      { bg: '#f5f3ff', text: '#6d28d9', label: 'Package' },
+  'Discounts':          { bg: '#fce7f3', text: '#9d174d', label: 'Discount' },
+  'Refunds':            { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
+  'Fee Recovery':       { bg: '#fff7ed', text: '#92400e', label: 'Fee' },
+  'Protocol Recovery':  { bg: '#fff7ed', text: '#c2410c', label: 'Recovery' },
+  'Hospitality Revenue':{ bg: '#ecfdf5', text: '#065f46', label: 'Hospitality' },
+  'Cancellation Fee':   { bg: '#fef3c7', text: '#92400e', label: 'Cancel Fee' },
+  'Strategic Adjustment':{ bg: '#fff7ed', text: '#b45309', label: 'Adjustment' },
+};
+
+const getCatStyle = (cat: string) => PRINT_CATEGORY_COLORS[cat] || { bg: '#f9fafb', text: '#374151', label: cat };
+const sessionRefNum = (sid: string) => `REF-${sid.slice(-6).toUpperCase()}`;
+const txnRefNum     = (id: string)  => `TXN-${id.slice(-6).toUpperCase()}`;
+
 function buildPrintHtml(
   transactions: Transaction[],
   staff: Staff[],
   summary: { revenue: number; cogs: number; grossProfit: number; operatingExpenses: number; net: number },
   dateRange: DateRange | undefined,
 ) {
-  const staffName = (id?: string) => id ? (staff.find(s => s.id === id)?.name || 'System') : 'System';
-  const rows = transactions.map(t => `
-    <tr style="border-bottom:1px solid #e5e7eb; ${t.type === 'expense' ? 'background:#fef2f2;' : ''}">
-      <td style="padding:6px 8px; font-size:11px;">${fmt(t.date, 'MM/dd/yy h:mm a')}</td>
-      <td style="padding:6px 8px; font-size:11px;">
-        <div style="font-weight:600;">${t.description}</div>
-        <div style="color:#6b7280; font-size:10px;">${t.clientOrVendor || ''}</div>
-      </td>
-      <td style="padding:6px 8px; font-size:11px;">${staffName(t.staffId)}</td>
-      <td style="padding:6px 8px; font-size:11px;">${t.category}</td>
-      <td style="padding:6px 8px; font-size:11px;">${t.paymentMethod || ''}</td>
-      <td style="padding:6px 8px; font-size:11px; text-align:right; font-family:monospace; font-weight:700; color:${t.type === 'income' ? '#16a34a' : t.type === 'expense' ? '#dc2626' : '#9ca3af'};">
-        ${t.type === 'income' ? '+' : t.type === 'expense' ? '-' : ''}$${t.amount.toFixed(2)}
-      </td>
-      <td style="padding:6px 8px; font-size:10px; color:#9ca3af;">${t.checkoutSessionId ? t.checkoutSessionId.slice(-6).toUpperCase() : '—'}</td>
-    </tr>`).join('');
+  const staffName = (id?: string) => id ? (staff.find((s: Staff) => s.id === id)?.name || '—') : '—';
+  const fmtD = (d: any, s: string) => { try { return format(new Date(d), s); } catch { return '—'; } };
+  const periodLabel = dateRange?.from && dateRange?.to
+    ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}`
+    : 'All Dates';
+
+  // ── Group by checkoutSessionId ──────────────────────────────────────────────
+  const sessionMap = new Map<string, Transaction[]>();
+  const ungrouped: Transaction[] = [];
+  transactions.forEach(t => {
+    const sid = (t as any).checkoutSessionId;
+    if (sid) { if (!sessionMap.has(sid)) sessionMap.set(sid, []); sessionMap.get(sid)!.push(t); }
+    else ungrouped.push(t);
+  });
+
+  const sessions = Array.from(sessionMap.entries()).map(([sid, txns]) => {
+    const first    = txns[0];
+    const income   = txns.filter(t => t.type === 'income');
+    const expense  = txns.filter(t => t.type === 'expense');
+    const tax      = income.find(t => t.category === 'Tax Collected')?.amount || 0;
+    const tips     = income.filter(t => t.category === 'Tips').reduce((s, t) => s + t.amount, 0);
+    const discounts= expense.filter(t => ['Discounts','Refunds'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
+    const subtotal = income.filter(t => !['Tax Collected','Tips'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
+    const total    = income.reduce((s, t) => s + t.amount, 0) - expense.reduce((s, t) => s + t.amount, 0);
+    return { sid, refNum: sessionRefNum(sid), first, txns, subtotal, tax, tips, discounts, total };
+  }).sort((a, b) => new Date(b.first.date).getTime() - new Date(a.first.date).getTime());
+
+  // ── Category totals for revenue breakdown ───────────────────────────────────
+  const catMap = new Map<string, number>();
+  transactions.filter(t => t.type === 'income').forEach(t => catMap.set(t.category, (catMap.get(t.category) || 0) + t.amount));
+  const catTotals = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+
+  // ── Appendix items (receipts with image URLs) ───────────────────────────────
+  const appendix: { refNum: string; desc: string; date: string; client: string; url?: string }[] = [];
+  sessions.forEach(s => {
+    s.txns.filter(t => (t as any).receiptUrl).forEach(t => {
+      appendix.push({ refNum: `${s.refNum}-${t.id.slice(-4).toUpperCase()}`, desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: s.first.clientOrVendor || 'Guest', url: (t as any).receiptUrl });
+    });
+  });
+  ungrouped.filter(t => (t as any).receiptUrl).forEach(t => {
+    appendix.push({ refNum: txnRefNum(t.id), desc: t.description, date: fmtD(t.date, 'MMM d, yyyy · h:mm a'), client: t.clientOrVendor || 'Unknown', url: (t as any).receiptUrl });
+  });
+
+  // ── Legend HTML ─────────────────────────────────────────────────────────────
+  const legendHtml = Object.entries(PRINT_CATEGORY_COLORS).map(([, cs]) =>
+    `<span style="background:${cs.bg};color:${cs.text};padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;">${cs.label}</span>`
+  ).join(' ');
+
+  // ── Session rows ────────────────────────────────────────────────────────────
+  const sessionRows = sessions.map(s => {
+    const lineItems = s.txns.map(t => {
+      const cs = getCatStyle(t.category);
+      const sn = staffName((t as any).staffId);
+      const amtColor = t.category === 'Tips' ? '#854d0e' : t.category === 'Tax Collected' ? '#374151' : t.type === 'expense' ? '#991b1b' : '#166534';
+      return `<tr style="border-bottom:1px dashed #f3f4f6;">
+        <td style="padding:5px 8px;font-size:10px;width:50%;">
+          <span style="background:${cs.bg};color:${cs.text};padding:1px 5px;border-radius:8px;font-size:8px;font-weight:700;margin-right:4px;">${cs.label}</span>
+          ${t.description}${sn !== '—' ? `<span style="color:#9ca3af;font-size:9px;"> · ${sn.split(' ')[0]}</span>` : ''}
+        </td>
+        <td style="padding:5px 8px;font-size:10px;color:#6b7280;">${fmtD(t.date, 'h:mm a')}</td>
+        <td style="padding:5px 8px;font-size:10px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${t.type === 'expense' ? '-' : ''}$${t.amount.toFixed(2)}</td>
+        <td style="padding:5px 8px;font-size:8px;color:#d1d5db;font-family:monospace;">${s.refNum}</td>
+      </tr>`;
+    }).join('');
+
+    const totals = [
+      s.subtotal > 0 ? `Services <strong style="font-family:monospace">$${s.subtotal.toFixed(2)}</strong>` : '',
+      s.tax > 0 ? `Tax <strong style="font-family:monospace;color:#374151">$${s.tax.toFixed(2)}</strong>` : '',
+      s.tips > 0 ? `Tip <strong style="font-family:monospace;color:#854d0e">$${s.tips.toFixed(2)}</strong>` : '',
+      s.discounts > 0 ? `Discount <strong style="font-family:monospace;color:#9d174d">-$${s.discounts.toFixed(2)}</strong>` : '',
+      `<strong>Total <span style="font-family:monospace">$${s.total.toFixed(2)}</span></strong>`,
+    ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+    return `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
+      <div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-weight:900;font-size:12px;text-transform:uppercase;">${s.first.clientOrVendor || 'Guest'}</div>
+          <div style="font-size:10px;color:#6b7280;">${fmtD(s.first.date, 'MMM d, yyyy · h:mm a')} · ${s.first.paymentMethod}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:900;font-size:15px;font-family:monospace;">$${s.total.toFixed(2)}</div>
+          <div style="font-size:9px;color:#9ca3af;font-family:monospace;font-weight:700;">${s.refNum}</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;"><tbody>${lineItems}</tbody></table>
+      <div style="padding:8px 14px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">${totals}</div>
+    </div>`;
+  }).join('');
+
+  // ── Ungrouped rows ──────────────────────────────────────────────────────────
+  const ungroupedRows = ungrouped.map((t, i) => {
+    const cs = getCatStyle(t.category);
+    const amtColor = t.type === 'income' ? '#166534' : '#991b1b';
+    return `<tr style="border-bottom:1px solid #f3f4f6;background:${i % 2 === 0 ? '#fff' : '#fafafa'};">
+      <td style="padding:6px 8px;font-size:10px;font-family:monospace;color:#9ca3af;">${txnRefNum(t.id)}</td>
+      <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${fmtD(t.date, 'MMM d, h:mm a')}</td>
+      <td style="padding:6px 8px;font-size:11px;"><div style="font-weight:600;">${t.description}</div><div style="font-size:9px;color:#9ca3af;">${t.clientOrVendor}</div></td>
+      <td style="padding:6px 8px;"><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;">${cs.label}</span></td>
+      <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${staffName((t as any).staffId).split(' ')[0]}</td>
+      <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${t.paymentMethod}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${t.type === 'income' ? '+' : '-'}$${t.amount.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  // ── Appendix ─────────────────────────────────────────────────────────────────
+  const appendixHtml = appendix.length > 0 ? `
+    <div style="page-break-before:always;margin-top:40px;">
+      <h2>Appendix A — Receipt Documentation (${appendix.length} attachments)</h2>
+      <p style="font-size:10px;color:#6b7280;margin-bottom:16px;">Reference numbers below correspond to REF/TXN codes shown in the transaction detail above.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        ${appendix.map(item => `
+          <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
+            <div style="background:#f8fafc;padding:8px 12px;border-bottom:1px solid #e5e7eb;">
+              <div style="font-family:monospace;font-size:10px;font-weight:900;color:#374151;">${item.refNum}</div>
+              <div style="font-size:11px;font-weight:600;color:#111;">${item.desc}</div>
+              <div style="font-size:9px;color:#9ca3af;">${item.client} · ${item.date}</div>
+            </div>
+            ${item.url
+              ? `<div style="padding:8px;"><img src="${item.url}" alt="Receipt" style="width:100%;max-height:280px;object-fit:contain;display:block;" /></div>`
+              : `<div style="padding:24px;text-align:center;color:#d1d5db;font-size:10px;font-weight:700;text-transform:uppercase;">POS receipt — view in ClarityFlow</div>`}
+          </div>`).join('')}
+      </div>
+    </div>` : '';
 
   return `<!DOCTYPE html><html><head><title>Studio Ledger Report</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, sans-serif; color: #111827; padding: 32px; }
-    h1 { font-size: 24px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.03em; }
-    h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 24px 0 8px; border-bottom: 2px solid #111827; padding-bottom: 4px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: #f9fafb; text-align: left; padding: 8px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #374151; }
-    .summary-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #e5e7eb; font-size: 13px; }
-    .summary-row.bold { font-weight: 700; }
-    .summary-row.net { font-weight: 800; font-size: 16px; border-top: 3px solid #111827; border-bottom: none; margin-top: 4px; padding-top: 8px; }
-    .green { color: #16a34a; } .red { color: #dc2626; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-    .date-range { font-size: 13px; color: #6b7280; margin-top: 4px; }
-    .generated { font-size: 11px; color: #9ca3af; text-align: right; }
-    @media print { @page { size: A4; margin: 0.75in; } body { padding: 0; } }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:-apple-system,sans-serif; color:#111; padding:32px; }
+    h1 { font-size:26px; font-weight:900; text-transform:uppercase; letter-spacing:-0.03em; }
+    h2 { font-size:12px; font-weight:900; text-transform:uppercase; letter-spacing:0.1em; margin:28px 0 10px; border-bottom:2px solid #111; padding-bottom:6px; }
+    table { width:100%; border-collapse:collapse; }
+    th { background:#f8fafc; text-align:left; padding:7px 8px; font-size:9px; font-weight:900; text-transform:uppercase; letter-spacing:0.08em; color:#6b7280; border-bottom:2px solid #e5e7eb; }
+    @media print { @page { size:A4; margin:0.65in; } body { padding:0; } .no-print { display:none; } }
   </style></head><body>
-  <div class="header">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:20px;border-bottom:3px solid #111;">
     <div>
-      <h1>Studio Ledger</h1>
-      <div class="date-range">
-        ${dateRange?.from ? format(dateRange.from, 'MMM d, yyyy') : 'All time'} — ${dateRange?.to ? format(dateRange.to, 'MMM d, yyyy') : 'Present'}
-      </div>
+      <h1>Studio Financial Report</h1>
+      <div style="font-size:12px;color:#6b7280;font-weight:600;margin-top:4px;">Period: ${periodLabel}</div>
+      <div style="font-size:10px;color:#9ca3af;margin-top:2px;">Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div>
     </div>
-    <div class="generated">Generated ${format(new Date(), 'MMM d, yyyy h:mm a')}</div>
+    <div style="text-align:right;font-size:10px;color:#9ca3af;">
+      <div style="font-weight:700;">ClarityFlow</div>
+      <div>Studio Management</div>
+      <div style="margin-top:4px;">Confidential</div>
+    </div>
   </div>
 
-  <h2>Financial Summary</h2>
-  <div style="max-width:360px; margin-bottom:24px;">
-    <div class="summary-row"><span>Total Revenue</span><span class="green">$${summary.revenue.toFixed(2)}</span></div>
-    <div class="summary-row"><span>Cost of Goods (COGS)</span><span class="red">($${summary.cogs.toFixed(2)})</span></div>
-    <div class="summary-row bold"><span>Gross Profit</span><span>$${summary.grossProfit.toFixed(2)}</span></div>
-    <div class="summary-row"><span>Operating Expenses</span><span class="red">($${summary.operatingExpenses.toFixed(2)})</span></div>
-    <div class="summary-row net"><span>Net Income</span><span class="${summary.net >= 0 ? 'green' : 'red'}">$${summary.net.toFixed(2)}</span></div>
+  <div style="margin-bottom:20px;padding:12px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+    <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;color:#374151;">Color Key — Category Classification</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;">${legendHtml}</div>
   </div>
 
-  <h2>Transaction Detail (${transactions.length} records)</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
+    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Financial Summary</div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Total Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.revenue.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">COGS</span><span style="font-family:monospace;color:#991b1b;">-$${summary.cogs.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:6px 0 3px;font-size:12px;font-weight:700;border-bottom:1px solid #f3f4f6;"><span>Gross Profit</span><span style="font-family:monospace;">$${summary.grossProfit.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Op. Expenses</span><span style="font-family:monospace;color:#991b1b;">-$${summary.operatingExpenses.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Income</span><span style="font-family:monospace;color:${summary.net >= 0 ? '#166534' : '#991b1b'};">$${summary.net.toFixed(2)}</span></div>
+    </div>
+    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Revenue by Category</div>
+      ${catTotals.map(([cat, amt]) => { const cs = getCatStyle(cat); return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid #f9fafb;"><span><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;">${cs.label}</span></span><span style="font-family:monospace;color:#166534;font-weight:600;">$${amt.toFixed(2)}</span></div>`; }).join('')}
+    </div>
+  </div>
+
+  ${sessions.length > 0 ? `<h2>Checkout Sessions (${sessions.length})</h2>${sessionRows}` : ''}
+
+  ${ungrouped.length > 0 ? `
+  <h2>Manual & Other Entries (${ungrouped.length})</h2>
   <table>
-    <thead>
-      <tr>
-        <th>Date & Time</th><th>Description</th><th>Staff</th>
-        <th>Category</th><th>Method</th><th style="text-align:right;">Amount</th><th>Session</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
+    <thead><tr><th>Ref #</th><th>Date</th><th>Description</th><th>Category</th><th>Staff</th><th>Method</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>${ungroupedRows}</tbody>
+  </table>` : ''}
+
+  ${appendixHtml}
+
+  <div style="margin-top:40px;border-top:2px solid #111;padding-top:16px;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;">
+    <div><div style="font-weight:700;">ClarityFlow Studio Management</div><div>Confidential Financial Document — Not for Distribution</div></div>
+    <div style="text-align:right;"><div>${periodLabel}</div><div>Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div><div>${transactions.length} records · ${sessions.length} sessions</div></div>
+  </div>
   </body></html>`;
 }
 
