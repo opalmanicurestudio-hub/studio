@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
     signatureUrls,
     receiptUrl,
     extraNotes,
+    additionalFiles,  // [{ url: string, purpose: string }]
   } = await req.json();
 
   if (!tenantId || !stripeDisputeId || !stripeConnectedAccountId) {
@@ -180,6 +181,41 @@ export async function POST(req: NextRequest) {
           stripe, buf, 'receipt.png', 'dispute_evidence', stripeConnectedAccountId
         );
         if (fileId) (evidence as any).receipt = fileId;
+      }
+    }
+
+    // ── Upload additional manual files ──────────────────────────────────────────
+    // Stripe accepts up to 5 files total. Map each to the correct evidence field.
+    // Priority order: customer_signature > receipt > service_documentation >
+    //                 customer_communication > uncategorized_file
+    const additionalFileIds: { purpose: string; fileId: string }[] = [];
+
+    if (additionalFiles && Array.isArray(additionalFiles)) {
+      for (const af of additionalFiles) {
+        const buf = await urlToBuffer(af.url);
+        if (!buf) continue;
+        const ext      = af.url.split('.').pop()?.split('?')[0] || 'jpg';
+        const filename = `evidence-${af.purpose}.${ext}`;
+        const fileId   = await uploadFileToStripe(
+          stripe, buf, filename, 'dispute_evidence', stripeConnectedAccountId
+        );
+        if (fileId) additionalFileIds.push({ purpose: af.purpose, fileId });
+      }
+
+      // Map uploaded file IDs to Stripe evidence fields
+      for (const { purpose, fileId } of additionalFileIds) {
+        if (purpose === 'customer_signature' && !(evidence as any).customer_signature) {
+          (evidence as any).customer_signature = fileId;
+        } else if (purpose === 'receipt' && !(evidence as any).receipt) {
+          (evidence as any).receipt = fileId;
+        } else if (purpose === 'service_documentation' && !(evidence as any).service_documentation) {
+          (evidence as any).service_documentation = fileId;
+        } else if (purpose === 'customer_communication' && !(evidence as any).customer_communication) {
+          (evidence as any).customer_communication = fileId;
+        } else if (!(evidence as any).uncategorized_file) {
+          (evidence as any).uncategorized_file = fileId;
+        }
+        // Note: Stripe allows only one file per field; extras are noted in uncategorized_text
       }
     }
 
