@@ -14,30 +14,32 @@ import { CheckCircle2, ShieldCheck, CreditCard, Loader, AlertTriangle, Lock, Fil
 // ─────────────────────────────────────────────────────────────────────────────
 // /complete/[tenantId]/[token]
 //
-// The secure link sent for a phone booking. The client:
-//   1. reviews the deposit + cancellation policy and the card-on-file authorization
-//   2. signs any required consent forms
-//   3. is sent to the combined Checkout (deposit + card vault)
+// Scenarios handled:
+//   A. No card on file, forms required    → forms → card + deposit
+//   B. No card on file, no forms          → card + deposit only
+//   C. Card on file, forms required       → forms only → done (no card step)
+//   D. Card on file, no forms             → instant success (nothing to do)
 //
-// Policy acceptance and signatures are recorded — immutably, with timestamps —
-// BEFORE payment, because that agreement is the authorization for the saved card.
+// skipCardStep is set by QuickBook when client already has cardOnFile.
 // ─────────────────────────────────────────────────────────────────────────────
+
 function CompletionContent({ tenantId, token }: { tenantId: string; token: string }) {
-  const [loading, setLoading]       = useState(true);
-  const [tenant, setTenant]         = useState<any>(null);
-  const [completion, setCompletion] = useState<any>(null);
-  const [forms, setForms]           = useState<any[]>([]);
-  const [answers, setAnswers]       = useState<Record<string, Record<string, any>>>({});
-  const [uploads, setUploads]       = useState<Record<string, any[]>>({});
-  const [uploading, setUploading]   = useState(false);
-  const [accepted, setAccepted]     = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const [returnState, setReturnState] = useState<null | 'success' | 'cancelled'>(null);
+  const [loading, setLoading]           = useState(true);
+  const [tenant, setTenant]             = useState<any>(null);
+  const [completion, setCompletion]     = useState<any>(null);
+  const [forms, setForms]               = useState<any[]>([]);
+  const [answers, setAnswers]           = useState<Record<string, Record<string, any>>>({});
+  const [uploads, setUploads]           = useState<Record<string, any[]>>({});
+  const [uploading, setUploading]       = useState(false);
+  const [accepted, setAccepted]         = useState(false);
+  const [submitting, setSubmitting]     = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+  const [returnState, setReturnState]   = useState<null | 'success' | 'cancelled'>(null);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+  // Tracks whether we've completed the forms step and moved to card step
+  const [formsSubmitted, setFormsSubmitted] = useState(false);
 
-  // Stripe.js must be initialised for the studio's connected account (direct charges)
   const stripePromise = useMemo(() => {
     const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
     if (!pk || !stripeAccountId) return null;
@@ -48,7 +50,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     try { return getFirestore(getApp()); } catch { return null; }
   }, []);
 
-  // Detect return from Stripe
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const p = new URLSearchParams(window.location.search);
@@ -56,7 +57,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     if (c === 'success' || c === 'cancelled') setReturnState(c as 'success' | 'cancelled');
   }, []);
 
-  // Load tenant + completion + required consent forms
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -86,9 +86,15 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     return () => { cancelled = true; };
   }, [tenantId, token, getDb]);
 
-  const accent = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || '#111827';
-  const studioName = tenant?.name || 'the studio';
+  const accent        = tenant?.bookingPageSettings?.cfPageConfig?.accentColor || '#111827';
+  const studioName    = tenant?.name || 'the studio';
   const depositDollars = (completion?.depositAmountCents || 0) / 100;
+  // Key flags from QuickBook
+  const skipCardStep  = completion?.skipCardStep === true;
+  const hasForms      = forms.length > 0;
+  const hasFileReqs   = (completion?.fileRequirements || []).length > 0;
+  // Scenario D: card on file, no forms, no files → nothing to do
+  const nothingToDo   = skipCardStep && !hasForms && !hasFileReqs;
 
   const allConsentsComplete = forms.every((f: any) =>
     (f.fields || []).every((fld: any) => {
@@ -98,8 +104,6 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     })
   );
 
-  // File requirements — accept either a simplified list (from quick-book) or the
-  // full requirements model filtered to file_upload. Config can be top-level or under .file
   const fileReqs: any[] = (completion?.fileRequirements && completion.fileRequirements.length)
     ? completion.fileRequirements
     : ((completion?.requirements || []).filter((r: any) => r.type === 'file_upload'));
@@ -116,17 +120,13 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     const existing = uploads[reqId] || [];
     const max = cfg?.maxCount ?? 5;
     const picked = Array.from(fileList).slice(0, Math.max(0, max - existing.length));
-    setError(null);
-    setUploading(true);
+    setError(null); setUploading(true);
     try {
       for (const file of picked) {
         if (file.size > 10 * 1024 * 1024) { setError(`${file.name} is over 10MB and was skipped.`); continue; }
-        // Upload via the server route (Admin SDK) so the public page bypasses Storage rules
         const fd = new FormData();
-        fd.append('file', file);
-        fd.append('tenantId', tenantId);
-        fd.append('token', token);
-        fd.append('reqId', reqId);
+        fd.append('file', file); fd.append('tenantId', tenantId);
+        fd.append('token', token); fd.append('reqId', reqId);
         const res = await fetch('/api/completion/upload-file', { method: 'POST', body: fd });
         const out = await res.json().catch(() => null);
         if (out?.url) {
@@ -142,11 +142,21 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
   const removeUpload = (reqId: string, idx: number) =>
     setUploads(prev => ({ ...prev, [reqId]: (prev[reqId] || []).filter((_, i) => i !== idx) }));
 
+  // ── Submit handler ─────────────────────────────────────────────────────────
+  // Two paths:
+  //   skipCardStep = true  → save forms/signatures, mark complete, show success
+  //   skipCardStep = false → save forms/signatures, then launch Stripe checkout
   const handleSubmit = async () => {
     setError(null);
-    if (!accepted) { setError('Please accept the policy and authorization to continue.'); return; }
-    if (!allConsentsComplete) { setError('Please complete and sign all forms before continuing.'); return; }
-    if (!allFilesComplete) { setError('Please add the requested photos/files before continuing.'); return; }
+    if (!skipCardStep && !accepted) {
+      setError('Please accept the policy and authorization to continue.'); return;
+    }
+    if (!allConsentsComplete) {
+      setError('Please complete and sign all forms before continuing.'); return;
+    }
+    if (!allFilesComplete) {
+      setError('Please add the requested photos/files before continuing.'); return;
+    }
     if (uploading) { setError('Please wait for uploads to finish.'); return; }
     const db = getDb();
     if (!db) { setError('Connection problem — please try again.'); return; }
@@ -154,26 +164,33 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     setSubmitting(true);
     try {
       const nowISO = new Date().toISOString();
-      const signedForms = forms.map((f: any) => ({ formId: f.id, formTitle: f.title, formData: answers[f.id] || {} }));
-      const fileSubmissions = fileReqs.map((fr: any) => ({ requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Files', files: uploads[fr.id] || [] }));
+      const signedForms = forms.map((f: any) => ({
+        formId: f.id, formTitle: f.title, formData: answers[f.id] || {},
+      }));
+      const fileSubmissions = fileReqs.map((fr: any) => ({
+        requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Files',
+        files: uploads[fr.id] || [],
+      }));
       const policyAcceptance = {
         acceptedAt: nowISO,
-        cardAuthorization: true,
+        cardAuthorization: !skipCardStep, // only true when client is saving a card
         policyVersion: tenant?.depositPolicy?.version || 'v1',
         depositAmountCents: completion?.depositAmountCents || 0,
       };
 
-      // 1) Immutable audit record (create-only)
+      // 1) Immutable audit record
       await addDoc(collection(db, `tenants/${tenantId}/completionSubmissions`), {
         token, tenantId,
         appointmentId: completion?.appointmentId || null,
-        clientId: completion?.clientId || null,
-        clientName: completion?.clientName || null,
-        clientEmail: completion?.clientEmail || null,
-        signedForms, fileSubmissions, policyAcceptance, submittedAt: nowISO,
+        clientId:      completion?.clientId || null,
+        clientName:    completion?.clientName || null,
+        clientEmail:   completion?.clientEmail || null,
+        signedForms, fileSubmissions, policyAcceptance,
+        submittedAt: nowISO,
+        cardAlreadyOnFile: skipCardStep,
       });
 
-      // 2) Best-effort write onto the appointment so the front desk sees it
+      // 2) Write onto appointment
       try {
         if (completion?.appointmentId) {
           await setDoc(
@@ -182,9 +199,24 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
             { merge: true }
           );
         }
-      } catch { /* rules may restrict public writes — the audit record above is the source of truth */ }
+      } catch { /* public write may be restricted — audit record is source of truth */ }
 
-      // 3) Get the embedded checkout client secret (renders inline — no redirect)
+      // ── Scenario C/D: card already on file — no Stripe step needed ──────────
+      if (skipCardStep) {
+        // Mark the completion as done
+        try {
+          await setDoc(
+            doc(db, `tenants/${tenantId}/bookingCompletions`, token),
+            { status: 'complete', completedAt: nowISO, formsSignedAt: nowISO },
+            { merge: true }
+          );
+        } catch { /* best-effort */ }
+        setReturnState('success');
+        setSubmitting(false);
+        return;
+      }
+
+      // ── Scenarios A/B: launch Stripe embedded checkout ──────────────────────
       const res = await fetch('/api/stripe/completion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -223,7 +255,8 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     );
   }
 
-  if (returnState === 'success' || completion?.status === 'complete') {
+  // Scenario D — card on file, nothing to do — instant success
+  if (nothingToDo || returnState === 'success' || completion?.status === 'complete') {
     return (
       <div className="min-h-dvh flex items-center justify-center bg-slate-50 p-6">
         <div className="w-full max-w-md bg-white rounded-3xl border shadow-xl p-10 text-center space-y-5">
@@ -232,7 +265,9 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           </div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">You're all set</h1>
           <p className="text-sm text-slate-500 leading-relaxed">
-            Your booking with {studioName} is secured. Your card is safely on file and any forms are signed. We'll see you soon!
+            {skipCardStep && !hasForms
+              ? `Your appointment with ${studioName} is confirmed. We'll see you soon!`
+              : `Your booking with ${studioName} is secured. ${skipCardStep ? 'Your forms are signed.' : 'Your card is safely on file and any forms are signed.'} We'll see you soon!`}
           </p>
         </div>
       </div>
@@ -263,7 +298,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     );
   }
 
-  // Inline payment — embedded Stripe Checkout, no redirect
+  // Stripe embedded checkout (Scenarios A/B only)
   if (clientSecret) {
     return (
       <div className="min-h-dvh bg-slate-50 py-8 px-4">
@@ -271,7 +306,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           <div className="text-center space-y-2 pt-4">
             <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{studioName}</p>
             <h1 className="text-2xl font-black tracking-tight text-slate-900">{depositDollars > 0 ? 'Payment & card on file' : 'Save your card'}</h1>
-            <p className="text-sm text-slate-500">{depositDollars > 0 ? `Pay your $${depositDollars.toFixed(2)} deposit and save your card — all right here.` : 'Securely save your card to finish.'}</p>
+            <p className="text-sm text-slate-500">{depositDollars > 0 ? `Pay your $${depositDollars.toFixed(2)} deposit and save your card.` : 'Securely save your card to finish.'}</p>
           </div>
           <div className="bg-white rounded-2xl border shadow-sm p-2 sm:p-4 min-h-[300px]">
             {stripePromise
@@ -288,6 +323,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
     );
   }
 
+  // ── Main form ──────────────────────────────────────────────────────────────
   return (
     <div className="min-h-dvh bg-slate-50 py-8 px-4">
       <div className="w-full max-w-lg mx-auto space-y-5">
@@ -295,19 +331,31 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
         {/* Header */}
         <div className="text-center space-y-2 pt-4">
           <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{studioName}</p>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">Finish your booking</h1>
-          <p className="text-sm text-slate-500">A couple of quick steps to secure your appointment.</p>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">
+            {skipCardStep ? 'Sign your forms' : 'Finish your booking'}
+          </h1>
+          <p className="text-sm text-slate-500">
+            {skipCardStep
+              ? 'Please review and sign the required forms for your appointment.'
+              : 'A couple of quick steps to secure your appointment.'}
+          </p>
+          {skipCardStep && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border border-green-200 mt-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+              <span className="text-[11px] font-black text-green-700 uppercase tracking-widest">Card on file — no payment needed</span>
+            </div>
+          )}
         </div>
 
         {returnState === 'cancelled' && (
           <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-            <p className="text-xs font-medium text-amber-800">Payment wasn't completed, so your spot isn't secured yet. You can finish below.</p>
+            <p className="text-xs font-medium text-amber-800">Payment wasn't completed. You can finish below.</p>
           </div>
         )}
 
-        {/* Deposit summary */}
-        {depositDollars > 0 && (
+        {/* Deposit summary — only when not skipping card step */}
+        {!skipCardStep && depositDollars > 0 && (
           <div className="bg-white rounded-2xl border shadow-sm p-5 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <CreditCard className="w-5 h-5" style={{ color: accent }} />
@@ -333,14 +381,17 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
                   key={field.id}
                   field={field}
                   value={answers[form.id]?.[field.id]}
-                  onChange={(val: any) => setAnswers(prev => ({ ...prev, [form.id]: { ...(prev[form.id] || {}), [field.id]: val } }))}
+                  onChange={(val: any) => setAnswers(prev => ({
+                    ...prev,
+                    [form.id]: { ...(prev[form.id] || {}), [field.id]: val },
+                  }))}
                 />
               ))}
             </div>
           </div>
         ))}
 
-        {/* File / inspo uploads */}
+        {/* File uploads */}
         {fileReqs.map((fr: any) => {
           const cfg = fileCfg(fr);
           const got = uploads[fr.id] || [];
@@ -371,8 +422,7 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
                 <label className="flex items-center justify-center gap-2 h-12 rounded-xl border-2 border-dashed cursor-pointer text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors">
                   <Upload className="w-4 h-4" /> {uploading ? 'Uploading…' : got.length > 0 ? 'Add more' : 'Add photos'}
                   <input
-                    type="file"
-                    multiple
+                    type="file" multiple
                     accept={(cfg.acceptedTypes || ['image/*']).join(',')}
                     className="hidden"
                     onChange={e => { handleFiles(fr.id, e.target.files, cfg); e.currentTarget.value = ''; }}
@@ -384,29 +434,31 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           );
         })}
 
-        {/* Policy + card authorization */}
-        <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4" style={{ color: accent }} />
-            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Policy & Authorization</h2>
+        {/* Policy + card authorization — only shown when card step is NOT skipped */}
+        {!skipCardStep && (
+          <div className="bg-white rounded-2xl border shadow-sm p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" style={{ color: accent }} />
+              <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Policy & Authorization</h2>
+            </div>
+            <div className="text-xs text-slate-500 leading-relaxed space-y-2 max-h-44 overflow-y-auto pr-1">
+              <p>{tenant?.cancellationPolicyText || `Deposits secure your appointment time. Cancellations made with adequate notice are handled per ${studioName}'s policy; late cancellations and no-shows may forfeit the deposit or incur a fee.`}</p>
+              <p>By continuing, you authorize {studioName} to keep your card on file and to charge it for late-cancellation or no-show fees in accordance with the policy above.</p>
+            </div>
+            <label className="flex items-start gap-3 cursor-pointer pt-2 border-t">
+              <input
+                type="checkbox"
+                checked={accepted}
+                onChange={e => setAccepted(e.target.checked)}
+                className="mt-0.5 h-5 w-5 rounded border-2 shrink-0"
+                style={{ accentColor: accent }}
+              />
+              <span className="text-xs font-medium text-slate-700 leading-relaxed">
+                I have read and agree to the policy, and I authorize {studioName} to securely store and charge my card for fees as described.
+              </span>
+            </label>
           </div>
-          <div className="text-xs text-slate-500 leading-relaxed space-y-2 max-h-44 overflow-y-auto pr-1">
-            <p>{tenant?.cancellationPolicyText || `Deposits secure your appointment time. Cancellations made with adequate notice are handled per ${studioName}'s policy; late cancellations and no-shows may forfeit the deposit or incur a fee.`}</p>
-            <p>By continuing, you authorize {studioName} to keep your card on file and to charge it for late-cancellation or no-show fees in accordance with the policy above.</p>
-          </div>
-          <label className="flex items-start gap-3 cursor-pointer pt-2 border-t">
-            <input
-              type="checkbox"
-              checked={accepted}
-              onChange={e => setAccepted(e.target.checked)}
-              className="mt-0.5 h-5 w-5 rounded border-2 shrink-0"
-              style={{ accentColor: accent }}
-            />
-            <span className="text-xs font-medium text-slate-700 leading-relaxed">
-              I have read and agree to the policy, and I authorize {studioName} to securely store and charge my card for fees as described.
-            </span>
-          </label>
-        </div>
+        )}
 
         {error && (
           <div className="flex items-start gap-3 p-4 rounded-2xl bg-red-50 border border-red-200">
@@ -415,22 +467,27 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
           </div>
         )}
 
-        {/* Submit */}
+        {/* Submit button */}
         <button
           onClick={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || uploading}
           className="w-full h-14 rounded-2xl text-white font-black uppercase tracking-widest text-sm shadow-lg flex items-center justify-center gap-2 disabled:opacity-60"
           style={{ background: accent }}
         >
           {submitting
             ? <><Loader className="w-5 h-5 animate-spin" /> Securing…</>
-            : depositDollars > 0
-              ? <>Pay ${depositDollars.toFixed(2)} & save card</>
-              : <>Save card & finish</>}
+            : skipCardStep
+              ? <>Submit & confirm</>
+              : depositDollars > 0
+                ? <>Pay ${depositDollars.toFixed(2)} & save card</>
+                : <>Save card & finish</>}
         </button>
 
         <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400 pb-8">
-          <Lock className="w-3 h-3" /> Secured by Stripe · your card details never touch our servers
+          <Lock className="w-3 h-3" />
+          {skipCardStep
+            ? 'Your information is kept private and secure'
+            : 'Secured by Stripe · your card details never touch our servers'}
         </p>
       </div>
     </div>
