@@ -14,8 +14,10 @@ import {
   AlertTriangle, Clock, CheckCircle2, XCircle, FileText,
   Upload, Shield, ChevronRight, Loader, ExternalLink,
   FileSignature, Receipt, User, Calendar, DollarSign,
-  AlertCircle, Info, Check, ShieldCheck
+  AlertCircle, Info, Check, ShieldCheck, FlaskConical,
 } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { collection, doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
@@ -485,19 +487,66 @@ export default function DisputeCenterPage() {
     setSelectedDispute(null);
   };
 
+  const handleCreateTestDispute = async () => {
+    if (!firestore || !tenantId) return;
+    const id       = nanoid();
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + 4); // 4 days from now — urgent but not critical
+
+    await setDoc(doc(firestore, `tenants/${tenantId}/disputes`, id), {
+      id,
+      stripeDisputeId:          `dp_test_${id.slice(-8)}`,
+      stripeChargeId:           `ch_test_${id.slice(-8)}`,
+      stripeConnectedAccountId: 'acct_test_clarityflow',
+      clientId:                 null,
+      clientName:               'Test Client (Jane Doe)',
+      amount:                   160.00,
+      currency:                 'usd',
+      reason:                   'fraudulent',
+      status:                   'needs_response',
+      deadline:                 deadline.toISOString(),
+      evidenceSubmitted:        false,
+      checkoutSessionId:        `cs_test_${id.slice(-8)}`,
+      receiptUrl:               null,
+      appointmentId:            null,
+      signatureUrls:            [],
+      consentFormUrls:          [],
+      createdAt:                new Date().toISOString(),
+      tenantId,
+      notes:                    'This is a test dispute. Safe to delete from Firestore.',
+    });
+
+    toast({
+      title:       'Test Dispute Created',
+      description: 'A fake dispute has been added. Delete it from Firestore when done testing.',
+    });
+  };
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
       <AppHeader title="Dispute Center" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-5xl mx-auto space-y-8">
 
         {/* Header */}
-        <div className="space-y-1">
-          <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
-            Dispute Center
-          </h1>
-          <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
-            Manage chargebacks and submit evidence to win disputes
-          </p>
+        <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
+          <div className="space-y-1">
+            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">
+              Dispute Center
+            </h1>
+            <p className="text-[10px] text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">
+              Manage chargebacks and submit evidence to win disputes
+            </p>
+          </div>
+          {process.env.NODE_ENV === 'development' && (
+            <Button
+              variant="outline"
+              onClick={handleCreateTestDispute}
+              className="h-10 px-5 rounded-2xl border-2 border-dashed border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 font-black uppercase text-[9px] tracking-widest gap-2 shrink-0"
+            >
+              <FlaskConical className="w-3.5 h-3.5" />
+              Create Test Dispute
+            </Button>
+          )}
         </div>
 
         {/* Stats */}
