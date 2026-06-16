@@ -261,6 +261,13 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
     }, [clients, clientSearch]);
 
     const selectedSvc = services.find((s: any) => s.id === selectedService);
+
+    // Auto-enable link when service has required consent forms
+    React.useEffect(() => {
+        if (requiredFormIds.length > 0 && !sendLink) {
+            setSendLink(true);
+        }
+    }, [requiredFormIds.length]);
     const staffMember = staff.find((s: any) => s.id === selectedStaff);
 
     const svcPrice = selectedSvc ? getServicePrice(selectedSvc, staffMember) : 0;
@@ -323,6 +330,9 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                     serviceId: selectedService, serviceName: selectedSvc?.name || '',
                     depositAmountCents: depositCents,
                     requiredConsentFormIds: requiredFormIds,
+                    // If card already on file, skip the card step in the completion flow
+                    skipCardStep: alreadyHasCard,
+                    cardAlreadyOnFile: alreadyHasCard,
                     fileRequirements: requestFiles ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
                     status: 'pending', createdAt: now, expiresAt,
                 }));
@@ -359,7 +369,11 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                     </div>
                     <p className="text-lg font-black uppercase tracking-tight text-slate-900">Appointment booked</p>
                     <p className="text-xs text-muted-foreground font-medium max-w-xs mx-auto">
-                        Send this secure link to the client. They'll {depositCents > 0 ? `pay the $${(depositCents / 100).toFixed(2)} deposit, ` : ''}save their card{requiredFormIds.length > 0 ? `, and sign ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.
+                        {alreadyHasCard
+                            ? requiredFormIds.length > 0
+                                ? `Send this link to ${selectedClient?.name?.split(' ')[0] || 'the client'}. They'll sign ${requiredFormIds.length} consent form${requiredFormIds.length > 1 ? 's' : ''} — their card is already on file.`
+                                : `Appointment booked. Card is on file — signature will be collected at checkout.`
+                            : `Send this secure link to the client. They'll ${depositCents > 0 ? `pay the $${(depositCents / 100).toFixed(2)} deposit, ` : ''}save their card${requiredFormIds.length > 0 ? `, and sign ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.`}
                     </p>
                 </div>
                 <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
@@ -444,16 +458,38 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                 </div>
             </div>
 
-            <button type="button" onClick={() => setSendLink(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
+            <button type="button" onClick={() => {
+                // If consent forms are required, link is mandatory — can't toggle off
+                if (!sendLink && requiredFormIds.length > 0) {
+                    toast({ title: 'Link required', description: 'This service has required consent forms — the completion link must be sent.' });
+                    return;
+                }
+                setSendLink(v => !v);
+            }} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
                 <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
                         <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" /> Send completion link</p>
                         <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">
-                            {selectedSvc
-                                ? <>Client secures a card on file{depositCents > 0 ? `, pays a $${(depositCents / 100).toFixed(2)} deposit` : ''}{requiredFormIds.length > 0 ? `, and signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.</>
-                                : <>Pick a service to see what the client will complete.</>}
-                            {alreadyHasCard && <span className="block mt-1 text-green-600 font-bold">This client already has a card on file.</span>}
+                            {selectedSvc ? (
+                                <>
+                                    {alreadyHasCard && requiredFormIds.length === 0
+                                        ? 'Card already on file — link will only collect consent forms if added.'
+                                        : alreadyHasCard && requiredFormIds.length > 0
+                                        ? <>Card already on file. Client still needs to sign {requiredFormIds.length} consent form{requiredFormIds.length > 1 ? 's' : ''}.</>
+                                        : <>Client secures a card on file{depositCents > 0 ? `, pays a $${(depositCents / 100).toFixed(2)} deposit` : ''}{requiredFormIds.length > 0 ? `, and signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.</>}
+                                </>
+                            ) : <>Pick a service to see what the client will complete.</>}
                         </p>
+                        {requiredFormIds.length > 0 && (
+                            <p className="text-[9px] font-black text-primary uppercase tracking-widest mt-1">
+                                Required — {requiredFormIds.length} consent form{requiredFormIds.length > 1 ? 's' : ''} must be signed
+                            </p>
+                        )}
+                        {alreadyHasCard && requiredFormIds.length === 0 && (
+                            <p className="text-[9px] font-black text-green-600 uppercase tracking-widest mt-1">
+                                Card on file — signature collected at checkout instead
+                            </p>
+                        )}
                     </div>
                     <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", sendLink ? "bg-primary" : "bg-slate-200")}>
                         <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", sendLink ? "left-[22px]" : "left-0.5")} />
