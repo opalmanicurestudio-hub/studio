@@ -89,6 +89,7 @@ import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
+import { ConsentSignatureDialog, type SignatureRecord } from '@/components/consents/ConsentSignatureDialog';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
@@ -509,6 +510,9 @@ export const CheckoutHub = ({
   // 'new_card'     = embedded browser card form
   type CardMode = 'select' | 'cof_tip' | 'cof_confirm' | 'cof_charging' | 'terminal' | 'new_card';
   const [cardMode,        setCardMode]        = useState<CardMode>('select');
+  const [pendingCheckout, setPendingCheckout] = useState<Parameters<typeof onCheckout>[0] | null>(null);
+  const [signatureOpen,   setSignatureOpen]   = useState(false);
+  const [activeConsentForm, setActiveConsentForm] = useState<any | null>(null);
   const [isCofCharging,   setIsCofCharging]   = useState(false);
   const [saveNewCard,     setSaveNewCard]      = useState(true);
   const [stripePaymentId, setStripePaymentId] = useState<string | null>(null);
@@ -533,6 +537,18 @@ export const CheckoutHub = ({
   }, [selectedClient]);
 
   const isMember  = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
+
+  // Fetch the first active consent form requiring signature at checkout
+  const consentFormsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return collection(firestore, `tenants/${tenantId}/consentForms`);
+  }, [firestore, tenantId]);
+  const { data: consentForms } = useCollection<any>(consentFormsQuery);
+  // Use the first form marked requiresSignature, or first form if any exist
+  const checkoutConsentForm = useMemo(() =>
+    (consentForms || []).find((f: any) => f.requiresSignature) || (consentForms || [])[0] || null,
+    [consentForms]
+  );
   const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
 
   const filteredPayerOptions = useMemo(() => {
@@ -703,8 +719,15 @@ export const CheckoutHub = ({
         setStripePaymentId(data.paymentIntentId);
         toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
         // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
-        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
-        setCardMode('select');
+        // Save COF payment intent id for after signature
+        setPendingCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
+        if (checkoutConsentForm && selectedClient) {
+          setActiveConsentForm(checkoutConsentForm);
+          setSignatureOpen(true);
+        } else {
+          await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
+          setCardMode('select');
+        }
       } else {
         toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
         setCardMode('select');
@@ -732,8 +755,14 @@ export const CheckoutHub = ({
       saveCard:    saveNewCard && !!selectedClient,
     });
     if (result.ok) {
-      await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
-      setCardMode('select');
+      setPendingCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
+      if (checkoutConsentForm && selectedClient) {
+        setActiveConsentForm(checkoutConsentForm);
+        setSignatureOpen(true);
+      } else {
+        await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
+        setCardMode('select');
+      }
     }
   };
 
@@ -752,6 +781,32 @@ export const CheckoutHub = ({
 
   // Reset card mode when payment tab changes
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
+
+  const handleSignatureComplete = async (record: SignatureRecord) => {
+    if (!firestore || !tenantId) return;
+    // Save signature record to Firestore
+    const sigRef = doc(firestore, `tenants/${tenantId}/signatures`, record.id);
+    await setDoc(sigRef, record);
+    // Now complete the checkout
+    if (pendingCheckout) {
+      await onCheckout(pendingCheckout);
+      setPendingCheckout(null);
+    }
+    setSignatureOpen(false);
+    setActiveConsentForm(null);
+    setCardMode('select');
+  };
+
+  const handleSignatureSkip = async () => {
+    // Allow checkout without signature if owner skips
+    if (pendingCheckout) {
+      await onCheckout(pendingCheckout);
+      setPendingCheckout(null);
+    }
+    setSignatureOpen(false);
+    setActiveConsentForm(null);
+    setCardMode('select');
+  };
 
   return (
     <div className="flex flex-col space-y-6 md:space-y-10 text-left">
@@ -1402,5 +1457,16 @@ export const CheckoutHub = ({
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
       <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
     </div>
+
+    {activeConsentForm && selectedClient && (
+      <ConsentSignatureDialog
+        open={signatureOpen}
+        onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
+        form={activeConsentForm}
+        client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
+        tenantId={tenantId!}
+        onComplete={handleSignatureComplete}
+      />
+    )}
   );
 };
