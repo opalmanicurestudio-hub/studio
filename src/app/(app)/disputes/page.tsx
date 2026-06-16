@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, Suspense } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
+import { useSearchParams } from 'next/navigation';
 import { setDoc, doc, collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { format } from 'date-fns';
@@ -441,10 +442,13 @@ function EvidencePill({ label, has }: { label: string; has: boolean }) {
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-export default function DisputeCenterPage() {
+
+function DisputeCenterContent() {
   const { firestore }                             = useFirebase();
   const { selectedTenant }                        = useTenant();
   const tenantId                                  = selectedTenant?.id;
+  const searchParams                              = useSearchParams();
+  const isTestMode                                = searchParams.get('test') === '1';
   const [selectedDispute, setSelectedDispute]     = useState<Dispute | null>(null);
   const [isEvidenceOpen,  setIsEvidenceOpen]      = useState(false);
 
@@ -536,7 +540,7 @@ export default function DisputeCenterPage() {
               Manage chargebacks and submit evidence to win disputes
             </p>
           </div>
-          {process.env.NODE_ENV === 'development' && (
+          {isTestMode && (
             <Button
               variant="outline"
               onClick={handleCreateTestDispute}
@@ -636,6 +640,14 @@ export default function DisputeCenterPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function DisputeCenterPage() {
+  return (
+    <Suspense>
+      <DisputeCenterContent />
+    </Suspense>
   );
 }
 
