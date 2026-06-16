@@ -16,10 +16,9 @@ import {
   FileSignature, Receipt, User, Calendar, DollarSign,
   AlertCircle, Info, Check, ShieldCheck, FlaskConical,
 } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { setDoc, doc, collection } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
