@@ -9,7 +9,7 @@ import {
   AlertTriangle, Undo2, FileSignature, CheckCircle2, ArrowRight, MessageSquare,
   Ear, Unlock, Scale, FileImage, Maximize2, Zap, FlaskConical, Target,
   RefreshCw, History, HeartHandshake, AlertCircle, BookMarked, Heart,
-  CreditCard, Image,
+  CreditCard,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -45,7 +45,7 @@ import { Separator } from '../ui/separator';
 import { Switch } from '../ui/switch';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Textarea } from '../ui/textarea';
-import Image from 'next/image';
+import NextImage from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { computeDepositCents } from '@/lib/deposit-policy';
@@ -640,7 +640,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               </Button>
             </div>
             <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in" onClick={() => setExpandedImage(appointment.inspirationPhotoUrl)}>
-              <Image src={appointment.inspirationPhotoUrl} alt="Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
+              <NextImage src={appointment.inspirationPhotoUrl} alt="Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                 <Maximize2 className="w-8 h-8 text-white" />
               </div>
