@@ -37,8 +37,18 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string 
   'Strategic Adjustment':{ bg: '#fff7ed', text: '#b45309', label: 'Adjustment' },
 };
 
-const getCategoryStyle = (category: string) =>
-  CATEGORY_COLORS[category] || { bg: '#f9fafb', text: '#374151', label: category };
+const AUTO_PALETTE = [
+  { bg: '#fef3c7', text: '#92400e' }, { bg: '#d1fae5', text: '#065f46' },
+  { bg: '#e0e7ff', text: '#3730a3' }, { bg: '#fce7f3', text: '#9d174d' },
+  { bg: '#cffafe', text: '#164e63' }, { bg: '#fef9c3', text: '#713f12' },
+  { bg: '#f0fdf4', text: '#14532d' }, { bg: '#fdf4ff', text: '#701a75' },
+];
+const hashStr = (s: string) => s.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+const getCategoryStyle = (category: string) => {
+  if (CATEGORY_COLORS[category]) return CATEGORY_COLORS[category];
+  const p = AUTO_PALETTE[Math.abs(hashStr(category)) % AUTO_PALETTE.length];
+  return { ...p, label: category };
+};
 
 // ─── Reference number system ──────────────────────────────────────────────────
 // Sessions get REF-XXXX, ungrouped get TXN-XXXX (last 6 of ID)
@@ -71,7 +81,7 @@ type SessionGroup = {
 // ─── Component ────────────────────────────────────────────────────────────────
 export function PrintableReport({ transactions, staff, financialSummary, dateRange }: PrintableReportProps) {
 
-  const { sessions, ungrouped, appendixItems } = React.useMemo(() => {
+  const { sessions, ungrouped, appendixItems, imgNumMap } = React.useMemo(() => {
     const sessionMap = new Map<string, Transaction[]>();
     const ungroupedList: Transaction[] = [];
 
@@ -95,7 +105,7 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
       const discLines = expense.filter(t => ['Discounts', 'Refunds'].includes(t.category));
       const svcLines  = income.filter(t => !['Tax Collected', 'Tips'].includes(t.category));
 
-      // Collect any receipt image attachments within this session
+      // Collect any receipt image attachments — imgNum assigned below
       const receiptItems = sorted
         .filter(t => (t as any).receiptUrl)
         .map(t => ({
@@ -104,6 +114,7 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
           date:        safeDate(t.date),
           receiptUrl:  (t as any).receiptUrl,
           refNumber:   `${sessionRef(sid)}-${t.id.slice(-4).toUpperCase()}`,
+          imgNum:      0, // assigned in second pass below
         }));
 
       return {
@@ -122,8 +133,18 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
       };
     }).sort((a, b) => b.date.getTime() - a.date.getTime());
 
-    // All appendix items (receipt images) across sessions and ungrouped
-    const appendixItems: { refNumber: string; description: string; date: Date; receiptUrl: string; client: string }[] = [];
+    // Assign sequential IMG numbers and build lookup map
+    const imgNumMap = new Map<string, number>();
+    let imgCounter = 1;
+    sessionGroups.forEach(s => {
+      s.receiptItems.forEach(r => { r.imgNum = imgCounter; imgNumMap.set(r.txnId, imgCounter); imgCounter++; });
+    });
+    ungroupedList.filter(t => (t as any).receiptUrl).forEach(t => {
+      imgNumMap.set(t.id, imgCounter); imgCounter++;
+    });
+
+    // All appendix items across sessions and ungrouped
+    const appendixItems: { refNumber: string; imgNum: number; description: string; date: Date; receiptUrl: string; client: string }[] = [];
     sessionGroups.forEach(s => {
       s.receiptItems.forEach(r => appendixItems.push({ ...r, client: s.clientName }));
     });
@@ -131,13 +152,14 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
       .filter(t => (t as any).receiptUrl)
       .forEach(t => appendixItems.push({
         refNumber:   txnRef(t.id),
+        imgNum:      imgNumMap.get(t.id) || 0,
         description: t.description,
         date:        safeDate(t.date),
         receiptUrl:  (t as any).receiptUrl,
         client:      t.clientOrVendor || 'Unknown',
       }));
 
-    return { sessions: sessionGroups, ungrouped: ungroupedList, appendixItems };
+    return { sessions: sessionGroups, ungrouped: ungroupedList, appendixItems, imgNumMap };
   }, [transactions]);
 
   const today       = fmt(new Date(), 'MMMM d, yyyy · h:mm a');
@@ -333,7 +355,10 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
                     <td style={{ ...cell({ fontFamily: 'monospace', fontSize: '9px', color: '#9ca3af', whiteSpace: 'nowrap' }) }}>{txnRef(t.id)}</td>
                     <td style={{ ...cell({ color: '#6b7280', whiteSpace: 'nowrap' }) }}>{fmt(t.date, 'MMM d, h:mm a')}</td>
                     <td style={cell()}>
-                      <div style={{ fontWeight: 600 }}>{t.description}</div>
+                      <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                        {t.description}
+                        {imgNumMap.get(t.id) && <span style={{ background: '#111', color: '#fff', fontSize: 7, fontWeight: 900, padding: '1px 4px', borderRadius: 3, fontFamily: 'monospace' }}>IMG-{imgNumMap.get(t.id)}</span>}
+                      </div>
                       <div style={{ fontSize: '9px', color: '#9ca3af' }}>{t.clientOrVendor}</div>
                     </td>
                     <td style={cell()}>
@@ -359,24 +384,29 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
             Appendix A — Receipt Documentation ({appendixItems.length} attachments)
           </div>
           <p style={{ fontSize: '10px', color: '#6b7280', marginBottom: '16px' }}>
-            Each entry below corresponds to a transaction in this report. Reference numbers match the REF or TXN codes shown in the transaction detail above.
+            Images numbered IMG-1 through IMG-{appendixItems.length}. Each IMG number appears on the corresponding transaction row above for cross-referencing.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             {appendixItems.map((item, i) => (
               <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden', breakInside: 'avoid' }}>
-                <div style={{ background: '#f8fafc', padding: '8px 12px', borderBottom: '1px solid #e5e7eb' }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 900, color: '#374151' }}>{item.refNumber}</div>
-                  <div style={{ fontSize: '10px', fontWeight: 600, color: '#111', marginTop: '1px' }}>{item.description}</div>
-                  <div style={{ fontSize: '9px', color: '#9ca3af' }}>{item.client} · {fmt(item.date, 'MMM d, yyyy · h:mm a')}</div>
+                <div style={{ background: '#111', padding: '8px 12px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ color: '#fff', fontSize: '15px', fontWeight: 900, fontFamily: 'monospace', letterSpacing: '0.05em' }}>IMG-{item.imgNum}</div>
+                    <div style={{ color: '#6b7280', fontSize: '9px', fontFamily: 'monospace' }}>{item.refNumber}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: '#e5e7eb', fontSize: '11px', fontWeight: 600 }}>{item.description}</div>
+                    <div style={{ color: '#6b7280', fontSize: '9px' }}>{item.client} · {fmt(item.date, 'MMM d, yyyy · h:mm a')}</div>
+                  </div>
                 </div>
                 {item.receiptUrl ? (
                   <div style={{ padding: '8px', background: '#fff' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={item.receiptUrl} alt={`Receipt ${item.refNumber}`} style={{ width: '100%', maxHeight: '280px', objectFit: 'contain', display: 'block' }} />
+                    <img src={item.receiptUrl} alt={`IMG-${item.imgNum}`} style={{ width: '100%', maxHeight: '280px', objectFit: 'contain', display: 'block' }} />
                   </div>
                 ) : (
                   <div style={{ padding: '24px', textAlign: 'center', color: '#d1d5db', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
-                    Receipt generated from POS — view in ClarityFlow
+                    POS receipt — view in ClarityFlow
                   </div>
                 )}
               </div>
