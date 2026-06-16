@@ -73,22 +73,37 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
 // ─── Fast Print ───────────────────────────────────────────────────────────────
 // Opens a new window and writes pre-built HTML — no React re-render, no delay.
 
-const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  'Service Revenue':    { bg: '#dbeafe', text: '#1e40af', label: 'Service' },
-  'Tips':               { bg: '#fef9c3', text: '#854d0e', label: 'Tip' },
-  'Tax Collected':      { bg: '#f3f4f6', text: '#374151', label: 'Tax' },
-  'Retail':             { bg: '#dcfce7', text: '#166534', label: 'Retail' },
-  'Retail Product':     { bg: '#dcfce7', text: '#166534', label: 'Retail' },
-  'Membership Sales':   { bg: '#ede9fe', text: '#5b21b6', label: 'Membership' },
-  'Package Sales':      { bg: '#f5f3ff', text: '#6d28d9', label: 'Package' },
-  'Discounts':          { bg: '#fce7f3', text: '#9d174d', label: 'Discount' },
-  'Refunds':            { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
-  'Fee Recovery':       { bg: '#fff7ed', text: '#92400e', label: 'Fee' },
-  'Protocol Recovery':  { bg: '#fff7ed', text: '#c2410c', label: 'Recovery' },
-  'Hospitality Revenue':{ bg: '#ecfdf5', text: '#065f46', label: 'Hospitality' },
-  'Cancellation Fee':   { bg: '#fef3c7', text: '#92400e', label: 'Cancel Fee' },
-  'Strategic Adjustment':{ bg: '#fff7ed', text: '#b45309', label: 'Adjustment' },
+// ── 6-bucket color system ─────────────────────────────────────────────────────
+// Color is driven by taxBucket field, not raw category name.
+// This ensures consistent color even for custom categories.
+// Fallback: infer taxBucket from category name if field is missing (old transactions).
+
+const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: string }> = {
+  'revenue':        { bg: '#dcfce7', text: '#166534', label: 'Revenue' },
+  'gratuity':       { bg: '#fef9c3', text: '#854d0e', label: 'Gratuity' },
+  'tax_collected':  { bg: '#f1f5f9', text: '#475569', label: 'Tax' },
+  'adjustment':     { bg: '#dbeafe', text: '#1e40af', label: 'Adjustment' },
+  'refund':         { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
+  'processing_fee': { bg: '#ede9fe', text: '#5b21b6', label: 'Processing Fee' },
+  'operating_cost': { bg: '#fff7ed', text: '#92400e', label: 'Operating Cost' },
 };
+
+// Category-to-bucket fallback for transactions without taxBucket field
+const CATEGORY_TO_BUCKET: Record<string, string> = {
+  'Service Revenue': 'revenue', 'Retail': 'revenue', 'Retail Product': 'revenue',
+  'Membership Sales': 'revenue', 'Package Sales': 'revenue', 'Hospitality Revenue': 'revenue',
+  'Tips': 'gratuity',
+  'Tax Collected': 'tax_collected',
+  'Discounts': 'adjustment', 'Protocol Recovery': 'adjustment', 'Strategic Adjustment': 'adjustment',
+  'Fee Recovery': 'adjustment', 'Adjustment Fee': 'adjustment', 'Cancellation Fee': 'adjustment',
+  'Deposit Applied': 'adjustment',
+  'Refunds': 'refund', 'Void': 'refund',
+  'Processing Fee': 'processing_fee',
+  'Supplies': 'operating_cost', 'Cost of Goods Sold': 'operating_cost', 'Spoilage': 'operating_cost',
+};
+
+// Legacy map kept for any residual lookups
+const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = TAX_BUCKET_COLORS;
 
 // Auto-generate a consistent color for unknown/custom categories
 // Uses a simple hash of the category name to pick from a palette
@@ -192,7 +207,7 @@ function buildPrintHtml(
   // ── Session rows ────────────────────────────────────────────────────────────
   const sessionRows = sessions.map(s => {
     const lineItems = s.txns.map(t => {
-      const cs = getCatStyle(t.category);
+      const cs = getCatStyle(t.category, (t as any).taxBucket);
       const sn = staffName((t as any).staffId);
       const amtColor = t.category === 'Tips' ? '#854d0e' : t.category === 'Tax Collected' ? '#374151' : t.type === 'expense' ? '#991b1b' : '#166534';
       const imgNum = imgNumMap.get(t.id);
@@ -234,7 +249,7 @@ function buildPrintHtml(
 
   // ── Ungrouped rows ──────────────────────────────────────────────────────────
   const ungroupedRows = ungrouped.map((t, i) => {
-    const cs = getCatStyle(t.category);
+    const cs = getCatStyle(t.category, (t as any).taxBucket);
     const amtColor = t.type === 'income' ? '#166534' : '#991b1b';
     const uImgNum = imgNumMap.get(t.id);
     const uImgBadge = uImgNum ? ` <span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;">IMG-${uImgNum}</span>` : '';
