@@ -1327,8 +1327,15 @@ export const CheckoutHub = ({
                   saveCard={saveNewCard && !!selectedClient}
                   onSuccess={async (paymentIntentId) => {
                     toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
-                    await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId });
-                    setCardMode('select');
+                    const manualPayload = { paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId };
+                    if (checkoutConsentForm && selectedClient) {
+                      setPendingCheckout(manualPayload);
+                      setActiveConsentForm(checkoutConsentForm);
+                      setSignatureOpen(true);
+                    } else {
+                      await onCheckout(manualPayload);
+                      setCardMode('select');
+                    }
                   }}
                   onCancel={() => setCardMode('select')}
                 />
@@ -1346,7 +1353,16 @@ export const CheckoutHub = ({
                   setAmountTendered={setAmountTendered}
                   tipAmount={tipAmount}
                   onTipChange={handleTotalTipChange}
-                  onCheckout={() => onCheckout({ paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked })}
+                  onCheckout={() => {
+                    const cashPayload = { paymentMethod: 'cash', amountTendered, recoveryAmount, recoveryReason, isEscalated: isOverrideUnlocked };
+                    if (checkoutConsentForm && selectedClient) {
+                      setPendingCheckout(cashPayload);
+                      setActiveConsentForm(checkoutConsentForm);
+                      setSignatureOpen(true);
+                    } else {
+                      onCheckout(cashPayload);
+                    }
+                  }}
                   isSubmitting={isSubmitting}
                   isCartEmpty={isCartEmpty}
                   isGroupCheckout={isGroupCheckout}
@@ -1482,6 +1498,7 @@ export const CheckoutHub = ({
             form={activeConsentForm}
             client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
             tenantId={tenantId!}
+            appointmentId={appointmentsData?.[0]?.appointment?.id || undefined}
             onComplete={handleSignatureComplete}
           />
         </React.Suspense>
