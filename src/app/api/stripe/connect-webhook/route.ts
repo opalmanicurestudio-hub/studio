@@ -253,41 +253,131 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.dispute.created: dispute fee ──────────────────────────────
+      // ── charge.dispute.created: write dispute record + fee + flag client ───
       case 'charge.dispute.created': {
-        const dispute = event.data.object as Stripe.Dispute;
-        const tenant  = await getTenant(connAcct);
+        const dispute  = event.data.object as Stripe.Dispute;
+        const tenant   = await getTenant(connAcct);
         if (!tenant) break;
 
-        // Idempotency
-        const existing = await db.collection(`tenants/${tenant.id}/transactions`)
-          .where('stripeDisputeId', '==', dispute.id)
-          .where('type', '==', 'expense')
-          .limit(1).get();
-        if (!existing.empty) break;
+        const chargeId = typeof dispute.charge === 'string'
+          ? dispute.charge : (dispute.charge as any)?.id;
 
-        const dispRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
-        await dispRef.set({
-          id:                       dispRef.id,
+        // Idempotency — check if we already wrote this dispute
+        const existingDisp = await db.collection(`tenants/${tenant.id}/disputes`)
+          .where('stripeDisputeId', '==', dispute.id)
+          .limit(1).get();
+        if (!existingDisp.empty) break;
+
+        // ── Look up the original charge to link client, session, receipt ──────
+        let clientId:          string | null = null;
+        let clientName:        string        = 'Unknown Client';
+        let checkoutSessionId: string | null = null;
+        let receiptUrl:        string | null = null;
+        let appointmentId:     string | null = null;
+        let signatureUrls:     string[]      = [];
+        let consentFormUrls:   string[]      = [];
+
+        if (chargeId) {
+          // Find the revenue transaction linked to this charge
+          const revTxns = await db.collection(`tenants/${tenant.id}/transactions`)
+            .where('stripeChargeId', '==', chargeId)
+            .where('taxBucket', '==', 'revenue')
+            .limit(1).get();
+
+          if (!revTxns.empty) {
+            const txn      = revTxns.docs[0].data();
+            clientId       = txn.clientId       || null;
+            clientName     = txn.clientOrVendor || 'Unknown Client';
+            checkoutSessionId = txn.checkoutSessionId || null;
+            receiptUrl     = txn.receiptUrl     || null;
+            appointmentId  = txn.appointmentId  || null;
+          }
+
+          // If we have a client, find their signatures for this appointment
+          if (clientId && appointmentId) {
+            const sigsSnap = await db.collection(`tenants/${tenant.id}/signatures`)
+              .where('clientId', '==', clientId)
+              .where('appointmentId', '==', appointmentId)
+              .get();
+            signatureUrls = sigsSnap.docs.map((d: any) => d.data().signatureUrl).filter(Boolean);
+          }
+
+          // Also get any consent forms signed by this client (most recent 3)
+          if (clientId) {
+            const allSigsSnap = await db.collection(`tenants/${tenant.id}/signatures`)
+              .where('clientId', '==', clientId)
+              .orderBy('signedAt', 'desc')
+              .limit(3).get();
+            const allSigUrls = allSigsSnap.docs.map((d: any) => d.data().signatureUrl).filter(Boolean);
+            // Merge with appointment-specific, deduplicate
+            signatureUrls = Array.from(new Set([...signatureUrls, ...allSigUrls]));
+          }
+        }
+
+        // Calculate response deadline (Stripe gives 7-10 days typically)
+        const deadlineDate = new Date(dispute.created * 1000);
+        deadlineDate.setDate(deadlineDate.getDate() + 7);
+
+        // ── Write dispute record ──────────────────────────────────────────────
+        const disputeDocRef = db.collection(`tenants/${tenant.id}/disputes`).doc();
+        await disputeDocRef.set({
+          id:                       disputeDocRef.id,
+          stripeDisputeId:          dispute.id,
+          stripeChargeId:           chargeId,
+          stripeConnectedAccountId: connAcct,
+          clientId,
+          clientName,
+          amount:                   dispute.amount / 100,
+          currency:                 dispute.currency,
+          reason:                   dispute.reason,
+          status:                   dispute.status,
+          deadline:                 deadlineDate.toISOString(),
+          evidenceSubmitted:        false,
+          checkoutSessionId,
+          receiptUrl,
+          appointmentId,
+          signatureUrls,
+          consentFormUrls,
+          createdAt:                new Date(dispute.created * 1000).toISOString(),
+          tenantId:                 tenant.id,
+        });
+
+        // ── Write dispute fee as expense transaction ───────────────────────────
+        const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+        await feeRef.set({
+          id:                       feeRef.id,
           date:                     new Date(dispute.created * 1000).toISOString(),
           description:              `Dispute fee — ${dispute.reason}`,
           clientOrVendor:           'Stripe',
+          clientId,
           type:                     'expense',
           context:                  'Business',
           category:                 'Processing Fee',
           taxBucket:                'processing_fee',
-          amount:                   1.50,   // Stripe current dispute fee
+          amount:                   1.50,
           paymentMethod:            'Stripe',
           hasReceipt:               false,
           stripeDisputeId:          dispute.id,
-          stripeChargeId:           typeof dispute.charge === 'string'
-            ? dispute.charge : (dispute.charge as any)?.id,
+          stripeChargeId:           chargeId,
           stripeConnectedAccountId: connAcct,
-          notes: `Reason: ${dispute.reason}. Disputed: $${(dispute.amount / 100).toFixed(2)}`,
+          notes:                    `Reason: ${dispute.reason}. Disputed: $${(dispute.amount / 100).toFixed(2)}`,
           tenantId:                 tenant.id,
         });
 
-        console.log(`[connect-webhook] Dispute fee recorded for ${dispute.id}`);
+        // ── Flag client profile ────────────────────────────────────────────────
+        if (clientId) {
+          const clientRef = db.collection(`tenants/${tenant.id}/clients`).doc(clientId);
+          const clientDoc = await clientRef.get();
+          const current   = clientDoc.data() || {};
+          await clientRef.set({
+            hasOpenDispute:   true,
+            disputeCount:     (current.disputeCount || 0) + 1,
+            lastDisputeAt:    new Date(dispute.created * 1000).toISOString(),
+            lastDisputeReason: dispute.reason,
+          }, { merge: true });
+        }
+
+        console.log(`[connect-webhook] Dispute ${dispute.id} recorded for tenant ${tenant.id} — client: ${clientName}`);
         break;
       }
 
@@ -325,8 +415,30 @@ export async function POST(req: NextRequest) {
           });
           console.log(`[connect-webhook] Dispute won — fee reversed for ${dispute.id}`);
 
+          // Update dispute record
+          const wonSnap = await db.collection(`tenants/${tenant.id}/disputes`)
+            .where('stripeDisputeId', '==', dispute.id).limit(1).get();
+          if (!wonSnap.empty) {
+            await wonSnap.docs[0].ref.set({ status: 'won', outcome: 'won', closedAt: new Date().toISOString() }, { merge: true });
+          }
+          // Clear client flag if no other open disputes
+          const wonDispRef = wonSnap.empty ? null : wonSnap.docs[0].data();
+          if (wonDispRef?.clientId) {
+            const otherOpen = await db.collection(`tenants/${tenant.id}/disputes`)
+              .where('clientId', '==', wonDispRef.clientId)
+              .where('status', 'in', ['needs_response', 'warning_needs_response', 'under_review'])
+              .limit(1).get();
+            if (otherOpen.empty) {
+              await db.collection(`tenants/${tenant.id}/clients`).doc(wonDispRef.clientId)
+                .set({ hasOpenDispute: false }, { merge: true });
+            }
+          }
+
         } else if (dispute.status === 'lost') {
-          // Lost — also write the disputed charge amount as an additional expense
+          // Lost — write chargeback expense
+          const chargeId = typeof dispute.charge === 'string'
+            ? dispute.charge : (dispute.charge as any)?.id;
+
           const lossRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
           await lossRef.set({
             id:                       lossRef.id,
@@ -341,17 +453,35 @@ export async function POST(req: NextRequest) {
             paymentMethod:            'Stripe',
             hasReceipt:               false,
             stripeDisputeId:          dispute.id,
-            stripeChargeId:           typeof dispute.charge === 'string'
-              ? dispute.charge : (dispute.charge as any)?.id,
+            stripeChargeId:           chargeId,
             stripeConnectedAccountId: connAcct,
             notes:                    `Dispute lost: ${dispute.reason}. Full charge amount returned to cardholder.`,
             tenantId:                 tenant.id,
           });
+
+          // Update dispute record
+          const lostSnap = await db.collection(`tenants/${tenant.id}/disputes`)
+            .where('stripeDisputeId', '==', dispute.id).limit(1).get();
+          if (!lostSnap.empty) {
+            await lostSnap.docs[0].ref.set({ status: 'lost', outcome: 'lost', closedAt: new Date().toISOString() }, { merge: true });
+          }
+          // Clear open flag on client
+          const lostDispData = lostSnap.empty ? null : lostSnap.docs[0].data();
+          if (lostDispData?.clientId) {
+            await db.collection(`tenants/${tenant.id}/clients`).doc(lostDispData.clientId)
+              .set({ hasOpenDispute: false }, { merge: true });
+          }
+
           console.log(`[connect-webhook] Dispute lost — chargeback $${(dispute.amount / 100).toFixed(2)} for ${dispute.id}`);
 
         } else {
-          // warning_closed — no financial impact, just log it
-          console.log(`[connect-webhook] Dispute closed with status: ${dispute.status} for ${dispute.id}`);
+          // warning_closed — update status, no financial impact
+          const wcSnap = await db.collection(`tenants/${tenant.id}/disputes`)
+            .where('stripeDisputeId', '==', dispute.id).limit(1).get();
+          if (!wcSnap.empty) {
+            await wcSnap.docs[0].ref.set({ status: 'charge_refunded', closedAt: new Date().toISOString() }, { merge: true });
+          }
+          console.log(`[connect-webhook] Dispute closed (${dispute.status}) for ${dispute.id}`);
         }
         break;
       }
