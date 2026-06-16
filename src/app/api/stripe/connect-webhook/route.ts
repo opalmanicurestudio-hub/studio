@@ -377,6 +377,13 @@ export async function POST(req: NextRequest) {
           }, { merge: true });
         }
 
+        // Increment open dispute count on tenant doc for sidebar badge
+        const tenantDoc  = await db.collection('tenants').doc(tenant.id).get();
+        const currentCount = tenantDoc.data()?.openDisputeCount || 0;
+        await db.collection('tenants').doc(tenant.id).set({
+          openDisputeCount: currentCount + 1,
+        }, { merge: true });
+
         console.log(`[connect-webhook] Dispute ${dispute.id} recorded for tenant ${tenant.id} — client: ${clientName}`);
         break;
       }
@@ -413,6 +420,13 @@ export async function POST(req: NextRequest) {
             reversalOf:               original.docs[0].id,
             tenantId:                 tenant.id,
           });
+          // Decrement open dispute count
+          const wonTenantDoc = await db.collection('tenants').doc(tenant.id).get();
+          const wonCount = wonTenantDoc.data()?.openDisputeCount || 0;
+          await db.collection('tenants').doc(tenant.id).set({
+            openDisputeCount: Math.max(0, wonCount - 1),
+          }, { merge: true });
+
           console.log(`[connect-webhook] Dispute won — fee reversed for ${dispute.id}`);
 
           // Update dispute record
@@ -472,6 +486,13 @@ export async function POST(req: NextRequest) {
               .set({ hasOpenDispute: false }, { merge: true });
           }
 
+          // Decrement open dispute count
+          const lostTenantDoc = await db.collection('tenants').doc(tenant.id).get();
+          const lostCount = lostTenantDoc.data()?.openDisputeCount || 0;
+          await db.collection('tenants').doc(tenant.id).set({
+            openDisputeCount: Math.max(0, lostCount - 1),
+          }, { merge: true });
+
           console.log(`[connect-webhook] Dispute lost — chargeback $${(dispute.amount / 100).toFixed(2)} for ${dispute.id}`);
 
         } else {
@@ -481,6 +502,13 @@ export async function POST(req: NextRequest) {
           if (!wcSnap.empty) {
             await wcSnap.docs[0].ref.set({ status: 'charge_refunded', closedAt: new Date().toISOString() }, { merge: true });
           }
+          // Decrement open dispute count
+          const wcTenantDoc = await db.collection('tenants').doc(tenant.id).get();
+          const wcCount = wcTenantDoc.data()?.openDisputeCount || 0;
+          await db.collection('tenants').doc(tenant.id).set({
+            openDisputeCount: Math.max(0, wcCount - 1),
+          }, { merge: true });
+
           console.log(`[connect-webhook] Dispute closed (${dispute.status}) for ${dispute.id}`);
         }
         break;
