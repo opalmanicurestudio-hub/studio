@@ -20,22 +20,26 @@ const fmt = (d: any, s: string) => { try { return format(safeDate(d), s); } catc
 
 // ─── Color system ─────────────────────────────────────────────────────────────
 // Each category maps to a background and text color for the printed report.
-const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  'Service Revenue':   { bg: '#dbeafe', text: '#1e40af', label: 'Service' },
-  'Tips':              { bg: '#fef9c3', text: '#854d0e', label: 'Tip' },
-  'Tax Collected':     { bg: '#f3f4f6', text: '#374151', label: 'Tax' },
-  'Retail':            { bg: '#dcfce7', text: '#166534', label: 'Retail' },
-  'Retail Product':    { bg: '#dcfce7', text: '#166534', label: 'Retail' },
-  'Membership Sales':  { bg: '#ede9fe', text: '#5b21b6', label: 'Membership' },
-  'Package Sales':     { bg: '#f5f3ff', text: '#6d28d9', label: 'Package' },
-  'Discounts':         { bg: '#fce7f3', text: '#9d174d', label: 'Discount' },
-  'Refunds':           { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
-  'Fee Recovery':      { bg: '#fff7ed', text: '#92400e', label: 'Fee' },
-  'Protocol Recovery': { bg: '#fff7ed', text: '#c2410c', label: 'Recovery' },
-  'Hospitality Revenue':{ bg: '#ecfdf5', text: '#065f46', label: 'Hospitality' },
-  'Cancellation Fee':  { bg: '#fef3c7', text: '#92400e', label: 'Cancel Fee' },
-  'Strategic Adjustment':{ bg: '#fff7ed', text: '#b45309', label: 'Adjustment' },
+const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: string }> = {
+  'revenue':        { bg: '#dcfce7', text: '#166534', label: 'Revenue' },
+  'gratuity':       { bg: '#fef9c3', text: '#854d0e', label: 'Gratuity' },
+  'tax_collected':  { bg: '#f1f5f9', text: '#475569', label: 'Tax' },
+  'adjustment':     { bg: '#dbeafe', text: '#1e40af', label: 'Adjustment' },
+  'refund':         { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
+  'processing_fee': { bg: '#ede9fe', text: '#5b21b6', label: 'Processing Fee' },
+  'operating_cost': { bg: '#fff7ed', text: '#92400e', label: 'Operating Cost' },
 };
+const CATEGORY_TO_BUCKET: Record<string, string> = {
+  'Service Revenue': 'revenue', 'Retail': 'revenue', 'Retail Product': 'revenue',
+  'Membership Sales': 'revenue', 'Package Sales': 'revenue', 'Hospitality Revenue': 'revenue',
+  'Tips': 'gratuity', 'Tax Collected': 'tax_collected',
+  'Discounts': 'adjustment', 'Protocol Recovery': 'adjustment', 'Strategic Adjustment': 'adjustment',
+  'Fee Recovery': 'adjustment', 'Adjustment Fee': 'adjustment', 'Cancellation Fee': 'adjustment',
+  'Deposit Applied': 'adjustment', 'Refunds': 'refund', 'Void': 'refund',
+  'Processing Fee': 'processing_fee',
+  'Supplies': 'operating_cost', 'Cost of Goods Sold': 'operating_cost', 'Spoilage': 'operating_cost',
+};
+const CATEGORY_COLORS = TAX_BUCKET_COLORS;
 
 const AUTO_PALETTE = [
   { bg: '#fef3c7', text: '#92400e' }, { bg: '#d1fae5', text: '#065f46' },
@@ -44,8 +48,9 @@ const AUTO_PALETTE = [
   { bg: '#f0fdf4', text: '#14532d' }, { bg: '#fdf4ff', text: '#701a75' },
 ];
 const hashStr = (s: string) => s.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
-const getCategoryStyle = (category: string) => {
-  if (CATEGORY_COLORS[category]) return CATEGORY_COLORS[category];
+const getCategoryStyle = (category: string, taxBucket?: string) => {
+  const bucket = taxBucket || CATEGORY_TO_BUCKET[category] || 'revenue';
+  if (TAX_BUCKET_COLORS[bucket]) return { ...TAX_BUCKET_COLORS[bucket], label: category || bucket };
   const p = AUTO_PALETTE[Math.abs(hashStr(category)) % AUTO_PALETTE.length];
   return { ...p, label: category };
 };
@@ -296,7 +301,7 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
                   <tbody>
                     {session.items.map((t, j) => {
                       const staffMember = staff.find(s => s.id === (t as any).staffId);
-                      const cs = getCategoryStyle(t.category);
+                      const cs = getCategoryStyle(t.category, (t as any).taxBucket);
                       return (
                         <tr key={t.id} style={{ borderBottom: j < session.items.length - 1 ? '1px dashed #f3f4f6' : 'none' }}>
                           <td style={{ ...cell(), width: '60%' }}>
@@ -354,7 +359,7 @@ export function PrintableReport({ transactions, staff, financialSummary, dateRan
             <tbody>
               {ungrouped.map((t, i) => {
                 const sm = staff.find(s => s.id === (t as any).staffId);
-                const cs = getCategoryStyle(t.category);
+                const cs = getCategoryStyle(t.category, (t as any).taxBucket);
                 return (
                   <tr key={t.id} style={{ borderBottom: '1px solid #f3f4f6', background: i % 2 === 0 ? '#fff' : '#fafafa' }}>
                     <td style={{ ...cell({ fontFamily: 'monospace', fontSize: '9px', color: '#9ca3af', whiteSpace: 'nowrap' }) }}>{txnRef(t.id)}</td>
