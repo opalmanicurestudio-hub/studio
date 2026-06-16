@@ -90,7 +90,15 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
-import { ConsentSignatureDialog, type SignatureRecord } from '@/components/consents/ConsentSignatureDialog';
+// Dynamic import so missing ConsentSignatureDialog file won't crash CheckoutHub
+const ConsentSignatureDialog = React.lazy(() =>
+  import('@/components/consents/ConsentSignatureDialog').then(m => ({ default: m.ConsentSignatureDialog })).catch(() => ({ default: () => null }))
+);
+type SignatureRecord = {
+  id: string; formId: string; formTitle: string; clientId: string; clientName: string;
+  tenantId: string; appointmentId?: string; signatureUrl: string; signatureData: string;
+  formSnapshot: any; signedAt: string; ipAddress?: string;
+};
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
@@ -540,15 +548,18 @@ export const CheckoutHub = ({
 
   const isMember  = !!(selectedClient?.activeMembershipId || selectedClient?.subscription);
 
-  // Fetch the first active consent form requiring signature at checkout
+  // Fetch consent forms for signature collection at checkout
+  // Wrapped defensively — if collection isn't set up yet, returns null gracefully
   const consentFormsQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId) return null;
-    return collection(firestore, `tenants/${tenantId}/consentForms`);
+    try { return collection(firestore, `tenants/${tenantId}/consentForms`); }
+    catch { return null; }
   }, [firestore, tenantId]);
-  const { data: consentForms } = useCollection<any>(consentFormsQuery);
-  // Use the first form marked requiresSignature, or first form if any exist
+  const { data: consentForms = [] } = useCollection<any>(consentFormsQuery) || {};
+  // Only auto-prompt for forms explicitly marked requiresSignature
+  // If none are marked, don't interrupt checkout automatically
   const checkoutConsentForm = useMemo(() =>
-    (consentForms || []).find((f: any) => f.requiresSignature) || (consentForms || [])[0] || null,
+    (consentForms || []).find((f: any) => f.requiresSignature) || null,
     [consentForms]
   );
   const hasPackage = (selectedClient?.activePackages?.length || 0) > 0;
@@ -785,11 +796,16 @@ export const CheckoutHub = ({
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
 
   const handleSignatureComplete = async (record: SignatureRecord) => {
-    if (!firestore || !tenantId) return;
-    // Save signature record to Firestore
-    const sigRef = doc(firestore, `tenants/${tenantId}/signatures`, record.id);
-    await setDoc(sigRef, record);
-    // Now complete the checkout
+    // Save signature to Firestore if available
+    if (firestore && tenantId) {
+      try {
+        const sigRef = doc(firestore, `tenants/${tenantId}/signatures`, record.id);
+        await setDoc(sigRef, record);
+      } catch (err) {
+        console.warn('[signature save]', err);
+      }
+    }
+    // Always complete the checkout even if signature save failed
     if (pendingCheckout) {
       await onCheckout(pendingCheckout);
       setPendingCheckout(null);
@@ -1459,14 +1475,16 @@ export const CheckoutHub = ({
       <BrowseDiscountsDialog open={isDiscountBrowserOpen} onOpenChange={setIsDiscountBrowserOpen} allDiscounts={discounts || []} onSelect={handleApplyDiscount} cartServiceIds={cartServiceIds} />
       <WaiveFeeDialog open={isWaiveAuthOpen} onOpenChange={setIsPointOfSaleWaiveAuthOpen} staff={staff} onConfirm={handleConfirmWaive} title="Admin Override" description="Authorize fee waiver with manager PIN." />
       {activeConsentForm && selectedClient && (
-        <ConsentSignatureDialog
-          open={signatureOpen}
-          onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
-          form={activeConsentForm}
-          client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
-          tenantId={tenantId!}
-          onComplete={handleSignatureComplete}
-        />
+        <React.Suspense fallback={null}>
+          <ConsentSignatureDialog
+            open={signatureOpen}
+            onOpenChange={(open) => { if (!open) handleSignatureSkip(); }}
+            form={activeConsentForm}
+            client={{ id: selectedClient.id, name: selectedClient.name, email: selectedClient.email }}
+            tenantId={tenantId!}
+            onComplete={handleSignatureComplete}
+          />
+        </React.Suspense>
       )}
     </div>
   );
