@@ -71,6 +71,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
   const [isPasswordProtected, setIsPasswordProtected] = useState(false);
   const [clientAccess, setClientAccess] = useState('view');
   const [notifyOnEdit, setNotifyOnEdit] = useState(false);
+  const [requiresSignature, setRequiresSignature] = useState(false);
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
@@ -81,6 +82,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
       setFields(formToEdit.fields || []);
       setIsPasswordProtected(formToEdit.isPasswordProtected);
       setNotifyOnEdit(formToEdit.notifyOnEdit);
+      setRequiresSignature(formToEdit.requiresSignature || false);
     } else {
       setTitle('');
       setCategory('General');
@@ -88,6 +90,7 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
       setIsPasswordProtected(false);
       setClientAccess('view');
       setNotifyOnEdit(false);
+      setRequiresSignature(false);
     }
   }, [formToEdit, open]);
 
@@ -129,7 +132,14 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
 
   const handleSave = () => {
     if (!title.trim()) return;
-    const formData = { title, category: category as any, fields, isPasswordProtected, notifyOnEdit };
+    const formData: Partial<ConsentForm> = {
+      title,
+      category: category as any,
+      fields,
+      isPasswordProtected,
+      notifyOnEdit,
+      requiresSignature,
+    };
     onSave(formData);
     onOpenChange(false);
   };
@@ -208,6 +218,34 @@ export const AddConsentFormDialog: React.FC<AddConsentFormDialogProps> = ({
         <div className="space-y-8">
             <SectionHeader icon={ShieldCheck} title="Governance & Security" />
             <div className="space-y-4 text-left">
+
+                {/* ── Require signature at POS checkout ── */}
+                <div className={cn(
+                  "flex items-center justify-between p-6 rounded-[2rem] border-2 transition-all",
+                  requiresSignature ? "border-primary/30 bg-primary/5" : "bg-muted/5 border-border"
+                )}>
+                    <div className="space-y-1">
+                        <Label htmlFor="requires-signature" className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                            <FileSignature className="w-4 h-4 text-primary" />
+                            Require at Checkout
+                        </Label>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
+                            Client must sign this form before every checkout
+                        </p>
+                        {requiresSignature && (
+                            <p className="text-[10px] font-black text-primary uppercase tracking-widest mt-1">
+                                Active — will interrupt POS after payment
+                            </p>
+                        )}
+                    </div>
+                    <Switch
+                        id="requires-signature"
+                        checked={requiresSignature}
+                        onCheckedChange={setRequiresSignature}
+                        className="scale-125"
+                    />
+                </div>
+
                 <div className="flex items-center justify-between p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner">
                     <div className="space-y-1">
                         <Label htmlFor="password-protect" className="text-base font-black uppercase tracking-tight">Access Control</Label>
