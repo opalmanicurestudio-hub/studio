@@ -88,6 +88,7 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useCollection, useMemoFirebase, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
 import { ConsentSignatureDialog } from '@/components/consents/ConsentSignatureDialog';
