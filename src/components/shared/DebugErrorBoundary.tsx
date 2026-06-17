@@ -1,5 +1,4 @@
 'use client';
-
 import React from 'react';
 
 export class DebugErrorBoundary extends React.Component
@@ -16,7 +15,6 @@ export class DebugErrorBoundary extends React.Component
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Only ever logged to the browser console — never rendered on screen.
     console.error('[AppointmentDetailsSheet crash]', error.message);
     console.error('[component stack]', info.componentStack);
   }
