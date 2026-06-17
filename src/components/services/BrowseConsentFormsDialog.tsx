@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -15,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { type ConsentForm } from '@/lib/data';
-import { Search, FileSignature, Sparkles } from 'lucide-react';
+import { Search, FileSignature, Sparkles, PenTool } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface BrowseConsentFormsDialogProps {
@@ -104,9 +103,16 @@ export const BrowseConsentFormsDialog: React.FC<BrowseConsentFormsDialogProps> =
                                 <FileSignature className="w-6 h-6 text-muted-foreground opacity-40" />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
-                                    {form.title}
-                                </p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
+                                      {form.title}
+                                  </p>
+                                  {(form as any).requiresSignature && (
+                                    <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[8px] font-black uppercase tracking-widest">
+                                      <PenTool className="w-2.5 h-2.5" /> Sig
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
                                     {form.category}
                                 </p>
