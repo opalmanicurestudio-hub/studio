@@ -67,8 +67,12 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
     onOpenChange(false);
   };
 
-  const filteredAddOns = allAddOns.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // FIX: guard against add-ons with a missing/undefined name —
+  // this filter runs unconditionally on every render (not gated by
+  // `open`), so a single malformed service document with no `name`
+  // crashed the entire page the instant this dialog's parent mounted.
+  const filteredAddOns = (allAddOns || []).filter(p =>
+    (p.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -124,17 +128,17 @@ export const SelectAddOnsDialog: React.FC<SelectAddOnsDialogProps> = ({
                             />
                             <div className='w-12 h-12 bg-muted rounded-xl flex-shrink-0 flex items-center justify-center border-2 border-white shadow-inner'>
                                 {addOn.imageUrl ? (
-                                    <Image src={addOn.imageUrl} alt={addOn.name} width={48} height={48} className='rounded-lg object-cover h-full w-full'/>
+                                    <Image src={addOn.imageUrl} alt={addOn.name || 'Add-on'} width={48} height={48} className='rounded-lg object-cover h-full w-full'/>
                                 ) : (
                                     <List className="w-6 h-6 text-muted-foreground opacity-40" />
                                 )}
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate">
-                                    {addOn.name}
+                                    {addOn.name || 'Untitled add-on'}
                                 </p>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                                    {addOn.duration}m &middot; ${addOn.price.toFixed(2)}
+                                    {addOn.duration}m &middot; ${(addOn.price || 0).toFixed(2)}
                                 </p>
                             </div>
                         </div>
