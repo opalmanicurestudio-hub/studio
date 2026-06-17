@@ -4,29 +4,28 @@ import React from 'react';
 
 export class DebugErrorBoundary extends React.Component
   { children: React.ReactNode },
-  { error: Error | null; componentStack: string | null }
+  { hasError: boolean }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { error: null, componentStack: null };
+    this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error: Error) {
-    return { error };
+  static getDerivedStateFromError() {
+    return { hasError: true };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[DebugErrorBoundary] error:', error.message);
-    console.error('[DebugErrorBoundary] component stack:', info.componentStack);
-    this.setState({ componentStack: info.componentStack || null });
+    // Only ever logged to the browser console — never rendered on screen.
+    console.error('[AppointmentDetailsSheet crash]', error.message);
+    console.error('[component stack]', info.componentStack);
   }
 
   render() {
-    if (this.state.error) {
+    if (this.state.hasError) {
       return (
-        <div style={{ padding: 24, background: '#fee', border: '2px solid red', borderRadius: 12, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11 }}>
-          <p style={{ fontWeight: 900, marginBottom: 8 }}>{this.state.error.message}</p>
-          <p>{this.state.componentStack}</p>
+        <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>
+          Couldn't load this appointment. Please try again.
         </div>
       );
     }
