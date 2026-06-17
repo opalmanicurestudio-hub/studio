@@ -728,7 +728,9 @@ function PlannerPageContent() {
 export default function PlannerPageWrapper() {
   return (
     <Suspense fallback={<div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>}>
-      <PlannerPageContent />
+      <DebugErrorBoundary>
+        <PlannerPageContent />
+      </DebugErrorBoundary>
     </Suspense>
   );
 }
