@@ -2,11 +2,11 @@
 
 import React from 'react';
 
-export class DebugErrorBoundary extends React.Component
-  { children: React.ReactNode },
-  { error: Error | null; componentStack: string | null }
-> {
-  constructor(props: { children: React.ReactNode }) {
+type Props = { children: React.ReactNode };
+type State = { error: Error | null; componentStack: string | null };
+
+export class DebugErrorBoundary extends React.Component<Props, State> {
+  constructor(props: Props) {
     super(props);
     this.state = { error: null, componentStack: null };
   }
