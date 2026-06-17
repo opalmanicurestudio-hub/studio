@@ -682,7 +682,7 @@ export const AddServiceDialog: React.FC<any> = ({
   const onSubmit = (data: ServiceFormData) => {
     let finalPrice = data.price || 0;
     if (pricingTiersData?.length && data.serviceTiers?.length) {
-      const senior = pricingTiersData.find(t => t.name.toLowerCase() === 'senior');
+      const senior = pricingTiersData.find(t => (t.name || '').toLowerCase() === 'senior');
       finalPrice = data.serviceTiers.find(t => t.tierId === senior?.id)?.price || data.serviceTiers[0].price;
     }
     onServiceAdded({
