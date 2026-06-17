@@ -57,8 +57,11 @@ export const BrowseServicesDialog: React.FC<BrowseServicesDialogProps> = ({
     onOpenChange(false);
   };
 
-  const filteredServices = allServices.filter(s =>
-    s.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // FIX: guard against services with a missing/undefined name —
+  // this filter runs unconditionally on every render (not gated by
+  // `open`), so a malformed service document crashed the page on mount.
+  const filteredServices = (allServices || []).filter(s =>
+    (s.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -107,17 +110,17 @@ export const BrowseServicesDialog: React.FC<BrowseServicesDialogProps> = ({
                   />
                   <div className="w-12 h-12 bg-muted rounded-xl flex-shrink-0 flex items-center justify-center border-2 border-white shadow-inner overflow-hidden relative">
                     {service.imageUrl ? (
-                      <Image src={service.imageUrl} alt={service.name} fill className="object-cover" />
+                      <Image src={service.imageUrl} alt={service.name || 'Service'} fill className="object-cover" />
                     ) : (
                       <Scissors className="w-6 h-6 text-muted-foreground opacity-40" />
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-black uppercase tracking-tight text-slate-900 truncate text-left">
-                      {service.name}
+                      {service.name || 'Untitled service'}
                     </p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] font-black text-primary uppercase tracking-widest">${service.price.toFixed(2)}</span>
+                      <span className="text-[10px] font-black text-primary uppercase tracking-widest">${(service.price || 0).toFixed(2)}</span>
                       <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">{service.duration}m</span>
                     </div>
                   </div>
