@@ -63,6 +63,13 @@ const safeFormatPhone = (phone: any): string => {
   try { return formatPhoneNumber(phone) || phone; } catch { return phone; }
 };
 
+// Guarded ticket-id formatter: never throws regardless of what appointment.id is.
+const safeTicketId = (id: any): string => {
+  if (typeof id === 'string' && id.length > 0) return id.slice(-6).toUpperCase();
+  if (typeof id === 'number') return String(id).slice(-6).toUpperCase();
+  return 'N/A';
+};
+
 // ─── Readiness Banner ─────────────────────────────────────────────────────────
 const ReadinessBanner = ({
   appointment, client, complianceInfo,
@@ -190,7 +197,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [appointment?.addOnIds, allServices]);
 
   const handleEscalate = async () => {
-    if (!firestore || !tenantId || !appointment) return;
+    if (!firestore || !tenantId || !appointment?.id) return;
     setIsEscalating(true);
     const batch = writeBatch(firestore);
     const adminsAndOwners = (staff || []).filter(s => s.role === 'admin' || s.role === 'owner');
@@ -198,14 +205,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
     batch.update(appointmentRef, { isEscalated: true });
     if (appointment.isWalkIn) {
-      const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, appointment.id.replace('apt-walkin-', ''));
+      const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, String(appointment.id).replace('apt-walkin-', ''));
       batch.update(walkInRef, { isEscalated: true });
     }
     adminsAndOwners.forEach(admin => {
       const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
       batch.set(notifRef, {
         id: notifRef.id, userId: admin.id, type: 'escalation',
-        message: `URGENT ESCALATION: Service Issue for ${client?.name || 'Guest'} at ${appointment.id.slice(-6).toUpperCase()}`,
+        message: `URGENT ESCALATION: Service Issue for ${client?.name || 'Guest'} at ${safeTicketId(appointment.id)}`,
         link: `/pos?checkout_id=${appointment.id}`, createdAt: now, read: false,
       });
     });
@@ -218,14 +225,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   };
 
   const handleResolveEscalation = async () => {
-    if (!firestore || !tenantId || !appointment) return;
+    if (!firestore || !tenantId || !appointment?.id) return;
     setIsResolving(true);
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
     const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, appointment.id);
     batch.update(appointmentRef, { isEscalated: false, resolutionNotes: resolutionNote, resolvedAt: now, resolvedBy: currentUser?.uid });
     if (appointment.isWalkIn) {
-      const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, appointment.id.replace('apt-walkin-', ''));
+      const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, String(appointment.id).replace('apt-walkin-', ''));
       batch.update(walkInRef, { isEscalated: false });
     }
     try {
@@ -246,7 +253,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const complianceInfo = useMemo(() => {
     if (!service || !consentForms) return { requiredForms: [], pendingForms: [], allCertified: true };
     const requiredIds   = service.requiredFormIds || [];
-    const requiredForms = consentForms.filter(f => requiredIds.includes(f.id));
+    const requiredForms = (consentForms || []).filter(f => requiredIds.includes(f.id));
     const aptSignedIds  = (appointment?.signedForms || []).map((f: any) => f.formId);
     const pendingForms  = requiredForms.filter(rf =>
       !signedConsents?.some(sc => sc.formId === rf.id) && !aptSignedIds.includes(rf.id)
@@ -259,12 +266,12 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     try {
       const isCompleted = appointment.status === 'completed';
       const addOns = (appointment.addOnIds || [])
-        .map((id: string) => allServices.find((s) => s.id === id))
+        .map((id: string) => (allServices || []).find((s) => s.id === id))
         .filter((s): s is Service => !!s);
       const allServicesInApt = [service, ...addOns];
-      const assignedStaffMember = staff.find((s) => s.id === appointment.staffId);
+      const assignedStaffMember = (staff || []).find((s) => s.id === appointment.staffId);
       const productCost = allServicesInApt.flatMap((s) => s?.products || []).reduce((acc: number, p: any) => {
-        const product = inventory.find((i) => i.id === p.id);
+        const product = (inventory || []).find((i) => i.id === p.id);
         if (!product) return acc;
         let costPerBaseUnit = 0;
         if (product.costingMethod === 'size' && product.size) costPerBaseUnit = (product.costPerUnit || 0) / product.size;
@@ -314,7 +321,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [appointment?.status, appointment?.actualStartTime, service?.duration]);
 
   const handleAddAndConfigureConfirm = (selectedAddOns: Service[], configs: any) => {
-    if (!firestore || !tenantId || !appointment) return;
+    if (!firestore || !tenantId || !appointment?.id) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
     const currentCheckoutState = appointment.checkoutState || {};
     const newStaffOverrides    = { ...(currentCheckoutState.serviceStaffOverrides || {}) };
@@ -346,13 +353,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [appointment?.checkInToken, toast]);
 
   const handleMarkupSave = (markedUpUrl: string) => {
-    if (!firestore || !tenantId || !appointment) return;
+    if (!firestore || !tenantId || !appointment?.id) return;
     updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { inspirationPhotoUrl: markedUpUrl });
     toast({ title: 'Technical Mapping Archived' });
   };
 
   const handleSendRequirements = async () => {
-    if (!firestore || !tenantId || !appointment || !service) return;
+    if (!firestore || !tenantId || !appointment?.id || !service) return;
     if (!client?.email) {
       toast({ variant: 'destructive', title: 'Email needed', description: 'Add an email to this client first.' });
       return;
@@ -360,7 +367,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     setReqSending(true);
     try {
       const token  = nanoid();
-      const price  = service.serviceTiers?.find((t: any) => t.tierId === staff.find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service.price ?? 0;
+      const price  = service.serviceTiers?.find((t: any) => t.tierId === (staff || []).find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service.price ?? 0;
       const depositCents = (() => {
         try {
           return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true });
@@ -419,9 +426,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
-  const ticketId           = appointment.id.slice(-6).toUpperCase();
+  const ticketId           = safeTicketId(appointment.id);
   const mainStaffId        = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
-  const mainStaffMember    = staff.find((s: Staff) => s.id === mainStaffId);
+  const mainStaffMember    = (staff || []).find((s: Staff) => s.id === mainStaffId);
   const cardSecured        = !!(appointment.cardOnFileSecured || client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
   const reqFiles           = appointment.requirementFiles || [];
 
@@ -575,7 +582,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 {(rf.files || []).length > 0 && (
                   <div className="grid grid-cols-4 gap-2">
                     {(rf.files || []).map((f: any, i: number) => (
-                      /\.(png|jpe?g|gif|webp)$/i.test(f.name)
+                      /\.(png|jpe?g|gif|webp)$/i.test(f.name || '')
                         ? <button key={i} onClick={() => setExpandedImage(f.url)} className="relative aspect-square rounded-lg overflow-hidden border bg-muted/5 cursor-zoom-in">
                             <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
                           </button>
@@ -827,7 +834,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <div className="space-y-3 pt-3 border-t border-dashed">
                   <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Add-ons</p>
                   {(appointment.addOnIds || []).map((id: string) => {
-                    const s = allServices.find((svc) => svc.id === id);
+                    const s = (allServices || []).find((svc) => svc.id === id);
                     if (!s) return null;
                     return (
                       <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-muted/10 p-2 rounded-lg border border-muted/20">
@@ -877,9 +884,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         open={isAddAndConfigureOpen}
         onOpenChange={setIsAddAndConfigureOpen}
         onConfirm={handleAddAndConfigureConfirm}
-        allAddOns={allServices.filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))}
+        allAddOns={(allServices || []).filter(s => s.type === 'addon' && (service?.compatibleAddOnIds || []).includes(s.id))}
         initialSelected={currentAddOns}
-        staff={staff}
+        staff={staff || []}
         defaultStaffId={appointment.staffId || ''}
       />
 
