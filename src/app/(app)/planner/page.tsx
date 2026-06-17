@@ -35,6 +35,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
+import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -646,29 +647,31 @@ function PlannerPageContent() {
         />
       </main>
 
-      <AppointmentDetailsSheet
-        open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment}
-        client={clients?.find(c => c.id === selectedAppointment?.clientId) || null}
-        service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
-        tmhr={tmhr} transactions={transactions || []}
-        onStartService={handleStartService} onFinishService={handleFinishService}
-        onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
-        onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
-        onCancel={id => { setSelectedAppointment(appointments.find(a => a.id === id) || null); setIsCancelDialogOpen(true); }}
-        onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
-        onRebook={a => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
-        onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
-        onPrintTicket={() => {}} onOverride={handleOverrideConfirm}
-        onWaiveFee={(id: string, aut: any, res: string) => {
-          if (!firestore || !tenantId) return;
-          const apt = (appointments || []).find(a => a.id === id);
-          if (!apt) return;
-          const batch = writeBatch(firestore);
-          batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), { cancellationFeeWaived: true, waivedBy: aut.id, waivedReason: res, waivedAt: new Date().toISOString() });
-          batch.update(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId), { outstandingBalance: increment(-(apt.cancellationFeeApplied || 0)) });
-          batch.commit().then(() => toast({ title: "Fee Absorbed" }));
-        }}
-      />
+      <DebugErrorBoundary>
+        <AppointmentDetailsSheet
+          open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment}
+          client={clients?.find(c => c.id === selectedAppointment?.clientId) || null}
+          service={services?.find(s => s.id === selectedAppointment?.serviceId) || null}
+          tmhr={tmhr} transactions={transactions || []}
+          onStartService={handleStartService} onFinishService={handleFinishService}
+          onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
+          onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
+          onCancel={id => { setSelectedAppointment(appointments.find(a => a.id === id) || null); setIsCancelDialogOpen(true); }}
+          onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
+          onRebook={a => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
+          onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
+          onPrintTicket={() => {}} onOverride={handleOverrideConfirm}
+          onWaiveFee={(id: string, aut: any, res: string) => {
+            if (!firestore || !tenantId) return;
+            const apt = (appointments || []).find(a => a.id === id);
+            if (!apt) return;
+            const batch = writeBatch(firestore);
+            batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), { cancellationFeeWaived: true, waivedBy: aut.id, waivedReason: res, waivedAt: new Date().toISOString() });
+            batch.update(doc(firestore, `tenants/${tenantId}/clients`, apt.clientId), { outstandingBalance: increment(-(apt.cancellationFeeApplied || 0)) });
+            batch.commit().then(() => toast({ title: "Fee Absorbed" }));
+          }}
+        />
+      </DebugErrorBoundary>
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={allStaff || []} onConfirm={handleOverrideConfirm} />
 
