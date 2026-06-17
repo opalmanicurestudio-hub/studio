@@ -596,8 +596,15 @@ export const CheckoutHub = ({
     }
   }, [allInvolvedStaff, setTipAmount, setTipAllocations]);
 
+  // Re-split the tip across staff only when the staff list changes —
+  // NOT when tipAmount changes, since handleTotalTipChange itself sets
+  // tipAmount, which would otherwise create an infinite render loop.
+  const prevStaffCountRef = useRef(allInvolvedStaff.length);
   useEffect(() => {
-    if (tipAmount > 0) handleTotalTipChange(tipAmount);
+    if (allInvolvedStaff.length !== prevStaffCountRef.current) {
+      prevStaffCountRef.current = allInvolvedStaff.length;
+      if (tipAmount > 0) handleTotalTipChange(tipAmount);
+    }
   }, [allInvolvedStaff.length, handleTotalTipChange, tipAmount]);
 
   const handleApplyDiscount = (code: string) => {
