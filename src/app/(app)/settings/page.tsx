@@ -39,7 +39,6 @@ import { useForm, Controller } from 'react-hook-form';
 import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCardsDialog';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
-// ─── Terminal reader settings panel ───────────────────────────────────────────
 import { TerminalSettings } from '@/components/pos/TerminalSettings';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -431,19 +430,21 @@ function SettingsPageImpl() {
   ];
 
   // ── Tab definitions ────────────────────────────────────────────────────────
-  // Terminal tab added here — no save button needed; TerminalSettings manages
-  // its own reader pairing state via the StripeTerminalProvider context.
   const tabs = [
-    { value: 'profile',    label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
-    { value: 'hours',      label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
-    { value: 'experience', label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
-    { value: 'policies',   label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
-    { value: 'payments',   label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
-    { value: 'terminal',   label: 'Terminal Reader',            icon: <Monitor className="w-4 h-4" />     },
-    { value: 'builder',    label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
-    { value: 'kiosk',      label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
-    { value: 'timeclock',  label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
+    { value: 'profile',     label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
+    { value: 'hours',       label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
+    { value: 'experience',  label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
+    { value: 'policies',    label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
+    { value: 'payments',    label: 'Payments & Payouts',         icon: <DollarSign className="w-4 h-4" />  },
+    { value: 'terminal',    label: 'Terminal Reader',            icon: <Monitor className="w-4 h-4" />     },
+    { value: 'automations', label: 'Automations',                icon: <Zap className="w-4 h-4" />         },
+    { value: 'builder',     label: 'Booking Architecture',       icon: <Globe className="w-4 h-4" />       },
+    { value: 'kiosk',       label: 'Kiosk Orchestration',        icon: <Fingerprint className="w-4 h-4" /> },
+    { value: 'timeclock',   label: 'Time Clock',                 icon: <Timer className="w-4 h-4" />       },
   ];
+
+  // Tabs that manage their own state — hide global save/cancel for these
+  const selfManagedTabs = ['terminal', 'automations'];
 
   if (isTenantContextLoading || isInventoryLoading) {
     return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
@@ -462,8 +463,7 @@ function SettingsPageImpl() {
               <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Studio Orchestration & Governance</p>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              {/* Hide save/cancel on terminal tab — it manages its own state */}
-              {activeTab !== 'terminal' && (
+              {!selfManagedTabs.includes(activeTab) && (
                 isEditing ? (
                   <>
                     <Button variant="ghost" onClick={() => { setIsEditing(false); setGeoInitialized(false); }} className="flex-1 sm:w-auto h-12 font-black uppercase text-[9px] sm:text-[10px] tracking-widest text-slate-400">Cancel</Button>
@@ -536,9 +536,6 @@ function SettingsPageImpl() {
             </TabsContent>
 
             {/* ── TERMINAL READER ── */}
-            {/* This tab is intentionally outside the normal edit/save flow.
-                TerminalSettings uses the StripeTerminalProvider context to scan,
-                pair, and disconnect readers in real time — no Firestore writes needed. */}
             <TabsContent value="terminal" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
               <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
                 <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
@@ -549,6 +546,52 @@ function SettingsPageImpl() {
                 </CardHeader>
                 <CardContent className="p-6 md:p-8">
                   <TerminalSettings />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── AUTOMATIONS ── */}
+            <TabsContent value="automations" className="mt-0 animate-in fade-in duration-500 text-left">
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Zap} title="Automations" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+                    Configure what happens when clients don't complete requirements before their appointment.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 md:p-8">
+                  <div className="flex flex-col sm:flex-row items-center gap-6 p-8 rounded-[2rem] border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] shadow-inner">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 border-2 border-primary/20 flex items-center justify-center shrink-0">
+                      <Zap className="w-7 h-7 text-primary" />
+                    </div>
+                    <div className="flex-1 space-y-1.5 text-center sm:text-left">
+                      <p className="text-base font-black uppercase tracking-tight text-slate-900">Automation Rules</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-70 leading-relaxed">
+                        Set triggers for missing deposits, unsigned forms, no card on file, and more. Actions fire automatically on a schedule.
+                      </p>
+                    </div>
+                    <a
+                      href="/studio/automations"
+                      className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap"
+                    >
+                      Open Automations <ArrowRight className="w-4 h-4" />
+                    </a>
+                  </div>
+                  <div className="mt-6 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {[
+                      { icon: DollarSign,  label: 'Deposit not paid'        },
+                      { icon: FileText,    label: 'Consent form unsigned'    },
+                      { icon: Shield,      label: 'No card on file'          },
+                      { icon: ImageIcon,   label: 'Reference photos missing' },
+                      { icon: ShieldCheck, label: 'Health form missing'      },
+                      { icon: Landmark,    label: 'Outstanding balance'      },
+                    ].map(item => (
+                      <div key={item.label} className="flex items-center gap-3 p-3.5 rounded-2xl border-2 border-border bg-muted/5">
+                        <item.icon className="w-4 h-4 text-primary opacity-60 shrink-0" />
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 leading-tight">{item.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
