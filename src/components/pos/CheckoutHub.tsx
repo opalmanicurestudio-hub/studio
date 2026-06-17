@@ -546,7 +546,7 @@ export const CheckoutHub = ({
     if (!clientSearch.trim()) return listToFilter.slice(0, 8);
     const search = clientSearch.toLowerCase();
     return listToFilter.filter((c: Client) =>
-      c.name.toLowerCase().includes(search) ||
+      (c.name || '').toLowerCase().includes(search) ||
       (c.email && c.email.toLowerCase().includes(search)) ||
       (c.phone && c.phone.includes(search))
     ).slice(0, 20);
