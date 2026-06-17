@@ -11,33 +11,6 @@
  *    Save calls handleSubmit(onSubmit) via onClick. No accidental submission.
  * 3. Single scrollable view — every field is always reachable.
  *    Nothing is hidden behind a step wizard.
- *
- * USAGE:
- *   // Add
- *   <ServiceFormSheet
- *     open={open}
- *     onOpenChange={setOpen}
- *     mode="add"
- *     initialType="service"          // "service" | "addon"
- *     categories={categories}
- *     onNewCategory={handleNewCat}
- *     resources={resources}
- *     services={allServices}
- *     onSave={handleServiceAdded}
- *   />
- *
- *   // Edit
- *   <ServiceFormSheet
- *     open={open}
- *     onOpenChange={setOpen}
- *     mode="edit"
- *     service={selectedService}
- *     categories={categories}
- *     onNewCategory={handleNewCat}
- *     resources={resources}
- *     services={allServices}
- *     onSave={handleServiceUpdated}
- *   />
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
@@ -77,7 +50,6 @@ import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
-// ─── SCHEMA ──────────────────────────────────────────────────────────────────
 const schema = z.object({
   id: z.string().optional(),
   name: z.string().min(1, 'Name is required'),
@@ -115,10 +87,15 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-// ─── INLINE SEARCH PANEL ─────────────────────────────────────────────────────
-// Used for products, add-ons, resources, consent forms.
-// Expands in place — no popup, no dialog.
-function InlineSearchPanel<T extends { id: string; name: string }>({
+// FIX: The generic constraint only required `{ id: string; name: string }`,
+// but ConsentForm documents use `title`, not `name`. Every consent form
+// therefore had `i.name === undefined`, and `i.name.toLowerCase()` threw
+// the instant this panel rendered — which happens immediately when the
+// sheet opens, since "Required Consent Forms" passes consentForms into
+// this exact component. Same risk applies to any item missing `name`
+// for any reason (malformed Firestore doc), so the fallback covers that
+// case generally too.
+function InlineSearchPanel<T extends { id: string; name?: string }>({
   label, icon: Icon, items, selectedIds, onToggle, renderItem, emptyText, searchPlaceholder,
 }: {
   label: string;
@@ -134,14 +111,16 @@ function InlineSearchPanel<T extends { id: string; name: string }>({
   const [q, setQ] = useState('');
 
   const filtered = useMemo(() =>
-    items.filter(i => i.name.toLowerCase().includes(q.toLowerCase())),
+    (items || []).filter(i => {
+      const itemLabel = i.name || (i as any).title || '';
+      return itemLabel.toLowerCase().includes(q.toLowerCase());
+    }),
     [items, q]);
 
   const selectedCount = selectedIds.length;
 
   return (
     <div className="rounded-2xl border-2 border-slate-100 bg-white overflow-hidden">
-      {/* Header — always visible, tap to expand */}
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
@@ -167,7 +146,6 @@ function InlineSearchPanel<T extends { id: string; name: string }>({
             className="overflow-hidden border-t border-slate-100"
           >
             <div className="p-3 space-y-2">
-              {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                 <input
@@ -178,13 +156,13 @@ function InlineSearchPanel<T extends { id: string; name: string }>({
                   className="w-full h-9 pl-8 pr-3 rounded-xl border-2 border-slate-100 bg-slate-50 text-[11px] font-bold uppercase tracking-tight outline-none focus:border-primary/30"
                 />
               </div>
-              {/* List */}
               <div className="max-h-52 overflow-y-auto space-y-1">
                 {filtered.length === 0 && (
                   <p className="text-center py-6 text-[10px] font-black uppercase text-slate-400">{emptyText}</p>
                 )}
                 {filtered.map(item => {
                   const selected = selectedIds.includes(item.id);
+                  const displayLabel = item.name || (item as any).title || 'Untitled';
                   return (
                     <div
                       key={item.id}
@@ -202,7 +180,7 @@ function InlineSearchPanel<T extends { id: string; name: string }>({
                       </div>
                       {renderItem
                         ? renderItem(item, selected)
-                        : <span className="font-bold uppercase text-[10px] text-slate-700 flex-1">{item.name}</span>}
+                        : <span className="font-bold uppercase text-[10px] text-slate-700 flex-1">{displayLabel}</span>}
                     </div>
                   );
                 })}
@@ -215,12 +193,10 @@ function InlineSearchPanel<T extends { id: string; name: string }>({
   );
 }
 
-// ─── SECTION LABEL ────────────────────────────────────────────────────────────
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary/60 px-1 mb-3">{children}</p>
 );
 
-// ─── RECOVERY MATRIX ─────────────────────────────────────────────────────────
 const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
   pricingTiers: PricingTier[]; values: any; tmhr: number; taxBurden: number; staff: Staff[];
 }) => {
@@ -236,7 +212,10 @@ const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
     return acc + (cpu * (p.quantityUsed || 1));
   }, 0), [values.products, inventory]);
 
-  const rows = useMemo(() => pricingTiers.sort((a, b) => a.rank - b.rank).map(tier => {
+  // FIX: spread into a new array before sorting — pricingTiers comes
+  // straight from a useCollection Firestore hook, and .sort() mutates
+  // in place. Guard `rank` in case any tier document is missing it.
+  const rows = useMemo(() => [...pricingTiers].sort((a, b) => (a.rank || 0) - (b.rank || 0)).map(tier => {
     const tc = (values.serviceTiers || []).find((t: any) => t.tierId === tier.id);
     const price = tc ? tc.price : (values.price || 0);
     const dur = tc ? tc.durationMinutes : (values.duration || 60);
@@ -265,7 +244,6 @@ const RecoveryMatrix = ({ pricingTiers, values, tmhr, taxBurden, staff }: {
   );
 };
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 interface ServiceFormSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -311,7 +289,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const depositType = watch('depositType');
   const serviceId  = service?.id;
 
-  // Reset when opening — depends on serviceId string, NOT object reference
   useEffect(() => {
     if (!open) return;
     if (mode === 'edit' && service) {
@@ -337,9 +314,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         serviceTiers: [], requiredFormIds: [], price: 0, padBefore: 0, padAfter: 0,
       });
     }
-  }, [open, serviceId, mode]); // stable deps — no object reference
+  }, [open, serviceId, mode]);
 
-  // Sync breakeven deposit
   useEffect(() => {
     if (depositType === 'breakeven') {
       const total = (values.duration || 0) + (values.padBefore || 0) + (values.padAfter || 0);
@@ -373,7 +349,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     return (total / 60) * tmhr + mat;
   }, [values.duration, values.padBefore, values.padAfter, values.products, tmhr, inventory]);
 
-  // ── Selection helpers ──
   const selectedProducts    = watch('products') || [];
   const selectedResourceIds = watch('requiredResourceIds') || [];
   const selectedAddOnIds    = watch('compatibleAddOnIds') || [];
@@ -434,7 +409,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   };
 
   const handleNewCategory = () => {
-    if (newCategoryName.trim() && !categories.includes(newCategoryName.trim())) {
+    if (newCategoryName.trim() && !(categories || []).includes(newCategoryName.trim())) {
       onNewCategory(newCategoryName.trim());
       setValue('category', newCategoryName.trim(), { shouldValidate: true });
       setNewCategoryName('');
@@ -446,7 +421,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     setSaving(true);
     let finalPrice = data.price || 0;
     if (pricingTiers?.length && data.serviceTiers?.length) {
-      const senior = pricingTiers.find(t => t.name.toLowerCase() === 'senior');
+      const senior = pricingTiers.find(t => (t.name || '').toLowerCase() === 'senior');
       finalPrice = data.serviceTiers.find((t: any) => t.tierId === senior?.id)?.price || data.serviceTiers[0].price;
     }
     const result = {
@@ -464,10 +439,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     onOpenChange(false);
   };
 
-  // Professional inventory items only
-  const profProducts = useMemo(() => inventory.filter(i => i.type === 'professional'), [inventory]);
-  // Add-ons = other services of type addon
-  const addOnServices = useMemo(() => services.filter(s => s.type === 'addon' && s.id !== service?.id), [services, service]);
+  const profProducts = useMemo(() => (inventory || []).filter(i => i.type === 'professional'), [inventory]);
+  const addOnServices = useMemo(() => (services || []).filter(s => s.type === 'addon' && s.id !== service?.id), [services, service]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -475,7 +448,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         side="right"
         className="w-full sm:max-w-2xl p-0 border-none bg-background flex flex-col overflow-hidden"
       >
-        {/* Header */}
         <SheetHeader className="px-6 pt-6 pb-4 border-b bg-muted/5 shrink-0">
           <div className="flex items-center gap-2 mb-1">
             <Zap className="w-4 h-4 text-primary" />
@@ -491,15 +463,12 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
           </SheetDescription>
         </SheetHeader>
 
-        {/* Scrollable body */}
         <ScrollArea className="flex-1">
           <div className="px-6 py-6 space-y-8 pb-32">
 
-            {/* ── IDENTITY ── */}
             <section className="space-y-4">
               <SectionLabel>Identity</SectionLabel>
 
-              {/* Add-on toggle */}
               <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-slate-100 bg-white">
                 <div>
                   <p className="font-black uppercase text-sm tracking-tight">Add-on Enhancement</p>
@@ -510,14 +479,12 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 )} />
               </div>
 
-              {/* Name */}
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Treatment Name</Label>
                 <Input {...register('name')} placeholder="e.g., SIGNATURE BLOWOUT" className="h-14 rounded-2xl border-2 font-black uppercase text-lg tracking-tight" />
                 {errors.name && <p className="text-[10px] font-black text-destructive">{errors.name.message}</p>}
               </div>
 
-              {/* Category */}
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Category</Label>
                 {isAddingCategory ? (
@@ -538,7 +505,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                       <Select onValueChange={field.onChange} value={field.value}>
                         <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] flex-1"><SelectValue placeholder="Select category" /></SelectTrigger>
                         <SelectContent className="rounded-xl border-2 shadow-2xl">
-                          {categories.map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px]">{c}</SelectItem>)}
+                          {(categories || []).map(c => <SelectItem key={c} value={c} className="font-bold uppercase text-[10px]">{c}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     )} />
@@ -548,7 +515,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 {errors.category && <p className="text-[10px] font-black text-destructive">{errors.category.message}</p>}
               </div>
 
-              {/* Duration grid */}
               <div className="grid grid-cols-3 gap-3">
                 {[
                   { key: 'duration',  label: 'Duration (min)', placeholder: '60' },
@@ -568,13 +534,11 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </div>
               {errors.duration && <p className="text-[10px] font-black text-destructive text-center">{errors.duration.message}</p>}
 
-              {/* Description */}
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Description</Label>
                 <Textarea {...register('description')} placeholder="Describe the service..." className="rounded-2xl border-2 min-h-[80px]" />
               </div>
 
-              {/* Image */}
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Menu Visual</Label>
                 <Controller name="imageUrl" control={control} render={({ field }) => (
@@ -585,7 +549,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             <Separator />
 
-            {/* ── PRODUCTS ── */}
             <section className="space-y-3">
               <SectionLabel>Product Formula</SectionLabel>
               <InlineSearchPanel
@@ -598,14 +561,13 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 emptyText="No professional products found"
                 renderItem={(item, selected) => (
                   <div className="flex-1 flex items-center justify-between gap-2">
-                    <span className="font-bold uppercase text-[10px] text-slate-700 truncate">{item.name}</span>
+                    <span className="font-bold uppercase text-[10px] text-slate-700 truncate">{item.name || 'Untitled'}</span>
                     <span className="text-[9px] font-black text-primary/50 shrink-0">
                       {(item as any).costingMethod === 'uses' ? (item as any).useUnit || 'uses' : (item as any).unit || 'unit'}
                     </span>
                   </div>
                 )}
               />
-              {/* Quantity inputs for selected products */}
               {selectedProducts.length > 0 && (
                 <div className="space-y-2 pt-1">
                   <p className="text-[9px] font-black uppercase text-muted-foreground opacity-50 px-1">Quantities</p>
@@ -614,7 +576,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                     const unit = inv?.costingMethod === 'uses' ? (inv.useUnit || 'uses') : (inv?.unit || 'ml');
                     return (
                       <div key={product.id} className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-100 bg-white">
-                        <span className="font-black uppercase text-[10px] text-slate-700 flex-1 truncate">{product.name}</span>
+                        <span className="font-black uppercase text-[10px] text-slate-700 flex-1 truncate">{product.name || 'Untitled'}</span>
                         <div className="flex items-center gap-2 shrink-0">
                           <Input
                             type="number"
@@ -643,7 +605,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               )}
             </section>
 
-            {/* ── ADD-ONS (only for primary services) ── */}
             {!isAddon && (
               <>
                 <Separator />
@@ -659,8 +620,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                     emptyText="No add-ons found — create addon-type services first"
                     renderItem={(item, selected) => (
                       <div className="flex-1 flex items-center justify-between gap-2">
-                        <span className="font-bold uppercase text-[10px] text-slate-700 truncate">{item.name}</span>
-                        <span className="text-[9px] font-black text-primary/50 shrink-0">{(item as any).duration}m · ${(item as any).price?.toFixed(0)}</span>
+                        <span className="font-bold uppercase text-[10px] text-slate-700 truncate">{item.name || 'Untitled'}</span>
+                        <span className="text-[9px] font-black text-primary/50 shrink-0">{(item as any).duration}m · ${((item as any).price || 0).toFixed(0)}</span>
                       </div>
                     )}
                   />
@@ -668,14 +629,13 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
               </>
             )}
 
-            {/* ── RESOURCES ── */}
             <Separator />
             <section className="space-y-3">
               <SectionLabel>Rooms & Equipment</SectionLabel>
               <InlineSearchPanel
                 label="Resources"
                 icon={Hammer}
-                items={resources}
+                items={resources || []}
                 selectedIds={selectedResourceIds}
                 onToggle={toggleResource}
                 searchPlaceholder="Search resources..."
@@ -685,11 +645,9 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             <Separator />
 
-            {/* ── PRICING ── */}
             <section className="space-y-4">
               <SectionLabel>Pricing</SectionLabel>
 
-              {/* Standard price */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between px-1">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Standard Price</Label>
@@ -708,7 +666,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 {errors.price && <p className="text-[10px] font-black text-destructive">{errors.price.message}</p>}
               </div>
 
-              {/* Recovery targets */}
               <RecoveryMatrix
                 pricingTiers={pricingTiers || []}
                 values={values}
@@ -717,12 +674,11 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 staff={staff}
               />
 
-              {/* Pricing tiers — dynamic from Firestore */}
               {(pricingTiers || []).length > 0 && (
                 <div className="space-y-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Skill Tier Overrides</p>
                   <div className="space-y-2">
-                    {(pricingTiers || []).sort((a, b) => a.rank - b.rank).map(tier => {
+                    {[...(pricingTiers || [])].sort((a, b) => (a.rank || 0) - (b.rank || 0)).map(tier => {
                       const tierData = serviceTiers.find((t: any) => t.tierId === tier.id);
                       const enabled  = !!tierData;
                       return (
@@ -764,7 +720,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 </div>
               )}
 
-              {/* Deposit logic */}
               <div className="space-y-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Booking Deposit</p>
                 <Controller name="depositType" control={control} render={({ field }) => (
@@ -815,7 +770,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
 
             <Separator />
 
-            {/* ── CONSENT FORMS ── */}
             <section className="space-y-3">
               <SectionLabel>Required Consent Forms</SectionLabel>
               <InlineSearchPanel
@@ -827,14 +781,13 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                 searchPlaceholder="Search forms..."
                 emptyText="No consent forms configured"
                 renderItem={(item, selected) => (
-                  <span className="font-bold uppercase text-[10px] text-slate-700 flex-1 truncate">{(item as any).title || item.name}</span>
+                  <span className="font-bold uppercase text-[10px] text-slate-700 flex-1 truncate">{(item as any).title || item.name || 'Untitled form'}</span>
                 )}
               />
             </section>
 
             <Separator />
 
-            {/* ── POLICY & COMPLIANCE ── */}
             <section className="space-y-4">
               <SectionLabel>Policy & Compliance</SectionLabel>
 
@@ -871,7 +824,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
           </div>
         </ScrollArea>
 
-        {/* Save footer */}
         <div className="shrink-0 border-t bg-background px-6 py-4 flex gap-3">
           <Button
             type="button"
@@ -894,9 +846,6 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
     </Sheet>
   );
 };
-
-// ─── CONVENIENCE RE-EXPORTS ───────────────────────────────────────────────────
-// Drop-in replacements so existing call sites don't need to change props.
 
 export const AddServiceDialog: React.FC<any> = ({ open, onOpenChange, initialType, categories, onNewCategory, onServiceAdded, resources, services }) => (
   <ServiceFormSheet open={open} onOpenChange={onOpenChange} mode="add" initialType={initialType} categories={categories} onNewCategory={onNewCategory} resources={resources} services={services} onSave={onServiceAdded} />
