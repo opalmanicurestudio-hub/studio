@@ -42,7 +42,7 @@ import {
   AlertTriangle, Calculator, Check, Clock, DollarSign, Hammer, Package,
   PlusCircle, QrCode, ShoppingCart, Trash2, TrendingUp, Sparkles, ArrowRight,
   ListChecks, Activity, ShieldCheck, Target, Percent, Box, MapPin, Users,
-  Zap, Shield, FileText,
+  Zap, Shield, FileText, PenTool,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { type Service } from '@/lib/data';
@@ -266,9 +266,6 @@ const Step1 = ({ categories, onNewCategory }: { categories: string[]; onNewCateg
 };
 
 // ─── STEP 2 ───────────────────────────────────────────────────────────────────
-// KEY FIX: All nested dialog open/close state lives HERE in Step2.
-// The dialogs are rendered via onRenderDialogs prop so they appear
-// OUTSIDE the <form> element entirely — preventing form submission on button click.
 const Step2 = ({
   resources, allServices,
   onRequestProductBrowser, onRequestResourceSelector, onRequestAddOnSelector,
@@ -596,10 +593,22 @@ const Step4 = ({
               <div className="grid grid-cols-1 gap-2">
                 {requiredForms.map(form => (
                   <div key={form.id} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                    <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setValue('requiredFormIds', requiredFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-4 h-4" /></Button>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-black uppercase tracking-tight text-slate-900 truncate">{form.title}</span>
+                      {(form as any).requiresSignature && (
+                        <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[8px] font-black uppercase tracking-widest">
+                          <PenTool className="w-2.5 h-2.5" /> Signature Required
+                        </span>
+                      )}
+                    </div>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => setValue('requiredFormIds', requiredFormIds.filter(id => id !== form.id), { shouldDirty: true })}><Trash2 className="w-4 h-4" /></Button>
                   </div>
                 ))}
+                {requiredForms.some((f: any) => f.requiresSignature) && (
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 px-1">
+                    Forms marked "Signature Required" will be included in the client's completion link when this service is booked.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4"><FileText className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest">No Legal Requirements</p></div>
