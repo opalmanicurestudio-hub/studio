@@ -133,7 +133,7 @@ const RecoveryTargetMatrix = ({ pricingTiers, currentValues, tmhr, taxBurden, st
   }, [currentValues.products, inventory]);
 
   const tierAnalysis = useMemo(() => {
-    return pricingTiers.sort((a, b) => a.rank - b.rank).map(tier => {
+    return [...pricingTiers].sort((a, b) => (a.rank || 0) - (b.rank || 0)).map(tier => {
       const tierConfig = currentValues.serviceTiers?.find((t: any) => t.tierId === tier.id);
       const price = tierConfig ? tierConfig.price : (currentValues.price || 0);
       const duration = tierConfig ? tierConfig.durationMinutes : (currentValues.duration || 60);
@@ -469,7 +469,7 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number; pricing
           <div className="space-y-4">
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Skill Tier Variances</Label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {pricingTiers.sort((a, b) => a.rank - b.rank).map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
+              {[...pricingTiers].sort((a, b) => (a.rank || 0) - (b.rank || 0)).map(tier => <PricingTierInput key={tier.id} tier={tier} control={control} />)}
             </div>
           </div>
         )}
