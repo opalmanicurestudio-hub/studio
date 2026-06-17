@@ -260,14 +260,7 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
         return clients.filter((c: any) => c.name?.toLowerCase().includes(s) || c.phone?.includes(s) || c.email?.toLowerCase().includes(s)).slice(0, 8);
     }, [clients, clientSearch]);
 
-    const selectedSvc = services.find((s: any) => s.id === selectedService);
-
-    // Auto-enable link when service has required consent forms
-    React.useEffect(() => {
-        if (requiredFormIds.length > 0 && !sendLink) {
-            setSendLink(true);
-        }
-    }, [requiredFormIds.length]);
+   const selectedSvc = services.find((s: any) => s.id === selectedService);
     const staffMember = staff.find((s: any) => s.id === selectedStaff);
 
     const svcPrice = selectedSvc ? getServicePrice(selectedSvc, staffMember) : 0;
@@ -275,6 +268,12 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
     const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
     const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
 
+    // Auto-enable link when service has required consent forms
+    React.useEffect(() => {
+        if (requiredFormIds.length > 0 && !sendLink) {
+            setSendLink(true);
+        }
+    }, [requiredFormIds.length]);
     const copyLink = async () => {
         if (!generatedLink) return;
         try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
