@@ -1,6 +1,4 @@
-
 'use client';
-
 import React, { useState, useEffect } from 'react';
 import {
   Dialog,
@@ -17,7 +15,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { type InventoryItem } from '@/lib/data';
 import { Search } from 'lucide-react';
 import Image from 'next/image';
-
 interface SelectEquipmentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,7 +22,6 @@ interface SelectEquipmentDialogProps {
   allEquipment: InventoryItem[];
   initialSelected: InventoryItem[];
 }
-
 export const SelectEquipmentDialog: React.FC<SelectEquipmentDialogProps> = ({
   open,
   onOpenChange,
@@ -35,13 +31,11 @@ export const SelectEquipmentDialog: React.FC<SelectEquipmentDialogProps> = ({
 }) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set(initialSelected.map(e => e.id)));
   const [searchTerm, setSearchTerm] = useState('');
-
   useEffect(() => {
     if (open) {
       setSelectedIds(new Set(initialSelected.map(e => e.id)));
     }
   }, [open, initialSelected]);
-
   const handleToggle = (equipmentId: string) => {
     const newSelectedIds = new Set(selectedIds);
     if (newSelectedIds.has(equipmentId)) {
@@ -51,16 +45,18 @@ export const SelectEquipmentDialog: React.FC<SelectEquipmentDialogProps> = ({
     }
     setSelectedIds(newSelectedIds);
   };
-
   const handleSave = () => {
     const selectedItems = allEquipment.filter(e => selectedIds.has(e.id));
     onSelect(selectedItems);
+    // FIX: this was missing — dialog never closed after saving
+    onOpenChange(false);
   };
-
-  const filteredEquipment = allEquipment.filter(e =>
-    e.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // FIX: guard against equipment with a missing/undefined name —
+  // this filter ran unconditionally, crashing on mount if any
+  // inventory document lacked a `name` field.
+  const filteredEquipment = (allEquipment || []).filter(e =>
+    (e.name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -91,13 +87,13 @@ export const SelectEquipmentDialog: React.FC<SelectEquipmentDialogProps> = ({
                             onCheckedChange={() => handleToggle(item.id)}
                         />
                          <div className='w-10 h-10 bg-muted rounded-md flex-shrink-0'>
-                            <Image src={`https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name} width={40} height={40} className='rounded-md'/>
+                            <Image src={`https://picsum.photos/seed/inv${item.id}/100/100`} alt={item.name || 'Equipment'} width={40} height={40} className='rounded-md'/>
                         </div>
                         <label
                             htmlFor={`equipment-${item.id}`}
                             className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 flex-1 cursor-pointer"
                         >
-                            {item.name}
+                            {item.name || 'Untitled equipment'}
                         </label>
                     </div>
                 ))}
@@ -114,5 +110,3 @@ export const SelectEquipmentDialog: React.FC<SelectEquipmentDialogProps> = ({
     </Dialog>
   );
 };
-
-    
