@@ -1,0 +1,16 @@
+name: Check Appointment Automations
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  check-automations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call automation checker endpoint
+        run: |
+          curl -sS -X GET "https://studio-one-blue.vercel.app/api/cron/check-automations" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --fail
