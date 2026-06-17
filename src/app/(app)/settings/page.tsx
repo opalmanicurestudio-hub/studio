@@ -570,8 +570,8 @@ function SettingsPageImpl() {
                         Set triggers for missing deposits, unsigned forms, no card on file, and more. Actions fire automatically on a schedule.
                       </p>
                     </div>
-                    <a
-                      href="/studio/automations"
+                    
+                      href="/settings/automations"
                       className="shrink-0 flex items-center gap-2 h-12 px-8 rounded-2xl bg-primary text-white font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20 hover:bg-primary/90 transition-all active:scale-95 whitespace-nowrap"
                     >
                       Open Automations <ArrowRight className="w-4 h-4" />
