@@ -58,10 +58,12 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
+const safeFormatPhone = (phone: any): string => {
+  if (!phone || typeof phone !== 'string') return String(phone || '');
+  try { return formatPhoneNumber(phone) || phone; } catch { return phone; }
+};
+
 // ─── Readiness Banner ─────────────────────────────────────────────────────────
-// Shows a green "ready" pill or stacked blockers in severity order.
-// Reads readinessFlags written hourly by the Cloud Function, plus
-// live client data for allergy/ban/dispute flags.
 const ReadinessBanner = ({
   appointment, client, complianceInfo,
 }: {
@@ -75,49 +77,25 @@ const ReadinessBanner = ({
   const hasAllergy = !!(client?.allergyNotes || client?.medicalNotes);
 
   const blockers = [
-    hasBan     && {
-      level: 'banned',
-      msg:   `Banned — ${client?.banMessage || 'No service permitted'}`,
-    },
-    hasDispute && {
-      level: 'dispute',
-      msg:   `Open chargeback dispute on file — verify before service`,
-    },
-    flags.healthGateActive && {
-      level: 'danger',
-      msg:   `Health disclosure required before any product is applied`,
-    },
+    hasBan     && { level: 'banned',  msg: `Banned — ${client?.banMessage || 'No service permitted'}` },
+    hasDispute && { level: 'dispute', msg: `Open chargeback dispute on file — verify before service` },
+    flags.healthGateActive && { level: 'danger', msg: `Health disclosure required before any product is applied` },
     hasAllergy && {
       level: 'allergy',
-      msg:   [
-        client.allergyNotes   ? `Allergy: ${client.allergyNotes}`   : '',
-        client.medicalNotes   ? `Medical: ${client.medicalNotes}`   : '',
+      msg: [
+        client.allergyNotes ? `Allergy: ${client.allergyNotes}` : '',
+        client.medicalNotes ? `Medical: ${client.medicalNotes}` : '',
       ].filter(Boolean).join(' · '),
     },
-    flags.formGateActive && {
-      level: 'danger',
-      msg:   `Required consent form not signed — collect before starting`,
-    },
+    flags.formGateActive && { level: 'danger', msg: `Required consent form not signed — collect before starting` },
     !complianceInfo.allCertified && complianceInfo.pendingForms.length > 0 && {
       level: 'warn',
-      msg:   `${complianceInfo.pendingForms.length} consent form${complianceInfo.pendingForms.length !== 1 ? 's' : ''} not yet signed`,
+      msg: `${complianceInfo.pendingForms.length} consent form${complianceInfo.pendingForms.length !== 1 ? 's' : ''} not yet signed`,
     },
-    flags.depositRequired && {
-      level: 'danger',
-      msg:   `Deposit not received — cannot proceed`,
-    },
-    flags.cardRequired && {
-      level: 'warn',
-      msg:   `No card on file — collect at check-in`,
-    },
-    flags.balanceRequired && {
-      level: 'warn',
-      msg:   `Outstanding $${Number(client?.outstandingBalance || 0).toFixed(2)} — settle at checkout`,
-    },
-    flags.needsConsultationBuffer && {
-      level: 'info',
-      msg:   `No reference photos — allow 15 min design consultation`,
-    },
+    flags.depositRequired && { level: 'danger', msg: `Deposit not received — cannot proceed` },
+    flags.cardRequired    && { level: 'warn',   msg: `No card on file — collect at check-in` },
+    flags.balanceRequired && { level: 'warn',   msg: `Outstanding $${Number(client?.outstandingBalance || 0).toFixed(2)} — settle at checkout` },
+    flags.needsConsultationBuffer && { level: 'info', msg: `No reference photos — allow 15 min design consultation` },
   ].filter(Boolean) as { level: string; msg: string }[];
 
   if (blockers.length === 0) {
@@ -267,45 +245,52 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const complianceInfo = useMemo(() => {
     if (!service || !consentForms) return { requiredForms: [], pendingForms: [], allCertified: true };
-    const requiredIds    = service.requiredFormIds || [];
-    const requiredForms  = consentForms.filter(f => requiredIds.includes(f.id));
-    // Also check signedForms on appointment (from completion link)
-    const aptSignedIds   = (appointment?.signedForms || []).map((f: any) => f.formId);
-    const pendingForms   = requiredForms.filter(rf =>
-      !signedConsents?.some(sc => sc.formId === rf.id) &&
-      !aptSignedIds.includes(rf.id)
+    const requiredIds   = service.requiredFormIds || [];
+    const requiredForms = consentForms.filter(f => requiredIds.includes(f.id));
+    const aptSignedIds  = (appointment?.signedForms || []).map((f: any) => f.formId);
+    const pendingForms  = requiredForms.filter(rf =>
+      !signedConsents?.some(sc => sc.formId === rf.id) && !aptSignedIds.includes(rf.id)
     );
     return { requiredForms, pendingForms, allCertified: pendingForms.length === 0 };
   }, [service, consentForms, signedConsents, appointment?.signedForms]);
 
   const financialData = useMemo(() => {
     if (!appointment || !service) return null;
-    const isCompleted = appointment.status === 'completed';
-    const addOns = (appointment.addOnIds || []).map((id: string) => allServices.find((s) => s.id === id)).filter((s): s is Service => !!s);
-    const allServicesInApt = [service, ...addOns];
-    const assignedStaffMember = staff.find((s) => s.id === appointment.staffId);
-    const productCost = allServicesInApt.flatMap((s) => s?.products || []).reduce((acc: number, p: any) => {
-      const product = inventory.find((i) => i.id === p.id);
-      if (!product) return acc;
-      let costPerBaseUnit = 0;
-      if (product.costingMethod === 'size' && product.size) costPerBaseUnit = (product.costPerUnit || 0) / product.size;
-      else if (product.costingMethod === 'uses' && product.estimatedUses) costPerBaseUnit = (product.costPerUnit || 0) / product.estimatedUses;
-      else costPerBaseUnit = product.costPerUnit || 0;
-      return acc + costPerBaseUnit * (p.quantityUsed || 1);
-    }, 0);
-    const start = safeDate(appointment.actualStartTime || appointment.startTime);
-    const end   = safeDate(appointment.actualEndTime   || appointment.endTime);
-    const actualDuration = appointment.actualEndTime
-      ? differenceInMinutes(end, start)
-      : allServicesInApt.reduce((acc, s) => acc + (s?.duration || 0), 0);
-    const timeCost   = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * tmhr;
-    const breakEven  = timeCost + productCost;
-    const baseRevenue = allServicesInApt.reduce((acc, s) => acc + (s.serviceTiers?.find((t) => t.tierId === assignedStaffMember?.pricingTierId)?.price || s.price), 0);
-    const adjustmentCharge = safeNumber(appointment.checkoutState?.additionalCharge);
-    const revenue = isCompleted
-      ? transactions.filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue').reduce((acc: any, t: any) => acc + t.amount, 0)
-      : baseRevenue;
-    return { revenue, breakEven, profit: revenue - breakEven, adjustmentCharge };
+    try {
+      const isCompleted = appointment.status === 'completed';
+      const addOns = (appointment.addOnIds || [])
+        .map((id: string) => allServices.find((s) => s.id === id))
+        .filter((s): s is Service => !!s);
+      const allServicesInApt = [service, ...addOns];
+      const assignedStaffMember = staff.find((s) => s.id === appointment.staffId);
+      const productCost = allServicesInApt.flatMap((s) => s?.products || []).reduce((acc: number, p: any) => {
+        const product = inventory.find((i) => i.id === p.id);
+        if (!product) return acc;
+        let costPerBaseUnit = 0;
+        if (product.costingMethod === 'size' && product.size) costPerBaseUnit = (product.costPerUnit || 0) / product.size;
+        else if (product.costingMethod === 'uses' && product.estimatedUses) costPerBaseUnit = (product.costPerUnit || 0) / product.estimatedUses;
+        else costPerBaseUnit = product.costPerUnit || 0;
+        return acc + costPerBaseUnit * (p.quantityUsed || 1);
+      }, 0);
+      const start = safeDate(appointment.actualStartTime || appointment.startTime);
+      const end   = safeDate(appointment.actualEndTime   || appointment.endTime);
+      const actualDuration = appointment.actualEndTime
+        ? differenceInMinutes(end, start)
+        : allServicesInApt.reduce((acc, s) => acc + (s?.duration || 0), 0);
+      const timeCost    = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * (tmhr || 0);
+      const breakEven   = timeCost + productCost;
+      const baseRevenue = allServicesInApt.reduce((acc, s) => {
+        const tierPrice = s.serviceTiers?.find((t: any) => t.tierId === assignedStaffMember?.pricingTierId)?.price;
+        return acc + (tierPrice ?? s.price ?? 0);
+      }, 0);
+      const adjustmentCharge = safeNumber(appointment.checkoutState?.additionalCharge);
+      const revenue = isCompleted
+        ? (transactions || []).filter((t: any) => t.appointmentId === appointment.id && t.category === 'Service Revenue').reduce((acc: number, t: any) => acc + t.amount, 0)
+        : baseRevenue;
+      return { revenue, breakEven, profit: revenue - breakEven, adjustmentCharge };
+    } catch {
+      return { revenue: 0, breakEven: 0, profit: 0, adjustmentCharge: 0 };
+    }
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff]);
 
   useEffect(() => {
@@ -374,12 +359,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
     setReqSending(true);
     try {
-      const token        = nanoid();
-      const price        = service.serviceTiers?.find((t: any) => t.tierId === staff.find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price || service.price || 0;
-      const depositCents = computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true });
+      const token  = nanoid();
+      const price  = service.serviceTiers?.find((t: any) => t.tierId === staff.find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service.price ?? 0;
+      const depositCents = (() => {
+        try {
+          return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true });
+        } catch { return 0; }
+      })();
       const requiredFormIds = service.requiredFormIds || [];
-      const expiresAt    = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-      const batch        = writeBatch(firestore);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+      const batch = writeBatch(firestore);
 
       batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), {
         token, tenantId, appointmentId: appointment.id, clientId: client.id,
@@ -422,10 +411,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
       toast({ title: 'Requirements sent', description: 'Secure link generated and sent to the client.' });
     } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Could not send', description: e.message });
+      toast({ variant: 'destructive', title: 'Could not send', description: e?.message || 'Unknown error' });
     } finally { setReqSending(false); }
   };
 
+  // ── All hooks done — safe to early-return now ──────────────────────────────
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
@@ -440,14 +430,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-8 p-5 md:p-8 pb-16">
 
-        {/* ── Readiness banner — always first ── */}
-        <ReadinessBanner
-          appointment={appointment}
-          client={client}
-          complianceInfo={complianceInfo}
-        />
+        <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} />
 
-        {/* ── Action buttons ── */}
         {appointment.status === 'confirmed' && (
           <Button
             onClick={() => onStartService(appointment.id)}
@@ -505,8 +489,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
             {isOwnerOrAdminUser && (
               <div className="flex flex-col gap-0.5 pt-1">
-                {client.email  && <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1.5"><Mail className="w-3 h-3 opacity-40" /> {client.email}</p>}
-                {client.phone  && <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1.5"><Phone className="w-3 h-3 opacity-40" /> {formatPhoneNumber(client.phone)}</p>}
+                {client.email && (
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1.5">
+                    <Mail className="w-3 h-3 opacity-40" /> {client.email}
+                  </p>
+                )}
+                {client.phone && (
+                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1.5">
+                    <Phone className="w-3 h-3 opacity-40" /> {safeFormatPhone(client.phone)}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -630,7 +622,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         </div>
 
-        {/* ── Inspiration photo — moved up near top ── */}
+        {/* ── Inspiration photo ── */}
         {appointment.inspirationPhotoUrl && (
           <div className="space-y-3 pt-4 border-t border-dashed">
             <div className="flex justify-between items-center">
@@ -829,7 +821,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     <span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span>
                   </div>
                 </div>
-                <p className="text-lg font-black text-primary tracking-tighter font-mono shrink-0">${financialData?.revenue.toFixed(2)}</p>
+                <p className="text-lg font-black text-primary tracking-tighter font-mono shrink-0">${(financialData?.revenue ?? 0).toFixed(2)}</p>
               </div>
               {(appointment.addOnIds || []).length > 0 && (
                 <div className="space-y-3 pt-3 border-t border-dashed">
@@ -840,7 +832,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     return (
                       <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-muted/10 p-2 rounded-lg border border-muted/20">
                         <span className="truncate flex items-center gap-2"><Sparkles className="w-3 h-3" /> {s.name}</span>
-                        <span className="shrink-0 text-primary font-mono">${s.price.toFixed(2)}</span>
+                        <span className="shrink-0 text-primary font-mono">${(s.price ?? 0).toFixed(2)}</span>
                       </div>
                     );
                   })}
@@ -849,6 +841,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </CardContent>
           </Card>
         </div>
+
       </div>
     </ScrollArea>
   );
