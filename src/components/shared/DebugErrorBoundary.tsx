@@ -1,10 +1,7 @@
 'use client';
 import React from 'react';
 
-export class DebugErrorBoundary extends React.Component
-  { children: React.ReactNode },
-  { hasError: boolean }
-> {
+export class DebugErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
