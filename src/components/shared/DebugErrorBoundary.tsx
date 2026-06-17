@@ -1,23 +1,39 @@
 'use client';
+
 import React from 'react';
 
-export class DebugErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
+export class DebugErrorBoundary extends React.Component
+  { children: React.ReactNode },
+  { error: Error | null; componentStack: string | null }
+> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { error: null, componentStack: null };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[AppointmentDetailsSheet crash]', error.message);
     console.error('[component stack]', info.componentStack);
+    this.setState({ componentStack: info.componentStack || null });
   }
 
   render() {
-    if (this.state.hasError) {
+    if (this.state.error) {
+      const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
+
+      if (isDebug) {
+        return (
+          <div style={{ padding: 20, background: '#fee', border: '2px solid red', borderRadius: 12, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11, margin: 16 }}>
+            <p style={{ fontWeight: 900, marginBottom: 8 }}>{this.state.error.message}</p>
+            <p>{this.state.componentStack}</p>
+          </div>
+        );
+      }
+
       return (
         <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>
           Couldn't load this appointment. Please try again.
