@@ -60,6 +60,7 @@ import {
   WifiOff,
   Smartphone,
   Monitor,
+  Receipt,
 } from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice, type RecoveryPreset } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
@@ -152,14 +153,16 @@ const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin O
 };
 
 // ─── CardOnFileConfirm ────────────────────────────────────────────────────────
-const CardOnFileConfirm = ({ client, amount, onConfirm, onCancel, isProcessing }: {
+const CardOnFileConfirm = ({ client, amount, surcharge, onConfirm, onCancel, isProcessing }: {
   client: Client;
   amount: number;
+  surcharge?: number;
   onConfirm: () => void;
   onCancel: () => void;
   isProcessing: boolean;
 }) => {
   const card = (client as any).cardOnFile;
+  const hasSurcharge = safeNumber(surcharge) > 0;
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-4 border-t border-dashed">
       <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Confirm Card Charge</p>
@@ -179,6 +182,12 @@ const CardOnFileConfirm = ({ client, amount, onConfirm, onCancel, isProcessing }
           ${safeNumber(amount).toFixed(2)}
         </p>
       </div>
+      {hasSurcharge && (
+        <div className="flex items-center justify-between px-2 text-[10px] font-bold text-amber-700 uppercase">
+          <span className="flex items-center gap-1.5"><Receipt className="w-3 h-3" /> Includes card processing fee</span>
+          <span className="font-mono">${safeNumber(surcharge).toFixed(2)}</span>
+        </div>
+      )}
       <div className="flex gap-3">
         <Button variant="outline" onClick={onCancel} disabled={isProcessing}
           className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
@@ -693,62 +702,6 @@ export const CheckoutHub = ({
     }
   };
 
-  // ── Card on file charge ────────────────────────────────────────────────────
-  const handleCofCharge = async () => {
-    if (!selectedClient || !tenantId) return;
-    setIsCofCharging(true);
-    try {
-      const res = await fetch('/api/stripe/charge-card', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          tenantId,
-          clientId:    selectedClient.id,
-          amountCents: Math.round(finalTotal * 100),
-          description: 'Studio Services — POS Checkout',
-          category:    'Service Revenue',
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setStripePaymentId(data.paymentIntentId);
-        toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} charged successfully.` });
-        // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
-        // Save COF payment intent id for after signature
-        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true });
-        setCardMode('select');
-      } else {
-        toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
-        setCardMode('select');
-      }
-    } catch (err: any) {
-      toast({ variant: 'destructive', title: 'Charge Failed', description: err.message });
-      setCardMode('select');
-    } finally {
-      setIsCofCharging(false);
-    }
-  };
-
-  // ── Terminal payment ───────────────────────────────────────────────────────
-  const handleTerminalPayment = async () => {
-    if (!terminal || !readerConnected) {
-      toast({ variant: 'destructive', title: 'No Reader', description: 'Connect a Terminal reader in Settings first.' });
-      return;
-    }
-    setCardMode('terminal');
-    const result = await terminal.collectPayment({
-      tenantId,
-      clientId:    selectedClient?.id,
-      amountCents: Math.round(finalTotal * 100),
-      description: 'Studio Services',
-      saveCard:    saveNewCard && !!selectedClient,
-    });
-    if (result.ok) {
-      await onCheckout({ paymentMethod: 'terminal', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false });
-      setCardMode('select');
-    }
-  };
-
   const isCartEmpty = appointmentsData.length === 0 && cart.length === 0 && appliedAdjustments.size === 0;
   const totalDiscount     = safeNumber(discount) + safeNumber(membershipDiscount);
   const totalWithRecovery = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
@@ -773,10 +726,86 @@ export const CheckoutHub = ({
     ? Math.max(0, tipAmount)
     : Math.max(0, subtotal - totalWithRecovery + (subtotal * 0.07) + tipAmount - totalPaidDeposits);
 
+  // ── Card processing fee passthrough ─────────────────────────────────────────
+  // Opt-in per studio via tenant.cardSurchargeEnabled. Rate defaults to 3% if
+  // tenant.cardSurchargeRate isn't set. Only applies on the Card tab — cash
+  // and "other" payment methods never carry a card processing fee.
+  // NOTE: this is a flat estimate, not the exact Stripe fee for this specific
+  // card (which varies by card type/region and isn't known until after the
+  // charge settles). The estimate is charged to the client; the *actual* fee
+  // Stripe takes is recorded separately via the connect-webhook's
+  // charge.succeeded handler — the two are reported as separate ledger lines
+  // (Card Processing Fee income vs. Processing Fee expense), not netted,
+  // since they're each independently relevant for tax reporting.
+  const cardSurchargeEnabled = !!selectedTenant?.cardSurchargeEnabled;
+  const cardSurchargeRate    = safeNumber(selectedTenant?.cardSurchargeRate) || 0.03;
+  const isCardTab             = paymentTab === 'card';
+  const cardSurcharge = (cardSurchargeEnabled && isCardTab && finalTotal > 0)
+    ? Number((finalTotal * cardSurchargeRate).toFixed(2))
+    : 0;
+  const amountToCharge = Number((finalTotal + cardSurcharge).toFixed(2));
+
   const autonomyLimit          = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
   const autonomyPercent        = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
   const currentRecoveryPercent = subtotal > 0 ? (recoveryAmount / subtotal) * 100 : 0;
   const isOverAutonomy         = (autonomyLimit > 0 && recoveryAmount > autonomyLimit) || (autonomyPercent > 0 && currentRecoveryPercent > autonomyPercent);
+
+  // ── Card on file charge ────────────────────────────────────────────────────
+  const handleCofCharge = async () => {
+    if (!selectedClient || !tenantId) return;
+    setIsCofCharging(true);
+    try {
+      const res = await fetch('/api/stripe/charge-card', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          tenantId,
+          clientId:    selectedClient.id,
+          amountCents: Math.round(amountToCharge * 100),
+          surchargeAmountCents: Math.round(cardSurcharge * 100),
+          description: 'Studio Services — POS Checkout',
+          category:    'Service Revenue',
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStripePaymentId(data.paymentIntentId);
+        toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} charged successfully.` });
+        // Proceed with the rest of the checkout flow using 'card_on_file' as payment method
+        // Save COF payment intent id for after signature
+        await onCheckout({ paymentMethod: 'card_on_file', amountTendered: amountToCharge, recoveryAmount, recoveryReason, stripePaymentIntentId: data.paymentIntentId, skipLedger: true, cardSurcharge });
+        setCardMode('select');
+      } else {
+        toast({ variant: 'destructive', title: 'Charge Failed', description: data.reason || 'Could not charge card on file.' });
+        setCardMode('select');
+      }
+    } catch (err: any) {
+      toast({ variant: 'destructive', title: 'Charge Failed', description: err.message });
+      setCardMode('select');
+    } finally {
+      setIsCofCharging(false);
+    }
+  };
+
+  // ── Terminal payment ───────────────────────────────────────────────────────
+  const handleTerminalPayment = async () => {
+    if (!terminal || !readerConnected) {
+      toast({ variant: 'destructive', title: 'No Reader', description: 'Connect a Terminal reader in Settings first.' });
+      return;
+    }
+    setCardMode('terminal');
+    const result = await terminal.collectPayment({
+      tenantId,
+      clientId:    selectedClient?.id,
+      amountCents: Math.round(amountToCharge * 100),
+      description: 'Studio Services',
+      saveCard:    saveNewCard && !!selectedClient,
+    });
+    if (result.ok) {
+      await onCheckout({ paymentMethod: 'terminal', amountTendered: amountToCharge, recoveryAmount, recoveryReason, stripePaymentIntentId: result.paymentIntentId, skipLedger: false, cardSurcharge });
+      setCardMode('select');
+    }
+  };
 
   // Reset card mode when payment tab changes
   useEffect(() => { setCardMode('select'); }, [paymentTab]);
@@ -1074,6 +1103,16 @@ export const CheckoutHub = ({
             <TabsTrigger value="other" className="rounded-xl font-black text-[9px] uppercase tracking-widest data-[state=active]:bg-white data-[state=active]:shadow-md"><Landmark className="w-3 h-3 mr-1.5" /> OTHER</TabsTrigger>
           </TabsList>
 
+          {/* Card processing fee notice — only visible on the Card tab when enabled */}
+          {isCardTab && cardSurchargeEnabled && cardSurcharge > 0 && (
+            <div className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl bg-amber-50 border-2 border-amber-200">
+              <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
+                <Receipt className="w-3.5 h-3.5" /> Card Processing Fee ({(cardSurchargeRate * 100).toFixed(1)}%)
+              </span>
+              <span className="text-[10px] font-black font-mono text-amber-700">+${cardSurcharge.toFixed(2)}</span>
+            </div>
+          )}
+
           {/* ── CARD TAB ── */}
           <AnimatePresence mode="wait">
             {paymentTab === 'card' && cardMode === 'select' && (
@@ -1234,9 +1273,15 @@ export const CheckoutHub = ({
                         <span className="font-mono font-black">${tipAmount.toFixed(2)}</span>
                       </div>
                     )}
+                    {cardSurcharge > 0 && (
+                      <div className="flex justify-between text-[11px] text-amber-700">
+                        <span className="font-black uppercase">Card Processing Fee</span>
+                        <span className="font-mono font-black">${cardSurcharge.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-base font-black border-t border-primary/10 pt-2">
                       <span className="uppercase text-primary">Total</span>
-                      <span className="font-mono text-primary">${finalTotal.toFixed(2)}</span>
+                      <span className="font-mono text-primary">${amountToCharge.toFixed(2)}</span>
                     </div>
                   </div>
 
@@ -1254,7 +1299,8 @@ export const CheckoutHub = ({
               <motion.div key="cof-confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="pt-4">
                 <CardOnFileConfirm
                   client={selectedClient}
-                  amount={finalTotal}
+                  amount={amountToCharge}
+                  surcharge={cardSurcharge}
                   onConfirm={handleCofCharge}
                   onCancel={() => setCardMode('cof_tip')}
                   isProcessing={isCofCharging}
@@ -1266,7 +1312,7 @@ export const CheckoutHub = ({
             {paymentTab === 'card' && cardMode === 'terminal' && (
               <motion.div key="terminal" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <TerminalPaymentUI
-                  amount={finalTotal}
+                  amount={amountToCharge}
                   onCancel={() => setCardMode('select')}
                   onSuccess={() => setCardMode('select')}
                 />
@@ -1280,11 +1326,11 @@ export const CheckoutHub = ({
                   tenantId={tenantId}
                   clientId={selectedClient?.id}
                   clientEmail={selectedClient?.email}
-                  amount={finalTotal}
+                  amount={amountToCharge}
                   saveCard={saveNewCard && !!selectedClient}
                   onSuccess={async (paymentIntentId) => {
-                    toast({ title: 'Card Charged', description: `$${finalTotal.toFixed(2)} collected.` });
-                    await onCheckout({ paymentMethod: 'card', amountTendered: finalTotal, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId });
+                    toast({ title: 'Card Charged', description: `$${amountToCharge.toFixed(2)} collected.` });
+                    await onCheckout({ paymentMethod: 'card', amountTendered: amountToCharge, recoveryAmount, recoveryReason, stripePaymentIntentId: paymentIntentId, cardSurcharge });
                     setCardMode('select');
                   }}
                   onCancel={() => setCardMode('select')}
@@ -1385,6 +1431,12 @@ export const CheckoutHub = ({
             <span className="font-mono text-[11px] md:text-xs">-${totalPaidDeposits.toFixed(2)}</span>
           </div>
         )}
+        {cardSurcharge > 0 && (
+          <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
+            <span className="flex items-center gap-2"><Receipt className="w-3.5 h-3.5" /> Card Processing Fee ({(cardSurchargeRate * 100).toFixed(1)}%)</span>
+            <span className="font-mono text-[11px] md:text-xs">+${cardSurcharge.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between items-center py-1 md:py-2">
           <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
           <div className="relative w-32 md:w-36">
@@ -1397,7 +1449,7 @@ export const CheckoutHub = ({
             <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
             <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
           </div>
-          <p className="font-mono text-2xl md:text-4xl">${safeNumber(finalTotal).toFixed(2)}</p>
+          <p className="font-mono text-2xl md:text-4xl">${safeNumber(isCardTab ? amountToCharge : finalTotal).toFixed(2)}</p>
         </div>
 
         <div className="pt-2">
