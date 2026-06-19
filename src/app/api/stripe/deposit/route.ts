@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
         mode:           'payment',
         payment_method_types: ['card'],
         customer_email: clientEmail,
+        customer_creation: 'always',
         line_items: [
           {
             price_data: {
@@ -82,6 +83,8 @@ export async function POST(req: NextRequest) {
             quantity: 1,
           },
         ],
+        // Save the card for future off-session charges (final balance, fees, etc.)
+        payment_intent_data: { setup_future_usage: 'off_session' },
         metadata: {
           tenantId,
           bookingRequestId,
