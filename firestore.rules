@@ -66,6 +66,16 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isStaff(tenantId);
     }
+    // --- Public booking page (PUBLIC) ---
+    // A guest booking online via /book/{tenantId} is never signed in. They need
+    // to create a pending bookingRequest while they pay their deposit via Stripe
+    // Embedded Checkout. The connect-webhook (Admin SDK, bypasses these rules)
+    // converts the bookingRequest into a real appointment once payment succeeds.
+    // Guests never need to read, list, or modify bookingRequests — only staff do.
+    match /tenants/{tenantId}/bookingRequests/{requestId} {
+      allow create: if true;
+      allow get, list, update, delete: if isStaff(tenantId);
+    }
     match /tenants/{tenantId}/notifications/{notificationId} {
       allow create: if true; 
       allow get, list, update, delete: if isStaff(tenantId);
