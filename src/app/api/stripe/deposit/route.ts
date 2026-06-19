@@ -22,36 +22,33 @@ function getStripe() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Creates a Stripe Checkout Session to collect an appointment DEPOSIT on the
-// studio's connected account. Mirrors the event-ticket checkout route exactly.
+// Creates an EMBEDDED Stripe Checkout Session to collect an appointment
+// DEPOSIT on the studio's connected account, mounted directly inside the
+// BookingSheet — no redirect away from the booking page.
 //
-// The only meaningful differences from tickets:
-//   • metadata.type = 'deposit'      ← the webhook branches on this
-//   • metadata.bookingRequestId      ← so the webhook can mark THAT request paid
-//   • the line item is the deposit amount, labelled as a deposit
+//   • metadata.type = 'deposit'      ← the connect-webhook branches on this
+//   • metadata.bookingRequestId      ← so the webhook can convert THAT request
+//   • redirect_on_completion: 'never' + onComplete callback client-side means
+//     the guest never leaves the page, even on completion.
 //
-// This route only COLLECTS. It posts nothing to the ledger. Income recognition
-// and netting happen later (webhook deposit branch + checkout subtraction),
-// shipped together to avoid any double-count window.
+// This route only COLLECTS. It posts nothing to the ledger — that happens in
+// the connect-webhook once checkout.session.completed fires.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const {
       tenantId,
       bookingRequestId,
-      depositAmount,        // dollars (matches how the ticket route takes `price`)
+      depositAmount,        // dollars
       clientName,
       clientEmail,
       serviceName,
-      successUrl,
-      cancelUrl,
     } = await req.json();
 
     if (!tenantId || !bookingRequestId || !clientEmail || !depositAmount) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Get the studio's connected Stripe account
     const db = getAdminDb();
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
     if (!tenantSnap.exists) {
@@ -65,12 +62,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create checkout session on the studio's Stripe account
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.create(
       {
-        payment_method_types: ['card'],
+        ui_mode:        'embedded',
         mode:           'payment',
+        payment_method_types: ['card'],
         customer_email: clientEmail,
         line_items: [
           {
@@ -93,15 +90,18 @@ export async function POST(req: NextRequest) {
           clientName:  clientName  || '',
           clientEmail: clientEmail || '',
         },
-        success_url: successUrl,
-        cancel_url:  cancelUrl,
+        redirect_on_completion: 'never',
       },
       {
         stripeAccount: stripeAccountId,
       }
     );
 
-    return NextResponse.json({ url: session.url, sessionId: session.id });
+    return NextResponse.json({
+      clientSecret:   session.client_secret,
+      sessionId:      session.id,
+      stripeAccountId,
+    });
   } catch (err: any) {
     console.error('[stripe/deposit]', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
