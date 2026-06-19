@@ -95,6 +95,7 @@ export async function POST(req: NextRequest) {
         // Resolve the resulting charge (if any) so fee tracking can link to it
         let chargeId: string | null = null;
         let stripeCustomerId: string | null = null;
+        let stripePaymentMethodId: string | null = null;
         if (session.payment_intent) {
           const piId = typeof session.payment_intent === 'string'
             ? session.payment_intent : session.payment_intent.id;
@@ -104,6 +105,8 @@ export async function POST(req: NextRequest) {
               ? pi.latest_charge : (pi.latest_charge as any)?.id || null;
             stripeCustomerId = typeof pi.customer === 'string'
               ? pi.customer : (pi.customer as any)?.id || null;
+            stripePaymentMethodId = typeof pi.payment_method === 'string'
+              ? pi.payment_method : (pi.payment_method as any)?.id || null;
           } catch (e) {
             console.error('[connect-webhook] Could not retrieve payment intent', e);
           }
@@ -158,6 +161,29 @@ export async function POST(req: NextRequest) {
           const appointmentId = aptRef.id;
           const checkInToken  = nanoid(16);
 
+          const batch = db.batch();
+
+          // Save the card used for the deposit to the client's profile, so it's
+          // on file for the final balance / future fees without re-entering it.
+          if (stripePaymentMethodId) {
+            try {
+              const pm = await stripe2.paymentMethods.retrieve(stripePaymentMethodId, {}, { stripeAccount: connAcct });
+              batch.set(db.collection(`tenants/${tenant.id}/clients`).doc(clientId), {
+                cardOnFile: {
+                  paymentMethodId: stripePaymentMethodId,
+                  customerId:      stripeCustomerId || null,
+                  brand:           pm.card?.brand || 'unknown',
+                  last4:           pm.card?.last4 || '????',
+                  expMonth:        pm.card?.exp_month,
+                  expYear:         pm.card?.exp_year,
+                  savedAt:         new Date().toISOString(),
+                },
+              }, { merge: true });
+            } catch (e) {
+              console.error('[connect-webhook] Could not vault card for deposit', e);
+            }
+          }
+
           const appointmentPayload = {
             id: appointmentId,
             tenantId: tenant.id,
@@ -182,7 +208,6 @@ export async function POST(req: NextRequest) {
             createdAt: new Date().toISOString(),
           };
 
-          const batch = db.batch();
           batch.set(aptRef, appointmentPayload);
           batch.set(db.collection('appointmentCheckIns').doc(checkInToken), appointmentPayload);
 
