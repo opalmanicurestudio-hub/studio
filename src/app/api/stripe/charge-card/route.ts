@@ -40,6 +40,17 @@ function getStripe() {
 //
 // If `mode` is omitted it defaults to 'pos' so existing POS callers work
 // without any changes to CheckoutHub.
+//
+// ── Card processing fee passthrough ─────────────────────────────────────────
+// `amountCents` is the FULL amount actually charged (already inclusive of any
+// card-surcharge CheckoutHub calculated client-side). `surchargeAmountCents`
+// is optional — when present, the ledger write is split into two separate
+// transactions instead of one lump sum: the base amount under whatever
+// `category` was passed (typically Service Revenue), and the surcharge
+// portion under its own 'Card Processing Fee' income line. This keeps the
+// fee passed to the client visible as its own number for tax reporting,
+// distinct from the actual Stripe processing fee expense (which the
+// connect-webhook's charge.succeeded handler records separately).
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   let parsed: any = {};
@@ -53,6 +64,7 @@ export async function POST(req: NextRequest) {
     tenantId,
     clientId,
     amountCents,
+    surchargeAmountCents = 0,
     description  = 'Fee',
     category     = 'Service Revenue',
     appointmentId = null,
@@ -68,8 +80,57 @@ export async function POST(req: NextRequest) {
   }
 
   const { db, FieldValue } = getAdmin();
-  const amountDollars = amountCents / 100;
-  const nowISO        = new Date().toISOString();
+  const amountDollars    = amountCents / 100;
+  const surchargeDollars = Math.max(0, Number(surchargeAmountCents) || 0) / 100;
+  const baseDollars      = Number((amountDollars - surchargeDollars).toFixed(2));
+  const nowISO           = new Date().toISOString();
+
+  // ── Helper: write the ledger record(s) for a successful charge ────────────
+  // Splits into a base line + a separate Card Processing Fee line when a
+  // surcharge was included in the charge.
+  const writeLedger = async (txnIdPrefix: string, paymentIntentId: string, clientData: any) => {
+    const batch = db.batch();
+    const baseTxnRef = db.doc(`tenants/${tenantId}/transactions/${txnIdPrefix}`);
+    batch.set(baseTxnRef, {
+      id:                    txnIdPrefix,
+      date:                  nowISO,
+      description,
+      clientOrVendor:        clientData?.name || 'Client',
+      clientId,
+      type:                  'income',
+      context:               'Business',
+      category,
+      amount:                baseDollars,
+      paymentMethod:         'Card on file (Stripe)',
+      appointmentId:         appointmentId || null,
+      stripePaymentIntentId: paymentIntentId,
+      hasReceipt:            true,
+      tenantId,
+    }, { merge: true });
+
+    if (surchargeDollars > 0) {
+      const surchargeTxnRef = db.doc(`tenants/${tenantId}/transactions/${txnIdPrefix}__surcharge`);
+      batch.set(surchargeTxnRef, {
+        id:                    `${txnIdPrefix}__surcharge`,
+        date:                  nowISO,
+        description:           'Card Processing Fee (passed to client)',
+        clientOrVendor:        clientData?.name || 'Client',
+        clientId,
+        type:                  'income',
+        context:               'Business',
+        category:              'Card Processing Fee',
+        taxBucket:              'revenue',
+        amount:                surchargeDollars,
+        paymentMethod:         'Card on file (Stripe)',
+        appointmentId:         appointmentId || null,
+        stripePaymentIntentId: paymentIntentId,
+        hasReceipt:            false,
+        tenantId,
+      }, { merge: true });
+    }
+
+    await batch.commit();
+  };
 
   // ── Helper: park as arrears + write flag record (auto-mode failure path) ──
   const flagAndPark = async (failReason: string, code?: string) => {
@@ -163,6 +224,7 @@ export async function POST(req: NextRequest) {
               appointmentId: appointmentId || '',
               category,
               kind: 'pos_cof',
+              surchargeCents: String(Math.round(surchargeDollars * 100)),
             },
           },
           {
@@ -199,24 +261,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ── Write ledger record ────────────────────────────────────────────────
-      const txnId  = `pos_cof__${intent.id}`;
-      await db.doc(`tenants/${tenantId}/transactions/${txnId}`).set({
-        id:                    txnId,
-        date:                  nowISO,
-        description,
-        clientOrVendor:        clientData?.name || 'Client',
-        clientId,
-        type:                  'income',
-        context:               'Business',
-        category,
-        amount:                amountDollars,
-        paymentMethod:         'Card on file (Stripe)',
-        appointmentId:         appointmentId || null,
-        stripePaymentIntentId: intent.id,
-        hasReceipt:            true,
-        tenantId,
-      }, { merge: true });
+      await writeLedger(`pos_cof__${intent.id}`, intent.id, clientData);
 
       return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
     }
@@ -243,6 +288,7 @@ export async function POST(req: NextRequest) {
             appointmentId: appointmentId || '',
             category,
             kind: 'auto_fee',
+            surchargeCents: String(Math.round(surchargeDollars * 100)),
           },
         },
         { stripeAccount: stripeAccountId, idempotencyKey }
@@ -270,24 +316,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // ── Write ledger record ──────────────────────────────────────────────────
-    const txnId  = `card_charge__${intent.id}`;
-    await db.doc(`tenants/${tenantId}/transactions/${txnId}`).set({
-      id:                    txnId,
-      date:                  nowISO,
-      description,
-      clientOrVendor:        clientData?.name || 'Client',
-      clientId,
-      type:                  'income',
-      context:               'Business',
-      category,
-      amount:                amountDollars,
-      paymentMethod:         'Card on file (Stripe)',
-      appointmentId:         appointmentId || null,
-      stripePaymentIntentId: intent.id,
-      hasReceipt:            true,
-      tenantId,
-    }, { merge: true });
+    await writeLedger(`card_charge__${intent.id}`, intent.id, clientData);
 
     return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
 
