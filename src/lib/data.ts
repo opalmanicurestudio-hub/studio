@@ -429,13 +429,36 @@ export type AppointmentCheckoutState = {
     customFormulaName?: string;
 };
 
+// Reasons available when the studio/staff initiates the cancellation (on the client's behalf)
+export type StudioCancellationReason =
+  | 'late_arrival'
+  | 'staff_unavailable'
+  | 'double_booked'
+  | 'client_request_relayed' // client asked staff/front desk to cancel for them, vs. self-service cancellation
+  | 'other';
+
+// Reasons available when the client initiates the cancellation themselves
+export type ClientCancellationReason =
+  | 'schedule_conflict'
+  | 'changed_mind'
+  | 'found_alternative'
+  | 'price_concern'
+  | 'health_or_childcare'
+  | 'other';
+
 // 1. New standalone type for the audit summary stored on the Appointment doc
 export type CancellationAudit = {
   actorType: 'studio' | 'client' | 'no_show' | 'system';
   actorId: string;           // staffId if studio-initiated, clientId if client-initiated, 'system' otherwise
   actorName: string;         // display name, captured at time of cancellation (don't rely on a live lookup later)
+  // Shared, coarse-grained reason — kept for backward compatibility with existing display/filter logic.
   reason: 'late' | 'no-show' | 'client_request' | 'other' | 'automation';
-  reasonDetail?: string;     // free-text, e.g. when reason === 'other'
+  // Fine-grained, actor-scoped reason. Only one of these is populated, matching actorType:
+  // actorType === 'studio' → studioReason set; actorType === 'client' → clientReason set.
+  // actorType === 'no_show' / 'system' use `reason` ('no-show' / 'automation') and leave both unset.
+  studioReason?: StudioCancellationReason;
+  clientReason?: ClientCancellationReason;
+  reasonDetail?: string;     // free-text, e.g. when reason === 'other' or studioReason/clientReason === 'other'
   feeAmount: number;
   feeWaived: boolean;
   paymentStatus: 'paid' | 'unpaid' | 'waived';
@@ -458,6 +481,9 @@ export type AuditLogEntry = {
     clientId: string;
     clientName: string;
     reason: string;
+    // Fine-grained, actor-scoped reason — mirrors CancellationAudit; only one is populated, per actorType.
+    studioReason?: StudioCancellationReason;
+    clientReason?: ClientCancellationReason;
     reasonDetail?: string;
     feeAmount: number;
     feeWaived: boolean;
@@ -500,6 +526,9 @@ export type Appointment = {
   requiredResourceIds?: string[];
   recurrenceId?: string;
   cancellationReason?: 'late' | 'no-show' | 'client_request' | 'other' | 'automation';
+  // Fine-grained, actor-scoped reason — only one is populated, matching who cancelled.
+  cancellationStudioReason?: StudioCancellationReason;
+  cancellationClientReason?: ClientCancellationReason;
   cancellationFeeApplied?: number;
   cancellationFeeWaived?: boolean;
   cancellationPaymentStatus?: 'paid' | 'unpaid' | 'waived';
