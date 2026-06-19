@@ -244,7 +244,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
             <SheetTitle className="text-xl sm:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-tight">Add & Configure Parts</SheetTitle>
             <SheetDescription className="text-[10px] sm:text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select new parts and assign providers inline.</SheetDescription>
           </SheetHeader>
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0">
             {innerContent}
           </ScrollArea>
           <SheetFooter className="p-6 sm:p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
@@ -266,7 +266,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background max-h-[90vh] flex flex-col">
+      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background h-[90vh] max-h-[90vh] flex flex-col">
         <DialogHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -275,7 +275,7 @@ export const AddAndConfigurePartsDialog: React.FC<AddAndConfigurePartsDialogProp
           <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Add & Configure Parts</DialogTitle>
           <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Select new parts and assign providers inline.</DialogDescription>
         </DialogHeader>
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           {innerContent}
         </ScrollArea>
         <DialogFooter className="p-6 md:p-8 border-t bg-muted/5 flex-shrink-0">
