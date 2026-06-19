@@ -263,9 +263,10 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       // a retry option instead of looking unresponsive.
       console.error('[deposit-checkout]', out?.error || 'No client secret returned');
       return { requiresPayment: true, error: out?.error || 'Could not start secure checkout. Please try again.' };
-    } catch (e) {
+    } catch (e: any) {
       console.error('[booking-confirm]', e);
-      return { requiresPayment: true, error: 'Something went wrong. Please try again.' };
+      const detail = e?.message || e?.code || String(e);
+      return { requiresPayment: true, error: `Booking error: ${detail}` };
     }
   };
 
