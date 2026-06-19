@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -11,6 +10,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
@@ -188,7 +188,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl flex flex-col max-h-[95dvh] bg-background">
+      <DialogContent className="sm:max-w-xl p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl flex flex-col h-[95dvh] max-h-[95dvh] bg-background">
         <DialogHeader className="p-8 pb-6 border-b bg-muted/5 shrink-0 text-left">
           <div className="flex items-center gap-3 mb-2">
             <Ban className="w-5 h-5 text-destructive" />
@@ -200,7 +200,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           </DialogDescription>
         </DialogHeader>
         
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
             <div className="p-8 space-y-10">
                 <div className="space-y-4">
                   <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Mode</Label>
