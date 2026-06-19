@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
@@ -564,26 +562,26 @@ export const CompleteAppointmentDialog: React.FC<CompleteAppointmentDialogProps>
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 overflow-hidden">
            {view === 'checkout' ? (
                 <>
-                    <DialogHeader className="p-6 pb-4 border-b">
+                    <DialogHeader className="p-6 pb-4 border-b shrink-0">
                         <DialogTitle>Complete Appointment & Checkout</DialogTitle>
                         <DialogDescription>Confirm service details, add retail, and finalize the appointment.</DialogDescription>
                     </DialogHeader>
                     <div className="grid md:grid-cols-2 flex-1 min-h-0">
-                        <ScrollArea className="md:border-r">
+                        <ScrollArea className="h-full min-h-0 md:border-r">
                            <div className="p-6 space-y-6">
                             {/* REVIEW CONTENT HERE */}
                            </div>
                         </ScrollArea>
-                        <ScrollArea>
+                        <ScrollArea className="h-full min-h-0">
                            <div className="p-6 space-y-6">
                             {/* PAYMENT CONTENT HERE */}
                            </div>
                         </ScrollArea>
                     </div>
-                    <DialogFooter className="p-6 pt-4 border-t">
+                    <DialogFooter className="p-6 pt-4 border-t shrink-0">
                         <div className="flex flex-col sm:flex-row sm:justify-end gap-2 w-full">
                         <div className="flex-1" />
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
