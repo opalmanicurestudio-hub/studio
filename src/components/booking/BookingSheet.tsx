@@ -604,11 +604,11 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
-        side="right"
+        side={isMobile ? 'bottom' : 'right'}
         style={{ fontFamily: bodyFont }}
         className={cn(
-          isMobile ? 'h-[88dvh] rounded-t-[2rem]' : 'sm:max-w-md',
-          'flex flex-col p-0 border-l-0 sm:border-l bg-background overflow-hidden shadow-2xl'
+          isMobile ? 'h-[100dvh] w-full rounded-none border-0' : 'sm:max-w-md border-l-0 sm:border-l',
+          'flex flex-col p-0 bg-background overflow-hidden shadow-2xl'
         )}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
