@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { nanoid } from 'nanoid';
 
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
@@ -7,7 +8,17 @@ import Stripe from 'stripe';
 // Secret env var: STRIPE_CONNECT_WEBHOOK_SECRET
 //
 // Events handled:
-//   checkout.session.completed  → save card on file to client profile
+//   checkout.session.completed  → 3 branches by metadata.type:
+//                                   'deposit'           — public booking page
+//                                     deposit: converts the bookingRequest into
+//                                     a real appointment, marks deposit paid,
+//                                     posts the ledger entry.
+//                                   'completion'         — phone-booking
+//                                     completion link WITH a deposit: vaults the
+//                                     card AND marks the existing appointment's
+//                                     deposit paid + posts the ledger entry.
+//                                   'completion_setup'   — completion link with
+//                                     NO deposit: vaults the card only.
 //   charge.succeeded            → write exact Stripe processing fee to ledger
 //   charge.refunded             → write fee credit back to ledger
 //   charge.dispute.created      → write dispute fee
@@ -58,7 +69,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   }
 
-  const db    = getAdminDb();
+  const db      = getAdminDb();
   const stripe2 = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 
   // Helper: find tenant by connected Stripe account ID
@@ -73,22 +84,231 @@ export async function POST(req: NextRequest) {
   try {
     switch (event.type) {
 
-      // ── checkout.session.completed: save card on file ─────────────────────
+      // ── checkout.session.completed: deposit / completion / card vaulting ──
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (!session.client_reference_id) break;
-
-        const tenant = await getTenant(connAcct);
+        const tenant  = await getTenant(connAcct);
         if (!tenant) break;
 
-        const clientId = session.client_reference_id;
+        const sessionType = session.metadata?.type;
 
-        if (session.setup_intent) {
+        // Resolve the resulting charge (if any) so fee tracking can link to it
+        let chargeId: string | null = null;
+        let stripeCustomerId: string | null = null;
+        if (session.payment_intent) {
+          const piId = typeof session.payment_intent === 'string'
+            ? session.payment_intent : session.payment_intent.id;
+          try {
+            const pi = await stripe2.paymentIntents.retrieve(piId, {}, { stripeAccount: connAcct });
+            chargeId = typeof pi.latest_charge === 'string'
+              ? pi.latest_charge : (pi.latest_charge as any)?.id || null;
+            stripeCustomerId = typeof pi.customer === 'string'
+              ? pi.customer : (pi.customer as any)?.id || null;
+          } catch (e) {
+            console.error('[connect-webhook] Could not retrieve payment intent', e);
+          }
+        }
+
+        // ───────────────────────────────────────────────────────────────────
+        // 'deposit' — public booking-page deposit. The appointment doesn't
+        // exist yet; it lives as a pending bookingRequest. Convert it now.
+        // ───────────────────────────────────────────────────────────────────
+        if (sessionType === 'deposit') {
+          const bookingRequestId = session.metadata?.bookingRequestId;
+          if (!bookingRequestId) break;
+
+          const brRef  = db.collection(`tenants/${tenant.id}/bookingRequests`).doc(bookingRequestId);
+          const brSnap = await brRef.get();
+          if (!brSnap.exists) {
+            console.warn('[connect-webhook] bookingRequest not found', bookingRequestId);
+            break;
+          }
+          const br = brSnap.data() as any;
+
+          // Idempotency — don't double-create the appointment on retried events
+          if (br.status === 'completed' && br.appointmentId) break;
+
+          const depositAmountCents = session.amount_total ?? Math.round((br.depositAmount || 0) * 100);
+
+          // Resolve or create the client by email
+          const email = String(br.clientEmail || '').toLowerCase().trim();
+          let clientId: string;
+          const clientMatch = email
+            ? await db.collection(`tenants/${tenant.id}/clients`).where('email', '==', email).limit(1).get()
+            : { empty: true, docs: [] as any[] };
+
+          if (!clientMatch.empty) {
+            clientId = clientMatch.docs[0].id;
+          } else {
+            const newClientRef = db.collection(`tenants/${tenant.id}/clients`).doc();
+            clientId = newClientRef.id;
+            await newClientRef.set({
+              id: clientId,
+              name: br.clientName || 'Guest',
+              email: br.clientEmail || '',
+              phone: br.clientPhone || '',
+              avatarUrl: `https://picsum.photos/seed/${clientId}/100`,
+              lifetimeValue: 0,
+              status: 'active',
+              createdAt: new Date().toISOString(),
+            });
+          }
+
+          const aptRef        = db.collection(`tenants/${tenant.id}/appointments`).doc();
+          const appointmentId = aptRef.id;
+          const checkInToken  = nanoid(16);
+
+          const appointmentPayload = {
+            id: appointmentId,
+            tenantId: tenant.id,
+            clientId,
+            clientName:  br.clientName  || 'Guest',
+            clientEmail: br.clientEmail || '',
+            clientPhone: br.clientPhone || '',
+            serviceId: br.serviceId,
+            staffId:   br.staffId,
+            startTime: br.startTime,
+            endTime:   br.endTime,
+            status: 'confirmed',
+            source: 'online',
+            isWalkIn: false,
+            checkInToken,
+            checkInStatus: 'pending',
+            depositAmountCents,
+            depositStatus: 'paid',
+            inspirationPhotoUrl: br.inspirationPhotoUrl || null,
+            notes: br.notes || '',
+            signedForms: br.signedForms || [],
+            createdAt: new Date().toISOString(),
+          };
+
+          const batch = db.batch();
+          batch.set(aptRef, appointmentPayload);
+          batch.set(db.collection('appointmentCheckIns').doc(checkInToken), appointmentPayload);
+
+          // Post the deposit to the ledger — taxBucket 'revenue' + checkoutSessionId
+          // so the charge.succeeded handler below can backfill the exact fee later.
+          const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+          batch.set(txnRef, {
+            id: txnRef.id,
+            date: new Date().toISOString(),
+            description: `Deposit — ${br.serviceName || 'Appointment'}`,
+            clientOrVendor: br.clientName || 'Guest',
+            clientId,
+            type: 'income',
+            context: 'Business',
+            category: 'Retainers',
+            taxBucket: 'revenue',
+            amount: depositAmountCents / 100,
+            paymentMethod: 'Online Checkout',
+            hasReceipt: false,
+            appointmentId,
+            staffId: br.staffId || null,
+            checkoutSessionId: session.id,
+            stripeChargeId: chargeId,
+            tenantId: tenant.id,
+          });
+
+          batch.set(brRef, {
+            status: 'completed',
+            appointmentId,
+            completedAt: new Date().toISOString(),
+          }, { merge: true });
+
+          await batch.commit();
+          console.log(`[connect-webhook] Deposit paid — appointment ${appointmentId} created for tenant ${tenant.id}`);
+          break;
+        }
+
+        // ───────────────────────────────────────────────────────────────────
+        // 'completion' / 'completion_setup' — phone-booking completion link.
+        // Vault the card; if a deposit was collected, mark it paid on the
+        // EXISTING appointment and post the ledger entry.
+        // ───────────────────────────────────────────────────────────────────
+        if (sessionType === 'completion' || sessionType === 'completion_setup') {
+          const clientId      = session.metadata?.clientId;
+          const appointmentId = session.metadata?.appointmentId;
+          if (!clientId) break;
+
+          let pmId: string | null = null;
+          let customerIdForCard: string | null = stripeCustomerId;
+
+          if (session.setup_intent) {
+            const siId = typeof session.setup_intent === 'string'
+              ? session.setup_intent : session.setup_intent.id;
+            const setupIntent = await stripe2.setupIntents.retrieve(siId, {}, { stripeAccount: connAcct });
+            pmId = typeof setupIntent.payment_method === 'string'
+              ? setupIntent.payment_method : setupIntent.payment_method?.id || null;
+            customerIdForCard = typeof setupIntent.customer === 'string'
+              ? setupIntent.customer : (setupIntent.customer as any)?.id || customerIdForCard;
+          } else if (session.payment_intent) {
+            const piId = typeof session.payment_intent === 'string'
+              ? session.payment_intent : session.payment_intent.id;
+            const pi = await stripe2.paymentIntents.retrieve(piId, {}, { stripeAccount: connAcct });
+            pmId = typeof pi.payment_method === 'string'
+              ? pi.payment_method : (pi.payment_method as any)?.id || null;
+          }
+
+          if (pmId) {
+            const pm = await stripe2.paymentMethods.retrieve(pmId, {}, { stripeAccount: connAcct });
+            await db.collection(`tenants/${tenant.id}/clients`).doc(clientId).set({
+              cardOnFile: {
+                paymentMethodId: pmId,
+                customerId:      customerIdForCard || null,
+                brand:           pm.card?.brand || 'unknown',
+                last4:           pm.card?.last4 || '????',
+                expMonth:        pm.card?.exp_month,
+                expYear:         pm.card?.exp_year,
+                savedAt:         new Date().toISOString(),
+              },
+            }, { merge: true });
+          }
+
+          if (sessionType === 'completion' && appointmentId && session.amount_total) {
+            const depositAmountCents = session.amount_total;
+
+            const aptRef  = db.collection(`tenants/${tenant.id}/appointments`).doc(appointmentId);
+            const aptSnap = await aptRef.get();
+            // Idempotency — skip if this appointment's deposit is already marked paid
+            if (!aptSnap.exists || aptSnap.data()?.depositStatus !== 'paid') {
+              await aptRef.set({
+                depositStatus: 'paid',
+                depositAmountCents,
+                status: 'confirmed',
+              }, { merge: true });
+
+              const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+              await txnRef.set({
+                id: txnRef.id,
+                date: new Date().toISOString(),
+                description: `Deposit — ${session.metadata?.serviceName || 'Appointment'}`,
+                clientOrVendor: session.metadata?.clientName || 'Guest',
+                clientId,
+                type: 'income',
+                context: 'Business',
+                category: 'Retainers',
+                taxBucket: 'revenue',
+                amount: depositAmountCents / 100,
+                paymentMethod: 'Online Checkout',
+                hasReceipt: false,
+                appointmentId,
+                checkoutSessionId: session.id,
+                stripeChargeId: chargeId,
+                tenantId: tenant.id,
+              });
+            }
+          }
+
+          console.log(`[connect-webhook] Completion processed for client ${clientId} on tenant ${tenant.id}`);
+          break;
+        }
+
+        // ── Legacy fallback: original vaulting-only path keyed on client_reference_id ──
+        if (session.client_reference_id && session.setup_intent) {
+          const clientId = session.client_reference_id;
           const siId = typeof session.setup_intent === 'string'
             ? session.setup_intent : session.setup_intent.id;
-          const setupIntent = await stripe2.setupIntents.retrieve(
-            siId, {}, { stripeAccount: connAcct }
-          );
+          const setupIntent = await stripe2.setupIntents.retrieve(siId, {}, { stripeAccount: connAcct });
           const pmId = typeof setupIntent.payment_method === 'string'
             ? setupIntent.payment_method : setupIntent.payment_method?.id;
           if (!pmId) break;
@@ -106,10 +326,10 @@ export async function POST(req: NextRequest) {
               expMonth:        pm.card?.exp_month,
               expYear:         pm.card?.exp_year,
               savedAt:         new Date().toISOString(),
-            }
+            },
           }, { merge: true });
 
-          console.log(`[connect-webhook] Card saved for client ${clientId} on tenant ${tenant.id}`);
+          console.log(`[connect-webhook] (legacy) Card saved for client ${clientId} on tenant ${tenant.id}`);
         }
         break;
       }
@@ -194,6 +414,22 @@ export async function POST(req: NextRequest) {
               stripeFeeAmountDollars: feeAmountDollars,
               stripeNetAmountDollars: netAmountCents / 100,
               stripeChargeId:         charge.id,
+            });
+          }
+        }
+
+        // Also back-fill by stripeChargeId directly (covers deposit/completion
+        // transactions, which set stripeChargeId at creation time rather than
+        // relying on charge.metadata.checkoutSessionId).
+        if (!charge.metadata?.checkoutSessionId) {
+          const revByCharge = await db.collection(`tenants/${tenant.id}/transactions`)
+            .where('stripeChargeId', '==', charge.id)
+            .where('taxBucket', '==', 'revenue')
+            .limit(1).get();
+          if (!revByCharge.empty) {
+            await revByCharge.docs[0].ref.update({
+              stripeFeeAmountDollars: feeAmountDollars,
+              stripeNetAmountDollars: netAmountCents / 100,
             });
           }
         }
