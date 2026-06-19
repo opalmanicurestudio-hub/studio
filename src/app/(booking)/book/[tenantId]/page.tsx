@@ -7,7 +7,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
-import { X as XIcon, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X as XIcon, ArrowRight } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
 import {
   ANIM_CSS, STACKS, GFONTS,
@@ -37,6 +37,12 @@ function usePageFonts() {
   }, []);
 }
 
+// ─── Result type returned by handleConfirm ────────────────────────────────────
+type ConfirmResult =
+  | { requiresPayment: false }
+  | { requiresPayment: true; clientSecret: string; stripeAccountId?: string }
+  | { requiresPayment: true; error: string };
+
 // ─── Main component ────────────────────────────────────────────────────────────
 function BookingPageContent({ tenantId }: { tenantId: string }) {
   usePageFonts();
@@ -55,9 +61,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [dialogService,   setDialogService]   = useState<any>(null);
   const [showPicker,      setShowPicker]      = useState(false);
 
-  // Deposit return state — set when the guest comes back from Stripe Checkout
-  const [depositReturn,   setDepositReturn]   = useState<null | 'success' | 'cancelled'>(null);
-
   const [loadingStyle] = useState<StyleConfig>(() => {
     try {
       if (typeof window === 'undefined') return DS;
@@ -70,18 +73,6 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const getDb = useCallback(() => {
     try { return getFirestore(getApp()); } catch { return null; }
   }, []);
-
-  // Detect return from Stripe deposit checkout (?deposit=success | ?deposit=cancelled)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const p = new URLSearchParams(window.location.search);
-    const d = p.get('deposit');
-    if (d === 'success' || d === 'cancelled') {
-      setDepositReturn(d as 'success' | 'cancelled');
-      // strip the query so a refresh doesn't re-show the banner
-      window.history.replaceState({}, '', `/book/${tenantId}`);
-    }
-  }, [tenantId]);
 
   // Inject animation keyframes
   useEffect(() => {
@@ -204,10 +195,18 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     );
   }
 
+  // ── handleConfirm ────────────────────────────────────────────────────────────
+  // No deposit: creates the appointment immediately and tells the sheet to show
+  // the confirmation screen.
+  // Deposit required: creates the bookingRequest, asks Stripe for an EMBEDDED
+  // checkout session, and returns the clientSecret to BookingSheet so it can
+  // mount Stripe's checkout UI directly inside the sheet. The guest never
+  // leaves the page. The connect-webhook converts the bookingRequest into a
+  // real appointment once Stripe confirms payment.
   const handleConfirm = async (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     apptDetails: any, signedForms: any[], setStep: (s: string) => void,
-  ) => {
+  ): Promise<ConfirmResult> => {
     try {
       const db = getFirestore(getApp());
 
@@ -230,7 +229,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           createdAt: new Date().toISOString(),
         });
         setStep('confirmation');
-        return;
+        return { requiresPayment: false };
       }
 
       // Deposit required → hold as a pending booking request while the guest pays
@@ -239,9 +238,8 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         status: 'pending', source: 'booking-page', createdAt: new Date(),
       });
 
-      // Deposit required → open Stripe Checkout on the studio's account, then redirect
+      // Ask for an EMBEDDED checkout session — mounted inline, no redirect
       const svc = services.find((s: any) => s.id === apptDetails?.serviceId);
-      const origin = window.location.origin;
       const res = await fetch('/api/stripe/deposit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -252,50 +250,28 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           clientName:  formData.clientName,
           clientEmail: formData.clientEmail,
           serviceName: svc?.name || '',
-          successUrl: `${origin}/book/${tenantId}?deposit=success`,
-          cancelUrl:  `${origin}/book/${tenantId}?deposit=cancelled`,
         }),
       });
       const out = await res.json().catch(() => null);
-      if (out?.url) { window.location.href = out.url; return; }
+
+      if (out?.clientSecret) {
+        return { requiresPayment: true, clientSecret: out.clientSecret, stripeAccountId: out.stripeAccountId };
+      }
 
       // Payment couldn't be started — the request is already saved as pending,
-      // so the guest isn't lost. Show confirmation and log for follow-up.
-      console.error('[deposit-checkout]', out?.error || 'No checkout URL returned');
-      setStep('confirmation');
-    } catch (e) { console.error('[booking-confirm]', e); }
+      // so the guest isn't lost. Surface the error to the sheet so it can show
+      // a retry option instead of looking unresponsive.
+      console.error('[deposit-checkout]', out?.error || 'No client secret returned');
+      return { requiresPayment: true, error: out?.error || 'Could not start secure checkout. Please try again.' };
+    } catch (e) {
+      console.error('[booking-confirm]', e);
+      return { requiresPayment: true, error: 'Something went wrong. Please try again.' };
+    }
   };
 
   return (
     <div className="w-full min-h-dvh overflow-x-hidden"
          style={{ background: resolvedStyle.bgColor, fontFamily: STACKS[resolvedStyle.bodyFont] || STACKS.inter }}>
-
-      {/* Deposit return banner */}
-      {depositReturn && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[400] w-[92%] sm:w-auto sm:max-w-md">
-          <div className="flex items-start gap-3 px-5 py-4 shadow-2xl bg-white"
-               style={{ borderRadius: br(resolvedStyle), border: `2px solid ${depositReturn === 'success' ? '#22c55e40' : '#f59e0b40'}` }}>
-            {depositReturn === 'success'
-              ? <CheckCircle2 className="w-6 h-6 shrink-0 mt-0.5" style={{ color: '#22c55e' }}/>
-              : <AlertTriangle className="w-6 h-6 shrink-0 mt-0.5" style={{ color: '#f59e0b' }}/>}
-            <div className="flex-1 min-w-0">
-              <p className="font-black text-sm uppercase tracking-tight text-slate-900"
-                 style={{ fontFamily: hf(resolvedStyle) }}>
-                {depositReturn === 'success' ? 'Deposit Received' : 'Payment Cancelled'}
-              </p>
-              <p className="text-xs font-medium text-slate-500 mt-0.5 leading-relaxed">
-                {depositReturn === 'success'
-                  ? 'Your appointment request is in and your spot is secured. We\u2019ll confirm by email shortly.'
-                  : 'No payment was taken, so your spot isn\u2019t held yet. You can start your booking again any time.'}
-              </p>
-            </div>
-            <button onClick={() => setDepositReturn(null)}
-                    className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
-              <XIcon className="w-4 h-4"/>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Service picker modal */}
       {showPicker && (
