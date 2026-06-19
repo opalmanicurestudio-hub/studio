@@ -36,6 +36,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn, safeNumber } from '@/lib/utils';
+import { computeDepositCents } from '@/lib/deposit-policy';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '../ui/card';
 import {
   startOfWeek, addDays, isSameDay, format, setHours, setMinutes,
@@ -357,20 +358,18 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
   }, [service, selectedStaffId, selectedTierId, staff]);
 
-  const depositAmount = useMemo(() => {
-    const poorHistory     = matchedClient && (safeNumber(matchedClient.noShowCount) + safeNumber(matchedClient.cancellationCount)) > 2;
-    const isGuardianActive = tenant?.guardianProtocolEnabled !== false;
-    if (!service || (service.depositType === 'none' && (!poorHistory || !isGuardianActive))) return 0;
-    if (isGuardianActive && poorHistory && service.depositType === 'none') return Math.ceil(price * 0.5);
-    if (service.depositType === 'full') return price;
-    if (service.depositType === 'breakeven') return service.cost;
-    if (service.depositType === 'deposit') {
-      if (service.depositSubType === 'percentage') return price * ((service.depositAmount || 0) / 100);
-      return service.depositAmount || 0;
-    }
-    return 0;
+const depositAmount = useMemo(() => {
+    const poorHistory = !!(matchedClient && (safeNumber(matchedClient.noShowCount) + safeNumber(matchedClient.cancellationCount)) > 2);
+    const cents = computeDepositCents({
+      service,
+      price,
+      depositsLive: !!tenant?.depositsLive,
+      poorHistory,
+      guardianActive: tenant?.guardianProtocolEnabled !== false,
+    });
+    return cents / 100;
   }, [service, price, matchedClient, tenant]);
-
+  
   const steps = useMemo(() => {
     const flow = ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
