@@ -415,6 +415,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
     const isRemotePayment = depositDetails && data.paymentMethod === 'none';
 
+    const depositCentsForApt = depositDetails ? Math.round(depositDetails.amount * 100) : 0;
     const payload = {
         id: aptId,
         tenantId,
@@ -428,7 +429,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         source: 'manual',
         checkInToken: token,
         checkInStatus: 'pending',
-        cancellationFeeApplied: depositDetails?.amount || 0,
+        depositAmountCents: depositCentsForApt,
+        depositStatus: depositDetails ? 'pending' : 'none',
         inspirationPhotoUrl: inspirationPhotoUrl || undefined
     };
 
