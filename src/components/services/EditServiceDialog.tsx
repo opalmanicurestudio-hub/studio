@@ -63,6 +63,7 @@ const editServiceSchema = z.object({
   depositType: z.enum(['none', 'deposit', 'full', 'breakeven']),
   depositSubType: z.enum(['flat', 'percentage']).optional(),
   depositAmount: z.coerce.number().optional(),
+  depositAppliesToBalance: z.boolean().optional(),
   price: z.coerce.number().optional(),
   serviceTiers: z.array(z.object({
     tierId: z.string(),
@@ -418,6 +419,17 @@ const Step3 = ({ breakEvenCost, pricingTiers }: { breakEvenCost: number; pricing
                         <div className="relative"><DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary" /><Input type="number" step="0.01" placeholder="25.00" {...field} value={field.value ?? ''} className="h-12 pl-8 rounded-xl border-2 font-black text-lg shadow-inner bg-white" disabled={depositType === 'breakeven'} /></div>
                       )} />
                     </div>
+                    <div className="space-y-2 text-left sm:col-span-2 pt-4 border-t border-dashed">
+                      <div className="flex items-center justify-between p-4 rounded-xl border-2 bg-white">
+                        <div className="space-y-0.5 pr-4">
+                          <Label className="text-[10px] font-black uppercase tracking-widest">Applies Toward Final Total</Label>
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 leading-relaxed">Off = collected separately and won't reduce the checkout balance (e.g. a non-refundable booking fee, or a deposit owned by a booth renter)</p>
+                        </div>
+                        <Controller name="depositAppliesToBalance" control={control} render={({ field }) => (
+                          <Switch checked={field.value !== false} onCheckedChange={field.onChange} className="shrink-0" />
+                        )} />
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -538,6 +550,7 @@ export const EditServiceDialog: React.FC<any> = ({
         products: service.products || [], requiredResourceIds: service.requiredResourceIds || [],
         compatibleAddOnIds: service.compatibleAddOnIds || [], depositType: service.depositType || 'none',
         depositSubType: service.depositSubType, depositAmount: service.depositAmount,
+        depositAppliesToBalance: service.depositAppliesToBalance,
         confirmationMessage: service.confirmationMessage || '', requiredFormIds: service.requiredFormIds || [],
         capacity: service.capacity, cancellationWindowHours: service.cancellationWindowHours,
         customCancellationFee: service.customCancellationFee,
