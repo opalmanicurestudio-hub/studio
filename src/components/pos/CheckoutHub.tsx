@@ -546,7 +546,7 @@ export const CheckoutHub = ({
     if (!clientSearch.trim()) return listToFilter.slice(0, 8);
     const search = clientSearch.toLowerCase();
     return listToFilter.filter((c: Client) =>
-      (c.name || '').toLowerCase().includes(search) ||
+      c.name.toLowerCase().includes(search) ||
       (c.email && c.email.toLowerCase().includes(search)) ||
       (c.phone && c.phone.includes(search))
     ).slice(0, 20);
@@ -753,9 +753,25 @@ export const CheckoutHub = ({
   const totalDiscount     = safeNumber(discount) + safeNumber(membershipDiscount);
   const totalWithRecovery = safeNumber(discount) + safeNumber(membershipDiscount) + safeNumber(recoveryAmount);
   const isFullyComped     = Math.round(recoveryAmount * 100) >= Math.round(subtotal * 100) && subtotal > 0;
+
+  // ── Credit for already-paid deposits ────────────────────────────────────────
+  // Only credits deposits whose service hasn't been explicitly marked
+  // depositAppliesToBalance: false (e.g. non-refundable booking fees, or
+  // deposits that belong to a booth renter rather than the studio).
+  const totalPaidDeposits = useMemo(() => {
+    return (appointmentsData || []).reduce((sum: number, data: any) => {
+      const apt = data.appointment;
+      const appliesToBalance = data.service?.depositAppliesToBalance !== false;
+      if (apt?.depositStatus === 'paid' && apt?.depositAmountCents > 0 && appliesToBalance) {
+        return sum + (apt.depositAmountCents / 100);
+      }
+      return sum;
+    }, 0);
+  }, [appointmentsData]);
+
   const finalTotal        = isFullyComped
     ? Math.max(0, tipAmount)
-    : Math.max(0, subtotal - totalWithRecovery + (subtotal * 0.07) + tipAmount);
+    : Math.max(0, subtotal - totalWithRecovery + (subtotal * 0.07) + tipAmount - totalPaidDeposits);
 
   const autonomyLimit          = safeNumber(selectedTenant?.maxAutonomousRecoveryAmount) || 0;
   const autonomyPercent        = safeNumber(selectedTenant?.maxAutonomousRecoveryPercent) || 0;
@@ -1361,6 +1377,12 @@ export const CheckoutHub = ({
           <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
             <span className="flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" /> Service Recovery {recoveryReason ? `— ${recoveryReason.slice(0, 30)}${recoveryReason.length > 30 ? '...' : ''}` : ''}</span>
             <span className="font-mono text-[11px] md:text-xs shrink-0 ml-2">-${safeNumber(recoveryAmount).toFixed(2)}</span>
+          </div>
+        )}
+        {totalPaidDeposits > 0 && (
+          <div className="flex justify-between items-center text-[10px] text-green-600 font-black uppercase tracking-tighter">
+            <span className="flex items-center gap-2"><CheckCircle className="w-3.5 h-3.5" /> Deposit Applied</span>
+            <span className="font-mono text-[11px] md:text-xs">-${totalPaidDeposits.toFixed(2)}</span>
           </div>
         )}
         <div className="flex justify-between items-center py-1 md:py-2">
