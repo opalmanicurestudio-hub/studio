@@ -20,7 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion, AnimatePresence } from 'framer-motion';
-import { type Appointment, type Tenant, type Service, type Staff } from '@/lib/data';
+import { type Appointment, type Tenant, type Service, type Staff, type CancellationAudit, type AuditLogEntry } from '@/lib/data';
 import { 
   AlertTriangle,
   Ban,
@@ -34,7 +34,10 @@ import {
   Loader,
   Clock,
   Scale,
-  PackageOpen
+  PackageOpen,
+  Building2,
+  UserCircle,
+  UserX,
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { differenceInHours, parseISO } from 'date-fns';
@@ -42,16 +45,25 @@ import { useInventory } from '@/context/InventoryContext';
 import { Checkbox } from '@/components/ui/checkbox';
 import { nanoid } from 'nanoid';
 
+// Who is performing the cancellation. Drives the audit trail's actorType.
+type ActorType = 'studio' | 'client' | 'no_show';
+
 interface CancelAppointmentDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appointment: Appointment;
   tenant: Tenant | null;
+  /** Currently logged-in staff member. Used to auto-fill the audit trail
+   *  when the studio/staff initiates the cancellation. Adapt this prop to
+   *  whichever auth/staff context hook this app uses. */
+  currentStaff?: Staff | null;
   onConfirm: (data: { 
     reason: string; 
     chargeFee: boolean; 
     feeAmount: number;
     paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived';
+    cancellationAudit: CancellationAudit;
+    auditLogEntry: Omit<AuditLogEntry, 'id' | 'tenantId'>;
   }) => Promise<void>;
 }
 
@@ -68,9 +80,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   onOpenChange,
   appointment,
   tenant,
+  currentStaff,
   onConfirm,
 }) => {
   const { services, clients, staff, inventory } = useInventory();
+
+  // Who is cancelling. Defaults to 'studio' since most cancellations in the
+  // dashboard are staff-initiated on the client's behalf; staff can switch
+  // this if the client called/texted to cancel themselves, or mark no-show.
+  const [actorType, setActorType] = useState<ActorType>('studio');
+
   const [reason, setReason] = useState('client_request');
   const [chargeFee, setChargeFee] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
@@ -131,6 +150,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   useEffect(() => {
       if (open) {
+          setActorType('studio');
           const allIds = new Set(sessionItems.map(s => s.id));
           setSelectedHouseRecoveryIds(allIds);
           setSelectedLaborRecoveryIds(allIds);
@@ -145,6 +165,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
           }
       }
   }, [open, sessionItems, recoveryMatrix, tenant]);
+
+  // Keep `reason` in sync with the actor selection — actorType drives the
+  // high-level "who", reason captures the more granular "why" your existing
+  // schema already expects (cancellationReason on Appointment).
+  useEffect(() => {
+      if (actorType === 'no_show') setReason('no-show');
+      else if (actorType === 'client') setReason('client_request');
+      // 'studio' leaves whatever specific reason was already selected,
+      // since staff-initiated cancellations can be for any reason.
+  }, [actorType]);
 
   const totalMatrixFee = useMemo(() => {
       let total = 0;
@@ -164,11 +194,78 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   const handleAction = async () => {
     setIsSubmitting(true);
-    await onConfirm({
-        reason: reason === 'other' ? customReason : reason,
-        chargeFee: chargeFee && finalFeeAmount > 0,
+
+    const finalReason = reason === 'other' ? customReason : reason;
+    const willChargeFee = chargeFee && finalFeeAmount > 0;
+    const resolvedPaymentMethod = willChargeFee ? paymentMethod : 'waived';
+    const now = new Date().toISOString();
+
+    // Resolve the actor's id/name based on who is cancelling.
+    let actorId = 'system';
+    let actorName = 'System';
+    if (actorType === 'studio') {
+        actorId = currentStaff?.id || appointment.staffId || 'unknown_staff';
+        actorName = currentStaff?.name || 'Studio Staff';
+    } else if (actorType === 'client') {
+        actorId = client?.id || appointment.clientId;
+        actorName = client?.name || appointment.clientName || 'Client';
+    } else if (actorType === 'no_show') {
+        // No-shows are logged by whoever is operating the dashboard (studio),
+        // but the *category* is no_show so reporting can separate it from
+        // a deliberate studio-initiated cancellation.
+        actorId = currentStaff?.id || appointment.staffId || 'unknown_staff';
+        actorName = currentStaff?.name || 'Studio Staff';
+    }
+
+    const cancellationAudit: CancellationAudit = {
+        actorType,
+        actorId,
+        actorName,
+        reason: finalReason as CancellationAudit['reason'],
+        reasonDetail: reason === 'other' ? customReason : undefined,
         feeAmount: finalFeeAmount,
-        paymentMethod: (chargeFee && finalFeeAmount > 0) ? paymentMethod : 'waived',
+        feeWaived: !willChargeFee && finalFeeAmount > 0,
+        paymentStatus: willChargeFee ? 'unpaid' : (finalFeeAmount > 0 ? 'waived' : 'paid'),
+        timestamp: now,
+    };
+
+    const actorLabel = actorType === 'studio' ? 'Studio' : actorType === 'client' ? 'Client' : 'No-Show';
+    const summary = `${actorName} (${actorLabel}) cancelled ${client?.name || appointment.clientName || 'guest'}'s appointment${
+        willChargeFee ? ` — $${finalFeeAmount.toFixed(2)} fee charged` : finalFeeAmount > 0 ? ' — fee waived' : ''
+    }`;
+
+    const auditLogEntry: Omit<AuditLogEntry, 'id' | 'tenantId'> = {
+        entityType: 'appointment_cancellation',
+        entityId: appointment.id,
+        actorType,
+        actorId,
+        actorName,
+        timestamp: now,
+        summary,
+        detail: {
+            clientId: client?.id || appointment.clientId,
+            clientName: client?.name || appointment.clientName || 'Unknown',
+            reason: finalReason,
+            reasonDetail: reason === 'other' ? customReason : undefined,
+            feeAmount: finalFeeAmount,
+            feeWaived: cancellationAudit.feeWaived,
+            paymentMethod: willChargeFee ? resolvedPaymentMethod : undefined,
+            recoveryBreakdown: recoveryMatrix.map(m => ({
+                serviceId: m.id,
+                serviceName: m.name,
+                houseFloor: selectedHouseRecoveryIds.has(m.id) ? m.houseFloor : 0,
+                laborProtection: selectedLaborRecoveryIds.has(m.id) ? m.laborProtection : 0,
+            })),
+        },
+    };
+
+    await onConfirm({
+        reason: finalReason,
+        chargeFee: willChargeFee,
+        feeAmount: finalFeeAmount,
+        paymentMethod: resolvedPaymentMethod,
+        cancellationAudit,
+        auditLogEntry,
     });
     setIsSubmitting(false);
     onOpenChange(false);
@@ -202,8 +299,42 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         
         <ScrollArea className="flex-1 min-h-0">
             <div className="p-8 space-y-10">
+
+                {/* ── Who is cancelling — drives the audit trail ── */}
                 <div className="space-y-4">
-                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Mode</Label>
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Who Is Cancelling?</Label>
+                  <RadioGroup value={actorType} onValueChange={(v) => setActorType(v as ActorType)} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <label htmlFor="actor-studio" className="cursor-pointer">
+                        <div className={cn("flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all text-center", actorType === 'studio' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white hover:border-primary/20")}>
+                            <Building2 className={cn("w-5 h-5", actorType === 'studio' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Studio / Staff</span>
+                            <RadioGroupItem value="studio" id="actor-studio" className="sr-only" />
+                        </div>
+                    </label>
+                    <label htmlFor="actor-client" className="cursor-pointer">
+                        <div className={cn("flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all text-center", actorType === 'client' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white hover:border-primary/20")}>
+                            <UserCircle className={cn("w-5 h-5", actorType === 'client' ? "text-primary" : "text-muted-foreground opacity-40")} />
+                            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Client</span>
+                            <RadioGroupItem value="client" id="actor-client" className="sr-only" />
+                        </div>
+                    </label>
+                    <label htmlFor="actor-noshow" className="cursor-pointer">
+                        <div className={cn("flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border-2 transition-all text-center", actorType === 'no_show' ? "border-destructive bg-destructive/5 shadow-md" : "border-border bg-white hover:border-destructive/20")}>
+                            <UserX className={cn("w-5 h-5", actorType === 'no_show' ? "text-destructive" : "text-muted-foreground opacity-40")} />
+                            <span className="text-[10px] font-black uppercase tracking-widest leading-none">No-Show</span>
+                            <RadioGroupItem value="no_show" id="actor-noshow" className="sr-only" />
+                        </div>
+                    </label>
+                  </RadioGroup>
+                  {actorType === 'studio' && (
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1 opacity-60">
+                      Will be logged as cancelled by <strong className="text-slate-700">{currentStaff?.name || 'the logged-in staff member'}</strong>.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Cancellation Reason</Label>
                   <RadioGroup value={reason} onValueChange={setReason} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label htmlFor="r-client" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'client_request' ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-white")}>
                         <RadioGroupItem value="client_request" id="r-client" />
@@ -213,7 +344,23 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         <RadioGroupItem value="no-show" id="r-noshow" />
                         <span className="font-black uppercase tracking-tight text-xs">No-Show (100% Fee)</span>
                     </label>
+                    <label htmlFor="r-late" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'late' ? "border-amber-500 bg-amber-50 shadow-sm" : "border-border bg-white")}>
+                        <RadioGroupItem value="late" id="r-late" />
+                        <span className="font-black uppercase tracking-tight text-xs">Late Cancellation</span>
+                    </label>
+                    <label htmlFor="r-other" className={cn("flex items-center space-x-3 border-2 p-4 rounded-2xl cursor-pointer transition-all hover:bg-muted/50", reason === 'other' ? "border-primary bg-primary/5 shadow-sm" : "border-border bg-white")}>
+                        <RadioGroupItem value="other" id="r-other" />
+                        <span className="font-black uppercase tracking-tight text-xs">Other</span>
+                    </label>
                   </RadioGroup>
+                  {reason === 'other' && (
+                    <Input
+                      value={customReason}
+                      onChange={(e) => setCustomReason(e.target.value)}
+                      placeholder="Describe the reason..."
+                      className="h-12 rounded-xl border-2 font-bold text-sm bg-white"
+                    />
+                  )}
                 </div>
 
                 <div className="space-y-6">
