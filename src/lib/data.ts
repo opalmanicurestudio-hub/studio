@@ -305,6 +305,7 @@ export type Service = {
   depositType?: 'none' | 'deposit' | 'full' | 'breakeven';
   depositSubType?: 'flat' | 'percentage';
   depositAmount?: number;
+  depositAppliesToBalance?: boolean; // default true — set false for fees that don't reduce the checkout total
   requiredSkills?: string[];
   compatibleAddOnIds?: string[];
   capacity?: number;
