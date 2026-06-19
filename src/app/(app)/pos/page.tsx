@@ -842,7 +842,7 @@ function POSPage() {
         batch.commit().then(() => toast({ title: "Status Updated" }));
     };
 
-    const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string }) => {
+    const handleCheckout = async (paymentData: { paymentMethod: string, amountTendered: number, recoveryAmount?: number, recoveryReason?: string, skipLedger?: boolean, stripePaymentIntentId?: string, cardSurcharge?: number }) => {
         const effectiveClientId = selectedClientId
             ?? readyForCheckoutAppointments.find(a => selectedAppointmentIds.has(a.id))?.appointment?.clientId
             ?? null;
@@ -1016,6 +1016,17 @@ function POSPage() {
           if (taxAmount > 0) {
             batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Sales Tax (7%)`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: taxAmount, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId }));
             totalLtvIncrease += taxAmount;
+          }
+          // Card processing fee passed to the client — its own ledger line,
+          // separate from Service Revenue, so it's clearly distinguishable
+          // from the actual Stripe fee expense the connect-webhook records.
+          // (Card-on-file charges write this inside /api/stripe/charge-card
+          // instead, since that route owns its own ledger write — skip here
+          // to avoid double-posting it.)
+          const cardSurchargeAmt = safeNumber((paymentData as any).cardSurcharge);
+          if (cardSurchargeAmt > 0) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: 'Card Processing Fee (passed to client)', clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Card Processing Fee', taxBucket: 'revenue', amount: cardSurchargeAmt, paymentMethod: paymentData.paymentMethod, hasReceipt: false, tenantId, checkoutSessionId }));
+            totalLtvIncrease += cardSurchargeAmt;
           }
         }
 
@@ -1312,7 +1323,7 @@ function POSPage() {
                 setIsCancelDialogOpen(false);
                 setIsDetailsOpen(false);
             }} />}
-            <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
+            <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={allStaff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id: string, state: any) => {
                 if (!firestore || !tenantId) return;
                 const apt = (appointmentsFromInventory || []).find(a => a.id === id);
