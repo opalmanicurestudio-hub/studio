@@ -290,6 +290,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
 }) => {
   const { toast } = useToast();
   const mountRef     = useRef<HTMLDivElement>(null);
+  const stripeRef     = useRef<any>(null);
   const elementsRef  = useRef<any>(null);
   const cardRef      = useRef<any>(null);
   const [isReady,    setIsReady]    = useState(false);
@@ -322,6 +323,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       if (!publishableKey) { setIsLoading(false); return; }
 
       stripe = (window as any).Stripe(publishableKey, { stripeAccount: stripeAccountId });
+      stripeRef.current = stripe;
       const elements = stripe.elements();
       elementsRef.current = elements;
 
@@ -370,9 +372,7 @@ const EmbeddedCardForm = ({ tenantId, clientId, clientEmail, amount, saveCard, o
       if (!piData.clientSecret) throw new Error(piData.error || 'Could not create payment');
 
       // 2. Confirm on client
-      const stripe = (window as any).Stripe;
-      // Re-use the same instance we mounted with
-      const confirmResult = await (elementsRef.current as any)._stripe.confirmCardPayment(piData.clientSecret, {
+      const confirmResult = await stripeRef.current.confirmCardPayment(piData.clientSecret, {
         payment_method: {
           card: cardRef.current,
           billing_details: { email: clientEmail || undefined },
