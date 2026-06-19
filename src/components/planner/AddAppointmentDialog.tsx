@@ -57,6 +57,7 @@ import {
   Workflow
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
+import { computeDepositCents } from '@/lib/deposit-policy';
 import { type Client, type Service, type Appointment, type Staff, type PricingTier } from '@/lib/data';
 import { format, setHours, setMinutes, startOfDay, areIntervalsOverlapping, addMinutes, startOfWeek, addDays, subWeeks, addWeeks, eachDayOfInterval, isSameDay, isBefore, isToday, parseISO, endOfDay, subMinutes, differenceInMinutes } from 'date-fns';
 import { nanoid } from 'nanoid';
@@ -310,18 +311,24 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     return Array.from(options).sort();
   }, [watchDate, watchStaffId, watchTierId, qualifiedStaff, selectedService, staff, appointmentsFromDB, eventsFromDB, publicScheduleProfile, services, watchOverride, selectedTenant, showAllSlots]);
 
-  const depositDetails = useMemo(() => {
-    if (!selectedService || selectedService.depositType === 'none') return null;
-    const price = selectedService.price;
-    let amount = 0;
-    if (selectedService.depositType === 'full') amount = price;
-    else if (selectedService.depositType === 'breakeven') amount = selectedService.cost;
-    else {
-        if (selectedService.depositSubType === 'flat') amount = selectedService.depositAmount || 0;
-        else amount = price * ((selectedService.depositAmount || 0) / 100);
-    }
-    return { amount: Math.ceil(amount), type: selectedService.depositType };
-  }, [selectedService]);
+ const depositDetails = useMemo(() => {
+    if (!selectedService) return null;
+
+    const poorHistory     = !!(selectedClient && (safeNumber(selectedClient.noShowCount) + safeNumber(selectedClient.cancellationCount)) > 2);
+    const guardianActive  = selectedTenant?.guardianProtocolEnabled !== false;
+    const isGuardianForced = guardianActive && poorHistory && selectedService.depositType === 'none';
+
+    const cents = computeDepositCents({
+      service: selectedService,
+      price: selectedService.price,
+      depositsLive: !!selectedTenant?.depositsLive,
+      poorHistory,
+      guardianActive,
+    });
+    if (cents <= 0) return null;
+
+    return { amount: cents / 100, type: selectedService.depositType, isGuardianForced };
+  }, [selectedService, selectedClient, selectedTenant]);
 
   const steps = useMemo(() => {
     const flow: Step[] = ['details', 'assignment', 'timing'];
