@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import React, { useState, useEffect, useCallback } from 'react';
 import { getFirestore } from 'firebase/firestore';
 import { getApp } from 'firebase/app';
-import { doc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
+import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
 import { X as XIcon, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { BookingSheet } from '@/components/booking/BookingSheet';
@@ -210,14 +210,34 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   ) => {
     try {
       const db = getFirestore(getApp());
+
+      // BookingSheet sends `depositAmount` in dollars, not `depositAmountCents`
+      const depositDollars = Number(apptDetails?.depositAmount) || 0;
+      const depositCents   = Math.round(depositDollars * 100);
+
+      // No deposit required → create the real appointment immediately, no payment gate needed
+      if (depositCents <= 0) {
+        const { depositAmount, depositStatus, ...restDetails } = apptDetails || {};
+        const aptRef = doc(collection(db, `tenants/${tenantId}/appointments`));
+        await setDoc(aptRef, {
+          id: aptRef.id,
+          tenantId,
+          ...formData, ...restDetails, signedForms,
+          status: 'confirmed',
+          depositAmountCents: 0,
+          depositStatus: 'none',
+          checkInStatus: 'pending',
+          createdAt: new Date().toISOString(),
+        });
+        setStep('confirmation');
+        return;
+      }
+
+      // Deposit required → hold as a pending booking request while the guest pays
       const ref = await addDoc(collection(db, `tenants/${tenantId}/bookingRequests`), {
         ...formData, ...apptDetails, signedForms,
         status: 'pending', source: 'booking-page', createdAt: new Date(),
       });
-
-      // No deposit required → in-sheet confirmation, exactly as before
-      const depositCents = Number(apptDetails?.depositAmountCents) || 0;
-      if (depositCents <= 0) { setStep('confirmation'); return; }
 
       // Deposit required → open Stripe Checkout on the studio's account, then redirect
       const svc = services.find((s: any) => s.id === apptDetails?.serviceId);
@@ -228,7 +248,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         body: JSON.stringify({
           tenantId,
           bookingRequestId: ref.id,
-          depositAmount: depositCents / 100,
+          depositAmount: depositDollars,
           clientName:  formData.clientName,
           clientEmail: formData.clientEmail,
           serviceName: svc?.name || '',
