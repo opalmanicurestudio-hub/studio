@@ -429,6 +429,48 @@ export type AppointmentCheckoutState = {
     customFormulaName?: string;
 };
 
+// 1. New standalone type for the audit summary stored on the Appointment doc
+export type CancellationAudit = {
+  actorType: 'studio' | 'client' | 'no_show' | 'system';
+  actorId: string;           // staffId if studio-initiated, clientId if client-initiated, 'system' otherwise
+  actorName: string;         // display name, captured at time of cancellation (don't rely on a live lookup later)
+  reason: 'late' | 'no-show' | 'client_request' | 'other' | 'automation';
+  reasonDetail?: string;     // free-text, e.g. when reason === 'other'
+  feeAmount: number;
+  feeWaived: boolean;
+  paymentStatus: 'paid' | 'unpaid' | 'waived';
+  timestamp: string;         // ISO string
+};
+
+// 2. New collection-level type for the full audit log entry
+//    Lives at tenants/{tenantId}/auditLog/{auditId}
+export type AuditLogEntry = {
+  id: string;
+  tenantId: string;
+  entityType: 'appointment_cancellation'; // extend with more entity types later (e.g. 'discount_override', 'refund')
+  entityId: string;        // the appointmentId
+  actorType: 'studio' | 'client' | 'no_show' | 'system';
+  actorId: string;
+  actorName: string;
+  timestamp: string;
+  summary: string;         // human-readable one-liner, e.g. "Jane D. cancelled Sarah K.'s 2pm Facial (No-Show, $45 fee charged)"
+  detail: {
+    clientId: string;
+    clientName: string;
+    reason: string;
+    reasonDetail?: string;
+    feeAmount: number;
+    feeWaived: boolean;
+    paymentMethod?: string;
+    recoveryBreakdown?: {
+      serviceId: string;
+      serviceName: string;
+      houseFloor: number;
+      laborProtection: number;
+    }[];
+  };
+};
+
 export type Appointment = {
   id: string;
   tenantId: string;
@@ -464,6 +506,9 @@ export type Appointment = {
   waivedBy?: string;
   waivedReason?: string;
   waivedAt?: string;
+  // Consolidated audit summary for the cancellation — NOT a replacement for the
+  // discrete cancellation* / waived* fields above, which are still read/written elsewhere.
+  cancellationAudit?: CancellationAudit;
   revenue?: number;
   tipAmount?: number;
   discountAmount?: number;
