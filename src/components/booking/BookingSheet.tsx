@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Sheet,
   SheetContent,
@@ -30,6 +30,7 @@ import {
   Info, ListChecks, ChevronDown, MapPin, Wallet, AlertTriangle, ArrowDown,
   Fingerprint, CalendarCheck, CheckCircle2, Zap, Check, Loader, Lock,
   ArrowRight, Sparkles, Users, FileImage, Flame, MessageSquare, Ban,
+  RefreshCw,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -83,12 +84,9 @@ const timeStringToDate = (timeStr: string, date: Date): Date => {
 };
 
 // ─── Theme-aware style helpers ────────────────────────────────────────────────
-// Reads CSS variables injected onto document.documentElement by the booking page.
-// Falls back gracefully if called outside a themed context.
 const useThemeStyles = () => {
   const headingFont = 'var(--booking-heading-font, system-ui, sans-serif)';
   const bodyFont    = 'var(--booking-body-font, system-ui, sans-serif)';
-  // Border radius tiers built from the theme's --radius variable
   const r  = 'var(--radius)';
   const r2 = 'calc(var(--radius) * 2)';
   const r3 = 'calc(var(--radius) * 2.5)';
@@ -110,21 +108,21 @@ const StaffSelectionCard = ({
       <div
         style={{ borderRadius: r }}
         className={cn(
-          'relative transition-all duration-300 border-2 p-4 flex flex-col items-center gap-3',
+          'relative transition-all duration-300 border-2 p-3 flex flex-col items-center gap-2',
           isSelected ? 'border-primary bg-primary/5 ring-4 ring-primary/10 shadow-xl' : 'bg-background border-border hover:border-primary/30',
           disabled && 'bg-muted/5 border-dashed',
         )}
       >
-        <Avatar className={cn('w-16 h-16 border-4 shadow-sm transition-transform duration-500', isSelected ? 'border-primary scale-110' : 'border-background')}>
+        <Avatar className={cn('w-12 h-12 border-4 shadow-sm transition-transform duration-500', isSelected ? 'border-primary scale-110' : 'border-background')}>
           {staff.avatarUrl ? <AvatarImage src={staff.avatarUrl} className="object-cover" /> : null}
           <AvatarFallback className="text-muted-foreground bg-muted">
-            {isAnyStaff ? <Users className="w-8 h-8 md:w-10 md:h-10" /> : staff.name.charAt(0)}
+            {isAnyStaff ? <Users className="w-6 h-6 md:w-7 md:h-7" /> : staff.name.charAt(0)}
           </AvatarFallback>
         </Avatar>
-        <p className="font-black uppercase tracking-tight text-[10px] text-center truncate w-full">{staff.name}</p>
+        <p className="font-black uppercase tracking-tight text-[9px] text-center truncate w-full">{staff.name}</p>
         <RadioGroupItem value={staff.id} id={`staff-sheet-${staff.id}`} className="sr-only" disabled={disabled} />
         {isSelected && (
-          <div className="absolute top-2 right-2 bg-primary text-white rounded-full p-0.5">
+          <div className="absolute top-1.5 right-1.5 bg-primary text-white rounded-full p-0.5">
             <Check className="w-3 h-3" />
           </div>
         )}
@@ -141,6 +139,13 @@ const bookingSchema = z.object({
   notes:       z.string().optional(),
 });
 type BookingFormData = z.infer<typeof bookingSchema>;
+
+// ─── onConfirm result type ─────────────────────────────────────────────────────
+type ConfirmResult =
+  | { requiresPayment: false }
+  | { requiresPayment: true; clientSecret: string; stripeAccountId?: string }
+  | { requiresPayment: true; error: string }
+  | void;
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface BookingSheetProps {
@@ -161,7 +166,7 @@ interface BookingSheetProps {
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
     signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[],
     setBookingStep: (step: string) => void
-  ) => void;
+  ) => Promise<ConfirmResult> | void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -191,6 +196,14 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
   const [bannedClient,              setBannedClient]              = useState<Client | null>(null);
   const [matchedClient,             setMatchedClient]             = useState<Client | null>(null);
   const [isResolvingIdentity,       setIsResolvingIdentity]       = useState(false);
+
+  // ── Embedded checkout state ───────────────────────────────────────────────
+  const [depositClientSecret,    setDepositClientSecret]    = useState<string | null>(null);
+  const [depositStripeAccountId, setDepositStripeAccountId] = useState<string | null>(null);
+  const [depositLoading,         setDepositLoading]         = useState(false);
+  const [depositError,           setDepositError]           = useState<string | null>(null);
+  const embeddedMountRef         = useRef<HTMLDivElement>(null);
+  const embeddedCheckoutRef      = useRef<any>(null);
 
   const resolveIdentity = useCallback(async (email?: string, phone?: string) => {
     if (!firestore || !tenant || (!email && !phone)) return;
@@ -358,7 +371,7 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return { price: minPrice, priceRange: { min: minPrice, max: maxPrice } };
   }, [service, selectedStaffId, selectedTierId, staff]);
 
-const depositAmount = useMemo(() => {
+  const depositAmount = useMemo(() => {
     const poorHistory = !!(matchedClient && (safeNumber(matchedClient.noShowCount) + safeNumber(matchedClient.cancellationCount)) > 2);
     const cents = computeDepositCents({
       service,
@@ -369,12 +382,14 @@ const depositAmount = useMemo(() => {
     });
     return cents / 100;
   }, [service, price, matchedClient, tenant]);
-  
+
+  // ── Streamlined step flow ───────────────────────────────────────────────────
+  // Deposit bookings get ONE combined review+payment screen ('checkout')
+  // instead of a separate summary step followed by a separate payment step.
   const steps = useMemo(() => {
     const flow = ['staff', 'dateTime', 'details'];
     if (requiredForms.length > 0) flow.push('consents');
-    flow.push('summary');
-    if (depositAmount > 0) flow.push('payment');
+    flow.push(depositAmount > 0 ? 'checkout' : 'summary');
     flow.push('confirmation');
     return flow;
   }, [requiredForms.length, depositAmount]);
@@ -390,8 +405,158 @@ const depositAmount = useMemo(() => {
       setSelectedTime(null); setSelectedTierId('any'); setDate(new Date());
       methods.reset(); setFormAnswers({});
       setBookedStaffId(null); setInspirationPhotoUrl('');
+      setDepositClientSecret(null); setDepositStripeAccountId(null);
+      setDepositLoading(false); setDepositError(null);
     }
   }, [open, initialStaffId, methods]);
+
+  // ── Shared booking-payload builder ──────────────────────────────────────────
+  const resolveBookingPayload = useCallback(():
+    | { error: string }
+    | {
+        finalStaffId: string;
+        clientData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string };
+        signedForms: { formId: string; formTitle: string; formData: Record<string, any> }[];
+        appointmentDetails: any;
+      }
+    | null => {
+    if (!service || !selectedTime) return null;
+    const [hours, minutes] = selectedTime.split(':').map(Number);
+    const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
+    const endDateTime   = addMinutes(startDateTime, service.duration);
+
+    let finalStaffId = selectedStaffId;
+    if (finalStaffId === 'any') {
+      const available = qualifiedStaff.filter(s => {
+        if (selectedTierId !== 'any' && s.pricingTierId !== selectedTierId) return false;
+        if (isToday(startDateTime) && !s.active) return false;
+        const day   = format(startDateTime, 'eeee').toLowerCase();
+        const sched = s.availability?.week?.[day as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[day];
+        if (!sched?.enabled) return false;
+        const openT  = timeStringToDate(sched.start, startDateTime);
+        const closeT = timeStringToDate(sched.end, startDateTime);
+        if (startDateTime < openT || endDateTime > closeT) return false;
+        if (appointments.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false }))) return false;
+        if (events.some(evt => evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === s.id) && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: evt.startTime, end: evt.endTime }, { inclusive: false }))) return false;
+        return true;
+      });
+      if (available.length === 0) return { error: 'No professionals are available for this window. Please pick another time.' };
+      available.sort((a, b) => (a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0));
+      finalStaffId = available[0].id;
+    }
+
+    const formValues   = methods.getValues();
+    const clientData   = { clientName: formValues.clientName, clientEmail: formValues.clientEmail, clientPhone: formValues.clientPhone, notes: formValues.notes };
+    const signedForms  = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
+
+    return {
+      finalStaffId,
+      clientData,
+      signedForms,
+      appointmentDetails: {
+        serviceId: service.id, staffId: finalStaffId,
+        startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
+        status: 'confirmed', isWalkIn: false, source: 'online',
+        inspirationPhotoUrl: inspirationPhotoUrl || undefined, notes: formValues.notes,
+        depositAmount,
+        depositStatus: depositAmount > 0 ? 'pending' : 'none',
+      },
+    };
+  }, [service, selectedTime, date, selectedStaffId, selectedTierId, qualifiedStaff, publicScheduleProfile, appointments, events, methods, requiredForms, formAnswers, inspirationPhotoUrl, depositAmount]);
+
+  // ── No-deposit finalize (used at the 'summary' step) ────────────────────────
+  const handleConfirmBooking = () => {
+    const payload = resolveBookingPayload();
+    if (!payload) return;
+    if ('error' in payload) { toast({ variant: 'destructive', title: 'No staff available', description: payload.error }); return; }
+    setBookedStaffId(payload.finalStaffId);
+    onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, (s: string) => setCurrentStepIndex(steps.indexOf(s)));
+  };
+
+  // ── Deposit checkout init (used at the 'checkout' step) ─────────────────────
+  const initiateCheckout = useCallback(async () => {
+    setDepositLoading(true);
+    setDepositError(null);
+    const payload = resolveBookingPayload();
+    if (!payload) { setDepositLoading(false); return; }
+    if ('error' in payload) { setDepositError(payload.error); setDepositLoading(false); return; }
+    setBookedStaffId(payload.finalStaffId);
+    try {
+      const result = await onConfirm(payload.clientData, payload.appointmentDetails, payload.signedForms, () => {});
+      if (result && 'requiresPayment' in result && result.requiresPayment) {
+        if ('clientSecret' in result && result.clientSecret) {
+          setDepositClientSecret(result.clientSecret);
+          setDepositStripeAccountId(result.stripeAccountId || null);
+        } else if ('error' in result) {
+          setDepositError(result.error);
+        }
+      } else {
+        setCurrentStepIndex(steps.indexOf('confirmation'));
+      }
+    } catch (e) {
+      console.error(e);
+      setDepositError('Something went wrong starting checkout. Please try again.');
+    } finally {
+      setDepositLoading(false);
+    }
+  }, [resolveBookingPayload, onConfirm, steps]);
+
+  useEffect(() => {
+    if (currentStep === 'checkout' && !depositClientSecret && !depositLoading && !depositError) {
+      initiateCheckout();
+    }
+  }, [currentStep, depositClientSecret, depositLoading, depositError, initiateCheckout]);
+
+  useEffect(() => {
+    if (!depositClientSecret || !tenant?.id) return;
+    let cancelled = false;
+    let instance: any;
+
+    const mount = async () => {
+      if (!(window as any).Stripe) {
+        await new Promise<void>((resolve) => {
+          const s = document.createElement('script');
+          s.src = 'https://js.stripe.com/v3/';
+          s.onload = () => resolve();
+          document.head.appendChild(s);
+        });
+      }
+      if (cancelled) return;
+
+      const keyRes = await fetch('/api/stripe/publishable-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId: tenant.id }),
+      });
+      const { publishableKey, stripeAccountId } = await keyRes.json();
+      if (!publishableKey) throw new Error('Missing Stripe publishable key');
+      if (cancelled) return;
+
+      const stripe = (window as any).Stripe(publishableKey, {
+        stripeAccount: stripeAccountId || depositStripeAccountId || undefined,
+      });
+      instance = await stripe.initEmbeddedCheckout({
+        clientSecret: depositClientSecret,
+        onComplete: () => {
+          setCurrentStepIndex(steps.indexOf('confirmation'));
+        },
+      });
+      if (cancelled) { instance.destroy(); return; }
+      embeddedCheckoutRef.current = instance;
+      if (embeddedMountRef.current) instance.mount(embeddedMountRef.current);
+    };
+
+    mount().catch((e) => {
+      console.error('[embedded-checkout]', e);
+      if (!cancelled) setDepositError('Could not load secure checkout. Please try again.');
+    });
+
+    return () => {
+      cancelled = true;
+      try { embeddedCheckoutRef.current?.destroy(); } catch {}
+      embeddedCheckoutRef.current = null;
+    };
+  }, [depositClientSecret, depositStripeAccountId, tenant?.id, steps]);
 
   const handleNextStep = async () => {
     if (currentStep === 'dateTime' && !selectedTime) { toast({ variant: 'destructive', title: 'Please select a time.' }); return; }
@@ -420,7 +585,7 @@ const depositAmount = useMemo(() => {
       });
       if (!allCompleted) { toast({ variant: 'destructive', title: 'Incomplete Forms', description: 'Please fill out all required fields and sign all forms.' }); return; }
     }
-    if (steps[currentStepIndex + 1] === 'confirmation') { handleSubmit(handleConfirmBooking)(); return; }
+    if (currentStep === 'summary') { handleConfirmBooking(); return; }
     setCurrentStepIndex(currentStepIndex + 1);
   };
 
@@ -432,79 +597,31 @@ const depositAmount = useMemo(() => {
     if (staffId !== 'any') { setCurrentStepIndex(1); setSelectedTime(null); }
   };
 
-  const handleConfirmBooking = (data: BookingFormData) => {
-    if (!service || !selectedTime) return;
-    const [hours, minutes] = selectedTime.split(':').map(Number);
-    const startDateTime = setMinutes(setHours(startOfDay(date), hours), minutes);
-    const endDateTime   = addMinutes(startDateTime, service.duration);
-    const clientData    = { clientName: data.clientName, clientEmail: data.clientEmail, clientPhone: data.clientPhone, notes: data.notes };
-
-    let finalStaffId = selectedStaffId;
-    if (finalStaffId === 'any') {
-      const available = qualifiedStaff.filter(s => {
-        if (selectedTierId !== 'any' && s.pricingTierId !== selectedTierId) return false;
-        if (isToday(startDateTime) && !s.active) return false;
-        const day   = format(startDateTime, 'eeee').toLowerCase();
-        const sched = s.availability?.week?.[day as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[day];
-        if (!sched?.enabled) return false;
-        const openT  = timeStringToDate(sched.start, startDateTime);
-        const closeT = timeStringToDate(sched.end, startDateTime);
-        if (startDateTime < openT || endDateTime > closeT) return false;
-        if (appointments.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false }))) return false;
-        if (events.some(evt => evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === s.id) && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: evt.startTime, end: evt.endTime }, { inclusive: false }))) return false;
-        return true;
-      });
-      if (available.length > 0) {
-        available.sort((a, b) => (a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0));
-        finalStaffId = available[0].id;
-      } else { toast({ variant: 'destructive', title: 'No staff available' }); return; }
-    }
-
-    setBookedStaffId(finalStaffId);
-    const signedForms = requiredForms.map(form => ({ formId: form.id, formTitle: form.title, formData: formAnswers[form.id] || {} }));
-    onConfirm(clientData, {
-      serviceId: service.id, staffId: finalStaffId,
-      startTime: startDateTime.toISOString(), endTime: endDateTime.toISOString(),
-      status: 'confirmed', isWalkIn: false, source: 'online',
-      inspirationPhotoUrl: inspirationPhotoUrl || undefined, notes: data.notes,
-      depositAmount: depositAmount,
-      depositStatus: depositAmount > 0 ? 'pending' : 'none',
-    }, signedForms, (s) => setCurrentStepIndex(steps.indexOf(s)));
-  };
-
   const bookedStaff   = useMemo(() => staff.find(s => s.id === bookedStaffId), [staff, bookedStaffId]);
   const selectedStaff = useMemo(() => staff.find(s => s.id === selectedStaffId), [staff, selectedStaffId]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      {/*
-        THEME INTEGRATION:
-        - Colors (--primary, --background, --card, --border, --muted) come from
-          document.documentElement CSS variable injection in the booking page.
-        - Fonts come from --booking-heading-font and --booking-body-font vars.
-        - Border radius uses calc(var(--radius) * N) for proportional scaling.
-        - No manual primaryColor override needed here — it's handled globally.
-      */}
       <SheetContent
         side="right"
         style={{ fontFamily: bodyFont }}
         className={cn(
-          isMobile ? 'h-[92dvh] rounded-t-[2.5rem]' : 'sm:max-w-2xl',
+          isMobile ? 'h-[88dvh] rounded-t-[2rem]' : 'sm:max-w-md',
           'flex flex-col p-0 border-l-0 sm:border-l bg-background overflow-hidden shadow-2xl'
         )}
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
-        <SheetHeader className={cn('border-b bg-muted/5 flex-shrink-0 text-left', isMobile ? 'p-8' : 'p-8 pb-6')}>
-          <div className="flex items-center gap-3 mb-2 text-left">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking Experience</span>
+        <SheetHeader className="border-b bg-muted/5 flex-shrink-0 text-left p-5 pb-4">
+          <div className="flex items-center gap-2.5 mb-1 text-left">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Booking</span>
           </div>
-          <SheetTitle style={{ fontFamily: headingFont }} className="text-3xl font-black uppercase tracking-tighter text-left">
+          <SheetTitle style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tighter text-left">
             Reserve Session
           </SheetTitle>
           {currentStep !== 'confirmation' && (
-            <div className="pt-6">
+            <div className="pt-4">
               <Progress value={progress} className="h-1 rounded-full bg-muted" />
             </div>
           )}
@@ -512,126 +629,115 @@ const depositAmount = useMemo(() => {
 
         {/* ── Body ───────────────────────────────────────────────────────── */}
         <ScrollArea className="flex-1 text-left">
-          <div className="p-8 space-y-12 pb-32 text-left">
+          <div className="p-5 space-y-8 pb-24 text-left">
             <AnimatePresence mode="wait">
 
               {/* Confirmation */}
               {currentStep === 'confirmation' ? (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-12 space-y-10" key="confirmation">
-                  <div className="w-32 h-32 bg-green-500/10 flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6" style={{ borderRadius: r3 }}>
-                    <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center py-8 space-y-7" key="confirmation">
+                  <div className="w-20 h-20 bg-green-500/10 flex items-center justify-center mx-auto shadow-xl shadow-green-500/5 rotate-6" style={{ borderRadius: r3 }}>
+                    <CheckCircle2 className="w-10 h-10 text-green-500 -rotate-6" />
                   </div>
-                  <div className="space-y-3">
-                    <h2 style={{ fontFamily: headingFont }} className="text-4xl font-black uppercase tracking-tighter">You're All Set!</h2>
-                    <p className="text-muted-foreground font-medium max-w-sm mx-auto leading-relaxed">
+                  <div className="space-y-2">
+                    <h2 style={{ fontFamily: headingFont }} className="text-2xl font-black uppercase tracking-tighter">You're All Set!</h2>
+                    <p className="text-muted-foreground text-sm font-medium max-w-sm mx-auto leading-relaxed">
                       Your appointment for <strong className="text-foreground">{service?.name}</strong> is confirmed. We've sent the details to your email.
                     </p>
                   </div>
-                  <div className="grid gap-6 max-sm mx-auto text-left">
+                  <div className="grid gap-4 max-sm mx-auto text-left">
                     {bookedStaff && (
-                      <div className="p-6 border-2 bg-card/50 backdrop-blur-sm shadow-xl flex flex-col items-center gap-4" style={{ borderRadius: r3 }}>
+                      <div className="p-5 border-2 bg-card/50 backdrop-blur-sm shadow-lg flex flex-col items-center gap-3" style={{ borderRadius: r3 }}>
                         <p className="text-[9px] font-black uppercase tracking-widest text-primary">Your Professional</p>
-                        <Avatar className="w-24 h-24 border-4 border-background shadow-2xl">
+                        <Avatar className="w-16 h-16 border-4 border-background shadow-xl">
                           <AvatarImage src={bookedStaff.avatarUrl} className="object-cover" />
                           <AvatarFallback>{bookedStaff.name.charAt(0)}</AvatarFallback>
                         </Avatar>
                         <div className="text-center">
-                          <p style={{ fontFamily: headingFont }} className="font-black text-xl uppercase tracking-tight">{bookedStaff.name}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">{bookedStaff.specialties?.slice(0, 2).join(' • ')}</p>
+                          <p style={{ fontFamily: headingFont }} className="font-black text-base uppercase tracking-tight">{bookedStaff.name}</p>
                         </div>
                       </div>
                     )}
-                    <div className="p-6 border-2 bg-muted/20 text-left shadow-inner space-y-4" style={{ borderRadius: r3 }}>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center">Session Intel</p>
-                      <div className="flex items-start gap-4">
-                        <Calendar className="w-5 h-5 mt-0.5 text-primary opacity-40" />
-                        <div className="space-y-1 text-left">
-                          <p style={{ fontFamily: headingFont }} className="font-black uppercase text-sm">{format(date, 'EEEE, MMM d, yyyy')}</p>
+                    <div className="p-5 border-2 bg-muted/20 text-left shadow-inner space-y-3" style={{ borderRadius: r3 }}>
+                      <div className="flex items-start gap-3">
+                        <Calendar className="w-4 h-4 mt-0.5 text-primary opacity-40" />
+                        <div className="space-y-0.5 text-left">
+                          <p style={{ fontFamily: headingFont }} className="font-black uppercase text-xs">{format(date, 'EEEE, MMM d, yyyy')}</p>
                           <p className="text-xs font-bold text-primary">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</p>
                         </div>
                       </div>
-                      <div className="flex items-start gap-4 pt-4 border-t border-dashed">
-                        <MapPin className="w-5 h-5 mt-0.5 text-primary opacity-40" />
-                        <div className="space-y-1 text-left">
-                          <p style={{ fontFamily: headingFont }} className="font-black uppercase text-sm">{tenant?.name || 'Studio'}</p>
-                          <p className="text-xs font-medium text-muted-foreground">Your studio location</p>
+                      <div className="flex items-start gap-3 pt-3 border-t border-dashed">
+                        <MapPin className="w-4 h-4 mt-0.5 text-primary opacity-40" />
+                        <div className="space-y-0.5 text-left">
+                          <p style={{ fontFamily: headingFont }} className="font-black uppercase text-xs">{tenant?.name || 'Studio'}</p>
                         </div>
                       </div>
                     </div>
                   </div>
-                  <Button style={{ borderRadius: r2 }} className="w-full h-16 text-lg font-black uppercase tracking-widest shadow-2xl shadow-primary/20" variant="outline" onClick={() => onOpenChange(false)}>Finish</Button>
+                  <Button style={{ borderRadius: r2 }} className="w-full h-12 text-sm font-black uppercase tracking-widest shadow-xl shadow-primary/20" variant="outline" onClick={() => onOpenChange(false)}>Finish</Button>
                 </motion.div>
 
               ) : (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} key={currentStep} className="space-y-12">
+                <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} key={currentStep} className="space-y-8">
 
-                  {/* Active service card — shown on every step */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-2">
-                        <Zap className="w-3 h-3" />Active Selection
-                      </h3>
-                      {currentStep !== 'staff' && (
-                        <Button variant="ghost" size="sm" onClick={() => setCurrentStepIndex(0)} className="h-auto p-0 text-[10px] font-black uppercase tracking-widest underline decoration-2 underline-offset-4">Change</Button>
-                      )}
-                    </div>
-                    <Card style={{ borderRadius: r3 }} className="overflow-hidden border-2 bg-card/50 backdrop-blur-xl shadow-2xl shadow-primary/5">
-                      <CardContent className="p-6 flex gap-6 items-center">
-                        <div className="relative w-24 h-24 overflow-hidden bg-muted shadow-inner" style={{ borderRadius: r }}>
-                          <Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" />
-                        </div>
-                        <div className="flex-1 min-w-0 text-left">
-                          <p style={{ fontFamily: headingFont }} className="font-black text-2xl uppercase tracking-tighter leading-none mb-2">{service?.name}</p>
-                          <div className="flex items-center gap-6">
-                            <div className="flex flex-col text-left">
-                              <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Duration</span>
-                              <span className="text-sm font-bold">{service?.duration} min</span>
-                            </div>
-                            <div className="flex flex-col text-left">
-                              <span className="text-[9px] font-black uppercase text-muted-foreground tracking-widest">Investment</span>
-                              <span className="text-sm font-black text-primary">{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
+                  {/* Active service card — compact, shown on every step except checkout (room is tight there) */}
+                  {currentStep !== 'checkout' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-[9px] font-black uppercase tracking-[0.2em] text-primary flex items-center gap-1.5">
+                          <Zap className="w-3 h-3" />Selection
+                        </h3>
+                        {currentStep !== 'staff' && (
+                          <Button variant="ghost" size="sm" onClick={() => setCurrentStepIndex(0)} className="h-auto p-0 text-[9px] font-black uppercase tracking-widest underline decoration-2 underline-offset-4">Change</Button>
+                        )}
+                      </div>
+                      <Card style={{ borderRadius: r3 }} className="overflow-hidden border-2 bg-card/50 backdrop-blur-xl shadow-lg shadow-primary/5">
+                        <CardContent className="p-4 flex gap-4 items-center">
+                          <div className="relative w-14 h-14 overflow-hidden bg-muted shadow-inner shrink-0" style={{ borderRadius: r }}>
+                            <Image src={service?.imageUrl || `https://picsum.photos/seed/${service?.id}/200/200`} alt={service?.name} fill className="object-cover" />
+                          </div>
+                          <div className="flex-1 min-w-0 text-left">
+                            <p style={{ fontFamily: headingFont }} className="font-black text-base uppercase tracking-tighter leading-none mb-1.5 truncate">{service?.name}</p>
+                            <div className="flex items-center gap-4">
+                              <span className="text-[10px] font-bold text-muted-foreground">{service?.duration} min</span>
+                              <span className="text-xs font-black text-primary">{priceRange ? `From $${priceRange.min}` : `$${price?.toFixed(2)}`}</span>
                             </div>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
 
                   {/* ── Step: Staff ──────────────────────────────────────── */}
                   {currentStep === 'staff' && (
-                    <div className="space-y-8">
-                      <div className="space-y-2 text-left">
-                        <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
-                          <Users className="w-6 h-6 text-primary" />Select Provider
+                    <div className="space-y-6">
+                      <div className="space-y-1 text-left">
+                        <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                          <Users className="w-4 h-4 text-primary" />Select Provider
                         </h3>
-                        <p className="text-xs font-medium text-muted-foreground">Expert hands for your specific needs.</p>
                       </div>
-                      <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-2 gap-4">
+                      <RadioGroup onValueChange={handleStaffSelect} value={selectedStaffId} className="grid grid-cols-3 gap-2.5">
                         <StaffSelectionCard staff={{ id: 'any', name: 'Any Available', avatarUrl: '' }} isSelected={selectedStaffId === 'any'} disabled={!!initialStaffId} r={r2} />
                         {qualifiedStaff.map(s => (
                           <StaffSelectionCard key={s.id} staff={s} isSelected={selectedStaffId === s.id} disabled={!!initialStaffId && s.id !== initialStaffId} r={r2} />
                         ))}
                       </RadioGroup>
                       {selectedStaffId === 'any' && availableTiersForService.length > 0 && (
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 pt-10 border-t border-dashed text-left">
-                          <div className="space-y-1">
-                            <h4 style={{ fontFamily: headingFont }} className="font-black uppercase tracking-tight text-sm text-left">Tiered Preference</h4>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Prices vary by professional experience level</p>
-                          </div>
-                          <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="grid grid-cols-1 gap-3">
-                            <label htmlFor="tier-any" style={{ borderRadius: r2 }} className="flex items-center justify-between p-5 border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-lg">
-                              <div className="flex items-center gap-3">
+                        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 pt-6 border-t border-dashed text-left">
+                          <h4 style={{ fontFamily: headingFont }} className="font-black uppercase tracking-tight text-xs text-left">Tiered Preference</h4>
+                          <RadioGroup value={selectedTierId} onValueChange={setSelectedTierId} className="grid grid-cols-1 gap-2">
+                            <label htmlFor="tier-any" style={{ borderRadius: r2 }} className="flex items-center justify-between p-3.5 border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                              <div className="flex items-center gap-2.5">
                                 <RadioGroupItem value="any" id="tier-any" />
-                                <span className="text-sm font-black uppercase tracking-tight">First Available (Any Price)</span>
+                                <span className="text-xs font-black uppercase tracking-tight">First Available</span>
                               </div>
                             </label>
                             {availableTiersForService.map(tier => (
-                              <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} style={{ borderRadius: r2 }} className="flex items-center justify-between p-5 border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5 has-[:checked]:shadow-lg">
-                                <div className="flex items-center gap-3">
+                              <label key={tier.tierId} htmlFor={`tier-${tier.tierId}`} style={{ borderRadius: r2 }} className="flex items-center justify-between p-3.5 border-2 cursor-pointer transition-all hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                                <div className="flex items-center gap-2.5">
                                   <RadioGroupItem value={tier.tierId} id={`tier-${tier.tierId}`} />
-                                  <span className="text-sm font-black uppercase tracking-tight">{tier.name}</span>
+                                  <span className="text-xs font-black uppercase tracking-tight">{tier.name}</span>
                                 </div>
-                                <span className="font-black text-primary text-base tracking-tighter">${tier.price.toFixed(2)}</span>
+                                <span className="font-black text-primary text-sm tracking-tighter">${tier.price.toFixed(2)}</span>
                               </label>
                             ))}
                           </RadioGroup>
@@ -642,35 +748,30 @@ const depositAmount = useMemo(() => {
 
                   {/* ── Step: Date & Time ────────────────────────────────── */}
                   {currentStep === 'dateTime' && (
-                    <div className="space-y-8 text-left">
-                      <div className="space-y-2 text-left">
-                        <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
-                          <Calendar className="w-6 h-6 text-primary" />Timing
-                        </h3>
-                        <p className="text-xs font-medium text-muted-foreground">Select a window that fits your schedule.</p>
-                      </div>
+                    <div className="space-y-6 text-left">
+                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-primary" />Timing
+                      </h3>
                       {activeDaySchedule?.accessTier && activeDaySchedule.accessTier !== 'all' && (
-                        <Alert style={{ borderRadius: r2 }} className="bg-indigo-50 border-indigo-200 p-6 border-2 shadow-sm text-left">
-                          <Award className="h-6 w-6 text-indigo-600" />
-                          <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2 text-indigo-700">Priority Access Only</AlertTitle>
-                          <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left text-indigo-600">
-                            This day is reserved for {activeDaySchedule.accessTier === 'members' ? 'Members & Package Holders' : 'Returning Guests'}.
+                        <Alert style={{ borderRadius: r2 }} className="bg-indigo-50 border-indigo-200 p-4 border-2 shadow-sm text-left">
+                          <Award className="h-4 w-4 text-indigo-600" />
+                          <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1 text-indigo-700">Priority Access Only</AlertTitle>
+                          <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left text-indigo-600">
+                            Reserved for {activeDaySchedule.accessTier === 'members' ? 'Members & Package Holders' : 'Returning Guests'}.
                           </AlertDescription>
                         </Alert>
                       )}
-                      <div className="p-8 border-2 bg-muted/10 space-y-8 shadow-inner text-center" style={{ borderRadius: r3 }}>
-                        {/* Week nav */}
+                      <div className="p-5 border-2 bg-muted/10 space-y-6 shadow-inner text-center" style={{ borderRadius: r3 }}>
                         <div className="flex items-center justify-between">
-                          <Button variant="outline" size="icon" className="h-10 w-10 rounded-full bg-background shadow-md border-none" onClick={() => setDate(prev => addDays(prev, -7))}>
-                            <ChevronLeft className="w-5 h-5" />
+                          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full bg-background shadow-sm border-none" onClick={() => setDate(prev => addDays(prev, -7))}>
+                            <ChevronLeft className="w-4 h-4" />
                           </Button>
-                          <span style={{ fontFamily: headingFont }} className="font-black uppercase tracking-widest text-sm">{format(weekStart, 'MMMM yyyy')}</span>
-                          <Button variant="outline" size="icon" className="h-10 w-10 rounded-full bg-background shadow-md border-none" onClick={() => setDate(prev => addDays(prev, 7))}>
-                            <ChevronRight className="w-5 h-5" />
+                          <span style={{ fontFamily: headingFont }} className="font-black uppercase tracking-widest text-xs">{format(weekStart, 'MMMM yyyy')}</span>
+                          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full bg-background shadow-sm border-none" onClick={() => setDate(prev => addDays(prev, 7))}>
+                            <ChevronRight className="w-4 h-4" />
                           </Button>
                         </div>
-                        {/* Day picker */}
-                        <div className="grid grid-cols-7 gap-3">
+                        <div className="grid grid-cols-7 gap-1.5">
                           {weekDays.map(day => (
                             <button
                               key={day.toString()}
@@ -678,19 +779,18 @@ const depositAmount = useMemo(() => {
                               disabled={isBefore(day, startOfDay(new Date())) && !isToday(day)}
                               style={{ borderRadius: r }}
                               className={cn(
-                                'flex flex-col items-center justify-center p-3 border-2 transition-all aspect-square',
-                                isSameDay(day, date) ? 'bg-primary text-primary-foreground border-primary shadow-2xl scale-110' : 'bg-background border-transparent hover:border-primary/30',
+                                'flex flex-col items-center justify-center p-2 border-2 transition-all aspect-square',
+                                isSameDay(day, date) ? 'bg-primary text-primary-foreground border-primary shadow-lg scale-105' : 'bg-background border-transparent hover:border-primary/30',
                                 (isBefore(day, startOfDay(new Date())) && !isToday(day)) && 'opacity-20 cursor-not-allowed'
                               )}
                               type="button"
                             >
-                              <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'EEE')}</span>
-                              <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
+                              <span className="text-[8px] uppercase font-black opacity-60 mb-0.5">{format(day, 'EEE')}</span>
+                              <span className="font-black text-sm tracking-tighter">{format(day, 'd')}</span>
                             </button>
                           ))}
                         </div>
-                        {/* Time slots */}
-                        <div className="grid grid-cols-3 gap-3 pt-8 border-t border-dashed">
+                        <div className="grid grid-cols-3 gap-2 pt-6 border-t border-dashed">
                           {timeSlots.map(time => {
                             const isHotSlot = hotSlotMap.get(time);
                             return (
@@ -700,20 +800,20 @@ const depositAmount = useMemo(() => {
                                 onClick={() => setSelectedTime(time)}
                                 style={{ borderRadius: r }}
                                 className={cn(
-                                  'h-14 font-black uppercase text-xs tracking-widest border-2 transition-all relative overflow-hidden',
-                                  selectedTime === time ? 'shadow-2xl shadow-primary/20 scale-105' : 'bg-background',
+                                  'h-11 font-black uppercase text-[10px] tracking-widest border-2 transition-all relative overflow-hidden',
+                                  selectedTime === time ? 'shadow-lg shadow-primary/20' : 'bg-background',
                                   isHotSlot && 'border-amber-500/50 bg-amber-500/5 text-amber-700'
                                 )}
                               >
-                                {isHotSlot && <div className="absolute top-0 right-0 p-1 bg-amber-500 rounded-bl-lg shadow-sm"><Flame className="w-2.5 h-2.5 text-white" /></div>}
+                                {isHotSlot && <div className="absolute top-0 right-0 p-0.5 bg-amber-500 rounded-bl-md shadow-sm"><Flame className="w-2 h-2 text-white" /></div>}
                                 {format(timeStringToDate(time, new Date()), 'h:mm a')}
                               </Button>
                             );
                           })}
                           {timeSlots.length === 0 && (
-                            <div style={{ borderRadius: r2 }} className="col-span-full text-center py-12 px-6 border-2 border-dashed">
-                              <Clock className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                              <p className="text-xs font-black uppercase tracking-widest text-muted-foreground/60">No availability matches your preference</p>
+                            <div style={{ borderRadius: r2 }} className="col-span-full text-center py-8 px-4 border-2 border-dashed">
+                              <Clock className="w-6 h-6 text-muted-foreground/30 mx-auto mb-1.5" />
+                              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">No availability for this preference</p>
                             </div>
                           )}
                         </div>
@@ -724,53 +824,48 @@ const depositAmount = useMemo(() => {
                   {/* ── Step: Details ────────────────────────────────────── */}
                   {currentStep === 'details' && (
                     <FormProvider {...methods}>
-                      <form id="booking-details-form" onSubmit={handleSubmit(handleConfirmBooking)} className="space-y-10 text-left">
-                        <div className="space-y-2 text-left">
-                          <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3 text-left">
-                            <User className="w-6 h-6 text-primary" />Guest Profile
-                          </h3>
-                          <p className="text-xs font-medium text-muted-foreground text-left">Personalize your visit.</p>
-                        </div>
-                        <div className="space-y-6 text-left">
-                          <div className="space-y-3">
-                            <Label htmlFor="name" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Legal Name</Label>
-                            <Input id="name" {...methods.register('clientName')} style={{ borderRadius: r2 }} className="h-14 border-2 text-lg font-bold shadow-inner" placeholder="Enter your full name" />
+                      <form id="booking-details-form" onSubmit={handleSubmit(handleNextStep)} className="space-y-7 text-left">
+                        <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
+                          <User className="w-4 h-4 text-primary" />Guest Profile
+                        </h3>
+                        <div className="space-y-4 text-left">
+                          <div className="space-y-2">
+                            <Label htmlFor="name" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Full Name</Label>
+                            <Input id="name" {...methods.register('clientName')} style={{ borderRadius: r2 }} className="h-11 border-2 font-bold shadow-inner" placeholder="Enter your full name" />
                           </div>
-                          <div className="space-y-3">
-                            <Label htmlFor="email" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email for Confirmation</Label>
-                            <Input id="email" type="email" {...methods.register('clientEmail')} style={{ borderRadius: r2 }} className="h-14 border-2 font-bold shadow-inner" placeholder="jane@example.com" />
+                          <div className="space-y-2">
+                            <Label htmlFor="email" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Email</Label>
+                            <Input id="email" type="email" {...methods.register('clientEmail')} style={{ borderRadius: r2 }} className="h-11 border-2 font-bold shadow-inner" placeholder="jane@example.com" />
                           </div>
-                          <div className="space-y-3">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile for Alerts</Label>
-                            <PhoneInput name="clientPhone" label="" className="h-14 kiosk-phone-input" />
+                          <div className="space-y-2">
+                            <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile</Label>
+                            <PhoneInput name="clientPhone" label="" className="h-11 kiosk-phone-input" />
                           </div>
-                          <div className="space-y-3 pt-4 border-t border-dashed">
-                            <Label htmlFor="booking-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                              <MessageSquare className="w-3.5 h-3.5 opacity-40" />Session Context & Notes
+                          <div className="space-y-2 pt-3 border-t border-dashed">
+                            <Label htmlFor="booking-notes" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
+                              <MessageSquare className="w-3 h-3 opacity-40" />Notes (optional)
                             </Label>
-                            <Textarea id="booking-notes" {...methods.register('notes')} style={{ borderRadius: r2 }} className="border-2 bg-muted/5 min-h-[100px] p-4 font-medium leading-relaxed" placeholder="Share any specific requests..." />
+                            <Textarea id="booking-notes" {...methods.register('notes')} style={{ borderRadius: r2 }} className="border-2 bg-muted/5 min-h-[72px] p-3 text-sm font-medium leading-relaxed" placeholder="Any specific requests..." />
                           </div>
                         </div>
-                        <div className="space-y-4 pt-4 border-t border-dashed text-left">
-                          <div className="flex items-center gap-3">
-                            <FileImage className="w-5 h-5 text-primary" />
-                            <h3 style={{ fontFamily: headingFont }} className="text-sm font-black uppercase tracking-widest">Visual Inspiration</h3>
-                          </div>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase leading-relaxed tracking-tight opacity-60">Upload a reference photo to help your pro understand your target look.</p>
+                        <div className="space-y-2 pt-3 border-t border-dashed text-left">
+                          <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
+                            <FileImage className="w-3 h-3 opacity-40" />Inspiration photo (optional)
+                          </Label>
                           <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} />
                         </div>
                         <AnimatePresence>
                           {isResolvingIdentity && (
-                            <motion.div key="resolving" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-primary animate-pulse">
-                              <Loader className="w-3 h-3 animate-spin" /> Verifying Profile...
+                            <motion.div key="resolving" className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] text-primary animate-pulse">
+                              <Loader className="w-3 h-3 animate-spin" /> Verifying...
                             </motion.div>
                           )}
                           {bannedClient && (
                             <motion.div key="banned" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                              <Alert variant="destructive" style={{ borderRadius: r2 }} className="bg-destructive/10 border-destructive shadow-xl border-4 p-6 text-left">
-                                <Ban className="h-6 w-6" />
-                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Check-in Restricted</AlertTitle>
-                                <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                              <Alert variant="destructive" style={{ borderRadius: r2 }} className="bg-destructive/10 border-destructive shadow-lg border-4 p-4 text-left">
+                                <Ban className="h-5 w-5" />
+                                <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Check-in Restricted</AlertTitle>
+                                <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
                                   {bannedClient.banMessage || 'Your account is currently restricted. Please see the front desk.'}
                                 </AlertDescription>
                               </Alert>
@@ -778,10 +873,10 @@ const depositAmount = useMemo(() => {
                           )}
                           {existingClientWithBalance && !bannedClient && (
                             <motion.div key="balance" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-                              <Alert variant="destructive" style={{ borderRadius: r2 }} className="bg-destructive/5 border-destructive/20 border-2 p-6 shadow-xl text-left">
-                                <Wallet className="h-6 w-6" />
-                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Balance Detected</AlertTitle>
-                                <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
+                              <Alert variant="destructive" style={{ borderRadius: r2 }} className="bg-destructive/5 border-destructive/20 border-2 p-4 shadow-lg text-left">
+                                <Wallet className="h-5 w-5" />
+                                <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Balance Detected</AlertTitle>
+                                <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase text-left">
                                   Account balance of <strong>${existingClientWithBalance.outstandingBalance?.toFixed(2)}</strong> found. Please settle at the desk.
                                 </AlertDescription>
                               </Alert>
@@ -794,20 +889,17 @@ const depositAmount = useMemo(() => {
 
                   {/* ── Step: Consents ───────────────────────────────────── */}
                   {currentStep === 'consents' && (
-                    <div className="space-y-10 text-left">
-                      <div className="space-y-2">
-                        <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3 text-left">
-                          <FileSignature className="w-6 h-6 text-primary" />Agreements
-                        </h3>
-                        <p className="text-xs font-medium text-muted-foreground text-left">Required standards and waivers.</p>
-                      </div>
-                      <div className="space-y-12">
+                    <div className="space-y-7 text-left">
+                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
+                        <FileSignature className="w-4 h-4 text-primary" />Agreements
+                      </h3>
+                      <div className="space-y-8">
                         {requiredForms.map(form => (
-                          <div key={form.id} style={{ borderRadius: r3 }} className="space-y-8 p-8 md:p-12 border-2 border-card/50 bg-card/60 backdrop-blur-2xl shadow-2xl">
-                            <div style={{ fontFamily: headingFont }} className="flex items-center gap-4 text-2xl font-black uppercase tracking-tighter pb-4 border-b border-dashed">
-                              <ListChecks className="w-8 h-8 text-primary" />{form.title}
+                          <div key={form.id} style={{ borderRadius: r3 }} className="space-y-6 p-6 border-2 border-card/50 bg-card/60 backdrop-blur-2xl shadow-xl">
+                            <div style={{ fontFamily: headingFont }} className="flex items-center gap-3 text-lg font-black uppercase tracking-tighter pb-3 border-b border-dashed">
+                              <ListChecks className="w-5 h-5 text-primary" />{form.title}
                             </div>
-                            <div className="space-y-10">
+                            <div className="space-y-7">
                               {form.fields?.map(field => (
                                 <FormFieldRenderer
                                   key={field.id}
@@ -823,98 +915,79 @@ const depositAmount = useMemo(() => {
                     </div>
                   )}
 
-                  {/* ── Step: Summary ────────────────────────────────────── */}
+                  {/* ── Step: Summary (no-deposit path only) ─────────────── */}
                   {currentStep === 'summary' && (
-                    <div className="space-y-8 text-left">
-                      <div className="space-y-2 text-left">
-                        <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
-                          <ShieldCheck className="w-6 h-6 text-primary" />Review
-                        </h3>
-                        <p className="text-xs font-medium text-muted-foreground">Finalize your session details.</p>
-                      </div>
-                      <Card style={{ borderRadius: r3 }} className="bg-primary/5 border-primary/20 overflow-hidden shadow-2xl border-2">
-                        <CardContent className="p-8 md:p-10 space-y-6 text-left">
+                    <div className="space-y-6 text-left">
+                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-primary" />Review
+                      </h3>
+                      <Card style={{ borderRadius: r3 }} className="bg-primary/5 border-primary/20 overflow-hidden shadow-xl border-2">
+                        <CardContent className="p-6 space-y-4 text-left">
                           <div className="flex justify-between items-center gap-4">
                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Professional</span>
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span style={{ fontFamily: headingFont }} className="font-black text-[11px] sm:text-sm uppercase tracking-tight truncate">{selectedStaffId === 'any' ? 'First Available' : selectedStaff?.name}</span>
-                              {selectedStaff && (
-                                <Avatar className="h-6 w-6 border shadow-sm shrink-0">
-                                  <AvatarImage src={selectedStaff.avatarUrl} className="object-cover" />
-                                  <AvatarFallback>{selectedStaff.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                              )}
-                            </div>
+                            <span style={{ fontFamily: headingFont }} className="font-black text-xs uppercase tracking-tight truncate">{selectedStaffId === 'any' ? 'First Available' : selectedStaff?.name}</span>
                           </div>
-                          {selectedStaffId === 'any' && selectedTierId !== 'any' && (
-                            <div className="flex justify-between items-center gap-4">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Tier Pref</span>
-                              <span style={{ fontFamily: headingFont }} className="font-black text-[11px] sm:text-sm uppercase tracking-tight text-primary truncate">{availableTiersForService.find(t => t.tierId === selectedTierId)?.name}</span>
-                            </div>
-                          )}
                           <div className="flex justify-between items-center gap-4">
                             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Schedule</span>
-                            <span style={{ fontFamily: headingFont }} className="font-black text-[11px] sm:text-sm uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')}</span>
+                            <span style={{ fontFamily: headingFont }} className="font-black text-xs uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')} · {selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
                           </div>
-                          <div className="flex justify-between items-center gap-4">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Start Time</span>
-                            <span style={{ fontFamily: headingFont }} className="font-black text-sm sm:text-xl uppercase tracking-tight text-primary truncate">{selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
-                          </div>
-                          {inspirationPhotoUrl && (
-                            <div className="flex justify-between items-center gap-4 pt-4 border-t border-dashed border-primary/10 text-left">
-                              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Inspiration</span>
-                              <div className="relative w-12 h-12 overflow-hidden border-2 border-primary/20" style={{ borderRadius: r }}>
-                                <Image src={inspirationPhotoUrl} alt="Target Visual" fill className="object-cover" />
-                              </div>
-                            </div>
-                          )}
                           <Separator className="bg-primary/10 border-dashed" />
-                          <div className="flex justify-between items-center text-2xl sm:text-3xl font-black uppercase tracking-tighter text-left">
+                          <div className="flex justify-between items-center text-xl font-black uppercase tracking-tighter text-left">
                             <span style={{ fontFamily: headingFont }}>Total</span>
                             <span style={{ fontFamily: headingFont }}>${price?.toFixed(2)}</span>
                           </div>
-                          {depositAmount > 0 && (
-                            <div style={{ borderRadius: r }} className="p-4 bg-amber-500/10 border border-amber-500/20 text-center">
-                              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Required Deposit: <strong className="text-sm sm:text-base tracking-tighter">${depositAmount.toFixed(2)}</strong></p>
-                            </div>
-                          )}
                         </CardContent>
                       </Card>
                     </div>
                   )}
 
-                  {/* ── Step: Deposit (handoff to secure checkout) ───────── */}
-                  {currentStep === 'payment' && (
-                    <div className="space-y-8 text-left">
-                      <div className="space-y-2 text-left">
-                        <h3 style={{ fontFamily: headingFont }} className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
-                          <CreditCard className="w-6 h-6 text-primary" />Deposit
-                        </h3>
-                        <p className="text-xs font-medium text-muted-foreground">Secure your spot with a deposit. It's applied to your final total.</p>
-                      </div>
-                      <Card style={{ borderRadius: r3 }} className="border-4 shadow-2xl overflow-hidden text-left">
-                        <CardHeader className="bg-muted/30 p-10 pb-6 text-center">
-                          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground mb-2">Required Today</p>
-                          <p style={{ fontFamily: headingFont }} className="text-7xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</p>
-                        </CardHeader>
-                        <CardContent className="p-10 space-y-6 text-left">
-                          <div className="flex items-start gap-4">
-                            <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
-                              <ShieldCheck className="w-6 h-6 text-primary" />
-                            </div>
-                            <div className="space-y-1">
-                              <p className="text-sm font-black uppercase tracking-tight">Secure Card Checkout</p>
-                              <p className="text-xs text-muted-foreground font-medium leading-relaxed">
-                                When you continue, we'll take you to our secure card checkout to pay your deposit. Once it's done, your appointment request is reserved.
-                              </p>
-                            </div>
+                  {/* ── Step: Checkout (deposit required — review + embedded payment combined) ── */}
+                  {currentStep === 'checkout' && (
+                    <div className="space-y-5 text-left">
+                      <h3 style={{ fontFamily: headingFont }} className="text-base font-black uppercase tracking-tight flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-primary" />Secure Your Spot
+                      </h3>
+
+                      <Card style={{ borderRadius: r3 }} className="bg-primary/5 border-primary/20 overflow-hidden shadow-lg border-2">
+                        <CardContent className="p-5 space-y-3 text-left">
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Schedule</span>
+                            <span style={{ fontFamily: headingFont }} className="font-black text-[11px] uppercase tracking-tight truncate">{format(date, 'MMM d, yyyy')} · {selectedTime ? format(timeStringToDate(selectedTime, new Date()), 'h:mm a') : ''}</span>
                           </div>
-                          <div style={{ borderRadius: r2 }} className="flex items-center gap-3 p-4 bg-muted/20 text-xs text-muted-foreground font-medium italic text-left">
-                            <Lock className="w-4 h-4 shrink-0" />
-                            Payments are processed securely. Your card details are never stored on our servers.
+                          <Separator className="bg-primary/10 border-dashed" />
+                          <div className="flex justify-between items-center">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">Deposit Due Today</span>
+                            <span style={{ fontFamily: headingFont }} className="text-2xl font-black text-primary tracking-tighter">${depositAmount.toFixed(2)}</span>
                           </div>
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">Applied to your final total at checkout</p>
                         </CardContent>
                       </Card>
+
+                      {depositError ? (
+                        <Alert variant="destructive" style={{ borderRadius: r2 }} className="p-5 border-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertTitle className="text-xs font-black uppercase tracking-tight mb-1">Couldn't start checkout</AlertTitle>
+                          <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 mb-3">{depositError}</AlertDescription>
+                          <Button onClick={initiateCheckout} disabled={depositLoading} size="sm" className="h-9 rounded-xl font-black uppercase text-[10px] tracking-widest">
+                            <RefreshCw className={cn('w-3.5 h-3.5 mr-1.5', depositLoading && 'animate-spin')} /> Try Again
+                          </Button>
+                        </Alert>
+                      ) : (
+                        <div className="rounded-2xl border-2 bg-white shadow-inner overflow-hidden relative" style={{ minHeight: 320 }}>
+                          {(depositLoading || !depositClientSecret) && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 bg-white z-10">
+                              <Loader className="w-5 h-5 animate-spin text-primary" />
+                              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Preparing secure checkout…</p>
+                            </div>
+                          )}
+                          <div ref={embeddedMountRef} />
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2.5 p-3 bg-muted/20 text-[10px] text-muted-foreground font-medium italic rounded-xl">
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        Payments are processed securely by Stripe. Card details are never stored on our servers.
+                      </div>
                     </div>
                   )}
 
@@ -925,15 +998,15 @@ const depositAmount = useMemo(() => {
         </ScrollArea>
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
-        {currentStep !== 'confirmation' && (
-          <SheetFooter className="p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-2xl">
-            <div className="flex w-full gap-4">
+        {currentStep !== 'confirmation' && currentStep !== 'checkout' && (
+          <SheetFooter className="p-4 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl">
+            <div className="flex w-full gap-3">
               {currentStepIndex > 0 && (
                 <Button
                   variant="ghost"
                   onClick={handlePrevStep}
                   style={{ borderRadius: r3 }}
-                  className="flex-1 h-12 md:h-20 font-black uppercase tracking-tighter text-[10px] md:text-2xl text-muted-foreground"
+                  className="flex-1 h-12 font-black uppercase tracking-tighter text-[10px] text-muted-foreground"
                 >
                   Back
                 </Button>
@@ -943,17 +1016,27 @@ const depositAmount = useMemo(() => {
                 disabled={currentStep === 'details' && (!!existingClientWithBalance || !!bannedClient || isResolvingIdentity)}
                 style={{ borderRadius: r3, fontFamily: headingFont }}
                 className={cn(
-                  'h-12 md:h-20 font-black uppercase tracking-widest text-[10px] md:text-2xl shadow-2xl shadow-primary/30 group transition-all',
+                  'h-12 font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/30 group transition-all',
                   currentStepIndex === 0 ? 'w-full' : 'flex-[2.5]'
                 )}
               >
-                {currentStep === 'summary' && depositAmount > 0 ? 'Review Deposit' :
-                 currentStep === 'payment' ? 'Continue to Secure Checkout' :
-                 currentStep === 'summary' ? 'Finalize Booking' :
-                 'Continue'}
-                <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
+                {currentStep === 'summary' ? 'Finalize Booking' : 'Continue'}
+                <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
               </Button>
             </div>
+          </SheetFooter>
+        )}
+
+        {currentStep === 'checkout' && (
+          <SheetFooter className="p-4 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-xl">
+            <Button
+              variant="ghost"
+              onClick={handlePrevStep}
+              style={{ borderRadius: r3 }}
+              className="w-full h-11 font-black uppercase tracking-tighter text-[10px] text-muted-foreground"
+            >
+              ← Back to Details
+            </Button>
           </SheetFooter>
         )}
       </SheetContent>
