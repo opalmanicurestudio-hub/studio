@@ -81,8 +81,8 @@ export const ConfigurePartsDialog: React.FC<ConfigurePartsDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
-        <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
+      <DialogContent className="sm:max-w-xl h-[90vh] max-h-[90vh] flex flex-col p-0 border-4 rounded-[3rem] overflow-hidden shadow-3xl bg-background">
+        <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left shrink-0">
           <div className="flex items-center gap-3 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
@@ -97,7 +97,7 @@ export const ConfigurePartsDialog: React.FC<ConfigurePartsDialogProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           <div className="p-8 space-y-8">
             {newServices.map((service) => (
               <div
@@ -221,7 +221,7 @@ export const ConfigurePartsDialog: React.FC<ConfigurePartsDialogProps> = ({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="p-8 pt-4 border-t bg-background">
+        <DialogFooter className="p-8 pt-4 border-t bg-background shrink-0">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
