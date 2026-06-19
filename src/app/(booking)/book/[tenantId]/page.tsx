@@ -43,6 +43,20 @@ type ConfirmResult =
   | { requiresPayment: true; clientSecret: string; stripeAccountId?: string }
   | { requiresPayment: true; error: string };
 
+/**
+ * Recursively removes any keys with undefined values from an object.
+ * The Firestore client SDK (unlike Admin SDK) throws on undefined values.
+ */
+const sanitizeForFirestore = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitizeForFirestore(v)])
+  );
+};
+
 // ─── Main component ────────────────────────────────────────────────────────────
 function BookingPageContent({ tenantId }: { tenantId: string }) {
   usePageFonts();
@@ -218,7 +232,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       if (depositCents <= 0) {
         const { depositAmount, depositStatus, ...restDetails } = apptDetails || {};
         const aptRef = doc(collection(db, `tenants/${tenantId}/appointments`));
-        await setDoc(aptRef, {
+        await setDoc(aptRef, sanitizeForFirestore({
           id: aptRef.id,
           tenantId,
           ...formData, ...restDetails, signedForms,
@@ -227,16 +241,16 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           depositStatus: 'none',
           checkInStatus: 'pending',
           createdAt: new Date().toISOString(),
-        });
+        }));
         setStep('confirmation');
         return { requiresPayment: false };
       }
 
       // Deposit required → hold as a pending booking request while the guest pays
-      const ref = await addDoc(collection(db, `tenants/${tenantId}/bookingRequests`), {
+      const ref = await addDoc(collection(db, `tenants/${tenantId}/bookingRequests`), sanitizeForFirestore({
         ...formData, ...apptDetails, signedForms,
         status: 'pending', source: 'booking-page', createdAt: new Date(),
-      });
+      }));
 
       // Ask for an EMBEDDED checkout session — mounted inline, no redirect
       const svc = services.find((s: any) => s.id === apptDetails?.serviceId);
