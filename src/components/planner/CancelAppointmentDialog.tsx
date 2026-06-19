@@ -20,7 +20,22 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion, AnimatePresence } from 'framer-motion';
-import { type Appointment, type Tenant, type Service, type Staff, type CancellationAudit, type AuditLogEntry } from '@/lib/data';
+import {
+  type Appointment,
+  type Tenant,
+  type Service,
+  type Staff,
+  type CancellationAudit,
+  type AuditLogEntry,
+  type StudioCancellationReason,
+  type ClientCancellationReason,
+} from '@/lib/data';
+import {
+  resolveDepositOutcome,
+  hoursUntilStart as computeHoursUntilStart,
+  type CancelTrigger,
+  type ResolvedOutcome,
+} from '@/lib/deposit-policy';
 import { 
   AlertTriangle,
   Ban,
@@ -47,6 +62,43 @@ import { nanoid } from 'nanoid';
 
 // Who is performing the cancellation. Drives the audit trail's actorType.
 type ActorType = 'studio' | 'client' | 'no_show';
+
+// Reason options shown depend on who's cancelling — a studio/staff member
+// and a client have genuinely different reasons available to them, and the
+// values map onto StudioCancellationReason / ClientCancellationReason on
+// CancellationAudit. 'no_show' has no reason choice — it's definitionally
+// the reason.
+const STUDIO_REASON_OPTIONS: { value: StudioCancellationReason; label: string }[] = [
+  { value: 'late_arrival',           label: 'Late Arrival' },
+  { value: 'staff_unavailable',      label: 'Staff Unavailable' },
+  { value: 'double_booked',          label: 'Double Booked' },
+  { value: 'client_request_relayed', label: 'Client Asked Us To' },
+  { value: 'other',                  label: 'Other' },
+];
+
+const CLIENT_REASON_OPTIONS: { value: ClientCancellationReason; label: string }[] = [
+  { value: 'schedule_conflict',   label: 'Schedule Conflict' },
+  { value: 'changed_mind',        label: 'Changed Mind' },
+  { value: 'found_alternative',   label: 'Found Alternative' },
+  { value: 'price_concern',       label: 'Price Concern' },
+  { value: 'health_or_childcare', label: 'Health / Childcare' },
+  { value: 'other',               label: 'Other' },
+];
+
+// Maps an actor-specific reason code down to the coarse, backward-compatible
+// CancellationAudit['reason'] value that existing display/filter code reads.
+function coarseReasonFor(actorType: ActorType, studioReason?: StudioCancellationReason, clientReason?: ClientCancellationReason): CancellationAudit['reason'] {
+  if (actorType === 'no_show') return 'no-show';
+  if (actorType === 'studio') {
+    if (studioReason === 'late_arrival') return 'late';
+    if (studioReason === 'client_request_relayed') return 'client_request';
+    if (studioReason === 'other') return 'other';
+    return 'other'; // staff_unavailable / double_booked are studio-side faults, not a pre-existing bucket
+  }
+  // client
+  if (clientReason === 'other') return 'other';
+  return 'client_request';
+}
 
 interface CancelAppointmentDialogProps {
   open: boolean;
@@ -90,7 +142,8 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   // this if the client called/texted to cancel themselves, or mark no-show.
   const [actorType, setActorType] = useState<ActorType>('studio');
 
-  const [reason, setReason] = useState('client_request');
+  const [studioReason, setStudioReason] = useState<StudioCancellationReason>('client_request_relayed');
+  const [clientReason, setClientReason] = useState<ClientCancellationReason>('schedule_conflict');
   const [chargeFee, setChargeFee] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [customReason, setCustomReason] = useState('');
@@ -166,15 +219,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       }
   }, [open, sessionItems, recoveryMatrix, tenant]);
 
-  // Keep `reason` in sync with the actor selection — actorType drives the
-  // high-level "who", reason captures the more granular "why" your existing
-  // schema already expects (cancellationReason on Appointment).
-  useEffect(() => {
-      if (actorType === 'no_show') setReason('no-show');
-      else if (actorType === 'client') setReason('client_request');
-      // 'studio' leaves whatever specific reason was already selected,
-      // since staff-initiated cancellations can be for any reason.
-  }, [actorType]);
+  // No cross-actor reason syncing needed anymore — studioReason and clientReason
+  // are independent state, and the UI only shows the set matching actorType.
+  // 'no_show' has no reason input at all.
+
+  const isNoShow = actorType === 'no_show';
+  const isOtherSelected = (actorType === 'studio' && studioReason === 'other') || (actorType === 'client' && clientReason === 'other');
+  const coarseReason = useMemo(
+    () => coarseReasonFor(actorType, actorType === 'studio' ? studioReason : undefined, actorType === 'client' ? clientReason : undefined),
+    [actorType, studioReason, clientReason]
+  );
 
   const totalMatrixFee = useMemo(() => {
       let total = 0;
@@ -187,10 +241,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   const finalFeeAmount = useMemo(() => {
       if (!chargeFee) return 0;
-      if (reason === 'no-show') return sessionItems.reduce((acc, s) => acc + s.price, 0);
+      if (isNoShow) return sessionItems.reduce((acc, s) => acc + s.price, 0);
       if (useOverrideFee) return overrideFeeValue;
       return totalMatrixFee;
-  }, [chargeFee, reason, useOverrideFee, overrideFeeValue, totalMatrixFee, sessionItems]);
+  }, [chargeFee, isNoShow, useOverrideFee, overrideFeeValue, totalMatrixFee, sessionItems]);
 
   const handleAction = async () => {
     setIsSubmitting(true);
