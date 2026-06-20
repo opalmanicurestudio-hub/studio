@@ -265,6 +265,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     return { requiredForms, pendingForms, allCertified: pendingForms.length === 0 };
   }, [service, consentForms, signedConsents, appointment?.signedForms]);
 
+  const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
+
   const financialData = useMemo(() => {
     if (!appointment || !service) return null;
     try {
@@ -497,6 +499,10 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <AlertTriangle className="w-2.5 h-2.5 mr-1" /> Dispute
                 </Badge>
               )}
+              <StoreCreditBadge
+                credits={availableCredits}
+                totalAvailable={totalStoreCreditAvailable}
+              />
             </div>
             {isOwnerOrAdminUser && (
               <div className="flex flex-col gap-0.5 pt-1">
@@ -577,6 +583,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 {cardSecured ? 'Secured' : 'Not on file'}
               </span>
             </div>
+            <StoreCreditSection client={client} />
             {reqFiles.map((rf: any) => (
               <div key={rf.requirementId} className="space-y-2 pt-1.5 border-t border-dashed border-muted/40">
                 <div className="flex items-center justify-between text-[10px] font-black uppercase">
