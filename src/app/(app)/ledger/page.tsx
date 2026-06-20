@@ -92,6 +92,7 @@ const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: strin
 const CATEGORY_TO_BUCKET: Record<string, string> = {
   'Service Revenue': 'revenue', 'Retail': 'revenue', 'Retail Product': 'revenue',
   'Membership Sales': 'revenue', 'Package Sales': 'revenue', 'Hospitality Revenue': 'revenue',
+  'Card Processing Fee': 'revenue',
   'Tips': 'gratuity',
   'Tax Collected': 'tax_collected',
   'Discounts': 'adjustment', 'Protocol Recovery': 'adjustment', 'Strategic Adjustment': 'adjustment',
@@ -122,10 +123,19 @@ const getCatStyle = (cat: string) => {
 const sessionRefNum = (sid: string) => `REF-${sid.slice(-6).toUpperCase()}`;
 const txnRefNum     = (id: string)  => `TXN-${id.slice(-6).toUpperCase()}`;
 
+// Categories that represent the studio's own cost of accepting a card
+// payment — these should never reduce a CLIENT-FACING session total
+// (the client paid the gross amount; the fee is an internal cost), and
+// should also never count as "Discounts" in a session's totals row.
+const FEE_CATEGORIES = new Set(['Processing Fee']);
+
 function buildPrintHtml(
   transactions: Transaction[],
   staff: Staff[],
-  summary: { revenue: number; cogs: number; grossProfit: number; operatingExpenses: number; net: number },
+  summary: {
+    revenue: number; cogs: number; grossProfit: number; operatingExpenses: number; net: number;
+    processingFeesPaid: number; processingFeesCollected: number; netFeeImpact: number;
+  },
   dateRange: DateRange | undefined,
 ) {
   const staffInfo = (id?: string) => {
@@ -161,18 +171,30 @@ function buildPrintHtml(
     const first    = txns[0];
     const income   = txns.filter(t => t.type === 'income');
     const expense  = txns.filter(t => t.type === 'expense');
+    // Fees are tracked separately and shown as an informational note — they
+    // never reduce what the client paid, so they're excluded from the
+    // client-facing totals math below.
+    const feeTxns       = expense.filter(t => FEE_CATEGORIES.has(t.category));
+    const realExpense    = expense.filter(t => !FEE_CATEGORIES.has(t.category));
+    const stripeFeeTotal = feeTxns.reduce((s, t) => s + t.amount, 0);
     const tax      = income.find(t => t.category === 'Tax Collected')?.amount || 0;
     const tips     = income.filter(t => t.category === 'Tips').reduce((s, t) => s + t.amount, 0);
-    const discounts= expense.filter(t => ['Discounts','Refunds'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
-    const subtotal = income.filter(t => !['Tax Collected','Tips'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
-    const total    = income.reduce((s, t) => s + t.amount, 0) - expense.reduce((s, t) => s + t.amount, 0);
-    return { sid, refNum: sessionRefNum(sid), first, txns, subtotal, tax, tips, discounts, total };
+    const cardFeeCollected = income.filter(t => t.category === 'Card Processing Fee').reduce((s, t) => s + t.amount, 0);
+    const discounts= realExpense.filter(t => ['Discounts','Refunds'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
+    const subtotal = income.filter(t => !['Tax Collected','Tips','Card Processing Fee'].includes(t.category)).reduce((s, t) => s + t.amount, 0);
+    const total    = income.reduce((s, t) => s + t.amount, 0) - realExpense.reduce((s, t) => s + t.amount, 0);
+    return { sid, refNum: sessionRefNum(sid), first, txns, subtotal, tax, tips, cardFeeCollected, discounts, total, stripeFeeTotal };
   }).sort((a, b) => new Date(b.first.date).getTime() - new Date(a.first.date).getTime());
 
   // ── Category totals for revenue breakdown ───────────────────────────────────
   const catMap = new Map<string, number>();
   transactions.filter(t => t.type === 'income').forEach(t => catMap.set(t.category, (catMap.get(t.category) || 0) + t.amount));
   const catTotals = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
+
+  // ── Category totals for expense breakdown (mirrors revenue breakdown) ───────
+  const expCatMap = new Map<string, number>();
+  transactions.filter(t => t.type === 'expense').forEach(t => expCatMap.set(t.category, (expCatMap.get(t.category) || 0) + t.amount));
+  const expCatTotals = Array.from(expCatMap.entries()).sort((a, b) => b[1] - a[1]);
 
   // ── Appendix items with sequential IMG numbers ──────────────────────────────
   type AppendixItem = { refNum: string; imgNum: number; desc: string; date: string; client: string; url?: string };
@@ -227,9 +249,14 @@ function buildPrintHtml(
       s.subtotal > 0 ? `Services <strong style="font-family:monospace">$${s.subtotal.toFixed(2)}</strong>` : '',
       s.tax > 0 ? `Tax <strong style="font-family:monospace;color:#374151">$${s.tax.toFixed(2)}</strong>` : '',
       s.tips > 0 ? `Tip <strong style="font-family:monospace;color:#854d0e">$${s.tips.toFixed(2)}</strong>` : '',
+      s.cardFeeCollected > 0 ? `Card Fee <strong style="font-family:monospace;color:#92400e">$${s.cardFeeCollected.toFixed(2)}</strong>` : '',
       s.discounts > 0 ? `Discount <strong style="font-family:monospace;color:#9d174d">-$${s.discounts.toFixed(2)}</strong>` : '',
       `<strong>Total <span style="font-family:monospace">$${s.total.toFixed(2)}</span></strong>`,
     ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+    const feeNote = s.stripeFeeTotal > 0
+      ? `<div style="padding:4px 14px 8px;font-size:9px;color:#9ca3af;font-style:italic;">Stripe processing fee on this sale: $${s.stripeFeeTotal.toFixed(2)} (studio cost — not part of guest total)</div>`
+      : '';
 
     return `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
       <div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;">
@@ -244,6 +271,7 @@ function buildPrintHtml(
       </div>
       <table style="width:100%;border-collapse:collapse;"><tbody>${lineItems}</tbody></table>
       <div style="padding:8px 14px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">${totals}</div>
+      ${feeNote}
     </div>`;
   }).join('');
 
@@ -317,18 +345,35 @@ function buildPrintHtml(
     <div style="display:flex;flex-wrap:wrap;gap:6px;">${legendHtml}</div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
     <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
       <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Financial Summary</div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Total Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.revenue.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">COGS</span><span style="font-family:monospace;color:#991b1b;">-$${summary.cogs.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:6px 0 3px;font-size:12px;font-weight:700;border-bottom:1px solid #f3f4f6;"><span>Gross Profit</span><span style="font-family:monospace;">$${summary.grossProfit.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Op. Expenses</span><span style="font-family:monospace;color:#991b1b;">-$${summary.operatingExpenses.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#7c3aed;">Card Processing Fees Paid</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Other Op. Expenses</span><span style="font-family:monospace;color:#991b1b;">-$${summary.operatingExpenses.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Income</span><span style="font-family:monospace;color:${summary.net >= 0 ? '#166534' : '#991b1b'};">$${summary.net.toFixed(2)}</span></div>
     </div>
     <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Card Processing Fees — Write-Off Summary</div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Collected from Clients</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.processingFeesCollected.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Paid to Stripe</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Fee Cost / Recovery</span><span style="font-family:monospace;color:${summary.netFeeImpact >= 0 ? '#166534' : '#991b1b'};">${summary.netFeeImpact >= 0 ? '+' : ''}$${summary.netFeeImpact.toFixed(2)}</span></div>
+      <p style="font-size:9px;color:#9ca3af;margin-top:10px;line-height:1.5;">"Paid to Stripe" is fully deductible as a processing/merchant fee expense. This is separate from sales tax and does not net against revenue for tax purposes — both figures should be reported to your accountant individually.</p>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
+    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
       <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Revenue by Category</div>
       ${catTotals.map(([cat, amt]) => { const cs = getCatStyle(cat); return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid #f9fafb;"><span><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;">${cs.label}</span></span><span style="font-family:monospace;color:#166534;font-weight:600;">$${amt.toFixed(2)}</span></div>`; }).join('')}
+    </div>
+    <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
+      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Expenses by Category</div>
+      ${expCatTotals.length > 0
+        ? expCatTotals.map(([cat, amt]) => { const cs = getCatStyle(cat); return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid #f9fafb;"><span><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;">${cs.label}</span></span><span style="font-family:monospace;color:#991b1b;font-weight:600;">$${amt.toFixed(2)}</span></div>`; }).join('')
+        : `<p style="font-size:10px;color:#9ca3af;">No expenses recorded this period.</p>`}
     </div>
   </div>
 
@@ -765,7 +810,7 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
         <div className="p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
           <div className="space-y-2 text-xs">
-            {[['Total Revenue', financialSummary.revenue, 'text-green-600'],['COGS', -financialSummary.cogs, 'text-destructive'],['Gross Profit', financialSummary.grossProfit, 'text-slate-900'],['Op. Expenses', -financialSummary.operatingExpenses, 'text-destructive']].map(([label, val, cls]) => (
+            {[['Total Revenue', financialSummary.revenue, 'text-green-600'],['COGS', -financialSummary.cogs, 'text-destructive'],['Gross Profit', financialSummary.grossProfit, 'text-slate-900'],['Card Fees Paid', -financialSummary.processingFeesPaid, 'text-purple-700'],['Op. Expenses', -financialSummary.operatingExpenses, 'text-destructive']].map(([label, val, cls]) => (
               <div key={label as string} className="flex justify-between font-bold"><span>{label as string}</span><span className={cn('font-mono', cls as string)}>{(val as number) < 0 ? '-' : ''}${Math.abs(val as number).toFixed(2)}</span></div>
             ))}
             <div className="flex justify-between border-t-4 border-primary/20 pt-3 mt-3">
@@ -926,8 +971,20 @@ const LedgerPage = () => {
     const cogs_cats = ['spoilage', 'supplies', 'cost of goods', 'spoilage'];
     const revenue = filteredTransactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const cogs = filteredTransactions.filter(t => t.type === 'expense' && cogs_cats.some(c => t.category.toLowerCase().includes(c))).reduce((s, t) => s + t.amount, 0);
-    const operatingExpenses = filteredTransactions.filter(t => t.type === 'expense' && !cogs_cats.some(c => t.category.toLowerCase().includes(c))).reduce((s, t) => s + t.amount, 0);
-    return { revenue, cogs, grossProfit: revenue - cogs, operatingExpenses, net: revenue - cogs - operatingExpenses };
+    // Card processing fees get their own line — both what Stripe actually
+    // charged (expense) and what was passed through to clients via the
+    // surcharge feature (income) — instead of being buried inside a generic
+    // "Op. Expenses" bucket where they're invisible at a glance.
+    const processingFeesPaid = filteredTransactions.filter(t => t.type === 'expense' && t.category === 'Processing Fee').reduce((s, t) => s + t.amount, 0);
+    const processingFeesCollected = filteredTransactions.filter(t => t.type === 'income' && t.category === 'Card Processing Fee').reduce((s, t) => s + t.amount, 0);
+    const operatingExpenses = filteredTransactions.filter(t => t.type === 'expense' && !cogs_cats.some(c => t.category.toLowerCase().includes(c)) && t.category !== 'Processing Fee').reduce((s, t) => s + t.amount, 0);
+    const grossProfit = revenue - cogs;
+    const net = grossProfit - processingFeesPaid - operatingExpenses;
+    return {
+      revenue, cogs, grossProfit, operatingExpenses, net,
+      processingFeesPaid, processingFeesCollected,
+      netFeeImpact: processingFeesCollected - processingFeesPaid,
+    };
   }, [filteredTransactions]);
 
   // ── Fast print: build HTML in memory, open new window, print instantly ──────
