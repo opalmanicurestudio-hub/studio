@@ -49,6 +49,9 @@ import NextImage from 'next/image';
 import { ImageMarkupDialog } from '../shared/ImageMarkupDialog';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { computeDepositCents } from '@/lib/deposit-policy';
+import { StoreCreditBadge } from '@/components/StoreCreditBadge';
+import { StoreCreditSection } from '@/components/appointments/StoreCreditSection';
+import { useStoreCredit } from '@/hooks/useStoreCredit';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -78,6 +81,7 @@ const ReadinessBanner = ({
   client: any;
   complianceInfo: { pendingForms: any[]; allCertified: boolean };
 }) => {
+  const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
   const flags      = appointment?.readinessFlags || {};
   const hasBan     = client?.status === 'banned';
   const hasDispute = client?.hasOpenDispute === true;
