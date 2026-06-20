@@ -523,7 +523,7 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.refunded: Stripe returns part of the fee ──────────────────
+      // ── charge.refunded: record the actual refund + any fee credit ───────
       case 'charge.refunded': {
         const charge  = event.data.object as Stripe.Charge;
         const tenant  = await getTenant(connAcct);
@@ -532,16 +532,64 @@ export async function POST(req: NextRequest) {
         const latestRefund = charge.refunds?.data?.[0];
         if (!latestRefund) break;
 
+        // ── 1. Record the refund itself — this is the part that was missing.
+        // Stripe usually does NOT return the processing fee on a refund, so
+        // relying on a fee credit to detect "a refund happened" misses nearly
+        // every refund. This writes the actual amount returned to the client,
+        // keyed on the refund ID itself so it can't double-post on retries.
+        const existingRefund = await db.collection(`tenants/${tenant.id}/transactions`)
+          .where('stripeRefundId', '==', latestRefund.id)
+          .limit(1).get();
+
+        if (existingRefund.empty) {
+          // Try to find the original revenue transaction for this charge so
+          // the refund can inherit a sensible description/client/category.
+          // Not every charge-creation path tags stripeChargeId consistently
+          // yet, so this is best-effort — the refund is recorded with or
+          // without a match.
+          const origSnap = await db.collection(`tenants/${tenant.id}/transactions`)
+            .where('stripeChargeId', '==', charge.id)
+            .where('taxBucket', '==', 'revenue')
+            .limit(1).get();
+          const orig = origSnap.empty ? null : origSnap.docs[0].data();
+
+          const refundAmountDollars = latestRefund.amount / 100;
+          const refundRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+          await refundRef.set({
+            id:                       refundRef.id,
+            date:                     new Date(latestRefund.created * 1000).toISOString(),
+            description:              `Refund — ${orig?.description || charge.description || 'Stripe charge'}`,
+            clientOrVendor:           orig?.clientOrVendor || 'Client',
+            clientId:                 orig?.clientId || charge.metadata?.clientId || null,
+            type:                     'reversal',
+            context:                  'Business',
+            category:                 'Refunds',
+            taxBucket:                'refund',
+            amount:                   refundAmountDollars,
+            paymentMethod:            orig?.paymentMethod || 'Stripe',
+            appointmentId:            orig?.appointmentId || charge.metadata?.appointmentId || null,
+            checkoutSessionId:        orig?.checkoutSessionId || null,
+            hasReceipt:               false,
+            stripeChargeId:           charge.id,
+            stripeRefundId:           latestRefund.id,
+            stripeConnectedAccountId: connAcct,
+            tenantId:                 tenant.id,
+          });
+
+          console.log(`[connect-webhook] Refund of $${refundAmountDollars.toFixed(2)} recorded for charge ${charge.id}`);
+        }
+
+        // ── 2. Record any fee Stripe actually returned (rare, but possible
+        // depending on dispute/refund timing and account settings).
         const refundBalTxnId = typeof latestRefund.balance_transaction === 'string'
           ? latestRefund.balance_transaction
           : (latestRefund.balance_transaction as any)?.id;
         if (!refundBalTxnId) break;
 
-        // Idempotency
-        const existing = await db.collection(`tenants/${tenant.id}/transactions`)
+        const existingFeeCredit = await db.collection(`tenants/${tenant.id}/transactions`)
           .where('stripeBalanceTxnId', '==', refundBalTxnId)
           .limit(1).get();
-        if (!existing.empty) break;
+        if (!existingFeeCredit.empty) break;
 
         const refundBalTxn = await stripe2.balanceTransactions.retrieve(
           refundBalTxnId, {}, { stripeAccount: connAcct }
@@ -675,7 +723,7 @@ export async function POST(req: NextRequest) {
           context:                  'Business',
           category:                 'Processing Fee',
           taxBucket:                'processing_fee',
-          amount:                   1.50,
+          amount:                   15.00,
           paymentMethod:            'Stripe',
           hasReceipt:               false,
           stripeDisputeId:          dispute.id,
@@ -722,6 +770,7 @@ export async function POST(req: NextRequest) {
             .where('type', '==', 'expense')
             .limit(1).get();
           if (original.empty) break;
+          const originalFeeAmount = Number(original.docs[0].data()?.amount) || 15.00;
 
           const revRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
           await revRef.set({
@@ -733,7 +782,7 @@ export async function POST(req: NextRequest) {
             context:                  'Business',
             category:                 'Processing Fee',
             taxBucket:                'processing_fee',
-            amount:                   1.50,
+            amount:                   originalFeeAmount,
             paymentMethod:            'Stripe',
             hasReceipt:               false,
             stripeDisputeId:          dispute.id,
