@@ -92,6 +92,7 @@ import { useFirebase, setDocumentNonBlocking } from '@/firebase';
 import { CashCheckout } from './CashCheckout';
 import { GuestSearch } from './GuestSearch';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { StoreCreditPanel } from '@/components/pos/StoreCreditPanel';
 
 // ─── Try to use Terminal context if available (graceful fallback if provider not mounted) ──
 let useTerminalSafe: () => any = () => null;
@@ -490,7 +491,9 @@ export const CheckoutHub = ({
   onRequestOverride,
   tenantId,
   cashierName,
-}: any) => {
+  storeCreditApplied,
+  onStoreCreditApplied,
+ }: any) => {
 
   const [promoCodeInput,        setPromoCodeInput]        = useState('');
   const [isDiscountBrowserOpen, setIsDiscountBrowserOpen] = useState(false);
@@ -1081,17 +1084,32 @@ export const CheckoutHub = ({
           <Button variant="outline" onClick={() => handleApplyDiscount(promoCodeInput)} className="h-12 px-4 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:border-primary/40">Apply</Button>
           <Button variant="outline" onClick={() => setIsDiscountBrowserOpen(true)} className="h-12 px-4 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm hover:border-primary/40"><Percent className="w-4 h-4" /></Button>
         </div>
-        {appliedDiscountCodes.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {appliedDiscountCodes.map((code: string) => (
-              <Badge key={code} variant="secondary" className="h-7 px-3 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
-                {code}
-                <button onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))} className="hover:text-destructive transition-colors"><X className="w-3 h-3" /></button>
-              </Badge>
-            ))}
-          </div>
-        )}
-      </div>
+      {appliedDiscountCodes.length > 0 && (
+           <div className="flex flex-wrap gap-2">
+             {appliedDiscountCodes.map((code: string) => (
+               <Badge key={code} variant="secondary" className="h-7 px-3 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest flex items-center gap-2">
+                 {code}
+                 <button onClick={() => setAppliedDiscountCodes(appliedDiscountCodes.filter((c: string) => c !== code))} className="hover:text-destructive transition-colors"><X className="w-3 h-3" /></button>
+               </Badge>
+             ))}
+           </div>
+         )}
+       </div>
+
+       {/* ── Store Credit ── */}
+       {selectedClient && !isCartEmpty && (
+         <StoreCreditPanel
+           client={selectedClient}
+           totalOwed={finalTotal}
+           tenantId={tenantId}
+           appointmentId={appointmentsData[0]?.appointment?.id || ''}
+           staffId={cashierName ? (staff || []).find((s: any) => s.name === cashierName)?.id || '' : ''}
+           appliedAmount={storeCreditApplied}
+           onCreditApplied={(result: { appliedAmount: number; remainingBalance: number }) => {
+             onStoreCreditApplied?.(result);
+           }}
+         />
+       )}
 
       {/* ── Payment Protocol ── */}
       <div className="space-y-4">
