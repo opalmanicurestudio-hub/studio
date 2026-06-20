@@ -23,14 +23,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { type Transaction } from '@/lib/financial-data';
 import { type Staff, type Incident, type Service, type Appointment } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths, differenceInMinutes } from 'date-fns';
+import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths, differenceInMinutes, differenceInDays } from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DateRange } from 'react-day-picker';
-import { cn } from '@/lib/utils';
+import { cn, safeNumber } from '@/lib/utils';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { useToast } from '@/hooks/use-toast';
@@ -929,7 +929,7 @@ const LedgerPage = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { transactions, staff, tillSessions, services, appointments, inventory, isLoading } = useInventory();
+  const { transactions, staff, tillSessions, services, appointments, inventory, clients, isLoading } = useInventory();
 
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = useState<DateRange | undefined>(undefined);
@@ -967,8 +967,33 @@ const LedgerPage = () => {
     }).sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
 
+  // Bad debt aging is a SNAPSHOT of currently unpaid fees as of today — it
+  // intentionally ignores the selected date-range filter (unlike everything
+  // else on this page), since "how old is this unpaid balance right now" is
+  // a different question than "what happened in this period."
+  const badDebtAging = useMemo(() => {
+    const now = new Date();
+    const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+    const items: { clientId: string; clientName: string; amount: number; reason: string; days: number }[] = [];
+    (clients || []).forEach((c: any) => {
+      (c.unpaidFees || []).forEach((fee: any) => {
+        const amt = safeNumber(fee.feeAmount);
+        if (amt <= 0) return;
+        const days = differenceInDays(now, safeDate(fee.appointmentDate || fee.createdAt));
+        if (days <= 30) buckets['0-30'] += amt;
+        else if (days <= 60) buckets['31-60'] += amt;
+        else if (days <= 90) buckets['61-90'] += amt;
+        else buckets['90+'] += amt;
+        items.push({ clientId: c.id, clientName: c.name || 'Client', amount: amt, reason: fee.reason || 'Unpaid fee', days });
+      });
+    });
+    const total = Object.values(buckets).reduce((a, b) => a + b, 0);
+    items.sort((a, b) => b.days - a.days);
+    return { buckets, total, items };
+  }, [clients]);
+
   const financialSummary = useMemo(() => {
-    const cogs_cats = ['spoilage', 'supplies', 'cost of goods', 'spoilage'];
+    const cogs_cats = ['spoilage', 'supplies', 'cost of goods', 'spoilage', 'comp'];
     const revenue = filteredTransactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
     const cogs = filteredTransactions.filter(t => t.type === 'expense' && cogs_cats.some(c => t.category.toLowerCase().includes(c))).reduce((s, t) => s + t.amount, 0);
     // Card processing fees get their own line — both what Stripe actually
@@ -1083,6 +1108,48 @@ const LedgerPage = () => {
           </div>
 
           <div className="md:col-span-2 lg:col-span-3 space-y-6 min-w-0">
+            {badDebtAging.total > 0 && (
+              <Card className="border-2 border-amber-200 shadow-sm rounded-3xl overflow-hidden bg-amber-50/40">
+                <CardHeader className="border-b border-amber-200 bg-amber-50/60 py-4">
+                  <CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-amber-800">
+                    <FileWarning className="w-4 h-4" /> Bad Debt Aging
+                  </CardTitle>
+                  <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">
+                    Unpaid fees as of today — not filtered by the period above
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-5 space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {(['0-30', '31-60', '61-90', '90+'] as const).map(bucket => (
+                      <div key={bucket} className={cn('p-3 rounded-2xl border-2 text-center', bucket === '90+' && badDebtAging.buckets[bucket] > 0 ? 'border-destructive/30 bg-destructive/5' : 'border-amber-200 bg-white')}>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{bucket === '90+' ? '90+ days' : `${bucket} days`}</p>
+                        <p className={cn('text-lg font-black font-mono tracking-tighter', bucket === '90+' && badDebtAging.buckets[bucket] > 0 ? 'text-destructive' : 'text-slate-900')}>${badDebtAging.buckets[bucket].toFixed(2)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between px-2 pt-2 border-t border-dashed border-amber-200">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">Total Outstanding</span>
+                    <span className="text-xl font-black font-mono tracking-tighter text-amber-800">${badDebtAging.total.toFixed(2)}</span>
+                  </div>
+                  {badDebtAging.items.length > 0 && (
+                    <div className="space-y-1.5 pt-2">
+                      {badDebtAging.items.slice(0, 6).map((item, i) => (
+                        <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1.5 rounded-lg bg-white/60">
+                          <span className="font-bold text-slate-700 truncate">{item.clientName} <span className="text-muted-foreground font-medium">· {item.reason}</span></span>
+                          <span className="flex items-center gap-2 shrink-0 ml-2">
+                            <span className="text-[9px] font-black uppercase text-muted-foreground opacity-50">{item.days}d</span>
+                            <span className="font-mono font-black text-amber-800">${item.amount.toFixed(2)}</span>
+                          </span>
+                        </div>
+                      ))}
+                      {badDebtAging.items.length > 6 && (
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground opacity-50 text-center pt-1">+{badDebtAging.items.length - 6} more</p>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
             <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
               <CardContent className="p-0 overflow-x-auto">
                 <Table>
