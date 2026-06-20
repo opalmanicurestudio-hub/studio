@@ -1455,6 +1455,12 @@ export const CheckoutHub = ({
             <span className="font-mono text-[11px] md:text-xs">+${cardSurcharge.toFixed(2)}</span>
           </div>
         )}
+        {safeNumber(storeCreditApplied) > 0 && (
+          <div className="flex justify-between items-center text-[10px] text-green-600 font-black uppercase tracking-tighter">
+            <span className="flex items-center gap-2"><Wallet className="w-3.5 h-3.5" /> Store Credit Applied</span>
+            <span className="font-mono text-[11px] md:text-xs">-${safeNumber(storeCreditApplied).toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between items-center py-1 md:py-2">
           <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
           <div className="relative w-32 md:w-36">
