@@ -600,6 +600,7 @@ function POSPage() {
     const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
     const [isQuickBookOpen, setIsQuickBookOpen] = useState(false);
     const [pendingRefund, setPendingRefund] = useState<any | null>(null);
+    const [storeCreditApplied, setStoreCreditApplied] = useState(0);
 
     const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
     const prevWalkInCountRef = useRef<number>(0);
@@ -726,7 +727,7 @@ function POSPage() {
     }, [selectedClient, memberships, packages, retailItems]);
 
     const taxCalc = subtotalCalc * 0.07;
-    const totalCalc = subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue;
+    const totalCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
 
     const payerOptions = useMemo(() => {
         const clientIds = new Set<string>();
@@ -1151,44 +1152,10 @@ function POSPage() {
                 // Tag all transactions in this session with the receiptId so ledger can link back
                 // (done via checkoutSessionId already — receipts query by checkoutSessionId)
             } catch (e) { console.warn('[receipt save]', e); }
-            setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set());
+            setRetailItems([]); setSelectedAppointmentIds(new Set()); setTipAmount(0); setIsCartSheetOpen(false); setRedeemedOffer(null); setAppliedDiscountCodes([]); setAppliedAdjustments(new Set()); setStoreCreditApplied(0);
         } catch (e: any) { console.error('[handleCheckout] batch.commit failed:', e?.message, e?.code, e); toast({ variant: 'destructive', title: 'Checkout Failed', description: e?.message || 'Firestore batch error' }); }
         finally { setIsSubmitting(false); }
     };
-
-    const settleDepositForCancellation = useCallback(async (appointment: any, trigger: 'client_cancel' | 'no_show' | 'studio_cancel') => {
-        if (!firestore || !tenantId || !appointment) return;
-        const clientId = appointment.clientId || null;
-        const clientObj = (clients || []).find(c => c.id === clientId);
-        let credit: any = null;
-        try {
-            const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
-            let snap: any = clientId ? await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', clientId))) : { empty: true, docs: [] };
-            if (snap.empty && clientObj?.email) snap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(clientObj.email).toLowerCase().trim())));
-            if (!snap.empty) {
-                const found = snap.docs.map((d: any) => ({ ref: d.ref, ...(d.data() as any) })).filter((c: any) => !isCreditExpired(c.expiresAt));
-                found.sort((a: any, b: any) => safeDate(b.createdAt).getTime() - safeDate(a.createdAt).getTime());
-                credit = found[0] || null;
-            }
-        } catch (e) { console.warn('[deposit cancel lookup]', e); }
-        if (!credit) return;
-        const policy = resolveDepositPolicy(selectedTenant);
-        const hrs = hoursUntilStart(appointment.startTime);
-        const resolved = resolveDepositOutcome({ trigger, hoursUntilStart: hrs, policy });
-        const amount = safeNumber(credit.amountDollars ?? (credit.amountCents || 0) / 100);
-        if (resolved.outcome === 'refund') { setPendingRefund({ creditId: credit.id, amount, clientName: clientObj?.name || credit.clientName || 'Client', reason: resolved.reason, appointmentId: appointment.id }); return; }
-        const nowISO = new Date().toISOString();
-        const batch = writeBatch(firestore);
-        if (resolved.outcome === 'rollover') {
-            batch.set(credit.ref, sanitizeForFirestore({ status: 'available', rolledOver: true, rolledOverAt: nowISO, rolledOverFromAppointmentId: appointment.id, expiresAt: rolloverExpiryISO(policy), lastDecisionReason: resolved.reason }), { merge: true });
-        } else {
-            batch.set(credit.ref, sanitizeForFirestore({ status: 'forfeited', forfeitedAt: nowISO, forfeitedFromAppointmentId: appointment.id, lastDecisionReason: resolved.reason }), { merge: true });
-        }
-        const auditRef = doc(collection(firestore, `tenants/${tenantId}/depositDecisions`));
-        batch.set(auditRef, sanitizeForFirestore({ id: auditRef.id, tenantId, creditId: credit.id, appointmentId: appointment.id, clientId, clientName: clientObj?.name || credit.clientName || 'Client', trigger, outcome: resolved.outcome, reason: resolved.reason, amountDollars: amount, hoursUntilStart: hrs, decidedAt: nowISO }));
-        try { await batch.commit(); toast({ title: resolved.outcome === 'rollover' ? 'Deposit rolled over' : 'Deposit forfeited', description: `$${amount.toFixed(2)} · ${resolved.reason}` }); }
-        catch (e) { console.error('[deposit settle]', e); }
-    }, [firestore, tenantId, clients, selectedTenant, toast]);
 
     const handleConfirmRefund = useCallback(async () => {
         if (!pendingRefund || !tenantId) return;
@@ -1207,6 +1174,30 @@ function POSPage() {
         const item = effectiveIsWalkIn ? walkIns?.find(w => w.id === id) : appointmentsFromInventory?.find(a => a.id === id);
         if (item) { setSelectedAppointment({ ...item, isWalkIn: effectiveIsWalkIn } as any); setIsCancelDialogOpen(true); }
     };
+
+    const onCancellationConfirm = useCancellationConfirm(
+        selectedAppointment,
+        clients?.find(c => c.id === selectedAppointment?.clientId) ?? null,
+    );
+
+    // The hook resolves a Stripe refund as a *pending* decision (it never
+    // auto-refunds without staff confirmation). Wrap it so the existing
+    // pendingRefund dialog — the one already wired to handleConfirmRefund —
+    // gets reused instead of building a second one.
+    const handleCancellationConfirm = useCallback(async (data: any) => {
+        const result = await onCancellationConfirm(data);
+        if (result?.pendingRefund) {
+            setPendingRefund({
+                creditId: result.pendingRefund.creditId,
+                amount: result.pendingRefund.amount,
+                clientName: clients?.find(c => c.id === selectedAppointment?.clientId)?.name || 'Client',
+                reason: result.depositDisposition === 'refunded' ? 'Studio cancellation' : '',
+                appointmentId: selectedAppointment?.id,
+            });
+        }
+        setIsCancelDialogOpen(false);
+        setIsDetailsOpen(false);
+    }, [onCancellationConfirm, clients, selectedAppointment]);
 
     const handleResolveCheckInConfirmation = async (data: any) => {
         if (!pendingCheckInItem || !firestore || !tenantId) return;
@@ -1285,6 +1276,10 @@ function POSPage() {
         onRequestOverride: () => { setIsCartSheetOpen(false); setTimeout(() => setIsRecoveryOverrideOpen(true), 300); },
         tenantId, // ← CRITICAL: enables card-on-file charging and embedded card form
         cashierName: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || (staff || []).find((s: any) => s.role === 'owner')?.name || '',
+        storeCreditApplied,
+        onStoreCreditApplied: ({ appliedAmount }: { appliedAmount: number; remainingBalance: number }) => {
+            setStoreCreditApplied(appliedAmount);
+        },
     };
 
     if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
@@ -1385,31 +1380,15 @@ function POSPage() {
             <RecoveryOverrideDialog open={isRecoveryOverrideOpen} onOpenChange={setIsRecoveryOverrideOpen} staff={staff || []} onConfirm={(authorizer: any, reason: string) => { setIsRecoveryOverrideOpen(false); toast({ title: "Override Authorized", description: `Approved by ${authorizer.name}. Proceed with adjustment.` }); }} />
             <AddClientDialog open={isAddClientOpen} onOpenChange={setIsAddClientOpen} clients={clients || []} onSave={() => {}} />
             <AppointmentDetailsSheet open={isDetailsOpen} onOpenChange={setIsDetailsOpen} appointment={selectedAppointment} client={clients?.find(c => c.id === selectedAppointment?.clientId) || null} service={services?.find(s => s.id === selectedAppointment?.serviceId) || null} tmhr={selectedTenant?.tmhr || 50} transactions={transactions || []} onStartService={handleStartService} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onEdit={() => {}} onDelete={(id: string) => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))} onCancel={handleCancelAction} onReschedule={() => {}} onRebook={() => {}} onBookNewForClient={() => {}} onPrintTicket={() => {}} onOverride={() => setIsOverrideOpen(true)} onWaiveFee={() => {}} />
-            {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={async (data: any) => {
-                if (!selectedAppointment || !firestore || !tenantId) return;
-                const batch = writeBatch(firestore);
-                const isAssignedWalkIn = selectedAppointment.id.startsWith('apt-walkin-');
-                const effectiveIsWalkIn = (selectedAppointment as any).isWalkIn || (isAssignedWalkIn && !selectedAppointment.clientId);
-                const collectionPath = effectiveIsWalkIn ? 'walkIns' : 'appointments';
-                const updates = { status: 'cancelled' as const, cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount };
-                batch.set(doc(firestore, `tenants/${tenantId}/${collectionPath}`, selectedAppointment.id), sanitizeForFirestore(updates), { merge: true });
-                await batch.commit();
-                if (data.feeAmount > 0 && selectedAppointment.clientId) {
-                    if (data.paymentMethod === 'card_on_file') {
-                        try {
-                            const res = await fetch('/api/stripe/charge-card', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, clientId: selectedAppointment.clientId, amountCents: Math.round(data.feeAmount * 100), description: 'Cancellation fee', category: 'Cancellation Fee', taxBucket: 'adjustment', appointmentId: selectedAppointment.id, reason: data.reason }) });
-                            const out = await res.json().catch(() => null);
-                            if (out?.ok) { toast({ title: 'Fee charged', description: `$${safeNumber(data.feeAmount).toFixed(2)} charged to card on file.` }); }
-                            else { toast({ variant: 'destructive', title: 'Card charge flagged', description: `${out?.reason || 'Could not charge card'} — added to client balance for follow-up.` }); }
-                        } catch (e: any) { toast({ variant: 'destructive', title: 'Card charge flagged', description: `${e.message} — added to client balance.` }); }
-                    } else if (data.paymentMethod === 'add_to_balance') {
-                        updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, selectedAppointment.clientId), { outstandingBalance: increment(data.feeAmount) });
-                    }
-                }
-                await settleDepositForCancellation(selectedAppointment, data.reason === 'no-show' ? 'no_show' : 'client_cancel');
-                setIsCancelDialogOpen(false);
-                setIsDetailsOpen(false);
-            }} />}
+            {selectedAppointment && (
+                <CancelAppointmentDialog
+                    open={isCancelDialogOpen}
+                    onOpenChange={setIsCancelDialogOpen}
+                    appointment={selectedAppointment}
+                    tenant={selectedTenant}
+                    onConfirm={handleCancellationConfirm}
+                />
+            )}
             <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
             {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id: string, state: any) => {
                 if (!firestore || !tenantId) return;
