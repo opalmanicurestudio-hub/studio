@@ -67,6 +67,46 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
+// Computes what a service actually cost the studio to deliver — materials,
+// time/overhead, and labor — independent of what (if anything) was charged
+// for it. Used to record the real cost of comped/redeemed services, which
+// otherwise only show up as zero revenue with no visible cost anywhere.
+const computeServiceCost = (
+  service: any,
+  apt: any,
+  staffMember: any,
+  inventory: any[],
+  tmhr: number,
+): { overhead: number; materials: number; labor: number; total: number } => {
+  if (!service) return { overhead: 0, materials: 0, labor: 0, total: 0 };
+
+  let materials = 0;
+  if (apt?.checkoutState?.formula?.length > 0) {
+    materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + (item.quantity || 0) * (item.costPerUnit || 0), 0);
+  } else if (service.products?.length > 0) {
+    materials = service.products.reduce((acc: number, p: any) => {
+      const item = (inventory || []).find((i: any) => i.id === p.id);
+      if (!item) return acc;
+      let cpu = item.costPerUnit || 0;
+      if (item.costingMethod === 'size' && item.size) cpu /= item.size;
+      else if (item.costingMethod === 'uses' && item.estimatedUses) cpu /= item.estimatedUses;
+      return acc + (p.quantityUsed || 1) * cpu;
+    }, 0);
+  }
+
+  const duration = service.duration || 60;
+  const overhead = (duration / 60) * (tmhr || 0);
+
+  let labor = 0;
+  if (staffMember?.payStructure === 'commission') {
+    labor = (service.price || 0) * ((staffMember.commissionRate || 40) / 100);
+  } else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) {
+    labor = (duration / 60) * staffMember.hourlyRate;
+  }
+
+  return { overhead, materials, labor, total: Number((overhead + materials + labor).toFixed(2)) };
+};
+
 const KpiCard = ({ title, value, icon, description, iconBgColor }: { title: string; value: string; icon: React.ReactNode, description: string, iconBgColor: string }) => (
   <Card className="border-2 shadow-sm overflow-hidden bg-white/50 backdrop-blur-sm">
     <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 md:p-4 pb-2">
@@ -892,6 +932,29 @@ function POSPage() {
               batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: isMainRedeemed ? `Redemption: ${service.name}` : `Service: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: 'Service Revenue', taxBucket: 'revenue', amount: mainPartRevenue, paymentMethod: paymentData.paymentMethod, staffId: mainStaffId, appointmentId: apt.id, hasReceipt: true, tenantId, checkoutSessionId }));
             }
 
+            // Cost of a redeemed service is real (materials/time used) even
+            // though revenue was zeroed out — record it regardless of
+            // skipLedger, since no other code path writes this expense.
+            if (isMainRedeemed) {
+              const redemptionCost = computeServiceCost(service, apt, mainStaffMember, inventory || [], selectedTenant?.tmhr || 50);
+              if (redemptionCost.total > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Redemption Cost: ${service.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: redemptionCost.total, paymentMethod: 'Internal', staffId: mainStaffId, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId, notes: `Materials $${redemptionCost.materials.toFixed(2)} · Overhead $${redemptionCost.overhead.toFixed(2)} · Labor $${redemptionCost.labor.toFixed(2)}` }));
+              }
+            }
+
+            // Same logic for redeemed add-ons — cost is real regardless of
+            // which payment path (and thus skipLedger) was used.
+            addOnServices.forEach((addon: any) => {
+              const isAddonRedeemedForCost = redeemedOffer?.itemId === addon.id;
+              if (!isAddonRedeemedForCost) return;
+              const addonStaffIdForCost = overrides[addon.id] || apt.staffId;
+              const addonStaffForCost = staff.find((s: any) => s.id === addonStaffIdForCost);
+              const addonCost = computeServiceCost(addon, apt, addonStaffForCost, inventory || [], selectedTenant?.tmhr || 50);
+              if (addonCost.total > 0) {
+                batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: `Redemption Cost: ${addon.name}`, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'expense', context: 'Business', category: 'Comp & Redemption Cost', taxBucket: 'operating_cost', amount: addonCost.total, paymentMethod: 'Internal', staffId: addonStaffIdForCost, appointmentId: apt.id, hasReceipt: false, tenantId, checkoutSessionId, notes: `Materials $${addonCost.materials.toFixed(2)} · Overhead $${addonCost.overhead.toFixed(2)} · Labor $${addonCost.labor.toFixed(2)}` }));
+              }
+            });
+
             if (!paymentData.skipLedger) {
               if (!isWaived && checkoutState.adjustments) {
                 const { rescheduleFee, timeOverage, materialOverage } = checkoutState.adjustments;
@@ -1162,7 +1225,31 @@ function POSPage() {
     const handleRevertToService = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'servicing' }); toast({ title: "Status Reverted" }); };
     const handleRevertToReady = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'ready_for_checkout' }); toast({ title: "Status Reverted" }); };
     const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const newSession: any = { ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
-    const handleCloseTill = (data: any) => { if (!firestore || !tenantId || !activeTill) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'tillSessions', activeTill.id), sanitizeForFirestore({ ...data, status: 'closed', closedAt: new Date().toISOString() })); toast({ title: "Till Session Finalized" }); };
+    const handleCloseTill = (data: any) => {
+        if (!firestore || !tenantId || !activeTill) return;
+        // TillManagement already computes this as actualCash - expectedCash
+        // before calling onCloseTill — use it directly rather than
+        // recomputing, so the two numbers can never drift apart.
+        const variance = Number((safeNumber(data.discrepancy)).toFixed(2));
+        const batch = writeBatch(firestore);
+        batch.update(doc(firestore, 'tenants', tenantId, 'tillSessions', activeTill.id), sanitizeForFirestore({ ...data, status: 'closed', closedAt: new Date().toISOString() }));
+
+        let varianceDescription: string | undefined;
+        if (Math.abs(variance) >= 0.01) {
+            batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({
+                id: nanoid(), date: new Date().toISOString(),
+                description: variance >= 0 ? 'Till overage at close' : 'Till shortage at close',
+                clientOrVendor: 'Internal',
+                type: variance >= 0 ? 'income' : 'expense',
+                context: 'Business', category: 'Cash Variance', taxBucket: 'operating_cost',
+                amount: Math.abs(variance), paymentMethod: 'Cash', hasReceipt: false,
+                tillSessionId: activeTill.id, tenantId,
+            }));
+            varianceDescription = `${variance >= 0 ? 'Overage' : 'Shortage'} of $${Math.abs(variance).toFixed(2)} recorded.`;
+        }
+
+        batch.commit().then(() => toast({ title: "Till Session Finalized", description: varianceDescription }));
+    };
 
     const handleVoidTransaction = async (txId: string, authorizerPin: string, reason: string) => {
         if (!firestore || !tenantId) return;
