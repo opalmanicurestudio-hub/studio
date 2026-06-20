@@ -80,6 +80,8 @@ import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
+import { StoreCreditHistory } from '@/components/clients/StoreCreditHistory';
+import { Wallet } from 'lucide-react';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -462,9 +464,17 @@ export default function ClientDetailPage() {
                   <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
                   <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
                   <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
-                  <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
-                  <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
+                  <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</ <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
+                  <TabsTrigger value="credits" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
+                    <Wallet className="w-3 h-3" /> Credits
+                    {(client?.totalStoreCredit || 0) > 0 && (
+                      <span className="ml-1 text-[7px] font-black bg-green-500 text-white px-1.5 py-0.5 rounded-full leading-none">
+                        ${(client.totalStoreCredit || 0).toFixed(0)}
+                      </span>
+                   )}
+                 </TabsTrigger>
                 </TabsList>
+
                 <ScrollBar orientation="horizontal" className="hidden" />
               </ScrollArea>
 
@@ -841,10 +851,13 @@ export default function ClientDetailPage() {
                     )}
                   </div>
                 </div>
-              </TabsContent>
-            </Tabs>
-          </div>
+             <TabsContent>
 
+             <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
+                <StoreCreditHistory client={client} isOwnerOrAdmin={isOwnerOrAdmin} />
+      </TabsContent>
+          </Tabs>
+        </div>
           <div className="lg:col-span-1 space-y-8 text-left">
             <Card className={cn("border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group text-left", isHighRisk ? "border-destructive/20 bg-destructive/[0.02]" : "border-primary/10 bg-white")}>
               <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between text-left">
