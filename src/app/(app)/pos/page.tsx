@@ -46,6 +46,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { CheckInConfirmationDialog } from '@/components/pos/CheckInConfirmationDialog';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useCancellationConfirm } from '@/hooks/useCancellationConfirm';
 
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
@@ -1180,21 +1181,13 @@ function POSPage() {
         clients?.find(c => c.id === selectedAppointment?.clientId) ?? null,
     );
 
-    // The hook resolves a Stripe refund as a *pending* decision (it never
-    // auto-refunds without staff confirmation). Wrap it so the existing
-    // pendingRefund dialog — the one already wired to handleConfirmRefund —
-    // gets reused instead of building a second one.
     const handleCancellationConfirm = useCallback(async (data: any) => {
-        const result = await onCancellationConfirm(data);
-        if (result?.pendingRefund) {
-            setPendingRefund({
-                creditId: result.pendingRefund.creditId,
-                amount: result.pendingRefund.amount,
-                clientName: clients?.find(c => c.id === selectedAppointment?.clientId)?.name || 'Client',
-                reason: result.depositDisposition === 'refunded' ? 'Studio cancellation' : '',
-                appointmentId: selectedAppointment?.id,
-            });
-        }
+        // v2 useCancellationConfirm handles deposit refund / store-credit
+        // disposition internally (for studio-initiated cancellations) — it
+        // doesn't return a pending-refund result the way the old inline
+        // handler + settleDepositForCancellation used to. Nothing else to
+        // branch on here.
+        await onCancellationConfirm(data);
         setIsCancelDialogOpen(false);
         setIsDetailsOpen(false);
     }, [onCancellationConfirm, clients, selectedAppointment]);
@@ -1386,6 +1379,7 @@ function POSPage() {
                     onOpenChange={setIsCancelDialogOpen}
                     appointment={selectedAppointment}
                     tenant={selectedTenant}
+                    currentStaff={(staff || []).find((s: any) => s.id === currentUser?.uid) || null}
                     onConfirm={handleCancellationConfirm}
                 />
             )}
