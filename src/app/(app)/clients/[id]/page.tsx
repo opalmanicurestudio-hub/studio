@@ -464,7 +464,8 @@ export default function ClientDetailPage() {
                   <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
                   <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
                   <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
-                  <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</ <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
+                  <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
+                  <TabsTrigger value="ledger" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Financial Ledger</TabsTrigger>
                   <TabsTrigger value="credits" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
                     <Wallet className="w-3 h-3" /> Credits
                     {(client?.totalStoreCredit || 0) > 0 && (
@@ -851,13 +852,13 @@ export default function ClientDetailPage() {
                     )}
                   </div>
                 </div>
-             <TabsContent>
+              </TabsContent>
 
-             <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
+              <TabsContent value="credits" className="m-0 animate-in fade-in duration-500 text-left">
                 <StoreCreditHistory client={client} isOwnerOrAdmin={isOwnerOrAdmin} />
-      </TabsContent>
-          </Tabs>
-        </div>
+              </TabsContent>
+            </Tabs>
+          </div>
           <div className="lg:col-span-1 space-y-8 text-left">
             <Card className={cn("border-4 rounded-[2.5rem] overflow-hidden shadow-2xl relative group text-left", isHighRisk ? "border-destructive/20 bg-destructive/[0.02]" : "border-primary/10 bg-white")}>
               <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between text-left">
