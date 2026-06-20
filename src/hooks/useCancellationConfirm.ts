@@ -1,17 +1,14 @@
 'use client';
 
 /**
- * useCancellationConfirm
+ * useCancellationConfirm (v2)
  *
- * Drop this hook into whatever parent renders <CancelAppointmentDialog />.
- * It returns the `onConfirm` handler the dialog expects.
- *
- * What it does:
- *  1. Writes a `cancellationEvents` document → triggers the Firebase Function
- *  2. Marks the appointment cancelled in Firestore immediately (optimistic)
- *  3. If paymentMethod === 'add_to_balance', increments the client's balance
- *     locally so the UI reflects it without waiting for the function
- *  4. The actual Stripe charge + email + SMS happens in the Firebase Function
+ * Changes from v1:
+ *  - When actorType === 'studio', handles deposit disposition (refund / store credit)
+ *    BEFORE writing the cancellationEvent, so the client gets their money back
+ *    as part of the same action — not as a separate step staff can forget.
+ *  - No-show path unchanged — staffConfirmed flow handles that via
+ *    /api/notifications/handle-no-show-action
  */
 
 import { useCallback } from 'react';
@@ -35,6 +32,8 @@ interface CancellationConfirmPayload {
   paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived';
   cancellationAudit: any;
   auditLogEntry: any;
+  // Studio-cancel deposit disposition — only present when actorType === 'studio'
+  depositDisposition?: 'refund' | 'store_credit' | 'none';
 }
 
 export function useCancellationConfirm(
@@ -57,119 +56,187 @@ export function useCancellationConfirm(
         paymentMethod,
         cancellationAudit,
         auditLogEntry,
+        depositDisposition,
       } = payload;
 
-      const eventId = nanoid();
-      const now = new Date().toISOString();
-      const batch = writeBatch(firestore);
+      const isStudioCancel = cancellationAudit?.actorType === 'studio';
+      const hasDeposit     = appointment.depositStatus === 'paid' &&
+                             (appointment.depositAmountCents || 0) > 0;
 
-      // ── 1. Mark appointment cancelled ──────────────────────────────────────
+      // ── Step 1: Handle deposit disposition for studio cancellations ──────────
+      // Do this FIRST — before marking cancelled — so if Stripe refund fails,
+      // we can surface the error without having already cancelled the appointment.
+      if (isStudioCancel && hasDeposit && depositDisposition && depositDisposition !== 'none') {
+        try {
+          const res = await fetch('/api/stripe/studio-cancel-refund', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId,
+              clientId:              client.id,
+              appointmentId:         appointment.id,
+              depositAmountCents:    appointment.depositAmountCents,
+              stripePaymentIntentId: appointment.depositStripePaymentIntentId || null,
+              disposition:           depositDisposition,
+              staffId:               cancellationAudit.actorId,
+              reason,
+            }),
+          });
+
+          const result = await res.json();
+
+          if (!result.ok) {
+            // If refund failed but a fallback is available, warn and continue
+            if (result.fallback === 'store_credit') {
+              toast({
+                title:       'Refund Not Available',
+                description: 'No Stripe record found — deposit will be issued as store credit instead.',
+              });
+              // Re-call with store_credit
+              await fetch('/api/stripe/studio-cancel-refund', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tenantId,
+                  clientId:           client.id,
+                  appointmentId:      appointment.id,
+                  depositAmountCents: appointment.depositAmountCents,
+                  disposition:        'store_credit',
+                  staffId:            cancellationAudit.actorId,
+                  reason,
+                }),
+              });
+            } else {
+              // Hard failure — surface it and abort the cancellation
+              toast({
+                variant:     'destructive',
+                title:       'Deposit Refund Failed',
+                description: result.reason || 'Could not process refund. Try again or apply store credit.',
+              });
+              return; // don't cancel the appointment
+            }
+          } else {
+            const msg = depositDisposition === 'refund'
+              ? `$${(appointment.depositAmountCents / 100).toFixed(2)} refunded to card on file`
+              : `$${(appointment.depositAmountCents / 100).toFixed(2)} added as store credit`;
+            toast({ title: 'Deposit Processed', description: msg });
+          }
+        } catch (err: any) {
+          toast({
+            variant:     'destructive',
+            title:       'Deposit Processing Error',
+            description: err?.message || 'Unknown error — cancellation aborted.',
+          });
+          return;
+        }
+      }
+
+      // ── Step 2: Write the cancellation to Firestore ──────────────────────────
+      const eventId = nanoid();
+      const now     = new Date().toISOString();
+      const batch   = writeBatch(firestore);
+
       const appointmentRef = doc(
         firestore,
         `tenants/${tenantId}/appointments`,
         appointment.id,
       );
+
       batch.update(appointmentRef, {
-        status: 'cancelled',
-        cancelledAt: now,
+        status:                  'cancelled',
+        cancelledAt:             now,
         cancellationAudit,
-        cancellationEventId: eventId,
-        // Keep the fee amount visible in reporting even if waived
-        cancellationFeeCharged: chargeFee ? feeAmount : 0,
-        cancellationFeeWaived: !chargeFee && feeAmount > 0,
+        cancellationEventId:     eventId,
+        cancellationFeeCharged:  chargeFee ? feeAmount : 0,
+        cancellationFeeWaived:   !chargeFee && feeAmount > 0,
+        // Studio cancel — no fee charged to client (they're the victim)
+        ...(isStudioCancel && {
+          studioCancelled:        true,
+          depositDisposition:     depositDisposition || 'none',
+        }),
       });
 
-      // Mirror on walkIn document if applicable
       if (appointment.isWalkIn) {
-        const walkInId = String(appointment.id).replace('apt-walkin-', '');
+        const walkInId  = String(appointment.id).replace('apt-walkin-', '');
         const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-        batch.update(walkInRef, {
-          status: 'cancelled',
-          cancelledAt: now,
-          cancellationAudit,
-        });
+        batch.update(walkInRef, { status: 'cancelled', cancelledAt: now });
       }
 
-      // ── 2. Optimistic balance update ───────────────────────────────────────
-      // If we're adding to balance we update the client record immediately so
-      // staff see it without waiting for the function to run.
-      if (chargeFee && feeAmount > 0 && paymentMethod === 'add_to_balance') {
+      // Balance update only for client/no-show paths with a fee
+      if (!isStudioCancel && chargeFee && feeAmount > 0 && paymentMethod === 'add_to_balance') {
         const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-        batch.update(clientRef, {
-          outstandingBalance: increment(feeAmount),
-        });
+        batch.update(clientRef, { outstandingBalance: increment(feeAmount) });
       }
 
-      // ── 3. Audit log entry ─────────────────────────────────────────────────
+      // Audit log
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/auditLog`));
-      batch.set(auditRef, {
-        id: auditRef.id,
-        tenantId,
-        ...auditLogEntry,
-        createdAt: now,
-      });
+      batch.set(auditRef, { id: auditRef.id, tenantId, ...auditLogEntry, createdAt: now });
 
-      // ── 4. Write the cancellation event ───────────────────────────────────
-      // This is the Firestore write that the Firebase Function watches.
-      // Everything async (Stripe, email, SMS) happens there.
+      // cancellationEvent → triggers onCancellationEvent Firebase Function
+      // For studio cancellations, chargeFee is always false (client not charged)
       const eventRef = doc(
         firestore,
         `tenants/${tenantId}/cancellationEvents`,
         eventId,
       );
       batch.set(eventRef, {
-        id: eventId,
+        id:                    eventId,
         tenantId,
-        appointmentId: appointment.id,
-        clientId: client.id,
-        clientName: client.name,
-        clientEmail: client.email || null,
-        clientPhone: client.phone || null,
-        serviceId: appointment.serviceId,
-        serviceName: appointment.serviceName || null,
-        staffId: appointment.staffId,
-        appointmentStartTime: appointment.startTime,
+        appointmentId:         appointment.id,
+        clientId:              client.id,
+        clientName:            client.name,
+        clientEmail:           client.email || null,
+        clientPhone:           client.phone || null,
+        serviceId:             appointment.serviceId,
+        serviceName:           (appointment as any).serviceName || null,
+        staffId:               appointment.staffId,
+        appointmentStartTime:  appointment.startTime,
 
-        // Payment fields — the function reads these to decide what to charge
-        chargeFee,
-        feeAmount,
-        paymentMethod, // 'card_on_file' | 'add_to_balance' | 'waived'
-        stripeCustomerId: client.stripeCustomerId || null,
-        stripePaymentMethodId:
-          client.cardOnFile?.paymentMethodId || client.cardOnFile?.token || null,
+        // Studio cancels: no fee, email/SMS notify client of the cancellation
+        chargeFee:             isStudioCancel ? false : chargeFee,
+        feeAmount:             isStudioCancel ? 0 : feeAmount,
+        paymentMethod:         isStudioCancel ? 'waived' : paymentMethod,
+        stripeCustomerId:      client.stripeCustomerId || null,
+        stripePaymentMethodId: client.cardOnFile?.paymentMethodId || client.cardOnFile?.token || null,
 
-        // Audit
         cancellationAudit,
         reason,
+        studioCancelled:       isStudioCancel,
+        depositDisposition:    depositDisposition || 'none',
 
-        // Function processing state — the function sets these as it works
-        status: 'pending', // → 'processing' → 'complete' | 'failed'
-        chargeStatus: chargeFee && paymentMethod === 'card_on_file'
-          ? 'pending'     // → 'charged' | 'failed' | 'waived'
-          : paymentMethod === 'add_to_balance'
-          ? 'balance'
-          : 'waived',
-        emailStatus: 'pending',   // → 'sent' | 'failed' | 'skipped'
-        smsStatus: 'pending',     // → 'sent' | 'failed' | 'skipped'
+        status:       'pending',
+        chargeStatus: isStudioCancel ? 'waived' : (chargeFee && paymentMethod === 'card_on_file' ? 'pending' : paymentMethod === 'add_to_balance' ? 'balance' : 'waived'),
+        emailStatus:  'pending',
+        smsStatus:    'pending',
 
-        createdAt: now,
-        processedAt: null,
+        createdAt:      now,
+        processedAt:    null,
         stripeChargeId: null,
-        errorMessage: null,
+        errorMessage:   null,
       });
 
       await batch.commit();
 
-      toast({
-        title: 'Appointment Cancelled',
-        description: chargeFee && feeAmount > 0
-          ? paymentMethod === 'card_on_file'
-            ? `$${feeAmount.toFixed(2)} cancellation fee is being charged to the card on file.`
-            : paymentMethod === 'add_to_balance'
-            ? `$${feeAmount.toFixed(2)} added to ${client.name}'s outstanding balance.`
-            : 'Cancellation recorded.'
-          : 'Cancellation recorded. No fee charged.',
-      });
+      // ── Toast ────────────────────────────────────────────────────────────────
+      if (isStudioCancel) {
+        toast({
+          title:       'Appointment Cancelled',
+          description: hasDeposit && depositDisposition !== 'none'
+            ? depositDisposition === 'refund'
+              ? 'Client notified. Deposit refund is processing.'
+              : 'Client notified. Deposit issued as store credit.'
+            : 'Client has been notified of the cancellation.',
+        });
+      } else {
+        toast({
+          title:       'Appointment Cancelled',
+          description: chargeFee && feeAmount > 0
+            ? paymentMethod === 'card_on_file'
+              ? `$${feeAmount.toFixed(2)} cancellation fee is being charged.`
+              : `$${feeAmount.toFixed(2)} added to ${client.name}'s balance.`
+            : 'Cancellation recorded. No fee charged.',
+        });
+      }
     },
     [firestore, tenantId, appointment, client, toast],
   );
