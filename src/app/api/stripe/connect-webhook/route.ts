@@ -240,6 +240,28 @@ export async function POST(req: NextRequest) {
             completedAt: new Date().toISOString(),
           }, { merge: true });
 
+          // Create a depositCredits doc — this is what the POS checkout's
+          // handleCheckout() actually looks up to write the offsetting
+          // "Deposit Applied" ledger line. Without this doc, the deposit
+          // correctly reduces what's charged at checkout, but the ledger
+          // double-counts revenue (full service price + the original
+          // deposit income line, with nothing netting them against each
+          // other).
+          const creditRef = db.collection(`tenants/${tenant.id}/depositCredits`).doc();
+          batch.set(creditRef, {
+            id: creditRef.id,
+            tenantId: tenant.id,
+            clientId,
+            clientEmail: (br.clientEmail || '').toLowerCase().trim(),
+            clientName: br.clientName || 'Guest',
+            amountCents: depositAmountCents,
+            status: 'available',
+            sourceAppointmentId: appointmentId,
+            createdAt: new Date().toISOString(),
+            stripeChargeId: chargeId,
+            checkoutSessionId: session.id,
+          });
+
           await batch.commit();
           console.log(`[connect-webhook] Deposit paid — appointment ${appointmentId} created for tenant ${tenant.id}`);
           break;
@@ -321,6 +343,23 @@ export async function POST(req: NextRequest) {
                 stripeChargeId: chargeId,
                 tenantId: tenant.id,
               });
+
+              // Same depositCredits doc as the 'deposit' branch above — needed
+              // so the POS checkout's "Deposit Applied" offset logic finds it.
+              const creditRef = db.collection(`tenants/${tenant.id}/depositCredits`).doc();
+              await creditRef.set({
+                id: creditRef.id,
+                tenantId: tenant.id,
+                clientId,
+                clientEmail: (session.metadata?.clientEmail || '').toLowerCase().trim(),
+                clientName: session.metadata?.clientName || 'Guest',
+                amountCents: depositAmountCents,
+                status: 'available',
+                sourceAppointmentId: appointmentId,
+                createdAt: new Date().toISOString(),
+                stripeChargeId: chargeId,
+                checkoutSessionId: session.id,
+              });
             }
           }
 
@@ -361,14 +400,35 @@ export async function POST(req: NextRequest) {
 
       // ── charge.succeeded: record exact Stripe processing fee ─────────────
       case 'charge.succeeded': {
-        const charge = event.data.object as Stripe.Charge;
+        let charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
 
-        const balTxnId = typeof charge.balance_transaction === 'string'
+        let balTxnId = typeof charge.balance_transaction === 'string'
           ? charge.balance_transaction
           : (charge.balance_transaction as any)?.id;
-        if (!balTxnId) break;
+
+        // Stripe occasionally sends charge.succeeded a moment before the
+        // balance_transaction is fully attached to the charge object in the
+        // webhook payload. Rather than silently dropping the fee, re-fetch
+        // the charge fresh — by the time we're processing this event
+        // server-side, the balance transaction is almost always ready.
+        if (!balTxnId) {
+          try {
+            const freshCharge = await stripe2.charges.retrieve(charge.id, {}, { stripeAccount: connAcct });
+            charge = freshCharge;
+            balTxnId = typeof freshCharge.balance_transaction === 'string'
+              ? freshCharge.balance_transaction
+              : (freshCharge.balance_transaction as any)?.id;
+          } catch (e) {
+            console.error('[connect-webhook] Could not re-fetch charge for balance_transaction', e);
+          }
+        }
+
+        if (!balTxnId) {
+          console.warn(`[connect-webhook] No balance_transaction available for charge ${charge.id} even after re-fetch — fee not recorded`);
+          break;
+        }
 
         // Fetch the balance transaction — contains the EXACT fee Stripe took
         const balTxn = await stripe2.balanceTransactions.retrieve(
