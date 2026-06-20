@@ -914,6 +914,42 @@ export async function POST(req: NextRequest) {
         });
 
         console.log(`[connect-webhook] Payout $${(payout.amount / 100).toFixed(2)} recorded for ${tenant.id}`);
+
+        // Standard payouts are free. Instant payouts carry a fee (commonly
+        // ~1%) that's charged as a separate balance transaction, NOT
+        // deducted from payout.amount above — so without this, instant
+        // payout fees are invisible anywhere in the books.
+        if (payout.method === 'instant') {
+          try {
+            const balTxns = await stripe2.balanceTransactions.list(
+              { payout: payout.id, limit: 10 }, { stripeAccount: connAcct }
+            );
+            const feeTxn = balTxns.data.find((bt: any) => bt.fee > 0);
+            if (feeTxn) {
+              const feeDollars = feeTxn.fee / 100;
+              const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
+              await feeRef.set({
+                id:                       feeRef.id,
+                date:                     new Date(payout.created * 1000).toISOString(),
+                description:              'Stripe instant payout fee',
+                clientOrVendor:           'Stripe',
+                type:                     'expense',
+                context:                  'Business',
+                category:                 'Processing Fee',
+                taxBucket:                'processing_fee',
+                amount:                   feeDollars,
+                paymentMethod:            'Stripe',
+                hasReceipt:               false,
+                stripePayoutId:           payout.id,
+                stripeConnectedAccountId: connAcct,
+                tenantId:                 tenant.id,
+              });
+              console.log(`[connect-webhook] Instant payout fee $${feeDollars.toFixed(2)} recorded for payout ${payout.id}`);
+            }
+          } catch (e) {
+            console.error('[connect-webhook] Could not check instant payout fee', e);
+          }
+        }
         break;
       }
 
