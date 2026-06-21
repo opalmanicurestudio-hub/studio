@@ -292,6 +292,9 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
     const [requestFiles, setRequestFiles] = React.useState(false);
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
+    const [cancelLink, setCancelLink] = React.useState<string | null>(null);
+    const [cancelSendStatus, setCancelSendStatus] = React.useState<any>(null);
+    const [copiedCancel, setCopiedCancel] = React.useState(false);
     const [copied, setCopied] = React.useState(false);
     const [sendStatus, setSendStatus] = React.useState<any>(null);
 
@@ -318,6 +321,11 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
     const copyLink = async () => {
         if (!generatedLink) return;
         try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+        catch { toast({ variant: 'destructive', title: 'Copy failed', description: 'Select and copy the link manually.' }); }
+    };
+    const copyCancelLink = async () => {
+        if (!cancelLink) return;
+        try { await navigator.clipboard.writeText(cancelLink); setCopiedCancel(true); setTimeout(() => setCopiedCancel(false), 2000); }
         catch { toast({ variant: 'destructive', title: 'Copy failed', description: 'Select and copy the link manually.' }); }
     };
 
@@ -380,10 +388,19 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                 link = `${origin}/complete/${tenantId}/${token}`;
             }
 
+            // Cancel link is independent of the completion-link flow above —
+            // it uses the appointment's own ID as the bearer token (see
+            // api/appointments/self-cancel), not the bookingCompletions
+            // token. Generated whenever sendLink is true, since that's the
+            // existing "send something to the client" moment in this form.
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            const generatedCancelLink = sendLink ? `${origin}/cancel/${tenantId}/${aptId}` : null;
+
             await batch.commit();
 
             if (link) {
                 setGeneratedLink(link);
+                setCancelLink(generatedCancelLink);
                 const clientPhone = selectedClient?.phone || newClientPhone;
                 try {
                     const sr = await fetch('/api/notifications/send-completion-link', {
@@ -392,6 +409,18 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                     });
                     setSendStatus(await sr.json().catch(() => null));
                 } catch { setSendStatus(null); }
+                // Best-effort, independent of the completion-link send above —
+                // a failure here shouldn't affect the booking-completion flow
+                // or surface as a booking failure.
+                if (generatedCancelLink) {
+                    try {
+                        const csr = await fetch('/api/notifications/send-cancellation-link', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ link: generatedCancelLink, clientName, clientEmail: email.trim(), clientPhone, studioName: tenant?.name }),
+                        });
+                        setCancelSendStatus(await csr.json().catch(() => null));
+                    } catch { setCancelSendStatus(null); }
+                }
                 toast({ title: 'Appointment booked', description: 'Secure link generated.' });
             } else {
                 onSuccess();
@@ -428,6 +457,20 @@ export function QuickBookForm({ clients, services, staff, tenantId, tenant, fire
                         ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''} · valid 7 days</p>
                         : <p className="text-[10px] text-muted-foreground font-medium">{sendStatus && !sendStatus.smsConfigured && !sendStatus.emailConfigured ? "Auto-send isn't set up yet — copy the link to send it. " : ''}Valid for 7 days.</p>}
                 </div>
+                {cancelLink && (
+                    <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Link2 className="w-3 h-3" /> Cancellation link</Label>
+                        <div className="flex items-center gap-2">
+                            <Input readOnly value={cancelLink} onFocus={(e) => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
+                            <Button onClick={copyCancelLink} variant="outline" className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest shrink-0 border-2">
+                                {copiedCancel ? <><CheckCircle2 className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}
+                            </Button>
+                        </div>
+                        {cancelSendStatus && (cancelSendStatus.smsSent || cancelSendStatus.emailSent)
+                            ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Sent {cancelSendStatus.smsSent ? 'by text' : ''}{cancelSendStatus.smsSent && cancelSendStatus.emailSent ? ' & ' : ''}{cancelSendStatus.emailSent ? 'by email' : ''}</p>
+                            : <p className="text-[10px] text-muted-foreground font-medium">Lets the client cancel themselves if something comes up — doesn't expire.</p>}
+                    </div>
+                )}
                 <Button onClick={onSuccess} variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Done</Button>
             </div>
         );
