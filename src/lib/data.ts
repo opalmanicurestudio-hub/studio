@@ -522,6 +522,13 @@ export type CancellationAudit = {
   feeAmount: number;
   feeWaived: boolean;
   paymentStatus: 'paid' | 'unpaid' | 'waived';
+  // Was the charged fee what the policy/matrix suggested, or did a person
+  // change it? Both numbers are kept (not just the final one) — this is
+  // what makes the record show whether a human or a policy made the call,
+  // not just what the appointment ultimately cost. Omitted for no-show,
+  // which has no suggestion/override distinction (always 100% or flat).
+  feeOverridden?: boolean;
+  suggestedFeeAmount?: number;
   timestamp: string;         // ISO string
 };
 
