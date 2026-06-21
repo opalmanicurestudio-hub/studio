@@ -338,6 +338,21 @@ async function resolveDepositForClientCancel(opts: {
       trigger: 'client_cancel', outcome: 'forfeit', reason: 'client_cancel_late',
       amountDollars: amount, decidedAt: now,
     });
+
+    // The studio is keeping this money — that's real, recognized revenue,
+    // not just a status change on the credit record. Previously nothing
+    // logged this as income anywhere, so forfeited deposits were invisible
+    // to every financial report.
+    const revenueRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    await revenueRef.set({
+      id: revenueRef.id, tenantId, appointmentId,
+      clientId: appt.clientId || null, clientName: client?.name || credit.clientName || 'Client',
+      date: now, type: 'income', category: 'Cancellation Revenue',
+      amount, amountCents: Math.round(amount * 100),
+      paymentMethod: 'Deposit', hasReceipt: false,
+      description: 'Deposit forfeited — late self-service cancellation',
+      notes: 'Client cancelled inside the studio\'s cancellation window; deposit retained per policy.',
+    });
     return;
   }
 
