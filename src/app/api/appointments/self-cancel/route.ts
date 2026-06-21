@@ -211,6 +211,16 @@ export async function POST(req: NextRequest) {
   if (chargeFee && paymentMethod === 'add_to_balance' && appt.clientId) {
     batch.update(db.doc(`tenants/${tenantId}/clients/${appt.clientId}`), {
       outstandingBalance: FieldValue.increment(feeAmount),
+      // appointmentDate set to NOW (when the fee was incurred), not the
+      // original appointment's start time — aging should measure how long
+      // this debt has existed, not how old the booking was.
+      unpaidFees: FieldValue.arrayUnion({
+        feeId: nanoid(),
+        appointmentId,
+        appointmentDate: now,
+        feeAmount,
+        reason: `Late Cancellation Fee (self-service)`,
+      }),
     });
   }
 
