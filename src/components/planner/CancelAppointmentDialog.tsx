@@ -110,6 +110,9 @@ interface CancelAppointmentDialogProps {
     // paid deposit. Drives /api/stripe/studio-cancel-refund via
     // useCancellationConfirm. Omitted entirely for client/no-show cancels.
     depositDisposition?: 'refund' | 'store_credit';
+    // Staff-added goodwill credit on top of the deposit conversion. Only
+    // meaningful when depositDisposition === 'store_credit'.
+    additionalCreditCents?: number;
   }) => Promise<void>;
 }
 
@@ -146,6 +149,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [useOverrideFee, setUseOverrideFee] = useState(false);
   const [overrideFeeValue, setOverrideFeeValue] = useState(0);
   const [depositDisposition, setDepositDisposition] = useState<'refund' | 'store_credit'>('refund');
+  const [additionalCreditValue, setAdditionalCreditValue] = useState(0);
 
   // Live deposit lookup against depositCredits — NOT appointment.depositStatus
   // / depositAmountCents. Those appointment-level fields aren't populated by
@@ -221,6 +225,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       setStudioReason('client_request_relayed');
       setClientReason('schedule_conflict');
       setCustomReason('');
+      setAdditionalCreditValue(0);
       const allIds = new Set(sessionItems.map(s => s.id));
       setSelectedHouseRecoveryIds(allIds);
       setSelectedLaborRecoveryIds(allIds);
@@ -439,7 +444,12 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       paymentMethod: resolvedPaymentMethod,
       cancellationAudit,
       auditLogEntry,
-      ...(actorType === 'studio' && hasDeposit ? { depositDisposition } : {}),
+      ...(actorType === 'studio' && hasDeposit ? {
+        depositDisposition,
+        ...(depositDisposition === 'store_credit' && additionalCreditValue > 0
+          ? { additionalCreditCents: Math.round(additionalCreditValue * 100) }
+          : {}),
+      } : {}),
     });
 
     setIsSubmitting(false);
@@ -618,6 +628,28 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
                         No Stripe record found for this deposit — will automatically fall back to store credit.
                       </p>
+                    )}
+                    {depositDisposition === 'store_credit' && (
+                      <div className="space-y-2 pt-2 border-t border-dashed">
+                        <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+                          Add Goodwill Credit (optional)
+                        </Label>
+                        <div className="relative">
+                          <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={additionalCreditValue || ''}
+                            onChange={e => setAdditionalCreditValue(Math.max(0, parseFloat(e.target.value) || 0))}
+                            placeholder="0.00"
+                            className="h-11 pl-9 rounded-xl border-2 font-bold text-sm bg-white"
+                          />
+                        </div>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">
+                          On top of the ${depositDollars.toFixed(2)} deposit — logged as a separate expense, not part of the deposit conversion above.
+                        </p>
+                      </div>
                     )}
                   </CardContent>
                 </Card>
