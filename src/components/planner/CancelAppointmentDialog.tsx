@@ -31,12 +31,6 @@ import {
   type ClientCancellationReason,
 } from '@/lib/data';
 import {
-  resolveDepositOutcome,
-  hoursUntilStart as computeHoursUntilStart,
-  type CancelTrigger,
-  type ResolvedOutcome,
-} from '@/lib/deposit-policy';
-import {
   AlertTriangle,
   Ban,
   ArrowRight,
@@ -53,6 +47,8 @@ import {
   Building2,
   UserCircle,
   UserX,
+  RefreshCw,
+  Wallet,
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { differenceInHours, parseISO } from 'date-fns';
@@ -108,6 +104,10 @@ interface CancelAppointmentDialogProps {
     paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived';
     cancellationAudit: CancellationAudit;
     auditLogEntry: Omit<AuditLogEntry, 'id' | 'tenantId'>;
+    // Only meaningful when actorType === 'studio' and the appointment has a
+    // paid deposit. Drives /api/stripe/studio-cancel-refund via
+    // useCancellationConfirm. Omitted entirely for client/no-show cancels.
+    depositDisposition?: 'refund' | 'store_credit';
   }) => Promise<void>;
 }
 
@@ -142,12 +142,15 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [selectedLaborRecoveryIds, setSelectedLaborRecoveryIds] = useState<Set<string>>(new Set());
   const [useOverrideFee, setUseOverrideFee] = useState(false);
   const [overrideFeeValue, setOverrideFeeValue] = useState(0);
+  const [depositDisposition, setDepositDisposition] = useState<'refund' | 'store_credit'>('refund');
 
   const client = useMemo(
     () => clients?.find(c => c.id === appointment.clientId),
     [clients, appointment.clientId],
   );
   const hasCardOnFile = !!client?.cardOnFile?.token;
+  const hasDeposit = appointment.depositStatus === 'paid' && (appointment.depositAmountCents || 0) > 0;
+  const depositDollars = (appointment.depositAmountCents || 0) / 100;
   const tmhr = tenant?.tmhr || 50;
   const taxBurden = tenant?.employerTaxBurdenPct || 10;
 
@@ -218,8 +221,20 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         setUseOverrideFee(false);
         setOverrideFeeValue(tenant?.cancellationFee || 0);
       }
+
+      // Default to the tenant's configured policy, but if there's no Stripe
+      // payment intent on file for the deposit, refunding will just fail and
+      // fall back to store credit anyway (see /api/stripe/studio-cancel-refund) —
+      // so default straight to store credit in that case instead of making
+      // staff discover the failure first.
+      const tenantDefault = tenant?.studioRefundPolicy || 'refund';
+      setDepositDisposition(
+        tenantDefault === 'refund' && !appointment.depositStripePaymentIntentId
+          ? 'store_credit'
+          : tenantDefault,
+      );
     }
-  }, [open, sessionItems, recoveryMatrix, tenant]);
+  }, [open, sessionItems, recoveryMatrix, tenant, appointment.depositStripePaymentIntentId]);
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -257,10 +272,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
   const finalFeeAmount = useMemo(() => {
     if (!chargeFee) return 0;
-    if (isNoShow) return sessionItems.reduce((acc, s) => acc + s.price, 0);
+    if (isNoShow) {
+      // Mirror handle-no-show-action's server-side computation exactly, so
+      // the fee staff sees here always matches what's actually charged
+      // regardless of which no-show entry point was used.
+      if (tenant?.noShowFeeMode === 'flat' && tenant?.flatNoShowFee) return tenant.flatNoShowFee;
+      return sessionItems.reduce((acc, s) => acc + s.price, 0);
+    }
     if (useOverrideFee) return overrideFeeValue;
     return totalMatrixFee;
-  }, [chargeFee, isNoShow, useOverrideFee, overrideFeeValue, totalMatrixFee, sessionItems]);
+  }, [chargeFee, isNoShow, useOverrideFee, overrideFeeValue, totalMatrixFee, sessionItems, tenant]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -363,6 +384,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       paymentMethod: resolvedPaymentMethod,
       cancellationAudit,
       auditLogEntry,
+      ...(actorType === 'studio' && hasDeposit ? { depositDisposition } : {}),
     });
 
     setIsSubmitting(false);
@@ -480,6 +502,70 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                   </strong>
                   .
                 </p>
+              )}
+
+              {/* ── Deposit disposition — studio is always at fault here, ──
+                  client should never lose money. Only shown for studio cancels
+                  with a paid deposit; refund/store-credit is processed before
+                  the cancellation itself commits (see useCancellationConfirm). */}
+              {actorType === 'studio' && hasDeposit && (
+                <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-inner">
+                  <CardContent className="p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                        <Wallet className="w-3.5 h-3.5" /> Client Has a Paid Deposit
+                      </p>
+                      <span className="font-mono text-sm font-black text-primary">
+                        ${depositDollars.toFixed(2)}
+                      </span>
+                    </div>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60">
+                      The studio is cancelling — the client keeps this money one way or another.
+                    </p>
+                    <RadioGroup
+                      value={depositDisposition}
+                      onValueChange={v => setDepositDisposition(v as 'refund' | 'store_credit')}
+                      className="grid grid-cols-2 gap-3"
+                    >
+                      <label htmlFor="deposit-refund" className="cursor-pointer">
+                        <RadioGroupItem value="refund" id="deposit-refund" className="peer sr-only" />
+                        <div
+                          className={cn(
+                            'flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center gap-1.5',
+                            depositDisposition === 'refund'
+                              ? 'border-primary bg-white shadow-lg'
+                              : 'border-border bg-white/50',
+                          )}
+                        >
+                          <RefreshCw className={cn('w-4 h-4', depositDisposition === 'refund' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                          <span className="text-[10px] font-black uppercase tracking-widest leading-none">Refund to Card</span>
+                          <span className="text-[8px] font-bold uppercase opacity-50 leading-tight">3–5 business days</span>
+                        </div>
+                      </label>
+                      <label htmlFor="deposit-credit" className="cursor-pointer">
+                        <RadioGroupItem value="store_credit" id="deposit-credit" className="peer sr-only" />
+                        <div
+                          className={cn(
+                            'flex flex-col items-center justify-center p-4 border-2 rounded-2xl transition-all text-center gap-1.5',
+                            depositDisposition === 'store_credit'
+                              ? 'border-primary bg-white shadow-lg'
+                              : 'border-border bg-white/50',
+                          )}
+                        >
+                          <Wallet className={cn('w-4 h-4', depositDisposition === 'store_credit' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                          <span className="text-[10px] font-black uppercase tracking-widest leading-none">Store Credit</span>
+                          <span className="text-[8px] font-bold uppercase opacity-50 leading-tight">Instant, usable next visit</span>
+                        </div>
+                      </label>
+                    </RadioGroup>
+                    {depositDisposition === 'refund' && !appointment.depositStripePaymentIntentId && (
+                      <p className="text-[9px] font-bold text-amber-600 uppercase tracking-tight flex items-start gap-1.5">
+                        <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                        No Stripe record found for this deposit — will automatically fall back to store credit.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
               )}
             </div>
 
