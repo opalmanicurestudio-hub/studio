@@ -235,6 +235,30 @@ export type Client = {
   disputeCount?: number;
   lastDisputeAt?: string;
   lastDisputeReason?: string;
+  // ── Repeat no-show enforcement (set by functions/src/autoCancel.ts) ──────
+  repeatNoShowFlagged?: boolean;
+  repeatNoShowCount?: number;
+  repeatNoShowFlaggedAt?: string;
+  requiresDepositOnBooking?: boolean;
+  requiresCardOnFile?: boolean;
+  // ── Store credit wallet (set by api/stripe/studio-cancel-refund) ────────
+  storeCredits?: {
+    id: string;
+    tenantId: string;
+    clientId: string;
+    appointmentId: string;
+    amountCents: number;
+    amount: number;
+    reason: string;
+    cancelReason?: string;
+    expiresAt: string | null;
+    createdAt: string;
+    usedAt: string | null;
+    usedOnAppointmentId: string | null;
+    status: 'available' | 'used' | 'expired';
+  }[];
+  totalStoreCredit?: number;
+  stripeCustomerId?: string;
 };
 
 export type SubscriptionInstance = {
@@ -505,6 +529,7 @@ export type Appointment = {
   clientEmail?: string;
   clientPhone?: string;
   serviceId: string;
+  serviceName?: string;
   staffId?: string;
   startTime: any;
   endTime: any;
@@ -538,6 +563,41 @@ export type Appointment = {
   // Consolidated audit summary for the cancellation — NOT a replacement for the
   // discrete cancellation* / waived* fields above, which are still read/written elsewhere.
   cancellationAudit?: CancellationAudit;
+  cancelledAt?: string;
+  cancellationEventId?: string;
+  cancellationFeeCharged?: number;
+  studioCancelled?: boolean;
+  // ── Auto-cancel (no-show) bookkeeping — functions/src/autoCancel.ts ───────
+  // IMPORTANT: this must be initialized to `false` at appointment-creation
+  // time, in every code path that creates an appointment. Firestore equality
+  // filters (`where('autoCancelledNoShow', '==', false)`) never match a
+  // missing field, so any appointment created without this set will be
+  // silently invisible to the no-show scheduled job.
+  autoCancelledNoShow?: boolean;
+  suspectedNoShow?: boolean;
+  suspectedNoShowAt?: string;
+  noShowEscalatedAt?: string;
+  suspectedNoShowCleared?: boolean;
+  suspectedNoShowClearedAt?: string;
+  suspectedNoShowClearedBy?: string;
+  noShowFalsePositive?: boolean;
+  noShowConfirmedBy?: string;
+  noShowConfirmedAt?: string;
+  // ── Deposit disposition (studio-cancel / no-show) ─────────────────────────
+  depositAmountCents?: number;
+  depositStatus?: 'pending' | 'paid' | 'none' | 'refunded' | 'converted_to_credit';
+  depositStripePaymentIntentId?: string;
+  depositRefunded?: boolean;
+  depositRefundedAt?: string;
+  depositRefundedAmountCents?: number;
+  depositStripeRefundId?: string;
+  depositDisposition?: 'refunded' | 'store_credit' | 'none';
+  depositConvertedToCredit?: boolean;
+  depositConvertedToCreditAt?: string;
+  depositConvertedAmountCents?: number;
+  depositForfeited?: boolean;
+  depositForfeitedAt?: string;
+  depositForfeitedReason?: string;
   revenue?: number;
   tipAmount?: number;
   discountAmount?: number;
@@ -553,8 +613,6 @@ export type Appointment = {
   resolvedBy?: string;
   // Completion link fields
   completionStatus?: 'pending' | 'complete';
-  depositAmountCents?: number;
-  depositStatus?: 'pending' | 'paid' | 'none';
   signedForms?: { formId: string; formTitle: string; formData: Record<string, any> }[];
   requirementFiles?: { requirementId: string; label: string; files: any[] }[];
   healthDisclosedAt?: string;
@@ -927,6 +985,47 @@ export type Tenant = {
   defaultRescheduleMode?: 'matrix' | 'flat';
   allowGuestFeeDeferral?: boolean;
 
+  // ── Cancellation & No-Show — automation v2 ──────────────────────────────
+  // Read directly by functions/src/autoCancel.ts and
+  // functions/src/onCancellationEvent.ts. Kept flat on Tenant (no separate
+  // CancellationAutomationConfig type exists in this codebase) to match
+  // every other config field above.
+  /** Master kill-switch for the scheduled auto-cancel function. Default: true. */
+  autoCancelEnabled?: boolean;
+  /** Minutes after start before an appointment is flagged as suspected
+   *  no-show. Default: 15. NOTE: as currently written, autoCancel.ts
+   *  auto-cancels directly rather than just flagging for staff confirmation
+   *  — see flag raised separately about reconciling this with the
+   *  handle-no-show-action staff-confirm flow. */
+  noShowWindowMinutes?: number;
+  /** Minutes staff have to respond to a suspected no-show notification
+   *  before it escalates to a manager. Default: 10.
+   *  NOT YET CONSUMED by any function as of this commit — documented here
+   *  for when the escalation step is built. */
+  noShowConfirmWindowMinutes?: number;
+  /** How the no-show fee is computed. Default: 'full_service'. */
+  noShowFeeMode?: 'full_service' | 'flat' | 'matrix';
+  /** Flat no-show fee amount, used when noShowFeeMode === 'flat'. */
+  flatNoShowFee?: number;
+  /** No-shows within 90 days before a client is auto-flagged
+   *  (requiresDepositOnBooking + requiresCardOnFile set true). Default: 2. */
+  repeatNoShowThreshold?: number;
+  /** Send the cancellation email from onCancellationEvent. Default: true. */
+  cancellationEmailEnabled?: boolean;
+  /** Send the cancellation SMS from onCancellationEvent. Default: true. */
+  cancellationSmsEnabled?: boolean;
+  /** Default deposit disposition when the STUDIO cancels. Staff can
+   *  override per-cancellation in the dialog. Default: 'refund'. */
+  studioRefundPolicy?: 'refund' | 'store_credit';
+  /** Days before an issued store credit expires. 0 = never. Default: 365. */
+  storeCreditExpiryDays?: number;
+  /** Whether the matrix (vs. flat/percentage) is the default for
+   *  cancellation fee calculation. */
+  useMatrixForCancellation?: boolean;
+  /** Whether a paid deposit is automatically forfeited on no-show
+   *  (vs. requiring explicit staff action). */
+  forfeitDepositOnNoShow?: boolean;
+
   // ── Scheduling ─────────────────────────────────────────────────────────
   bookingSlotInterval?: 15 | 30 | 60;
   tightSchedulingEnabled?: boolean;
@@ -1169,6 +1268,14 @@ export type Notification = {
   link: string;
   createdAt: string;
   read: boolean;
+  // ── Resolution tracking (used by suspected_no_show / no_show_escalation) ──
+  // Written by functions/src/autoCancel.ts when flagging/escalating, and
+  // resolved by api/notifications/handle-no-show-action when staff acts on it.
+  appointmentId?: string;
+  resolved?: boolean;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  resolution?: 'confirm_no_show' | 'dismiss_no_show';
 };
 
 export type TillDenominations = {
