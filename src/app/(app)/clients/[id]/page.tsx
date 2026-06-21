@@ -74,7 +74,7 @@ import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, arrayUnion, writeBatch, increment, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, arrayUnion, increment, getDocs, query, where } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -303,21 +303,57 @@ export default function ClientDetailPage() {
 
   const handleQuickSettle = async () => {
     if (!client || !firestore || !tenantId) return;
-    setIsSettleProcessing(true);
-    const batch = writeBatch(firestore);
+    const hasCard = !!(client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
+    if (!hasCard) {
+        toast({ variant: 'destructive', title: "No Card on File", description: "Vault a card before attempting to settle." });
+        return;
+    }
     const amount = safeNumber(client.outstandingBalance);
-    const now = new Date().toISOString();
-    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-    batch.set(txnRef, { id: txnRef.id, date: now, description: "Dossier Settlement (Quick Settle)", clientOrVendor: client.name, clientId: client.id, type: 'income', context: 'Business', category: 'Fee Recovery', amount, paymentMethod: 'Card on File', paymentMethodIdentifier: `${client.cardOnFile?.brand} **** ${client.cardOnFile?.last4}`, hasReceipt: false });
-    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-    batch.update(clientRef, { outstandingBalance: 0, unpaidFees: [], lifetimeValue: increment(amount) });
+    if (amount <= 0) return;
+
+    setIsSettleProcessing(true);
     try {
-        await batch.commit();
+        // This previously never called Stripe at all — it wrote a fake
+        // 'income' transaction and zeroed the balance unconditionally,
+        // regardless of whether any money actually moved. Now it genuinely
+        // charges the card via the same route every other card-on-file charge
+        // in this app uses (POS checkout, cancellation fees). That route
+        // owns its own ledger write, and the real Stripe processing fee gets
+        // captured the same way it does for every other charge — via the
+        // charge.succeeded webhook, not anything written here.
+        const res = await fetch('/api/stripe/charge-card', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tenantId,
+                clientId: client.id,
+                amountCents: Math.round(amount * 100),
+                description: 'Dossier Settlement — Outstanding Balance',
+                category: 'Fee Recovery',
+                taxBucket: 'adjustment',
+            }),
+        });
+        const out = await res.json().catch(() => null);
+
+        if (!out?.ok) {
+            toast({ variant: 'destructive', title: "Charge Failed", description: out?.reason || 'Card was declined or could not be processed. Balance has not been cleared.' });
+            return;
+        }
+
+        // Charge succeeded — clear the debt. lifetimeValue increments here
+        // because unpaid fees are tracked separately from lifetimeValue when
+        // incurred (see wherever unpaidFees first get added) and only count
+        // once actually collected.
+        await updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), {
+            outstandingBalance: 0,
+            unpaidFees: [],
+            lifetimeValue: increment(amount),
+        });
         toast({ title: "Account Reconciled", description: `Successfully charged ${client.cardOnFile?.brand} for $${amount.toFixed(2)}.` });
         setIsQuickSettleOpen(false);
-    } catch (e) {
+    } catch (e: any) {
         console.error(e);
-        toast({ variant: 'destructive', title: "Process Failed" });
+        toast({ variant: 'destructive', title: "Process Failed", description: e.message || 'Could not reach the payment processor.' });
     } finally {
         setIsSettleProcessing(false);
     }
