@@ -305,6 +305,18 @@ export function useCancellationConfirm(
                   status: 'forfeited', forfeitedAt: decisionNow,
                   forfeitedFromAppointmentId: appointment.id, lastDecisionReason: 'no_show',
                 }, { merge: true });
+                // The studio is keeping this money — real, recognized
+                // revenue, not just a status flip. Previously nothing
+                // logged this as income anywhere.
+                const noShowRevenueRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                forfeitBatch.set(noShowRevenueRef, {
+                  id: noShowRevenueRef.id, tenantId, appointmentId: appointment.id,
+                  clientId: appointment.clientId || null, clientName: client.name || credit.clientName || 'Client',
+                  date: decisionNow, type: 'income', category: 'No-Show Revenue',
+                  amount, amountCents: Math.round(amount * 100),
+                  paymentMethod: 'Deposit', hasReceipt: false,
+                  description: 'Deposit forfeited — no-show',
+                });
                 await forfeitBatch.commit();
                 depositNote = `$${amount.toFixed(2)} deposit forfeited — no-show.`;
               } else {
@@ -338,6 +350,16 @@ export function useCancellationConfirm(
                     status: 'forfeited', forfeitedAt: decisionNow,
                     forfeitedFromAppointmentId: appointment.id, lastDecisionReason: resolved.reason,
                   }, { merge: true });
+                  // Same revenue-recognition fix as the no-show branch above.
+                  const lateCancelRevenueRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+                  forfeitBatch.set(lateCancelRevenueRef, {
+                    id: lateCancelRevenueRef.id, tenantId, appointmentId: appointment.id,
+                    clientId: appointment.clientId || null, clientName: client.name || credit.clientName || 'Client',
+                    date: decisionNow, type: 'income', category: 'Cancellation Revenue',
+                    amount, amountCents: Math.round(amount * 100),
+                    paymentMethod: 'Deposit', hasReceipt: false,
+                    description: `Deposit forfeited — ${resolved.reason}`,
+                  });
                   await forfeitBatch.commit();
                   depositNote = `$${amount.toFixed(2)} deposit forfeited — ${resolved.reason}.`;
                 }
