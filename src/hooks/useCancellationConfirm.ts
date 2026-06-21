@@ -1,46 +1,37 @@
 'use client';
 
 /**
- * useCancellationConfirm (v3)
+ * useCancellationConfirm (v4)
  *
- * Changes from v2:
- *  - Added deposit-credit resolution for CLIENT-initiated cancellations.
- *    v2 only handled deposit disposition when actorType === 'studio'; a
- *    client cancelling through the staff dialog with a paid deposit
- *    previously had that deposit left completely untouched — no refund, no
- *    rollover, no forfeiture, nothing. This restores the rollover/forfeit/
- *    refund-pending policy resolution that existed pre-v2, scoped to the
- *    depositCredits collection (the webhook-fed, policy-aware deposit model
- *    — see note below on the two parallel deposit representations in this
- *    codebase).
- *  - This resolution runs AFTER the cancellation commits, best-effort, and
- *    never blocks the cancellation on failure — unlike the studio-cancel
- *    Step 1, which deliberately blocks so staff sees a failed refund before
- *    the appointment is gone. A client wanting to cancel should always be
- *    able to, even if deposit bookkeeping hiccups.
- *  - A 'refund' outcome is NEVER auto-executed here (same principle as
- *    everywhere else in this codebase) — it's recorded as a pending
- *    decision plus a staff notification for manual confirmation.
+ * Changes from v3:
+ *  - RESOLVED the architectural gap v3 flagged: /api/stripe/studio-cancel-refund
+ *    no longer trusts appointment.depositAmountCents / depositStripePaymentIntentId
+ *    (fields the actual deposit-payment webhook never populates). It now
+ *    looks the deposit up itself from depositCredits — the same collection
+ *    this hook's client/no-show resolution already uses, and what
+ *    self-cancel and handle-no-show-action also use. All four cancellation
+ *    paths now agree on a single source of truth for "does this client have
+ *    a paid deposit on file."
+ *  - Because the route resolves the deposit itself, Step 1 no longer needs
+ *    (or trusts) a `hasDeposit` check against appointment fields — it just
+ *    calls the route whenever depositDisposition is present, and the route
+ *    returns a clean 404-style failure if there's genuinely nothing to
+ *    resolve. CancelAppointmentDialog does its own live depositCredits
+ *    lookup now to decide whether to show the picker at all.
  *
- * ⚠️ KNOWN ARCHITECTURAL GAP (not fixed by this revision):
- * This codebase currently has TWO parallel deposit-tracking models that
- * aren't unified:
- *   (a) tenants/{tenantId}/depositCredits/{id} — looked up by clientId/email,
- *       status available/consumed/forfeited/rolled_over. Used here, and by
- *       the original (pre-v2) cancellation flow and POS checkout.
- *   (b) appointment.depositAmountCents / depositStatus /
- *       depositStripePaymentIntentId — fields directly on the Appointment
- *       doc. Used by /api/stripe/studio-cancel-refund and
- *       handle-no-show-action.
- * If the deposit-payment webhook only writes to (a) and never flips (b) to
- * 'paid' with a payment intent ID, then studio-cancel and no-show deposit
- * handling silently no-op on appointments that genuinely have a paid
- * deposit. This needs verification against the actual webhook before it can
- * be called fixed — flagged repeatedly rather than guessed at blind.
+ * Changes from v2 (carried forward):
+ *  - Deposit-credit resolution for CLIENT-initiated cancellations
+ *    (rollover/forfeit/refund-pending), and unconditional forfeiture for
+ *    no-show cancellations made through this dialog — both via
+ *    depositCredits, both best-effort/non-blocking, both run AFTER the
+ *    cancellation commits. A 'refund' outcome is NEVER auto-executed —
+ *    recorded as a pending decision plus a staff notification only.
  *
- * No-show path unchanged — staffConfirmed flow handles that via
- * /api/notifications/handle-no-show-action (deposit forfeiture only, no
- * refund/rollover option, which is a reasonable policy for genuine no-shows).
+ * No-show path: staffConfirmed flow also goes through
+ * /api/notifications/handle-no-show-action when triggered from a flagged
+ * notification — that route now also resolves deposits via depositCredits,
+ * so both no-show entry points (this dialog, and the notification-driven
+ * route) behave identically.
  */
 
 import { useCallback } from 'react';
@@ -109,25 +100,28 @@ export function useCancellationConfirm(
       const isStudioCancel = cancellationAudit?.actorType === 'studio';
       const isClientCancel = cancellationAudit?.actorType === 'client';
       const isNoShowCancel = cancellationAudit?.actorType === 'no_show';
-      const hasDeposit     = appointment.depositStatus === 'paid' &&
-                             (appointment.depositAmountCents || 0) > 0;
+      // No appointment-field hasDeposit check anymore — the route resolves
+      // the deposit itself from depositCredits and returns a clean failure
+      // if there's genuinely nothing on file. depositDisposition is only
+      // ever present in the payload when CancelAppointmentDialog's own live
+      // depositCredits lookup found something, so its presence already
+      // implies a deposit exists.
+      let resolvedDepositAmount = 0;
 
       // ── Step 1: Handle deposit disposition for studio cancellations ──────────
       // Do this FIRST — before marking cancelled — so if Stripe refund fails,
       // we can surface the error without having already cancelled the appointment.
-      if (isStudioCancel && hasDeposit && depositDisposition && depositDisposition !== 'none') {
+      if (isStudioCancel && depositDisposition && depositDisposition !== 'none') {
         try {
           const res = await fetch('/api/stripe/studio-cancel-refund', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               tenantId,
-              clientId:              client.id,
-              appointmentId:         appointment.id,
-              depositAmountCents:    appointment.depositAmountCents,
-              stripePaymentIntentId: appointment.depositStripePaymentIntentId || null,
-              disposition:           depositDisposition,
-              staffId:               cancellationAudit.actorId,
+              clientId:      client.id,
+              appointmentId: appointment.id,
+              disposition:   depositDisposition,
+              staffId:       cancellationAudit.actorId,
               reason,
             }),
           });
@@ -142,19 +136,20 @@ export function useCancellationConfirm(
                 description: 'No Stripe record found — deposit will be issued as store credit instead.',
               });
               // Re-call with store_credit
-              await fetch('/api/stripe/studio-cancel-refund', {
+              const fallbackRes = await fetch('/api/stripe/studio-cancel-refund', {
                 method:  'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   tenantId,
-                  clientId:           client.id,
-                  appointmentId:      appointment.id,
-                  depositAmountCents: appointment.depositAmountCents,
-                  disposition:        'store_credit',
-                  staffId:            cancellationAudit.actorId,
+                  clientId:      client.id,
+                  appointmentId: appointment.id,
+                  disposition:   'store_credit',
+                  staffId:       cancellationAudit.actorId,
                   reason,
                 }),
               });
+              const fallbackResult = await fallbackRes.json().catch(() => null);
+              resolvedDepositAmount = Number(fallbackResult?.amount || 0);
             } else {
               // Hard failure — surface it and abort the cancellation
               toast({
@@ -165,9 +160,10 @@ export function useCancellationConfirm(
               return; // don't cancel the appointment
             }
           } else {
+            resolvedDepositAmount = Number(result.amount || 0);
             const msg = depositDisposition === 'refund'
-              ? `$${(appointment.depositAmountCents / 100).toFixed(2)} refunded to card on file`
-              : `$${(appointment.depositAmountCents / 100).toFixed(2)} added as store credit`;
+              ? `$${resolvedDepositAmount.toFixed(2)} refunded to card on file`
+              : `$${resolvedDepositAmount.toFixed(2)} added as store credit`;
             toast({ title: 'Deposit Processed', description: msg });
           }
         } catch (err: any) {
@@ -352,7 +348,7 @@ export function useCancellationConfirm(
       if (isStudioCancel) {
         toast({
           title:       'Appointment Cancelled',
-          description: hasDeposit && depositDisposition !== 'none'
+          description: resolvedDepositAmount > 0 && depositDisposition && depositDisposition !== 'none'
             ? depositDisposition === 'refund'
               ? 'Client notified. Deposit refund is processing.'
               : 'Client notified. Deposit issued as store credit.'
