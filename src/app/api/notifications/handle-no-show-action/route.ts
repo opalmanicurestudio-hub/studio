@@ -196,6 +196,16 @@ export async function POST(req: NextRequest) {
   if (paymentMethod === 'add_to_balance' && feeAmount > 0) {
     batch.update(db.doc(`tenants/${tenantId}/clients/${appt.clientId}`), {
       outstandingBalance: FieldValue.increment(feeAmount),
+      // Same fix as self-cancel and useCancellationConfirm — without this,
+      // the balance went up but the Ledger's Bad Debt Aging widget (reads
+      // unpaidFees) never saw it.
+      unpaidFees: FieldValue.arrayUnion({
+        feeId: nanoid(),
+        appointmentId: appt.id,
+        appointmentDate: now,
+        feeAmount,
+        reason: 'No-Show Fee',
+      }),
     });
   }
 
