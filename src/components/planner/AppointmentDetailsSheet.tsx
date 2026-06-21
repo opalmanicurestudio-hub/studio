@@ -73,6 +73,81 @@ const safeTicketId = (id: any): string => {
   return 'N/A';
 };
 
+// ─── Cancellation Record ────────────────────────────────────────────────────────
+// Shown in place of the ReadinessBanner once an appointment is cancelled —
+// readiness checks (deposit, forms, card) are meaningless for a cancelled
+// session. This is the only place in the POS/Planner flow that surfaces
+// who cancelled, why, what fee applied, and what happened to the deposit;
+// previously a cancelled appointment looked identical to any other once you
+// opened this sheet, with no record of any of that.
+const CancellationRecord = ({ appointment }: { appointment: any }) => {
+  const audit = appointment?.cancellationAudit;
+  if (!audit) {
+    return (
+      <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-muted/10 border-2 border-border">
+        <Ban className="w-4 h-4 text-muted-foreground shrink-0" />
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+          Cancelled — no further detail on file
+        </p>
+      </div>
+    );
+  }
+
+  const actorLabel =
+    audit.actorType === 'studio' ? 'Studio / Staff' :
+    audit.actorType === 'no_show' ? 'No-Show (automatic)' :
+    'Client';
+
+  const reasonText = (audit.studioReason || audit.clientReason || audit.reason || '')
+    .toString().replace(/_/g, ' ');
+
+  const feeLabel = audit.feeWaived
+    ? 'Fee waived'
+    : safeNumber(audit.feeAmount) > 0
+    ? `Fee charged: $${safeNumber(audit.feeAmount).toFixed(2)}`
+    : 'No fee';
+
+  const depositLabel =
+    appointment.depositDisposition === 'refunded' ? 'Deposit refunded to card' :
+    appointment.depositDisposition === 'store_credit' ? 'Deposit converted to store credit' :
+    appointment.depositDisposition === 'forfeited' ? 'Deposit forfeited' :
+    null;
+
+  return (
+    <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/20 space-y-2.5">
+      <div className="flex items-center gap-2.5">
+        <Ban className="w-5 h-5 text-destructive shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-widest text-destructive leading-tight">
+            Cancelled by {actorLabel}
+          </p>
+          {audit.timestamp && (
+            <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">
+              {format(safeDate(audit.timestamp), 'MMM d, yyyy · h:mm a')}
+            </p>
+          )}
+        </div>
+      </div>
+      {reasonText && (
+        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed pl-7">
+          {reasonText}{audit.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}
+        </p>
+      )}
+      <div className="flex items-center justify-between pl-7 pt-1 border-t border-dashed border-destructive/10">
+        <span className={cn(
+          'text-[9px] font-black uppercase tracking-widest',
+          audit.feeWaived ? 'text-green-600' : safeNumber(audit.feeAmount) > 0 ? 'text-amber-600' : 'text-muted-foreground opacity-50'
+        )}>
+          {feeLabel}
+        </span>
+        {depositLabel && (
+          <span className="text-[9px] font-black uppercase tracking-widest text-primary/70">{depositLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Readiness Banner ─────────────────────────────────────────────────────────
 const ReadinessBanner = ({
   appointment, client, complianceInfo,
@@ -437,13 +512,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const mainStaffMember    = (staff || []).find((s: Staff) => s.id === mainStaffId);
   const cardSecured        = !!(appointment.cardOnFileSecured || client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
   const reqFiles           = appointment.requirementFiles || [];
+  const isCancelled        = appointment.status === 'cancelled';
 
   // ── Sheet body ─────────────────────────────────────────────────────────────
   const SheetBody = (
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-8 p-5 md:p-8 pb-16">
 
-        <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} />
+        {isCancelled ? <CancellationRecord appointment={appointment} /> : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} />}
 
         {appointment.status === 'confirmed' && (
           <Button
@@ -808,9 +884,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest" asChild>
             <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> Profile</Link>
           </Button>
-          <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}>
-            <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel
-          </Button>
+          {!isCancelled && (
+            <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}>
+              <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel
+            </Button>
+          )}
         </div>
 
         <Separator className="bg-muted/50" />
@@ -819,9 +897,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Details</h3>
-            <Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-              <PlusCircle className="w-3 h-3 mr-1" /> Add Part
-            </Button>
+            {!isCancelled && (
+              <Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                <PlusCircle className="w-3 h-3 mr-1" /> Add Part
+              </Button>
+            )}
           </div>
           <Card className="rounded-[1.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
             <CardContent className="p-4 space-y-4">
