@@ -36,6 +36,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
+import { RescheduleAppointmentDialog } from '@/components/planner/RescheduleAppointmentDialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
