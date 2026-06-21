@@ -51,7 +51,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
-import { doc, collection, writeBatch, increment, arrayUnion } from 'firebase/firestore';
+import { doc, collection, writeBatch, arrayUnion } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
 
@@ -97,44 +97,87 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
     }
 
     setIsSubmitting(true);
+
+    // ── Wallet mode now routes through the unified credit ledger ──────────
+    // (api/credits/issue) instead of incrementing the old standalone
+    // walletCredit field directly. This is always a 'courtesy' credit —
+    // nothing was collected from the client for it, it's a real business
+    // expense — and it now lands in the SAME storeCredits/totalStoreCredit
+    // ledger that cancellation deposit conversions use, so staff see one
+    // number for "client's available credit," not two.
+    if (mode === 'wallet') {
+        if (amount <= 0) {
+            toast({ variant: 'destructive', title: 'Enter an amount' });
+            setIsSubmitting(false);
+            return;
+        }
+        try {
+            const res = await fetch('/api/credits/issue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tenantId,
+                    clientId: client.id,
+                    amountCents: Math.round(amount * 100),
+                    type: 'courtesy',
+                    source: 'service_recovery',
+                    reason,
+                    createdBy: authorizer.id,
+                }),
+            });
+            const out = await res.json().catch(() => null);
+            if (!out?.ok) {
+                toast({ variant: 'destructive', title: 'Issue Failed', description: out?.error || 'Could not issue credit.' });
+                return;
+            }
+            toast({ title: "Protocol Committed", description: `$${amount.toFixed(2)} added to ${client.name}'s store credit.` });
+            onOpenChange(false);
+            resetForm();
+        } catch (e: any) {
+            console.error(e);
+            toast({ variant: 'destructive', title: "Process Error", description: e.message });
+        } finally {
+            setIsSubmitting(false);
+        }
+        return;
+    }
+
+    // ── Service Gift / Hospitality modes — unchanged ────────────────────────
+    // These grant a specific service or amenity (a voucher), not a cash
+    // equivalent — deliberately kept on oneTimePerks rather than folded into
+    // the credit ledger, since "redeem one facial" and "$20 of spendable
+    // credit" aren't the same kind of thing. If a future need arises to
+    // track these in dollar terms too, issue a 'courtesy' credit here as
+    // well, but that hasn't been requested.
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
     const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
 
-    let txnDescription = '';
-    let txnAmount = 0;
-
-    if (mode === 'wallet') {
-        txnDescription = `Wallet Credit Issued: ${reason}`;
-        txnAmount = amount;
-        batch.update(clientRef, { walletCredit: increment(amount) });
-    } else {
-        const item = mode === 'service' 
-            ? services.find((s: any) => s.id === selectedItemId)
-            : inventory.find((i: any) => i.id === selectedItemId);
-        
-        if (!item) {
-            toast({ variant: 'destructive', title: 'Please select an item' });
-            setIsSubmitting(false);
-            return;
-        }
-
-        const newPerk: any = {
-            id: nanoid(),
-            name: item.name,
-            type: mode === 'service' ? 'service' : 'product',
-            grantedAt: now,
-            reason: reason,
-            grantedBy: authorizer.id,
-            isRedeemed: false
-        };
-
-        txnDescription = `Voucher Issued: ${item.name} (${reason})`;
-        txnAmount = mode === 'service' ? ((item as any).cost || 0) : ((item as any).costPerUnit || 0);
-        
-        batch.update(clientRef, { oneTimePerks: arrayUnion(newPerk) });
+    const item = mode === 'service' 
+        ? services.find((s: any) => s.id === selectedItemId)
+        : inventory.find((i: any) => i.id === selectedItemId);
+    
+    if (!item) {
+        toast({ variant: 'destructive', title: 'Please select an item' });
+        setIsSubmitting(false);
+        return;
     }
+
+    const newPerk: any = {
+        id: nanoid(),
+        name: item.name,
+        type: mode === 'service' ? 'service' : 'product',
+        grantedAt: now,
+        reason: reason,
+        grantedBy: authorizer.id,
+        isRedeemed: false
+    };
+
+    const txnDescription = `Voucher Issued: ${item.name} (${reason})`;
+    const txnAmount = mode === 'service' ? ((item as any).cost || 0) : ((item as any).costPerUnit || 0);
+    
+    batch.update(clientRef, { oneTimePerks: arrayUnion(newPerk) });
 
     batch.set(txnRef, {
         id: txnRef.id,
@@ -154,7 +197,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
 
     try {
         await batch.commit();
-        toast({ title: "Protocol Committed", description: `${mode === 'wallet' ? `$${amount.toFixed(2)} added to wallet` : 'Voucher issued'} for ${client.name}.` });
+        toast({ title: "Protocol Committed", description: `Voucher issued for ${client.name}.` });
         onOpenChange(false);
         resetForm();
     } catch (e) {
@@ -208,7 +251,7 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                         <label htmlFor="mode-wallet" className="cursor-pointer">
                             <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'wallet' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
                                 <Wallet className={cn("w-6 h-6 mb-2", mode === 'wallet' ? "text-primary" : "text-slate-400")} />
-                                <span className="text-[9px] font-black uppercase tracking-widest">Wallet Credit</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest">Store Credit</span>
                                 <RadioGroupItem value="wallet" id="mode-wallet" className="sr-only" />
                             </div>
                         </label>
@@ -244,6 +287,9 @@ export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
                                         className="h-20 rounded-[2.5rem] border-4 font-black text-5xl tracking-tighter text-primary text-center bg-primary/5 shadow-inner"
                                     />
                                 </div>
+                                <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 ml-1">
+                                    Issued as store credit — usable on any future visit, not tied to a specific re-booking.
+                                </p>
                             </motion.div>
                         )}
 
