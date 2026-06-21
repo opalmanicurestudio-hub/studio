@@ -67,6 +67,9 @@ interface CancellationConfirmPayload {
   auditLogEntry: any;
   // Studio-cancel deposit disposition — only present when actorType === 'studio'
   depositDisposition?: 'refund' | 'store_credit' | 'none';
+  // Staff-added goodwill credit beyond the deposit amount — only meaningful
+  // when depositDisposition === 'store_credit'.
+  additionalCreditCents?: number;
 }
 
 export function useCancellationConfirm(
@@ -95,6 +98,7 @@ export function useCancellationConfirm(
         cancellationAudit,
         auditLogEntry,
         depositDisposition,
+        additionalCreditCents,
       } = payload;
 
       const isStudioCancel = cancellationAudit?.actorType === 'studio';
@@ -123,6 +127,7 @@ export function useCancellationConfirm(
               disposition:   depositDisposition,
               staffId:       cancellationAudit.actorId,
               reason,
+              ...(depositDisposition === 'store_credit' && additionalCreditCents ? { additionalCreditCents } : {}),
             }),
           });
 
