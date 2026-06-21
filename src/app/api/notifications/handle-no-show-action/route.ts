@@ -2,7 +2,9 @@
  * api/notifications/handle-no-show-action/route.ts
  *
  * Called when staff taps "Confirm No-Show" or "Client Is Here" from
- * a suspected_no_show or no_show_escalation notification.
+ * a suspected_no_show or no_show_escalation notification — or when staff
+ * manually confirm a no-show via CancelAppointmentDialog before the
+ * automated flag even fires (see guard note below).
  *
  * POST body:
  *   { tenantId, appointmentId, notificationId, action, staffId }
@@ -13,11 +15,20 @@
  *   - Creates a cancellationEvent with actorType='no_show' (triggers full pipeline)
  *   - Marks notification resolved
  *   - Clears suspectedNoShow flag (appointment now properly cancelled)
+ *   - Forfeits any available deposit credit (depositCredits collection —
+ *     see note below on why this isn't the appointment-level deposit fields)
  *
  * On dismiss_no_show:
  *   - Clears suspectedNoShow flag
  *   - Marks notification resolved
  *   - Logs that client arrived (helps tune the window setting over time)
+ *
+ * REVISED — deposit forfeiture: previously checked
+ * appt.depositStatus === 'paid' && appt.depositAmountCents > 0, which the
+ * actual deposit-payment webhook never populates in this codebase. Switched
+ * to looking up tenants/{tenantId}/depositCredits directly, matching every
+ * other cancellation path (studio-cancel-refund, useCancellationConfirm,
+ * self-cancel).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -38,6 +49,11 @@ function getAdmin() {
     }, APP_NAME);
   }
   return { db: getFirestore(app), FieldValue };
+}
+
+function isCreditExpired(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt).getTime() <= Date.now();
 }
 
 export async function POST(req: NextRequest) {
@@ -68,13 +84,14 @@ export async function POST(req: NextRequest) {
 
   const appt = apptSnap.data();
 
-  // Guard: only the "already cancelled" case is a true duplicate-tap/idempotency
-  // situation. Do NOT also gate on `!appt.suspectedNoShow` — this route is the
-  // canonical no-show confirmation endpoint, called both from a flagged
-  // notification AND from staff manually confirming a no-show via
-  // CancelAppointmentDialog (e.g. before the 15-minute auto-flag window even
-  // elapses). The latter case legitimately has suspectedNoShow unset, and
-  // previously got silently swallowed here instead of actually cancelling.
+  // Guard: only "already cancelled" is a true duplicate-tap/idempotency
+  // situation. Deliberately NOT also gating on `!appt.suspectedNoShow` —
+  // this route is the canonical no-show confirmation endpoint, called both
+  // from a flagged notification AND from staff manually confirming a
+  // no-show via CancelAppointmentDialog (e.g. before the 15-minute
+  // auto-flag window even elapses). The latter case legitimately has
+  // suspectedNoShow unset; gating on it there used to silently swallow a
+  // real confirmation request instead of actually cancelling anything.
   if (appt.status === 'cancelled') {
     if (notificationId) {
       await db.doc(`tenants/${tenantId}/notifications/${notificationId}`)
@@ -126,10 +143,7 @@ export async function POST(req: NextRequest) {
   const tenant     = tenantSnap.data() || {};
 
   // Always look up the primary service — needed for an accurate service name
-  // in the client-facing email/SMS regardless of fee mode (previously this
-  // lookup was skipped entirely when noShowFeeMode === 'flat', leaving the
-  // cancellationEvent's serviceName null and emails saying generic
-  // "your service").
+  // in the client-facing email/SMS regardless of fee mode.
   const primarySvcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
   const primarySvcName = primarySvcSnap.data()?.name || null;
 
@@ -185,26 +199,43 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Handle deposit forfeiture
-  if (appt.depositStatus === 'paid' && appt.depositAmountCents > 0) {
-    batch.update(apptRef, {
-      depositForfeited:       true,
-      depositForfeitedAt:     now,
-      depositForfeitedReason: 'no_show',
-    });
-    const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    batch.set(txRef, {
-      id:            txRef.id,
-      tenantId,
-      appointmentId: appt.id,
-      clientId:      appt.clientId,
-      type:          'deposit_forfeiture',
-      category:      'No-Show Deposit',
-      amount:        appt.depositAmountCents / 100,
-      amountCents:   appt.depositAmountCents,
-      status:        'forfeited',
-      createdAt:     now,
-    });
+  // ── Deposit forfeiture — depositCredits, not appointment fields ──────────
+  let depositForfeitedAmount = 0;
+  try {
+    const creditsCol = db.collection(`tenants/${tenantId}/depositCredits`);
+    let creditSnap = appt.clientId
+      ? await creditsCol.where('status', '==', 'available').where('clientId', '==', appt.clientId).get()
+      : { empty: true, docs: [] as any[] };
+    if (creditSnap.empty && client?.email) {
+      creditSnap = await creditsCol.where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
+    }
+    if (!creditSnap.empty) {
+      const candidates = creditSnap.docs
+        .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+        .filter((c: any) => !isCreditExpired(c.expiresAt));
+      candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      const credit = candidates[0];
+      if (credit) {
+        depositForfeitedAmount = Number(credit.amountDollars ?? (credit.amountCents || 0) / 100);
+        batch.set(credit.ref, {
+          status: 'forfeited',
+          forfeitedAt: now,
+          forfeitedFromAppointmentId: appt.id,
+          lastDecisionReason: 'no_show',
+        }, { merge: true });
+
+        const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        batch.set(txRef, {
+          id: txRef.id, tenantId, appointmentId: appt.id, clientId: appt.clientId,
+          type: 'deposit_forfeiture', category: 'No-Show Deposit',
+          amount: depositForfeitedAmount, amountCents: Math.round(depositForfeitedAmount * 100),
+          status: 'forfeited', createdAt: now,
+        });
+      }
+    }
+  } catch (e) {
+    console.error('[handle-no-show-action] deposit forfeiture lookup failed', e);
+    // Best-effort — don't block the cancellation on a deposit-lookup hiccup.
   }
 
   // Audit log
@@ -218,7 +249,7 @@ export async function POST(req: NextRequest) {
     actorId:    staffId,
     actorName:  'Staff Confirmed No-Show',
     timestamp:  now,
-    summary:    `Staff confirmed no-show: ${client.name || appt.clientName} — $${feeAmount.toFixed(2)} fee`,
+    summary:    `Staff confirmed no-show: ${client.name || appt.clientName} — $${feeAmount.toFixed(2)} fee${depositForfeitedAmount > 0 ? `, $${depositForfeitedAmount.toFixed(2)} deposit forfeited` : ''}`,
   });
 
   // Create cancellationEvent → triggers onCancellationEvent (Stripe + email + SMS)
@@ -255,5 +286,5 @@ export async function POST(req: NextRequest) {
   });
 
   await batch.commit();
-  return NextResponse.json({ ok: true, action: 'confirmed', eventId });
+  return NextResponse.json({ ok: true, action: 'confirmed', eventId, depositForfeitedAmount });
 }
