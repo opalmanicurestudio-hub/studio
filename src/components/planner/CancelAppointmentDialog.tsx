@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,7 +54,6 @@ import { differenceInHours, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { useFirebase } from '@/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { Checkbox } from '@/components/ui/checkbox';
 import { nanoid } from 'nanoid';
 
 // Who is performing the cancellation. Drives the audit trail's actorType.
@@ -142,10 +142,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [selectedHouseRecoveryIds, setSelectedHouseRecoveryIds] = useState<Set<string>>(new Set());
-  const [selectedLaborRecoveryIds, setSelectedLaborRecoveryIds] = useState<Set<string>>(new Set());
-  const [useOverrideFee, setUseOverrideFee] = useState(false);
-  const [overrideFeeValue, setOverrideFeeValue] = useState(0);
+  // ── Fee — one number, not four separate mechanisms ──────────────────────
+  // Previously: per-service House Floor / Labor Protection checkboxes, PLUS
+  // a separate "Fixed Rate Override" toggle, PLUS a separate override input
+  // — three independent ways to arrive at the same single dollar figure.
+  // Now: one editable amount. It starts at the computed suggestion; editing
+  // it IS the override, with no separate toggle to flip first. Whether it
+  // was overridden is derived by comparing to the suggestion, not tracked
+  // as its own state.
+  const [feeValue, setFeeValue] = useState(0);
+  const [showFeeBreakdown, setShowFeeBreakdown] = useState(false);
   const [depositDisposition, setDepositDisposition] = useState<'refund' | 'store_credit'>('refund');
   const [additionalCreditValue, setAdditionalCreditValue] = useState(0);
 
@@ -224,20 +230,18 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       setClientReason('schedule_conflict');
       setCustomReason('');
       setAdditionalCreditValue(0);
-      const allIds = new Set(sessionItems.map(s => s.id));
-      setSelectedHouseRecoveryIds(allIds);
-      setSelectedLaborRecoveryIds(allIds);
-
-      const firstOverride = recoveryMatrix.find(m => m.overrideFee > 0);
-      if (firstOverride) {
-        setUseOverrideFee(true);
-        setOverrideFeeValue(firstOverride.overrideFee);
-      } else {
-        setUseOverrideFee(false);
-        setOverrideFeeValue(tenant?.cancellationFee || 0);
-      }
+      setShowFeeBreakdown(false);
+      setChargeFee(true);
     }
-  }, [open, sessionItems, recoveryMatrix, tenant]);
+  }, [open]);
+
+  // feeValue tracks the suggestion until the person edits it directly —
+  // recomputed whenever the underlying suggestion changes (e.g. actor type
+  // toggles which fee logic applies), but only while still un-edited.
+  useEffect(() => {
+    if (open) setFeeValue(suggestedFeeTotal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, suggestedFeeTotal]);
 
   // Live deposit-credit lookup — runs each time the dialog opens for a given
   // appointment/client. Mirrors the exact lookup pattern used in
@@ -319,14 +323,19 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     [actorType, studioReason, clientReason],
   );
 
-  const totalMatrixFee = useMemo(() => {
-    let total = 0;
-    recoveryMatrix.forEach(m => {
-      if (selectedHouseRecoveryIds.has(m.id)) total += m.houseFloor;
-      if (selectedLaborRecoveryIds.has(m.id)) total += m.laborProtection;
-    });
-    return total;
-  }, [recoveryMatrix, selectedHouseRecoveryIds, selectedLaborRecoveryIds]);
+  // The suggested fee — every service's configured override fee where set
+  // (Settings → Service-Specific Protocols), or its house-floor + labor-
+  // protection cost otherwise, summed across all services in the session.
+  // This used to be filtered by which per-service checkboxes were checked,
+  // and only looked at the FIRST service's override (ignoring the rest on
+  // multi-service appointments) — both fixed here. feeValue starts at this
+  // total, and staff edit the single number directly if they want something
+  // different.
+  const suggestedFeeTotal = useMemo(() => {
+    return recoveryMatrix.reduce((sum, m) => sum + (m.overrideFee > 0 ? m.overrideFee : m.houseFloor + m.laborProtection), 0);
+  }, [recoveryMatrix]);
+
+  const isFeeOverridden = !isNoShow && Math.abs(feeValue - suggestedFeeTotal) > 0.005;
 
   const finalFeeAmount = useMemo(() => {
     if (!chargeFee) return 0;
@@ -337,23 +346,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       if (tenant?.noShowFeeMode === 'flat' && tenant?.flatNoShowFee) return tenant.flatNoShowFee;
       return sessionItems.reduce((acc, s) => acc + s.price, 0);
     }
-    if (useOverrideFee) return overrideFeeValue;
-    return totalMatrixFee;
-  }, [chargeFee, isNoShow, useOverrideFee, overrideFeeValue, totalMatrixFee, sessionItems, tenant]);
+    return feeValue;
+  }, [chargeFee, isNoShow, feeValue, sessionItems, tenant]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
-
-  const toggleHouse = (id: string) => {
-    const next = new Set(selectedHouseRecoveryIds);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelectedHouseRecoveryIds(next);
-  };
-
-  const toggleLabor = (id: string) => {
-    const next = new Set(selectedLaborRecoveryIds);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelectedLaborRecoveryIds(next);
-  };
 
   // ── Submit ──────────────────────────────────────────────────────────────────
 
@@ -395,8 +391,14 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       feeAmount: finalFeeAmount,
       feeWaived: !willChargeFee && finalFeeAmount > 0,
       paymentStatus: willChargeFee ? 'unpaid' : finalFeeAmount > 0 ? 'waived' : 'paid',
+      // Audit layer: was this fee what the policy/matrix suggested, or did a
+      // human override it? Both numbers are kept, not just the final one —
+      // that's the difference between "an appointment was cancelled" and
+      // "here's exactly what was suggested, what actually happened, and
+      // that a person made that call."
+      ...(!isNoShow && { feeOverridden: isFeeOverridden, suggestedFeeAmount: suggestedFeeTotal }),
       timestamp: now,
-    };
+    } as CancellationAudit;
 
     const actorLabel =
       actorType === 'studio' ? 'Studio' : actorType === 'client' ? 'Client' : 'No-Show';
@@ -425,12 +427,15 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         reasonDetail: isOtherSelected ? customReason : undefined,
         feeAmount: finalFeeAmount,
         feeWaived: cancellationAudit.feeWaived,
+        feeOverridden: !isNoShow ? isFeeOverridden : undefined,
+        suggestedFeeAmount: !isNoShow ? suggestedFeeTotal : undefined,
         paymentMethod: willChargeFee ? resolvedPaymentMethod : undefined,
         recoveryBreakdown: recoveryMatrix.map(m => ({
           serviceId: m.id,
           serviceName: m.name,
-          houseFloor: selectedHouseRecoveryIds.has(m.id) ? m.houseFloor : 0,
-          laborProtection: selectedLaborRecoveryIds.has(m.id) ? m.laborProtection : 0,
+          houseFloor: m.houseFloor,
+          laborProtection: m.laborProtection,
+          serviceOverrideFee: m.overrideFee || undefined,
         })),
       },
     };
@@ -656,57 +661,39 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
 
             {/* ── Reason (hidden for no-show) ── */}
             {!isNoShow && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
                   Cancellation Reason
                 </Label>
 
                 {actorType === 'studio' && (
-                  <RadioGroup
-                    value={studioReason}
-                    onValueChange={v => setStudioReason(v as StudioCancellationReason)}
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-3"
-                  >
-                    {STUDIO_REASON_OPTIONS.map(opt => (
-                      <label key={opt.value} htmlFor={`sr-${opt.value}`} className="cursor-pointer">
-                        <div
-                          className={cn(
-                            'flex items-center gap-3 border-2 p-4 rounded-2xl transition-all hover:bg-muted/50',
-                            studioReason === opt.value
-                              ? 'border-primary bg-primary/5 shadow-sm'
-                              : 'border-border bg-white',
-                          )}
-                        >
-                          <RadioGroupItem value={opt.value} id={`sr-${opt.value}`} />
-                          <span className="font-black uppercase tracking-tight text-xs">{opt.label}</span>
-                        </div>
-                      </label>
-                    ))}
-                  </RadioGroup>
+                  <Select value={studioReason} onValueChange={v => setStudioReason(v as StudioCancellationReason)}>
+                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight bg-white shadow-inner">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                      {STUDIO_REASON_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value} className="font-bold uppercase text-xs tracking-tight py-2.5">
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
 
                 {actorType === 'client' && (
-                  <RadioGroup
-                    value={clientReason}
-                    onValueChange={v => setClientReason(v as ClientCancellationReason)}
-                    className="grid grid-cols-1 sm:grid-cols-2 gap-3"
-                  >
-                    {CLIENT_REASON_OPTIONS.map(opt => (
-                      <label key={opt.value} htmlFor={`cr-${opt.value}`} className="cursor-pointer">
-                        <div
-                          className={cn(
-                            'flex items-center gap-3 border-2 p-4 rounded-2xl transition-all hover:bg-muted/50',
-                            clientReason === opt.value
-                              ? 'border-primary bg-primary/5 shadow-sm'
-                              : 'border-border bg-white',
-                          )}
-                        >
-                          <RadioGroupItem value={opt.value} id={`cr-${opt.value}`} />
-                          <span className="font-black uppercase tracking-tight text-xs">{opt.label}</span>
-                        </div>
-                      </label>
-                    ))}
-                  </RadioGroup>
+                  <Select value={clientReason} onValueChange={v => setClientReason(v as ClientCancellationReason)}>
+                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight bg-white shadow-inner">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-2 shadow-2xl">
+                      {CLIENT_REASON_OPTIONS.map(opt => (
+                        <SelectItem key={opt.value} value={opt.value} className="font-bold uppercase text-xs tracking-tight py-2.5">
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
 
                 {isOtherSelected && (
@@ -720,56 +707,41 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               </div>
             )}
 
-            {/* ── Recovery matrix — hidden for no-show, whose fee is fixed/flat
-                 and never derived from this matrix at all. Previously this
-                 stayed visible with fully-interactive checkboxes that had
-                 zero effect on the no-show charge — confusing, no purpose. ── */}
-            {!isNoShow && (
-              <div className="space-y-6">
-                <div className="space-y-1">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">
-                    Suggested Cancellation Fee
-                  </p>
-                  <p className="text-[9px] font-bold text-muted-foreground opacity-60 ml-1 text-left">
-                    Based on studio time, materials, and labor cost per service. Uncheck a service to exclude it.
-                  </p>
-                </div>
-                <div className="space-y-3">
-                  {recoveryMatrix.map(m => {
-                    // Both sets are kept in lockstep by this single control —
-                    // staff see one decision per service ("include this in
-                    // the fee or not"), not two independently-toggleable
-                    // cost components that almost nobody wants to split.
-                    const included = selectedHouseRecoveryIds.has(m.id);
-                    const lineTotal = m.houseFloor + m.laborProtection;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => { toggleHouse(m.id); toggleLabor(m.id); }}
-                        className={cn(
-                          'w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left',
-                          included ? 'border-primary/20 bg-primary/[0.02]' : 'border-border bg-muted/5 opacity-50',
-                        )}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Checkbox
-                            checked={included}
-                            onCheckedChange={() => { toggleHouse(m.id); toggleLabor(m.id); }}
-                            className="h-5 w-5 rounded-lg border-2 shrink-0 pointer-events-none"
-                          />
-                          <div className="min-w-0">
-                            <p className="text-xs font-black uppercase tracking-tight truncate text-slate-900">{m.name}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-                              Time + materials ${m.houseFloor.toFixed(2)} · Labor ${m.laborProtection.toFixed(2)}
-                            </p>
-                          </div>
-                        </div>
-                        <span className="font-mono text-sm font-black text-slate-900 shrink-0 ml-3">${lineTotal.toFixed(2)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* ── Recovery matrix breakdown — hidden for no-show, whose fee is
+                 fixed/flat and never derived from this matrix at all.
+                 Passive disclosure only: this used to be a SECOND editable
+                 fee mechanism (per-service checkboxes) sitting alongside a
+                 separate override input below, two controls fighting over
+                 one number. Now it's just "here's how the suggestion was
+                 calculated," collapsed by default. ── */}
+            {!isNoShow && recoveryMatrix.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowFeeBreakdown(v => !v)}
+                className="w-full flex items-center justify-between px-1 text-left"
+              >
+                <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
+                  {showFeeBreakdown ? 'Hide' : 'See'} how the suggested fee (${suggestedFeeTotal.toFixed(2)}) was calculated
+                </span>
+                <ArrowRight className={cn('w-3 h-3 text-muted-foreground opacity-40 transition-transform', showFeeBreakdown && 'rotate-90')} />
+              </button>
+            )}
+            {!isNoShow && showFeeBreakdown && (
+              <div className="space-y-2 -mt-2">
+                {recoveryMatrix.map(m => {
+                  const lineTotal = m.overrideFee > 0 ? m.overrideFee : m.houseFloor + m.laborProtection;
+                  return (
+                    <div key={m.id} className="flex items-center justify-between p-3 rounded-xl border border-dashed bg-muted/5">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-tight text-slate-700 truncate">{m.name}</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
+                          {m.overrideFee > 0 ? 'Fixed service override' : `Time + materials $${m.houseFloor.toFixed(2)} · Labor $${m.laborProtection.toFixed(2)}`}
+                        </p>
+                      </div>
+                      <span className="font-mono text-xs font-black text-slate-700 shrink-0 ml-3">${lineTotal.toFixed(2)}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -779,28 +751,36 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner">
                 <div className="space-y-1 text-left">
                   <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
-                    <DollarSign className="w-4 h-4 text-primary" /> Final Settlement Fee
+                    <DollarSign className="w-4 h-4 text-primary" /> Cancellation Fee
                   </Label>
                   <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">
                     {isNoShow
                       ? '100% of service total — no-show policy'
-                      : useOverrideFee
-                      ? 'Applied via Fixed Override'
-                      : 'Calculated via Profitability Matrix'}
+                      : isFeeOverridden
+                      ? `Edited from suggested $${suggestedFeeTotal.toFixed(2)}`
+                      : 'Suggested — tap to edit'}
                   </p>
                 </div>
-                <div className="flex flex-col items-end gap-2">
-                  <span
-                    className={cn(
-                      'text-3xl font-black font-mono tracking-tighter',
-                      chargeFee ? 'text-primary' : 'text-muted-foreground opacity-40',
-                    )}
-                  >
-                    ${finalFeeAmount.toFixed(2)}
-                  </span>
-                  <Switch checked={chargeFee} onCheckedChange={setChargeFee} className="scale-110" />
-                </div>
+                <Switch checked={chargeFee} onCheckedChange={setChargeFee} className="scale-110" />
               </div>
+
+              {chargeFee && !isNoShow && (
+                <div className="relative -mt-2">
+                  <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-primary opacity-40" />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={feeValue || ''}
+                    onChange={e => setFeeValue(parseFloat(e.target.value) || 0)}
+                    className="h-16 pl-12 rounded-2xl border-2 font-black text-3xl tracking-tighter text-primary bg-white shadow-inner"
+                  />
+                </div>
+              )}
+              {chargeFee && isNoShow && (
+                <p className="text-3xl font-black font-mono tracking-tighter text-primary text-right -mt-2">
+                  ${finalFeeAmount.toFixed(2)}
+                </p>
+              )}
 
               <AnimatePresence>
                 {chargeFee && finalFeeAmount > 0 && (
@@ -810,50 +790,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     exit={{ opacity: 0, y: 10 }}
                   >
                     <div className="space-y-6">
-                      {/* Override toggle — not shown for no-show (always 100%) */}
-                      {!isNoShow && (
-                        <>
-                          <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5">
-                            <div className="space-y-0.5 text-left">
-                              <p className="text-[10px] font-black uppercase text-slate-900">
-                                Fixed Rate Override
-                              </p>
-                              <p className="text-[8px] font-bold uppercase opacity-60">
-                                Bypass matrix suggestion
-                              </p>
-                            </div>
-                            <Switch
-                              checked={useOverrideFee}
-                              onCheckedChange={setUseOverrideFee}
-                            />
-                          </div>
-
-                          {useOverrideFee && (
-                            <div className="space-y-3 text-left">
-                              <Label
-                                htmlFor="override-value-manual"
-                                className="text-[10px] font-black uppercase tracking-widest text-primary ml-1"
-                              >
-                                Override Value ($)
-                              </Label>
-                              <div className="relative">
-                                <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Input
-                                  id="override-value-manual"
-                                  type="number"
-                                  step="0.01"
-                                  value={overrideFeeValue || ''}
-                                  onChange={e =>
-                                    setOverrideFeeValue(parseFloat(e.target.value) || 0)
-                                  }
-                                  className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-white"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-
                       {/* Settlement protocol */}
                       <div className="space-y-4 pt-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
@@ -934,6 +870,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         </ScrollArea>
 
         <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3 shrink-0">
+          <div className="px-2 py-3 rounded-xl bg-muted/10 border border-dashed text-center">
+            <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">
+              {client?.name || appointment.clientName || 'Client'} will be {chargeFee && finalFeeAmount > 0
+                ? <>charged <span className="font-black text-primary">${finalFeeAmount.toFixed(2)}</span> via {paymentMethod === 'card_on_file' ? 'card on file' : 'balance owed'}</>
+                : <span className="font-black text-green-600">charged no fee</span>}
+              {actorType === 'studio' && depositCredit && (
+                <> · deposit {depositDisposition === 'refund' ? 'refunded' : 'converted to credit'}</>
+              )}
+            </p>
+          </div>
           <Button
             onClick={handleAction}
             className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 group"
