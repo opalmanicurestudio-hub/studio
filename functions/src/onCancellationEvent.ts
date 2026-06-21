@@ -20,7 +20,7 @@ import twilio from 'twilio';
 // ── Clients ──────────────────────────────────────────────────────────────────
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-04-10',
+  apiVersion: '2024-06-20',
 });
 
 const twilioClient = twilio(
@@ -181,6 +181,13 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           payment_method: data.stripePaymentMethodId,
           confirm: true,
           off_session: true,
+          // Expand the balance transaction so we can read the ACTUAL Stripe
+          // processing fee Stripe charged on this specific transaction, at
+          // the moment it happens — rather than relying on a separate
+          // charge.succeeded webhook to backfill it later. This makes fee
+          // capture self-contained and independent of whether any webhook
+          // is deployed: every charge records its own gross/fee/net here.
+          expand: ['latest_charge.balance_transaction'],
           description: `Cancellation fee — ${data.serviceName || 'Service'} — ${data.clientName}`,
           metadata: {
             tenantId,
@@ -191,9 +198,23 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           },
         });
 
+        // Pull the real fee/net off the balance transaction. Falls back to
+        // 0 fee (and net === gross) only if Stripe didn't return it, which
+        // is then visibly reconcilable rather than silently wrong.
+        let stripeFeeCents = 0;
+        let netCents = amountCents;
+        const latestCharge: any = paymentIntent.latest_charge;
+        const bt: any = latestCharge && typeof latestCharge === 'object' ? latestCharge.balance_transaction : null;
+        if (bt && typeof bt === 'object') {
+          stripeFeeCents = bt.fee || 0;
+          netCents = bt.net || (amountCents - stripeFeeCents);
+        }
+
         updates.chargeStatus = 'charged';
         updates.stripeChargeId = paymentIntent.id;
         updates.stripeChargeAmountCents = amountCents;
+        updates.stripeFeeCents = stripeFeeCents;
+        updates.stripeNetCents = netCents;
 
         // Record the transaction in the tenant's transactions collection
         const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
@@ -207,6 +228,10 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           category: 'Cancellation Fee',
           amount: data.feeAmount,
           amountCents,
+          // Gross / fee / net all recorded on the income line itself, so the
+          // ledger never has to guess what a charge actually netted.
+          stripeFeeCents,
+          netCents,
           stripePaymentIntentId: paymentIntent.id,
           stripePaymentMethodId: data.stripePaymentMethodId,
           status: 'succeeded',
@@ -214,6 +239,31 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           actorType: data.cancellationAudit?.actorType,
           createdAt: new Date().toISOString(),
         });
+
+        // Separate expense line for the processing fee, so it shows up as a
+        // real cost in the ledger (not just netted invisibly against income).
+        // This mirrors how the refund route logs its incremental fee, and is
+        // the same shape a charge.succeeded webhook would write — but written
+        // here, synchronously, where we know the charge definitely happened.
+        if (stripeFeeCents > 0) {
+          const feeTxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await feeTxRef.set({
+            id: feeTxRef.id,
+            tenantId,
+            appointmentId: data.appointmentId,
+            clientId: data.clientId,
+            clientName: data.clientName,
+            type: 'expense',
+            category: 'Card Processing Fee',
+            amount: stripeFeeCents / 100,
+            amountCents: stripeFeeCents,
+            relatedTransactionId: txRef.id,
+            stripePaymentIntentId: paymentIntent.id,
+            status: 'succeeded',
+            reason: 'stripe_processing_fee',
+            createdAt: new Date().toISOString(),
+          });
+        }
 
         // Notify owner/admin that card was charged
         const adminsSnap = await db
