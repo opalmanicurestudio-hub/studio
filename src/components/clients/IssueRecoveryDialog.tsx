@@ -1,362 +1,384 @@
-'use client';
+/**
+ * api/stripe/studio-cancel-refund/route.ts
+ *
+ * Handles the deposit disposition when the STUDIO cancels an appointment.
+ * The studio is always at fault here — client should never lose money.
+ *
+ * Looks the deposit up itself from tenants/{tenantId}/depositCredits — the
+ * single source of truth every cancellation path now agrees on
+ * (studio-cancel-refund, handle-no-show-action, useCancellationConfirm,
+ * self-cancel). Never trusts amounts passed in the request body.
+ *
+ * ── Stripe processing fee visibility ──────────────────────────────────────
+ * Refunding does NOT return the original processing fee to the studio in
+ * most Stripe configurations — that fee is gone the moment the deposit was
+ * first collected, refund or not. This route surfaces both costs instead of
+ * silently absorbing them:
+ *   - The ORIGINAL fee paid when the deposit was collected is looked up
+ *     (via the deposit's payment intent) and attached as a note on the
+ *     ledger transaction — informational only, NOT a new expense line,
+ *     since that fee was already logged as an expense when the charge
+ *     happened. Re-logging it here would double-count it.
+ *   - Any INCREMENTAL fee Stripe reports specifically for the refund
+ *     transaction itself (rare, but some Connect configurations adjust the
+ *     application fee on refund) IS logged as a new expense line, since
+ *     that's a genuinely new cost incurred right now.
+ *   - Store-credit conversions never touch Stripe, so there's no
+ *     incremental fee — but the same "what fee was already sunk on this
+ *     deposit" note is attached for transparency.
+ *
+ * ── Discretionary / goodwill credit ───────────────────────────────────────
+ * Converting a deposit to store credit isn't an expense — the client
+ * already paid that money, the studio is just moving it from "applies to a
+ * specific re-booking" (depositCredits) to "spendable on anything"
+ * (client.totalStoreCredit). If staff want to add MORE than the deposit
+ * amount as a goodwill gesture, that additional amount IS a real expense
+ * (nothing was collected for it) and is logged as its own ledger line,
+ * separate from the deposit conversion. Pass additionalCreditCents +
+ * additionalCreditReason to use this.
+ *
+ * NOTE: this goodwill-credit mechanism duplicates what IssueRecoveryDialog
+ * presumably already does elsewhere in this app for the same purpose
+ * (issuing discretionary client credit/recovery). They should eventually
+ * share one implementation rather than each minting client.storeCredits
+ * entries independently — flagged, not fixed here, since this route
+ * doesn't have visibility into that dialog's existing contract.
+ *
+ * POST body:
+ *   {
+ *     tenantId, clientId, appointmentId, disposition, staffId, reason,
+ *     additionalCreditCents?,   // optional — only meaningful for disposition: 'store_credit'
+ *     additionalCreditReason?,  // optional — shown on the ledger line and store credit entry
+ *   }
+ *   disposition: 'refund' | 'store_credit'
+ */
 
-import React, { useState, useMemo } from 'react';
-import { useIsMobile } from '@/hooks/use-mobile';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    HeartHandshake, 
-    Sparkles, 
-    ArrowRight, 
-    Wallet, 
-    Gift, 
-    Coffee, 
-    Zap, 
-    Landmark,
-    ShieldCheck,
-    Check,
-    DollarSign,
-    Target,
-    Activity,
-    Users,
-    KeyRound,
-    Loader,
-    Lock
-} from 'lucide-react';
-import { cn, safeNumber } from '@/lib/utils';
-import { type Client, type Service, type InventoryItem, type Staff, type OneTimePerk } from '@/lib/data';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { useInventory } from '@/context/InventoryContext';
-import { useTenant } from '@/context/TenantContext';
-import { useFirebase } from '@/firebase';
-import { doc, collection, writeBatch, arrayUnion } from 'firebase/firestore';
-import { useToast } from '@/hooks/use-toast';
-import { nanoid } from 'nanoid';
+import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
 
-interface IssueRecoveryDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  client: Client;
+function getAdmin() {
+  const { initializeApp, getApps, cert } = require('firebase-admin/app');
+  const { getFirestore, FieldValue }     = require('firebase-admin/firestore');
+  const APP_NAME = 'admin';
+  let app = getApps().find((a: any) => a.name === APP_NAME);
+  if (!app) {
+    app = initializeApp({
+      credential: cert({
+        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    }, APP_NAME);
+  }
+  return { db: getFirestore(app), FieldValue };
 }
 
-type RecoveryMode = 'wallet' | 'service' | 'hospitality';
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
+}
 
-export const IssueRecoveryDialog: React.FC<IssueRecoveryDialogProps> = ({
-  open,
-  onOpenChange,
-  client,
-}) => {
-  const isMobile = useIsMobile();
-  const { services, inventory, staff } = useInventory();
-  const { selectedTenant, user } = useTenant();
-  const { firestore } = useFirebase();
-  const { toast } = useToast();
-  const tenantId = selectedTenant?.id;
+function isCreditExpired(expiresAt: string | null | undefined): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt).getTime() <= Date.now();
+}
 
-  const [mode, setMode] = useState<RecoveryMode>('wallet');
-  const [amount, setAmount] = useState<number>(0);
-  const [selectedItemId, setSelectedItemId] = useState('');
-  const [reason, setReason] = useState('');
-  const [pin, setPin] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+function getStoreCreditExpiry(tenant: any): string | null {
+  const days = tenant?.storeCreditExpiryDays;
+  if (!days || days === 0) return null; // never expires
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
 
-  const handleAction = async () => {
-    if (!firestore || !tenantId || !user) return;
-    
-    const authorizer = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-    if (!authorizer) {
-        toast({ variant: 'destructive', title: 'Invalid PIN', description: 'Manager authorization required for post-op recovery.' });
-        return;
+// ── Look up the fee Stripe charged on the ORIGINAL deposit payment ───────────
+// Informational only — never logged as a new ledger line (it's a sunk cost,
+// already expensed when the charge happened).
+async function getOriginalChargeFeeCents(
+  stripe: Stripe,
+  stripeAccountId: string,
+  stripePaymentIntentId: string | null | undefined,
+): Promise<number> {
+  if (!stripePaymentIntentId) return 0;
+  try {
+    const intent: any = await stripe.paymentIntents.retrieve(
+      stripePaymentIntentId,
+      { expand: ['latest_charge.balance_transaction'] },
+      { stripeAccount: stripeAccountId },
+    );
+    const bt = intent?.latest_charge?.balance_transaction;
+    return bt && typeof bt === 'object' ? Math.abs(bt.fee || 0) : 0;
+  } catch (e) {
+    console.warn('[studio-cancel-refund] could not retrieve original charge fee', e);
+    return 0;
+  }
+}
+
+export async function POST(req: NextRequest) {
+  let body: any = {};
+  try { body = await req.json(); } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 });
+  }
+
+  const {
+    tenantId, clientId, appointmentId, disposition, staffId, reason,
+    additionalCreditCents, additionalCreditReason,
+  } = body;
+
+  if (!tenantId || !clientId || !appointmentId || !disposition) {
+    return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
+  }
+  if (!['refund', 'store_credit'].includes(disposition)) {
+    return NextResponse.json({ ok: false, error: 'disposition must be refund or store_credit' }, { status: 400 });
+  }
+
+  const { db, FieldValue } = getAdmin();
+  const now = new Date().toISOString();
+
+  const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+  const tenant = tenantSnap.data() || {};
+  const clientSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
+  const client = clientSnap.data() || {};
+
+  // ── Look up the deposit credit — the single source of truth ──────────────
+  const creditsCol = db.collection(`tenants/${tenantId}/depositCredits`);
+  let creditSnap = await creditsCol.where('status', '==', 'available').where('clientId', '==', clientId).get();
+  if (creditSnap.empty && client.email) {
+    creditSnap = await creditsCol.where('status', '==', 'available').where('clientEmail', '==', String(client.email).toLowerCase().trim()).get();
+  }
+  if (creditSnap.empty) {
+    return NextResponse.json({ ok: false, reason: 'No deposit on file for this client.' }, { status: 404 });
+  }
+
+  const candidates = creditSnap.docs
+    .map((d: any) => ({ ref: d.ref, id: d.id, ...(d.data() as any) }))
+    .filter((c: any) => !isCreditExpired(c.expiresAt));
+  candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const credit = candidates[0];
+  if (!credit) {
+    return NextResponse.json({ ok: false, reason: 'Deposit on file has expired.' }, { status: 404 });
+  }
+
+  const depositAmountCents = Math.round(Number(credit.amountDollars ?? (credit.amountCents || 0) / 100) * 100);
+  const dollars = depositAmountCents / 100;
+  const stripePaymentIntentId = credit.stripePaymentIntentId || null;
+  const extraCents = Math.max(0, Math.round(Number(additionalCreditCents) || 0));
+  const extraDollars = extraCents / 100;
+
+  const batch = db.batch();
+
+  try {
+    if (disposition === 'refund') {
+      if (!tenant.stripeAccountId) {
+        return NextResponse.json({ ok: false, reason: 'No connected Stripe account.' }, { status: 400 });
+      }
+      if (!stripePaymentIntentId) {
+        return NextResponse.json({
+          ok: false,
+          reason: 'No Stripe payment intent on file for this deposit — apply store credit instead',
+          fallback: 'store_credit',
+        });
+      }
+
+      const stripe = getStripe();
+      const intent = await stripe.paymentIntents.retrieve(stripePaymentIntentId, { stripeAccount: tenant.stripeAccountId });
+      if (intent.status !== 'succeeded') {
+        return NextResponse.json({ ok: false, reason: `Payment intent status is ${intent.status} — cannot refund` });
+      }
+
+      const refund = await stripe.refunds.create(
+        {
+          payment_intent: stripePaymentIntentId,
+          amount: depositAmountCents,
+          reason: 'requested_by_customer',
+          metadata: {
+            tenantId, clientId, appointmentId,
+            staffId: staffId || 'system',
+            cancelReason: reason || 'studio_cancelled',
+            disposition: 'refund',
+          },
+        },
+        { stripeAccount: tenant.stripeAccountId },
+      );
+
+      // ── Fee visibility ──────────────────────────────────────────────────
+      const originalFeeCents = await getOriginalChargeFeeCents(stripe, tenant.stripeAccountId, stripePaymentIntentId);
+      let refundFeeCents = 0;
+      try {
+        const refundWithBalance: any = await stripe.refunds.retrieve(
+          refund.id,
+          { expand: ['balance_transaction'] },
+          { stripeAccount: tenant.stripeAccountId },
+        );
+        const bt = refundWithBalance?.balance_transaction;
+        // balance_transaction.fee on a refund is usually 0 — Stripe doesn't
+        // return the original fee in most configurations. Capture whatever
+        // it actually reports rather than assuming either way.
+        if (bt && typeof bt === 'object') refundFeeCents = Math.abs(bt.fee || 0);
+      } catch (e) {
+        console.warn('[studio-cancel-refund] could not retrieve refund balance transaction', e);
+      }
+
+      batch.set(credit.ref, {
+        status: 'refunded',
+        refundedAt: now,
+        refundedFromAppointmentId: appointmentId,
+        stripeRefundId: refund.id,
+      }, { merge: true });
+
+      batch.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
+        depositRefunded: true,
+        depositRefundedAt: now,
+        depositRefundedAmountCents: depositAmountCents,
+        depositStripeRefundId: refund.id,
+        depositDisposition: 'refunded',
+      });
+
+      const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      batch.set(txRef, {
+        id: txRef.id, tenantId, appointmentId, clientId,
+        clientName: client.name || 'Client',
+        type: 'refund', category: 'Deposit Refund',
+        amount: -dollars, amountCents: -depositAmountCents,
+        stripePaymentIntentId, stripeRefundId: refund.id, status: 'succeeded',
+        reason: reason || 'studio_cancelled', disposition: 'refunded', createdAt: now,
+        // Informational only — the original fee was already expensed when
+        // the deposit was charged. Surfaced here so reports can show "this
+        // refund's true cost" without double-counting it as a new expense.
+        notes: originalFeeCents > 0
+          ? `Original processing fee already sunk at charge time: $${(originalFeeCents / 100).toFixed(2)} (not re-logged as a separate expense).`
+          : undefined,
+      });
+
+      // Genuinely new cost — only logged if Stripe actually reports one.
+      if (refundFeeCents > 0) {
+        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        batch.set(feeRef, {
+          id: feeRef.id, tenantId, appointmentId, clientId,
+          clientName: client.name || 'Client',
+          type: 'expense', category: 'Processing Fee',
+          amount: refundFeeCents / 100, amountCents: refundFeeCents,
+          stripeRefundId: refund.id, status: 'succeeded',
+          reason: 'Incremental Stripe fee on refund', createdAt: now,
+        });
+      }
+
+      const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
+      batch.set(auditRef, {
+        id: auditRef.id, tenantId, entityType: 'deposit_refund', entityId: appointmentId,
+        actorId: staffId || 'system', timestamp: now,
+        summary: `Deposit refunded $${dollars.toFixed(2)} to ${client.name || 'client'} — studio cancelled`,
+        detail: { disposition: 'refunded', stripeRefundId: refund.id, reason, originalFeeCents, refundFeeCents },
+      });
+
+      await batch.commit();
+      return NextResponse.json({
+        ok: true, disposition: 'refunded', refundId: refund.id, amount: dollars,
+        originalFeeCents, refundFeeCents,
+      });
+
+    } else {
+      // ── Store credit path ────────────────────────────────────────────────
+      let originalFeeCents = 0;
+      if (stripePaymentIntentId && tenant.stripeAccountId) {
+        originalFeeCents = await getOriginalChargeFeeCents(getStripe(), tenant.stripeAccountId, stripePaymentIntentId);
+      }
+
+      // Consume the SOURCE depositCredits record (so it can't also get
+      // auto-applied to a future booking) and add the same amount to the
+      // client's general store-credit wallet.
+      batch.set(credit.ref, {
+        status: 'consumed',
+        consumedAt: now,
+        consumedReason: 'converted_to_store_credit',
+        consumedFromAppointmentId: appointmentId,
+      }, { merge: true });
+
+      const creditEntry = {
+        id: `credit_${appointmentId}`,
+        tenantId, clientId, appointmentId,
+        amountCents: depositAmountCents, amount: dollars,
+        type: 'earned' as const,
+        source: 'cancellation_deposit_conversion' as const,
+        reason: 'Studio cancellation — deposit converted to credit',
+        cancelReason: reason || 'studio_cancelled',
+        createdBy: staffId || 'system',
+        expiresAt: getStoreCreditExpiry(tenant),
+        createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
+      };
+
+      const storeCreditsToAdd: any[] = [creditEntry];
+      let totalCreditDollars = dollars;
+
+      // Discretionary/goodwill credit — a REAL expense, separate from the
+      // deposit conversion above, since nothing was collected for it.
+      if (extraCents > 0) {
+        const goodwillEntry = {
+          id: `goodwill_${appointmentId}_${Date.now()}`,
+          tenantId, clientId, appointmentId,
+          amountCents: extraCents, amount: extraDollars,
+          type: 'courtesy' as const,
+          source: 'goodwill' as const,
+          reason: additionalCreditReason || 'Service recovery — goodwill credit',
+          cancelReason: reason || 'studio_cancelled',
+          createdBy: staffId || 'system',
+          expiresAt: getStoreCreditExpiry(tenant),
+          createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
+        };
+        storeCreditsToAdd.push(goodwillEntry);
+        totalCreditDollars += extraDollars;
+
+        const goodwillTxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        batch.set(goodwillTxRef, {
+          id: goodwillTxRef.id, tenantId, appointmentId, clientId,
+          clientName: client.name || 'Client',
+          type: 'expense', category: 'Service Recovery',
+          amount: extraDollars, amountCents: extraCents, status: 'issued',
+          reason: additionalCreditReason || 'Service recovery — goodwill credit',
+          disposition: 'store_credit', createdAt: now,
+          notes: 'Discretionary credit beyond the deposit amount — staff-issued goodwill, distinct from the deposit conversion below.',
+        });
+      }
+
+      batch.update(db.doc(`tenants/${tenantId}/clients/${clientId}`), {
+        storeCredits: FieldValue.arrayUnion(...storeCreditsToAdd),
+        totalStoreCredit: FieldValue.increment(totalCreditDollars),
+      });
+
+      batch.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
+        depositConvertedToCredit: true,
+        depositConvertedToCreditAt: now,
+        depositConvertedAmountCents: depositAmountCents,
+        depositDisposition: 'store_credit',
+      });
+
+      const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      batch.set(txRef, {
+        id: txRef.id, tenantId, appointmentId, clientId,
+        clientName: client.name || 'Client',
+        type: 'store_credit_issued', category: 'Store Credit',
+        amount: dollars, amountCents: depositAmountCents, status: 'issued',
+        reason: reason || 'studio_cancelled', disposition: 'store_credit',
+        expiresAt: creditEntry.expiresAt, createdAt: now,
+        notes: originalFeeCents > 0
+          ? `Processing fee already sunk on the original deposit charge: $${(originalFeeCents / 100).toFixed(2)} (not recoverable; the appointment isn't happening, so there's no revenue to offset it).`
+          : undefined,
+      });
+
+      const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
+      batch.set(auditRef, {
+        id: auditRef.id, tenantId, entityType: 'deposit_store_credit', entityId: appointmentId,
+        actorId: staffId || 'system', timestamp: now,
+        summary: `$${dollars.toFixed(2)} deposit converted to store credit for ${client.name || 'client'}${extraCents > 0 ? ` + $${extraDollars.toFixed(2)} goodwill credit` : ''}`,
+        detail: { disposition: 'store_credit', creditId: credit.id, reason, originalFeeCents, additionalCreditCents: extraCents },
+      });
+
+      await batch.commit();
+      return NextResponse.json({
+        ok: true, disposition: 'store_credit', creditId: credit.id,
+        amount: dollars, additionalCredit: extraDollars, totalCredit: totalCreditDollars,
+        expiresAt: creditEntry.expiresAt, originalFeeCents,
+      });
     }
-
-    if (!reason.trim()) {
-        toast({ variant: 'destructive', title: 'Reason Required' });
-        return;
-    }
-
-    setIsSubmitting(true);
-
-    // ── Wallet mode now routes through the unified credit ledger ──────────
-    // (api/credits/issue) instead of incrementing the old standalone
-    // walletCredit field directly. This is always a 'courtesy' credit —
-    // nothing was collected from the client for it, it's a real business
-    // expense — and it now lands in the SAME storeCredits/totalStoreCredit
-    // ledger that cancellation deposit conversions use, so staff see one
-    // number for "client's available credit," not two.
-    if (mode === 'wallet') {
-        if (amount <= 0) {
-            toast({ variant: 'destructive', title: 'Enter an amount' });
-            setIsSubmitting(false);
-            return;
-        }
-        try {
-            const res = await fetch('/api/credits/issue', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId,
-                    clientId: client.id,
-                    amountCents: Math.round(amount * 100),
-                    type: 'courtesy',
-                    source: 'service_recovery',
-                    reason,
-                    createdBy: authorizer.id,
-                }),
-            });
-            const out = await res.json().catch(() => null);
-            if (!out?.ok) {
-                toast({ variant: 'destructive', title: 'Issue Failed', description: out?.error || 'Could not issue credit.' });
-                return;
-            }
-            toast({ title: "Protocol Committed", description: `$${amount.toFixed(2)} added to ${client.name}'s store credit.` });
-            onOpenChange(false);
-            resetForm();
-        } catch (e: any) {
-            console.error(e);
-            toast({ variant: 'destructive', title: "Process Error", description: e.message });
-        } finally {
-            setIsSubmitting(false);
-        }
-        return;
-    }
-
-    // ── Service Gift / Hospitality modes — unchanged ────────────────────────
-    // These grant a specific service or amenity (a voucher), not a cash
-    // equivalent — deliberately kept on oneTimePerks rather than folded into
-    // the credit ledger, since "redeem one facial" and "$20 of spendable
-    // credit" aren't the same kind of thing. If a future need arises to
-    // track these in dollar terms too, issue a 'courtesy' credit here as
-    // well, but that hasn't been requested.
-    const batch = writeBatch(firestore);
-    const now = new Date().toISOString();
-    const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-    const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-
-    const item = mode === 'service' 
-        ? services.find((s: any) => s.id === selectedItemId)
-        : inventory.find((i: any) => i.id === selectedItemId);
-    
-    if (!item) {
-        toast({ variant: 'destructive', title: 'Please select an item' });
-        setIsSubmitting(false);
-        return;
-    }
-
-    const newPerk: any = {
-        id: nanoid(),
-        name: item.name,
-        type: mode === 'service' ? 'service' : 'product',
-        grantedAt: now,
-        reason: reason,
-        grantedBy: authorizer.id,
-        isRedeemed: false
-    };
-
-    const txnDescription = `Voucher Issued: ${item.name} (${reason})`;
-    const txnAmount = mode === 'service' ? ((item as any).cost || 0) : ((item as any).costPerUnit || 0);
-    
-    batch.update(clientRef, { oneTimePerks: arrayUnion(newPerk) });
-
-    batch.set(txnRef, {
-        id: txnRef.id,
-        date: now,
-        description: txnDescription,
-        clientOrVendor: client.name,
-        clientId: client.id,
-        type: 'expense',
-        context: 'Business',
-        category: 'Service Recovery',
-        amount: txnAmount,
-        paymentMethod: 'Internal Protocol',
-        staffId: authorizer.id,
-        hasReceipt: false,
-        notes: `Manual Post-Op Recovery issued. Reason: ${reason}`
-    });
-
-    try {
-        await batch.commit();
-        toast({ title: "Protocol Committed", description: `Voucher issued for ${client.name}.` });
-        onOpenChange(false);
-        resetForm();
-    } catch (e) {
-        console.error(e);
-        toast({ variant: 'destructive', title: "Process Error" });
-    } finally {
-        setIsSubmitting(false);
-    }
-  };
-
-  const resetForm = () => {
-      setMode('wallet');
-      setAmount(0);
-      setSelectedItemId('');
-      setReason('');
-      setPin('');
-  };
-
-  const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
-    <div className="flex items-center gap-3 mb-6">
-        <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-4 h-4" />
-        </div>
-        <div className="space-y-0.5 text-left">
-            <p className="text-[8px] font-black uppercase tracking-widest text-primary/60">Module Recovery</p>
-            <h3 className="text-sm md:text-base font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</h3>
-        </div>
-    </div>
-  );
-
-  const DialogComp = isMobile ? Sheet : Dialog;
-  const ContentComp = isMobile ? SheetContent : DialogContent;
-
-  return (
-    <DialogComp open={open} onOpenChange={onOpenChange}>
-      <ContentComp side={isMobile ? "bottom" : undefined} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[92dvh]")}>
-        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left")}>
-          <div className="flex items-center gap-3 mb-2">
-            <HeartHandshake className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Reputation Suite</span>
-          </div>
-          <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Issue Recovery</SheetTitle>
-          <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Resolution protocol for: <strong>{client.name}</strong></SheetDescription>
-        </SheetHeader>
-
-        <ScrollArea className="flex-1">
-            <div className="p-8 space-y-10">
-                <div className="space-y-4">
-                    <SectionHeader icon={Zap} title="Select Yield Type" />
-                    <RadioGroup value={mode} onValueChange={(v: any) => setMode(v)} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <label htmlFor="mode-wallet" className="cursor-pointer">
-                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'wallet' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
-                                <Wallet className={cn("w-6 h-6 mb-2", mode === 'wallet' ? "text-primary" : "text-slate-400")} />
-                                <span className="text-[9px] font-black uppercase tracking-widest">Store Credit</span>
-                                <RadioGroupItem value="wallet" id="mode-wallet" className="sr-only" />
-                            </div>
-                        </label>
-                        <label htmlFor="mode-service" className="cursor-pointer">
-                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'service' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
-                                <Sparkles className={cn("w-6 h-6 mb-2", mode === 'service' ? "text-primary" : "text-slate-400")} />
-                                <span className="text-[9px] font-black uppercase tracking-widest">Service Gift</span>
-                                <RadioGroupItem value="service" id="mode-service" className="sr-only" />
-                            </div>
-                        </label>
-                        <label htmlFor="mode-hosp" className="cursor-pointer">
-                            <div className={cn("flex flex-col items-center justify-center p-5 border-2 rounded-[2rem] transition-all h-full text-center", mode === 'hospitality' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-white")}>
-                                <Coffee className={cn("w-6 h-6 mb-2", mode === 'hospitality' ? "text-primary" : "text-slate-400")} />
-                                <span className="text-[9px] font-black uppercase tracking-widest">Hospitality</span>
-                                <RadioGroupItem value="hospitality" id="mode-hosp" className="sr-only" />
-                            </div>
-                        </label>
-                    </RadioGroup>
-                </div>
-
-                <div className="space-y-6">
-                    <Separator className="border-dashed" />
-                    <AnimatePresence mode="wait">
-                        {mode === 'wallet' && (
-                            <motion.div key="wallet-input" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Credit Allocation Amount</Label>
-                                <div className="relative">
-                                    <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-primary opacity-40" />
-                                    <Input 
-                                        type="number" 
-                                        value={amount || ''} 
-                                        onChange={e => setAmount(parseFloat(e.target.value) || 0)}
-                                        className="h-20 rounded-[2.5rem] border-4 font-black text-5xl tracking-tighter text-primary text-center bg-primary/5 shadow-inner"
-                                    />
-                                </div>
-                                <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 ml-1">
-                                    Issued as store credit — usable on any future visit, not tied to a specific re-booking.
-                                </p>
-                            </motion.div>
-                        )}
-
-                        {mode === 'service' && (
-                            <motion.div key="service-input" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Select Gift Service</Label>
-                                <Select value={selectedItemId} onValueChange={setSelectedItemId}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
-                                        <SelectValue placeholder="CHOOSE TREATMENT..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {services.map((s: any) => <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </motion.div>
-                        )}
-
-                        {mode === 'hospitality' && (
-                            <motion.div key="hosp-input" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-3">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Select Amenity Gift</Label>
-                                <Select value={selectedItemId} onValueChange={setSelectedItemId}>
-                                    <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-tight shadow-inner bg-muted/5">
-                                        <SelectValue placeholder="CHOOSE AMENITY..." />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        {inventory.filter((i: any) => i.type === 'refreshment').map((i: any) => <SelectItem key={i.id} value={i.id} className="font-bold uppercase text-[10px] tracking-widest">{i.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Resolution Justification</Label>
-                        <Textarea 
-                            value={reason}
-                            onChange={e => setReason(e.target.value)}
-                            placeholder="Detail the complaint and why this recovery is being issued..."
-                            className="rounded-2xl border-2 bg-muted/5 min-h-[120px] focus-visible:ring-primary/20 font-medium p-6 shadow-inner"
-                        />
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-dashed">
-                        <div className="flex items-center gap-3 px-1">
-                            <div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-slate-400" /></div>
-                            <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager Authorization PIN</Label>
-                        </div>
-                        <Input 
-                            type="password" 
-                            maxLength={4} 
-                            value={pin} 
-                            onChange={e => setPin(e.target.value.replace(/\D/g, ''))}
-                            className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 focus-visible:ring-primary/20 shadow-inner bg-muted/5"
-                            placeholder="••••"
-                        />
-                    </div>
-                </div>
-            </div>
-        </ScrollArea>
-
-        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 shrink-0 flex flex-col gap-3">
-            <Button onClick={handleAction} disabled={isSubmitting || !reason.trim() || pin.length < 4} className="w-full h-16 rounded-[2rem] text-xl font-black uppercase shadow-2xl shadow-primary/30 active:scale-95 transition-all">
-                {isSubmitting ? <Loader className="animate-spin" /> : 'Certify Recovery'}
-            </Button>
-            <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-slate-400">Abort Protocol</Button>
-        </DialogFooter>
-      </ContentComp>
-    </DialogComp>
-  );
-};
+  } catch (err: any) {
+    console.error('[studio-cancel-refund]', err);
+    return NextResponse.json({ ok: false, reason: err.message || 'Unknown error', code: err.code }, { status: 500 });
+  }
+}
