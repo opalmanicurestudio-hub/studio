@@ -1,499 +1,310 @@
-
 'use client';
 
+/**
+ * components/planner/RescheduleAppointmentDialog.tsx
+ *
+ * A reschedule MOVES the same appointment to a new time. It is deliberately
+ * NOT the cancellation pipeline, because a client who moves their booking
+ * hasn't stopped being your client — treating it as a cancel+rebook is what
+ * was quietly poisoning retention metrics and double-charging Stripe fees.
+ *
+ * What this does NOT do, on purpose:
+ *   - does not increment cancellationCount
+ *   - does not refund or re-collect the deposit (it stays attached to this
+ *     same appointment id — no Stripe round-trip, no fees on either end)
+ *   - does not write a cancellationEvent
+ *   - does not touch storeCredits / outstandingBalance
+ *
+ * What it DOES do:
+ *   - moves startTime / endTime on this same appointment, preserving the
+ *     original duration
+ *   - tags rescheduledFromTime / rescheduleCount / lastRescheduledAt so
+ *     repeat-reschedulers are visible as their own distinct pattern
+ *   - increments the client's rescheduleCount
+ *   - writes one audit-log entry (entityType: 'appointment_reschedule')
+ *   - optionally applies a SEPARATE, lenient reschedule fee — only if the
+ *     studio has a reschedule-fee policy and the move is inside the window.
+ *     This is never a cancellation fee and is logged as its own thing.
+ *
+ * Self-contained: it performs its own Firestore write, so it works whether
+ * or not the parent passed an onReschedule handler.
+ */
+
 import React, { useState, useMemo, useEffect } from 'react';
-import { useIsMobile } from '@/hooks/use-mobile';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
+import { format, addMinutes, differenceInMinutes, differenceInHours, parseISO } from 'date-fns';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { 
-    CalendarIcon, 
-    ChevronLeft, 
-    ChevronRight, 
-    Clock, 
-    AlertTriangle, 
-    ArrowRight, 
-    Sparkles, 
-    CalendarDays, 
-    DollarSign, 
-    CreditCard as CardIcon, 
-    Landmark, 
-    ShieldCheck, 
-    Undo2, 
-    Lock, 
-    Zap, 
-    Unlock, 
-    Workflow,
-    Loader,
-    PackageOpen,
-    Scale
-} from 'lucide-react';
-import { cn, safeNumber } from '@/lib/utils';
-import { type Client, type Service, type Appointment, type Staff } from '@/lib/data';
-import { 
-    format, 
-    setHours, 
-    setMinutes, 
-    startOfDay, 
-    areIntervalsOverlapping, 
-    addMinutes, 
-    addDays, 
-    subWeeks, 
-    addWeeks, 
-    eachDayOfInterval, 
-    isSameDay, 
-    isBefore, 
-    isToday, 
-    parseISO, 
-    differenceInHours, 
-    endOfDay,
-    startOfWeek
-} from 'date-fns';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-import { useInventory } from '@/context/InventoryContext';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Badge } from '../ui/badge';
-import { useTenant } from '@/context/TenantContext';
-import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
-import { Input } from '../ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { CalendarClock, ArrowRight, Loader, Info, DollarSign } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useFirebase } from '@/firebase';
+import { doc, updateDoc, increment, arrayUnion } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 
 const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
-    }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
-    return new Date(val);
+  if (!val) return new Date();
+  if (val instanceof Date) return val;
+  if (typeof val === 'string') return parseISO(val);
+  if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+  return new Date(val);
 };
 
-const timeStringToDate = (timeStr: string, date: Date): Date => {
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    if (!timeStr) return d;
-    const [time, period] = timeStr.split(' ');
-    let [hours, minutes] = time.split(':').map(Number);
-    if (period === 'PM' && hours < 12) hours += 12;
-    if (period === 'AM' && hours === 12) hours = 0;
-    d.setHours(hours, minutes);
-    return d;
+// Build the value a datetime-local input expects: 'yyyy-MM-ddTHH:mm', in
+// LOCAL time (no Z). format() already renders local, so this is correct.
+const toLocalInputValue = (d: Date): string => format(d, "yyyy-MM-dd'T'HH:mm");
+
+interface RescheduleAppointmentDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  appointment: any;
+  client?: any;
+  tenant?: any;
+  tenantId?: string;
+  actorName?: string;       // who is doing the reschedule (staff display name)
+  actorId?: string;         // staffId, or 'client'
+  isMobile?: boolean;
+  onRescheduled?: (newStartIso: string) => void;
 }
 
-const RescheduleAppointmentForm = ({ 
-    appointment,
-    client, 
-    service,
-    appointments,
-    services,
-    onConfirm,
-    isSubmitting
-}: { 
-    appointment: Appointment;
-    client: Client;
-    service: Service;
-    appointments: Appointment[];
-    services: Service[];
-    onConfirm: (data: any) => void;
-    isSubmitting: boolean;
+export const RescheduleAppointmentDialog: React.FC<RescheduleAppointmentDialogProps> = ({
+  open, onOpenChange, appointment, client, tenant, tenantId,
+  actorName = 'Staff', actorId = 'system', isMobile = false, onRescheduled,
 }) => {
-    const { scheduleProfiles, staff, events: allEvents, inventory } = useInventory();
-    const { selectedTenant: tenant } = useTenant();
-    const { toast } = useToast();
+  const { firestore } = useFirebase();
+  const { toast } = useToast();
 
-    const publicScheduleProfile = useMemo(() => scheduleProfiles?.find((p: any) => p.isActive), [scheduleProfiles]);
+  const originalStart = useMemo(() => safeDate(appointment?.startTime), [appointment]);
+  const originalEnd = useMemo(() => safeDate(appointment?.endTime), [appointment]);
+  const durationMins = useMemo(() => {
+    const d = differenceInMinutes(originalEnd, originalStart);
+    return d > 0 ? d : (appointment?.durationMinutes || 60);
+  }, [originalStart, originalEnd, appointment]);
 
-    const [rescheduleDate, setRescheduleDate] = useState(safeDate(appointment.startTime));
-    const [rescheduleTime, setRescheduleTime] = useState<string>(format(safeDate(appointment.startTime), 'HH:mm'));
-    
-    const [applyFee, setApplyFee] = useState(false);
-    const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'charge_new_card' | 'add_to_session'>('add_to_session');
-    const [overrideBusinessHours, setOverrideBusinessHours] = useState(false);
+  const [newStartLocal, setNewStartLocal] = useState('');
+  const [applyFee, setApplyFee] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const assignedStaff = useMemo(() => staff?.find(s => s.id === appointment.staffId), [staff, appointment.staffId]);
-    const hasCardOnFile = !!client?.cardOnFile?.token;
+  // Reschedule fee policy — SEPARATE from cancellation fees. Only offered if
+  // the studio configured one. Defaults to off; staff opt in per-move.
+  const rescheduleFee = Number(tenant?.rescheduleFee || 0);
+  const rescheduleWindowHours = Number(tenant?.rescheduleFeeWindowHours || 0);
+  const hoursUntilOriginal = useMemo(
+    () => differenceInHours(originalStart, new Date()),
+    [originalStart],
+  );
+  // A fee is only *suggested* when the studio has a fee, has a window, and the
+  // move is happening inside that window (i.e. short notice). Staff still
+  // choose whether to actually apply it.
+  const feeEligible = rescheduleFee > 0 && rescheduleWindowHours > 0 && hoursUntilOriginal < rescheduleWindowHours;
 
-    const isWithinCancellationWindow = useMemo(() => {
-        if (!appointment || !tenant?.cancellationWindowHours) return false;
-        const startTime = safeDate(appointment.startTime);
-        const hoursUntil = differenceInHours(startTime, new Date());
-        const requiredWindow = service.cancellationWindowHours || tenant.cancellationWindowHours || 24;
-        return hoursUntil < requiredWindow;
-    }, [appointment, tenant, service]);
-
-    // RECOVERY LOGIC: Overhead + Materials (Matrix Suggestion)
-    const recoveryMetrics = useMemo(() => {
-        if (!tenant?.tmhr || !service) return { overhead: 0, materials: 0, total: 0 };
-        
-        // 1. OVERHEAD (Time Cost)
-        const totalDuration = (service.duration || 60) + (service.padBefore || 0) + (service.padAfter || 0);
-        const overhead = (totalDuration / 60) * tenant.tmhr;
-        
-        // 2. MATERIALS (Product Cost)
-        const materials = (service.products || []).reduce((acc, p) => {
-            const product = inventory.find(i => i.id === p.id);
-            let cpu = 0;
-            if (product) {
-                if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
-                else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
-                else cpu = product.costPerUnit || 0;
-            }
-            return acc + (cpu * (p.quantityUsed || 1));
-        }, 0);
-
-        // STRATEGY LOGIC: Percentage vs Flat vs Matrix
-        let strategyAmount = 0;
-        if (tenant.defaultCancellationMode === 'percentage') {
-            strategyAmount = service.price * (safeNumber(tenant.cancellationFeePercent) / 100);
-        } else if (tenant.defaultCancellationMode === 'flat') {
-            strategyAmount = tenant.cancellationFee || 0;
-        } else {
-            strategyAmount = overhead + materials;
-        }
-
-        const total = Number((service.customCancellationFee || strategyAmount).toFixed(2));
-
-        return { 
-            overhead, 
-            materials, 
-            total 
-        };
-    }, [tenant, service, inventory]);
-
-    const weekStart = useMemo(() => startOfWeek(rescheduleDate, { weekStartsOn: 0 }), [rescheduleDate]);
-    const weekDays = useMemo(() => eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }), [weekStart]);
-
-    const handlePreviousWeek = () => setRescheduleDate(prev => subWeeks(prev, 1));
-    const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
-    const handleDateSelect = (day: Date) => setRescheduleDate(day);
-
-    const timeSlots = useMemo(() => {
-        if (!service || !rescheduleDate || !publicScheduleProfile || !staff || !services) return [];
-        const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
-        const dayName = format(rescheduleDate, 'eeee').toLowerCase();
-        
-        let workingHours;
-        const staffDaySchedule = assignedStaff?.availability?.week?.[dayName as keyof typeof assignedStaff.availability.week];
-        if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
-        else workingHours = publicScheduleProfile?.week?.[dayName];
-        
-        if (!overrideBusinessHours && (!workingHours || !workingHours.enabled)) return [];
-
-        const openTime = overrideBusinessHours ? startOfDay(rescheduleDate) : timeStringToDate(workingHours?.start || '09:00 AM', rescheduleDate);
-        const closeTime = overrideBusinessHours ? endOfDay(rescheduleDate) : timeStringToDate(workingHours?.end || '05:00 PM', rescheduleDate);
-        
-        const busyIntervals: { start: Date, end: Date }[] = [];
-        appointments.filter(apt => apt.id !== appointment.id && isSameDay(safeDate(apt.startTime), rescheduleDate) && apt.staffId === appointment.staffId).forEach(apt => {
-            const svc = services.find(s => s.id === apt.serviceId);
-            busyIntervals.push({ start: addMinutes(safeDate(apt.startTime), -(svc?.padBefore || 0)), end: addMinutes(safeDate(apt.endTime), (svc?.padAfter || 0)) });
-        });
-
-        (allEvents || []).filter(evt => {
-            if (!isSameDay(safeDate(evt.startTime), rescheduleDate) || evt.type !== 'blocked') return false;
-            return !evt.staffIds || evt.staffIds.includes('all') || (appointment.staffId && evt.staffIds.includes(appointment.staffId));
-        }).forEach(evt => { busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime) }); });
-
-        const options: string[] = [];
-        let currentTime = openTime;
-        while (currentTime < closeTime) {
-            const potentialEnd = addMinutes(currentTime, service.duration + (service.padBefore || 0) + (service.padAfter || 0));
-            if (potentialEnd > closeTime) break;
-            const isOverlapping = busyIntervals.some((interval) => areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, interval, { inclusive: false }));
-            if (!isOverlapping) options.push(format(currentTime, 'HH:mm'));
-            currentTime = addMinutes(currentTime, bookingInterval);
-        }
-        
-        const originalTimeFormatted = format(safeDate(appointment.startTime), 'HH:mm');
-        if (isSameDay(rescheduleDate, safeDate(appointment.startTime)) && !options.includes(originalTimeFormatted)) {
-            options.push(originalTimeFormatted);
-            options.sort();
-        }
-        return options;
-    }, [rescheduleDate, service, appointments, appointment, services, publicScheduleProfile, assignedStaff, staff, allEvents, overrideBusinessHours]);
-
-    const handleSubmit = () => {
-        if (!rescheduleTime) return;
-        const [hours, minutes] = rescheduleTime.split(':').map(Number);
-        const startDateTime = setMinutes(setHours(startOfDay(rescheduleDate), hours), minutes);
-        const endDateTime = addMinutes(startDateTime, service.duration);
-        
-        onConfirm({ 
-            ...appointment, 
-            startTime: startDateTime.toISOString(), 
-            endTime: endDateTime.toISOString(),
-            applyFee,
-            feeAmount: applyFee ? recoveryMetrics.total : 0,
-            paymentMethod
-        });
+  useEffect(() => {
+    if (open) {
+      // Pre-fill with the original time so staff only change what they need.
+      setNewStartLocal(toLocalInputValue(originalStart));
+      setApplyFee(feeEligible);
+      setIsSubmitting(false);
     }
+  }, [open, originalStart, feeEligible]);
 
-    return (
-        <div className="space-y-8 flex flex-col h-full text-left">
-            <Card className="border-4 border-primary/10 bg-primary/[0.02] rounded-[2rem] shadow-xl overflow-hidden">
-                <CardContent className="p-6 flex items-center gap-6 text-left">
-                    <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-2xl shrink-0">
-                        <AvatarImage src={client.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black bg-primary/10 text-primary">{(client.name || 'G').substring(0, 2).toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                        <p className="font-black text-xl md:text-2xl uppercase tracking-tighter text-slate-900 leading-none mb-1 truncate text-left">{client.name}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-left">{service.name}</p>
-                    </div>
-                </CardContent>
-            </Card>
+  const newStartDate = newStartLocal ? new Date(newStartLocal) : null;
+  const newEndDate = newStartDate ? addMinutes(newStartDate, durationMins) : null;
+  const isUnchanged = newStartDate ? Math.abs(newStartDate.getTime() - originalStart.getTime()) < 60000 : true;
+  const isPast = newStartDate ? newStartDate.getTime() < Date.now() - 60000 : false;
 
-            <AnimatePresence>
-                {isWithinCancellationWindow && (
-                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                        <div className="space-y-6">
-                            <Alert variant="destructive" className="border-4 border-destructive bg-destructive/5 rounded-[2.5rem] p-6 shadow-2xl">
-                                <AlertTriangle className="h-6 w-6 text-destructive" />
-                                <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Policy Restriction</AlertTitle>
-                                <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                    This move is late. Suggest applying the <strong>Operational Recovery Protocol</strong>.
-                                </AlertDescription>
-                            </Alert>
+  const willApplyFee = applyFee && feeEligible && rescheduleFee > 0;
 
-                            <div className="p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <div className="space-y-1 text-left">
-                                        <Label className="text-base font-black uppercase tracking-tight flex items-center gap-2">
-                                            <Scale className="w-4 h-4 text-primary" />
-                                            Recovery Floor Suggestion
-                                        </Label>
-                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">Calculated via Studio Profit Matrix</p>
-                                    </div>
-                                    <div className="flex flex-col items-end gap-2">
-                                        <span className={cn("text-2xl font-black font-mono tracking-tighter", applyFee ? "text-primary" : "text-muted-foreground opacity-40")}>
-                                            ${recoveryMetrics.total.toFixed(2)}
-                                        </span>
-                                        <Switch checked={applyFee} onCheckedChange={setApplyFee} />
-                                    </div>
-                                </div>
+  const handleConfirm = async () => {
+    if (!firestore || !tenantId || !appointment?.id || !newStartDate || !newEndDate) return;
+    if (isUnchanged || isPast) return;
 
-                                <AnimatePresence>
-                                    {applyFee && (
-                                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="space-y-4 pt-4 border-t-2 border-dashed border-primary/10 text-left">
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
-                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><Clock className="w-2 h-2"/> Time Overhead</p>
-                                                    <p className="font-black font-mono text-xs text-slate-900">${recoveryMetrics.overhead.toFixed(2)}</p>
-                                                </div>
-                                                <div className="p-3 rounded-xl bg-white border shadow-sm text-left">
-                                                    <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40 mb-1 flex items-center gap-1"><PackageOpen className="w-2 h-2"/> Product Cost</p>
-                                                    <p className="font-black font-mono text-xs text-slate-900">${recoveryMetrics.materials.toFixed(2)}</p>
-                                                </div>
-                                            </div>
-                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Settlement Method</Label>
-                                            <RadioGroup value={paymentMethod} onValueChange={(v: any) => setPaymentMethod(v)} disabled={isSubmitting} className="grid grid-cols-3 gap-3">
-                                                <label htmlFor="resched-pay-session" className="cursor-pointer flex-1 h-full">
-                                                    <RadioGroupItem value="add_to_session" id="resched-pay-session" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'add_to_session' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        <Zap className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'add_to_session' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">To Session</span>
-                                                    </div>
-                                                </label>
-                                                <label htmlFor="resched-pay-card" className={cn("cursor-pointer flex-1 h-full", !hasCardOnFile && "opacity-40 grayscale")}>
-                                                    <RadioGroupItem value="card_on_file" id="resched-pay-card" className="peer sr-only" disabled={!hasCardOnFile} />
-                                                    <div className={cn("flex flex-col items-center justify-center p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'card_on_file' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-white")}>
-                                                        {hasCardOnFile ? <ShieldCheck className="w-6 h-6 mb-1.5 text-primary" /> : <Lock className="w-5 h-5 mb-1.5 text-slate-400" />}
-                                                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">Vault</span>
-                                                    </div>
-                                                </label>
-                                                <label htmlFor="resched-pay-new" className="cursor-pointer flex-1 h-full">
-                                                    <RadioGroupItem value="charge_new_card" id="resched-pay-new" className="peer sr-only" />
-                                                    <div className={cn("flex flex-col items-center justify-center  p-3 border-2 rounded-2xl transition-all text-center h-full", paymentMethod === 'charge_new_card' ? "border-primary bg-primary/5 shadow-lg" : "border-border bg-background hover:bg-muted/50")}>
-                                                        <CardIcon className={cn("w-5 h-5 mb-1.5 transition-colors", paymentMethod === 'charge_new_card' ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                                        <span className="text-[8px] font-black uppercase tracking-widest text-slate-900 leading-tight">New Card</span>
-                                                    </div>
-                                                </label>
-                                            </RadioGroup>
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+    setIsSubmitting(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const newStartIso = newStartDate.toISOString();
+      const newEndIso = newEndDate.toISOString();
 
-            <div className="space-y-4 flex-1">
-                <div className="flex items-center justify-between">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                        <CalendarDays className="w-3.5 h-3.5 opacity-40" />
-                        Schedule Refinement
-                    </Label>
-                    <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <div className="flex items-center gap-2">
-                                        <Unlock className={cn("w-3.5 h-3.5 transition-colors", overrideBusinessHours ? "text-primary" : "text-muted-foreground opacity-40")} />
-                                        <Switch
-                                            id="override-hours-resched"
-                                            checked={overrideBusinessHours}
-                                            onCheckedChange={setOverrideBusinessHours}
-                                        />
-                                    </div>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-xl border-2 font-black uppercase text-[9px] tracking-widest border-2">Override Business Hours</TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-                    </div>
-                </div>
-                <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
-                    <div className="flex justify-between items-center px-2">
-                        <Button variant="outline" size="icon" onClick={handlePreviousWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
-                        <span className="font-black uppercase tracking-widest text-sm">{format(rescheduleDate, 'MMMM yyyy')}</span>
-                        <Button variant="outline" size="icon" onClick={handleNextWeek} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
-                    </div>
-                    <div className="grid grid-cols-7 gap-2">
-                        {weekDays.map(day => (
-                            <button
-                                key={day.toISOString()}
-                                onClick={() => handleDateSelect(day)}
-                                type="button"
-                                className={cn(
-                                    "flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square",
-                                    isSameDay(day, rescheduleDate)
-                                        ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110"
-                                        : "bg-background border-transparent hover:border-primary/30",
-                                    isBefore(day, startOfDay(new Date())) && !isToday(day) && !overrideBusinessHours && "opacity-20 cursor-not-allowed"
-                                )}
-                            >
-                                <span className="text-[8px] sm:text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
-                                <span className="font-black text-sm md:text-xl tracking-tighter">{format(day, 'd')}</span>
-                            </button>
-                        ))}
-                    </div>
-                    <div className="grid grid-cols-3 gap-3 pt-8 border-t-2 border-dashed border-white/50">
-                        {timeSlots.map(slot => (
-                            <Button
-                                key={slot}
-                                type="button"
-                                variant={rescheduleTime === slot ? 'default' : 'outline'}
-                                className={cn(
-                                    "h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all",
-                                    rescheduleTime === slot ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background"
-                                )}
-                                onClick={() => setRescheduleTime(slot)}
-                            >
-                                {format(timeStringToDate(slot, new Date()), 'h:mm a')}
-                            </Button>
-                        ))}
-                        {timeSlots.length === 0 && <div className="col-span-full text-center py-12 border-2 border-dashed rounded-[2rem] opacity-30 font-black uppercase text-[10px]">No Availability</div>}
-                    </div>
-                </div>
-            </div>
+      // ── Move the SAME appointment. No cancellation, no deposit round-trip. ──
+      const apptUpdate: Record<string, any> = {
+        startTime: newStartIso,
+        endTime: newEndIso,
+        rescheduledFromTime: appointment.startTime,
+        rescheduleCount: increment(1),
+        lastRescheduledAt: nowIso,
+        lastRescheduledBy: actorId,
+        // A reschedule re-opens the booking as a normal confirmed appointment.
+        // If it had drifted into a late/no-show-adjacent check-in state, that
+        // no longer applies to the new time.
+        status: 'confirmed',
+        checkInStatus: 'pending',
+      };
+      if (willApplyFee) apptUpdate.rescheduleFeeApplied = rescheduleFee;
 
-            <Button id="submit-reschedule-btn" className="hidden" onClick={handleSubmit}>Submit</Button>
+      await updateDoc(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), apptUpdate);
+
+      // ── Client-level reschedule counter (distinct from cancellationCount) ──
+      const clientId = client?.id || appointment.clientId;
+      if (clientId) {
+        const clientUpdate: Record<string, any> = { rescheduleCount: increment(1) };
+
+        // If a reschedule fee applies, it's added to the balance as its own
+        // unpaidFees entry so the ledger's aging widget sees it — same shape
+        // every other fee path now uses. It is NOT a cancellation fee.
+        if (willApplyFee) {
+          clientUpdate.outstandingBalance = increment(rescheduleFee);
+          clientUpdate.unpaidFees = arrayUnion({
+            feeId: `resched_${appointment.id}_${Date.now()}`,
+            appointmentId: appointment.id,
+            appointmentDate: nowIso,
+            feeAmount: rescheduleFee,
+            reason: 'reschedule_fee',
+          });
+        }
+        await updateDoc(doc(firestore, `tenants/${tenantId}/clients`, clientId), clientUpdate);
+      }
+
+      // ── Audit log — its own entity type, never confused with a cancel ──
+      const auditId = `resched_${appointment.id}_${Date.now()}`;
+      await updateDoc(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), {
+        rescheduleAuditTrail: arrayUnion({
+          id: auditId,
+          fromTime: appointment.startTime,
+          toTime: newStartIso,
+          at: nowIso,
+          byId: actorId,
+          byName: actorName,
+          feeApplied: willApplyFee ? rescheduleFee : 0,
+        }),
+      });
+
+      toast({
+        title: 'Appointment Rescheduled',
+        description: `Moved to ${format(newStartDate, 'EEE MMM d, h:mm a')}${willApplyFee ? ` · $${rescheduleFee.toFixed(2)} fee added` : ''}.`,
+      });
+      onRescheduled?.(newStartIso);
+      onOpenChange(false);
+    } catch (e: any) {
+      console.error(e);
+      toast({ variant: 'destructive', title: 'Reschedule Failed', description: e?.message || 'Could not move the appointment.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const body = (
+    <div className="space-y-6 px-1">
+      <div className="flex items-center gap-3 p-4 rounded-2xl border-2 bg-muted/5">
+        <CalendarClock className="w-5 h-5 text-primary shrink-0" />
+        <div className="min-w-0">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Currently</p>
+          <p className="text-sm font-black tracking-tight text-slate-900 truncate">
+            {format(originalStart, 'EEE MMM d, h:mm a')}
+          </p>
+          <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
+            {durationMins} min · {appointment?.serviceName || 'Service'}
+          </p>
         </div>
-    );
-};
+      </div>
 
-export const RescheduleDialog = ({
-    open,
-    onOpenChange,
-    appointment,
-    clients,
-    services,
-    appointments,
-    onConfirm
-}: {
-    open: boolean,
-    onOpenChange: (open: boolean) => void,
-    appointment: Appointment,
-    clients: Client[],
-    services: Service[],
-    appointments: Appointment[],
-    onConfirm: (data: any) => Promise<void>
-}) => {
-    const isMobile = useIsMobile();
-    const [isSubmitting, setIsSubmitting] = useState(false);
+      <div className="space-y-3">
+        <Label htmlFor="reschedule-new-time" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+          New Date & Time
+        </Label>
+        <Input
+          id="reschedule-new-time"
+          type="datetime-local"
+          value={newStartLocal}
+          onChange={e => setNewStartLocal(e.target.value)}
+          className="h-14 rounded-2xl border-2 font-black text-base bg-white shadow-inner"
+        />
+        {newEndDate && !isUnchanged && !isPast && (
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+            Ends {format(newEndDate, 'h:mm a')} · duration preserved
+          </p>
+        )}
+        {isPast && (
+          <p className="text-[10px] font-bold text-destructive uppercase tracking-tight ml-1">
+            That time is in the past.
+          </p>
+        )}
+      </div>
 
-    const client = clients.find(c => c.id === appointment.clientId);
-    const service = services.find(s => s.id === appointment.serviceId);
+      <div className="flex items-start gap-3 p-4 rounded-2xl border border-dashed bg-primary/[0.02]">
+        <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">
+          The deposit and any credit stay attached to this booking. No refund, no re-collection, no cancellation on the client's record.
+        </p>
+      </div>
 
-    if (!client || !service) return null;
+      {feeEligible && (
+        <>
+          <Separator className="border-dashed" />
+          <div className="flex items-center justify-between p-4 rounded-2xl border-2 bg-muted/5">
+            <div className="space-y-0.5 text-left min-w-0">
+              <p className="text-[10px] font-black uppercase text-slate-900 flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-primary" /> Short-Notice Reschedule Fee
+              </p>
+              <p className="text-[8px] font-bold uppercase opacity-60">
+                Within {rescheduleWindowHours}h of the appointment · ${rescheduleFee.toFixed(2)}
+              </p>
+            </div>
+            <Switch checked={applyFee} onCheckedChange={setApplyFee} />
+          </div>
+        </>
+      )}
+    </div>
+  );
 
-    const handleConfirmedAction = async (data: any) => {
-        setIsSubmitting(true);
-        await onConfirm(data);
-        setIsSubmitting(false);
-        onOpenChange(false);
-    }
+  const footer = (
+    <div className="w-full flex flex-col gap-3">
+      {newStartDate && !isUnchanged && !isPast && (
+        <div className="px-2 py-3 rounded-xl bg-muted/10 border border-dashed text-center">
+          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed flex items-center justify-center gap-2 flex-wrap">
+            <span>{format(originalStart, 'MMM d, h:mm a')}</span>
+            <ArrowRight className="w-3 h-3 text-primary" />
+            <span className="font-black text-primary">{format(newStartDate, 'MMM d, h:mm a')}</span>
+            {willApplyFee && <span>· ${rescheduleFee.toFixed(2)} fee</span>}
+          </p>
+        </div>
+      )}
+      <Button
+        onClick={handleConfirm}
+        disabled={isSubmitting || isUnchanged || isPast || !newStartDate}
+        className="w-full h-14 rounded-[2rem] text-lg font-black uppercase shadow-2xl shadow-primary/30"
+      >
+        {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : 'Confirm New Time'}
+      </Button>
+    </div>
+  );
 
-    const DialogContainer = isMobile ? Sheet : Dialog;
-    const ContentComponent = isMobile ? SheetContent : DialogContent;
-
+  if (isMobile) {
     return (
-        <DialogContainer open={open} onOpenChange={onOpenChange}>
-            <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-xl max-h-[90dvh]")}>
-                <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile && "p-6 pb-4")}>
-                    <div className="flex items-center gap-3 mb-2 text-left">
-                        <Sparkles className="w-5 h-5 text-primary" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Logistics Suite</span>
-                    </div>
-                    <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Reschedule Protocol</SheetTitle>
-                    <SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1 text-left">Shift session timing in the studio manifest.</SheetDescription>
-                </SheetHeader>
-                <ScrollArea className="flex-1">
-                    <div className={cn("p-8 pt-4", isMobile && "p-6")}>
-                        <RescheduleAppointmentForm
-                            appointment={appointment}
-                            client={client}
-                            service={service}
-                            appointments={appointments}
-                            services={services}
-                            onConfirm={handleConfirmedAction}
-                            isSubmitting={isSubmitting}
-                        />
-                    </div>
-                </ScrollArea>
-                <SheetFooter className={cn("p-6 pt-4 border-t bg-background flex-shrink-0")}>
-                    <div className="grid grid-cols-2 gap-3 w-full">
-                        <Button variant="outline" onClick={() => onOpenChange(false)} className="h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-white">Cancel</Button>
-                        <Button
-                            onClick={() => document.getElementById('submit-reschedule-btn')?.click()}
-                            disabled={isSubmitting}
-                            className="h-12 rounded-[2rem] font-black uppercase tracking-widest text-[10px] shadow-2xl shadow-primary/20 active:scale-95 transition-all group"
-                        >
-                            {isSubmitting ? <Loader className="animate-spin h-4 w-4" /> : (
-                                <>Confirm Shift <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" /></>
-                            )}
-                        </Button>
-                    </div>
-                </SheetFooter>
-            </ContentComponent>
-        </DialogContainer>
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="bottom" className="rounded-t-[2rem] max-h-[92vh] overflow-y-auto p-6">
+          <SheetHeader className="text-left mb-4">
+            <SheetTitle className="text-xl font-black uppercase tracking-tight">Reschedule</SheetTitle>
+          </SheetHeader>
+          {body}
+          <SheetFooter className="mt-6">{footer}</SheetFooter>
+        </SheetContent>
+      </Sheet>
     );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md rounded-[2rem] p-8">
+        <DialogHeader className="mb-2">
+          <DialogTitle className="text-2xl font-black uppercase tracking-tight">Reschedule</DialogTitle>
+        </DialogHeader>
+        {body}
+        <DialogFooter className="mt-6">{footer}</DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 };
+
+export default RescheduleAppointmentDialog;
