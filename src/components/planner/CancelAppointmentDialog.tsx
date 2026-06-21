@@ -16,7 +16,6 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -37,7 +36,6 @@ import {
   DollarSign,
   ShieldCheck,
   Lock,
-  Users,
   Landmark,
   Zap,
   Loader,
@@ -722,66 +720,58 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
               </div>
             )}
 
-            {/* ── Recovery matrix ── */}
-            <div className="space-y-6">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">
-                Itemized Recovery Manifest
-              </p>
-              <div className="space-y-3">
-                {recoveryMatrix.map(m => (
-                  <Card key={m.id} className="border-2 rounded-2xl overflow-hidden bg-white shadow-sm">
-                    <CardHeader className="p-4 border-b bg-muted/5 flex flex-row items-center justify-between">
-                      <p className="text-xs font-black uppercase tracking-tight truncate flex-1 text-left">
-                        {m.name}
-                      </p>
-                      <Badge variant="outline" className="h-5 text-[8px] font-black bg-white">
-                        {m.window}h Window
-                      </Badge>
-                    </CardHeader>
-                    <CardContent className="p-4 space-y-3 text-left">
-                      <div className="flex items-center justify-between group">
-                        <div className="flex items-center gap-3">
+            {/* ── Recovery matrix — hidden for no-show, whose fee is fixed/flat
+                 and never derived from this matrix at all. Previously this
+                 stayed visible with fully-interactive checkboxes that had
+                 zero effect on the no-show charge — confusing, no purpose. ── */}
+            {!isNoShow && (
+              <div className="space-y-6">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 text-left">
+                    Suggested Cancellation Fee
+                  </p>
+                  <p className="text-[9px] font-bold text-muted-foreground opacity-60 ml-1 text-left">
+                    Based on studio time, materials, and labor cost per service. Uncheck a service to exclude it.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  {recoveryMatrix.map(m => {
+                    // Both sets are kept in lockstep by this single control —
+                    // staff see one decision per service ("include this in
+                    // the fee or not"), not two independently-toggleable
+                    // cost components that almost nobody wants to split.
+                    const included = selectedHouseRecoveryIds.has(m.id);
+                    const lineTotal = m.houseFloor + m.laborProtection;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { toggleHouse(m.id); toggleLabor(m.id); }}
+                        className={cn(
+                          'w-full flex items-center justify-between p-4 rounded-2xl border-2 transition-all text-left',
+                          included ? 'border-primary/20 bg-primary/[0.02]' : 'border-border bg-muted/5 opacity-50',
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
                           <Checkbox
-                            id={`house-${m.id}`}
-                            checked={selectedHouseRecoveryIds.has(m.id)}
-                            onCheckedChange={() => toggleHouse(m.id)}
-                            className="h-5 w-5 rounded-lg border-2"
+                            checked={included}
+                            onCheckedChange={() => { toggleHouse(m.id); toggleLabor(m.id); }}
+                            className="h-5 w-5 rounded-lg border-2 shrink-0 pointer-events-none"
                           />
-                          <Label
-                            htmlFor={`house-${m.id}`}
-                            className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2 cursor-pointer text-left"
-                          >
-                            <Landmark className="w-3 h-3" /> Studio Floor (Time + Mats)
-                          </Label>
+                          <div className="min-w-0">
+                            <p className="text-xs font-black uppercase tracking-tight truncate text-slate-900">{m.name}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
+                              Time + materials ${m.houseFloor.toFixed(2)} · Labor ${m.laborProtection.toFixed(2)}
+                            </p>
+                          </div>
                         </div>
-                        <span className="font-mono text-[10px] font-black text-slate-900">
-                          ${m.houseFloor.toFixed(2)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between group">
-                        <div className="flex items-center gap-3">
-                          <Checkbox
-                            id={`labor-${m.id}`}
-                            checked={selectedLaborRecoveryIds.has(m.id)}
-                            onCheckedChange={() => toggleLabor(m.id)}
-                            className="h-5 w-5 rounded-lg border-2"
-                          />
-                          <Label
-                            htmlFor={`labor-${m.id}`}
-                            className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2 cursor-pointer text-left"
-                          >
-                            <Users className="w-3 h-3" /> Labor Protection
-                          </Label>
-                        </div>
-                        <span className="font-mono text-[10px] font-black text-slate-900">
-                          ${m.laborProtection.toFixed(2)}
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        <span className="font-mono text-sm font-black text-slate-900 shrink-0 ml-3">${lineTotal.toFixed(2)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ── Fee + settlement ── */}
             <div className="space-y-6">
