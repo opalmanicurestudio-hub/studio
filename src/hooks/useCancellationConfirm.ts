@@ -40,6 +40,7 @@ import {
   collection,
   writeBatch,
   increment,
+  arrayUnion,
   getDocs,
   query,
   where,
@@ -215,7 +216,20 @@ export function useCancellationConfirm(
       // Balance update only for client/no-show paths with a fee
       if (!isStudioCancel && chargeFee && feeAmount > 0 && paymentMethod === 'add_to_balance') {
         const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
-        batch.update(clientRef, { outstandingBalance: increment(feeAmount) });
+        batch.update(clientRef, {
+          outstandingBalance: increment(feeAmount),
+          // Previously missing — outstandingBalance went up but nothing was
+          // ever pushed to unpaidFees, so the Ledger's Bad Debt Aging widget
+          // (which reads unpaidFees, not outstandingBalance) silently never
+          // saw this debt at all.
+          unpaidFees: arrayUnion({
+            feeId: nanoid(),
+            appointmentId: appointment.id,
+            appointmentDate: now,
+            feeAmount,
+            reason: isNoShowCancel ? 'No-Show Fee' : `Cancellation Fee — ${cancellationAudit?.reason || 'client cancellation'}`,
+          }),
+        });
       }
 
       // Audit log
