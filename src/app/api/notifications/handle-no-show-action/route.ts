@@ -227,9 +227,11 @@ export async function POST(req: NextRequest) {
         const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         batch.set(txRef, {
           id: txRef.id, tenantId, appointmentId: appt.id, clientId: appt.clientId,
-          type: 'deposit_forfeiture', category: 'No-Show Deposit',
+          clientName: client.name || appt.clientName || 'Client',
+          date: now, type: 'income', category: 'No-Show Revenue',
           amount: depositForfeitedAmount, amountCents: Math.round(depositForfeitedAmount * 100),
-          status: 'forfeited', createdAt: now,
+          paymentMethod: 'Deposit', hasReceipt: false,
+          description: 'Deposit forfeited — no-show',
         });
       }
     }
