@@ -174,6 +174,39 @@ const AppointmentHistoryCard = ({
           </Badge>
         </div>
 
+        {appointment.status === 'cancelled' && appointment.cancellationAudit && (
+          <div className="p-3 rounded-xl border-2 border-dashed border-destructive/20 bg-destructive/[0.02] space-y-1.5">
+            <div className="flex items-center gap-2">
+              <Ban className="w-3 h-3 text-destructive shrink-0" />
+              <span className="text-[9px] font-black uppercase tracking-widest text-destructive">
+                Cancelled by {appointment.cancellationAudit.actorType === 'studio' ? 'Studio' : appointment.cancellationAudit.actorType === 'no_show' ? 'No-Show' : 'Client'}
+                {appointment.cancellationAudit.actorName ? ` — ${appointment.cancellationAudit.actorName}` : ''}
+              </span>
+            </div>
+            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-tight leading-relaxed">
+              {(appointment.cancellationAudit.studioReason || appointment.cancellationAudit.clientReason || appointment.cancellationAudit.reason || '').toString().replace(/_/g, ' ')}
+              {appointment.cancellationAudit.reasonDetail ? ` — "${appointment.cancellationAudit.reasonDetail}"` : ''}
+            </p>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[8px] font-black uppercase text-muted-foreground opacity-60">
+                {appointment.cancellationAudit.timestamp ? format(safeDate(appointment.cancellationAudit.timestamp), 'MMM d, h:mm a') : ''}
+              </span>
+              <span className={cn('text-[9px] font-black uppercase', appointment.cancellationAudit.feeWaived ? 'text-green-600' : safeNumber(appointment.cancellationAudit.feeAmount) > 0 ? 'text-amber-600' : 'text-muted-foreground opacity-40')}>
+                {appointment.cancellationAudit.feeWaived
+                  ? 'Fee Waived'
+                  : safeNumber(appointment.cancellationAudit.feeAmount) > 0
+                  ? `Fee: $${safeNumber(appointment.cancellationAudit.feeAmount).toFixed(2)}`
+                  : 'No Fee'}
+              </span>
+            </div>
+            {appointment.depositDisposition && appointment.depositDisposition !== 'none' && (
+              <p className="text-[8px] font-black uppercase text-primary/70 pt-0.5">
+                Deposit: {appointment.depositDisposition === 'refunded' ? 'Refunded' : appointment.depositDisposition === 'store_credit' ? 'Converted to Store Credit' : appointment.depositDisposition}
+              </p>
+            )}
+          </div>
+        )}
+
         {appointment.hasRealData && appointment.aptTransactions?.length > 0 && (
           <div className="space-y-1.5 pt-2 border-t border-dashed">
             {appointment.aptTransactions
@@ -410,9 +443,14 @@ export default function ClientDetailPage() {
       setIsAddFormulaOpen(true);
   };
 
-  const { safeLTV, safeWalletCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => ({
+  const { safeLTV, safeStoreCredit, safeBalance, noShowTotal, cancelTotal, rescheduleTotal } = useMemo(() => ({
       safeLTV: safeNumber(client?.lifetimeValue),
-      safeWalletCredit: safeNumber(client?.walletCredit),
+      // totalStoreCredit is the unified Client Credit Ledger total — covers
+      // cancellation deposit conversions, goodwill/service-recovery credit,
+      // everything. walletCredit (the old field) is no longer written to by
+      // anything as of the credit-ledger unification; reading it here was
+      // why newly-issued credit appeared to not show up anywhere.
+      safeStoreCredit: safeNumber(client?.totalStoreCredit),
       safeBalance: safeNumber(client?.outstandingBalance),
       noShowTotal: safeNumber(client?.noShowCount),
       cancelTotal: safeNumber(client?.cancellationCount),
@@ -941,7 +979,7 @@ export default function ClientDetailPage() {
                 <div className="grid grid-cols-1 gap-4 text-left">
                   <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner text-left">
                     <p className="text-[8px] md:text-[9px] font-black uppercase text-muted-foreground tracking-widest mb-1 opacity-60 text-left">Store Credit</p>
-                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono text-left">${safeWalletCredit.toFixed(2)}</p>
+                    <p className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter font-mono text-left">${safeStoreCredit.toFixed(2)}</p>
                   </div>
                   <div className={cn("p-4 md:p-5 rounded-[1.5rem] border-2 shadow-inner transition-all text-left", hasDebt ? "bg-destructive/5 border-destructive/20 text-destructive" : "bg-muted/20 border-transparent")}>
                     <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest mb-1 opacity-60 text-left">Account Arrears</p>
