@@ -603,6 +603,27 @@ function POSPage() {
     const [pendingRefund, setPendingRefund] = useState<any | null>(null);
     const [storeCreditApplied, setStoreCreditApplied] = useState(0);
 
+    const searchParams = useSearchParams();
+    const hasHandledDeepLinkRef = useRef(false);
+
+    // Notification links from autoCancel.ts (suspected_no_show /
+    // no_show_escalation) and similar point at /pos?appointment={id}.
+    // useSearchParams was previously imported but never read, so those links
+    // landed on a generic POS page with no indication of which appointment
+    // staff were supposed to look at. Runs once per page load — doesn't
+    // re-fire if staff close the sheet and the appointment list re-renders.
+    useEffect(() => {
+        if (hasHandledDeepLinkRef.current) return;
+        const aptId = searchParams?.get('appointment');
+        if (!aptId || !appointmentsFromInventory) return;
+        const apt = appointmentsFromInventory.find(a => a.id === aptId);
+        if (apt) {
+            hasHandledDeepLinkRef.current = true;
+            setSelectedAppointment(apt);
+            setIsDetailsOpen(true);
+        }
+    }, [searchParams, appointmentsFromInventory]);
+
     const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
     const prevWalkInCountRef = useRef<number>(0);
 
@@ -1179,6 +1200,7 @@ function POSPage() {
     const onCancellationConfirm = useCancellationConfirm(
         selectedAppointment,
         clients?.find(c => c.id === selectedAppointment?.clientId) ?? null,
+        services?.find((s: any) => s.id === selectedAppointment?.serviceId)?.name ?? null,
     );
 
     const handleCancellationConfirm = useCallback(async (data: any) => {
