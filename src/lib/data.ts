@@ -241,23 +241,59 @@ export type Client = {
   repeatNoShowFlaggedAt?: string;
   requiresDepositOnBooking?: boolean;
   requiresCardOnFile?: boolean;
-  // ── Store credit wallet (set by api/stripe/studio-cancel-refund) ────────
+  // ── Unified Client Credit Ledger ─────────────────────────────────────────
+  // The single source of truth for all client-facing credit, replacing the
+  // previously separate walletCredit (IssueRecoveryDialog) and ad-hoc
+  // storeCredits writes (studio-cancel-refund). All credit issuance now
+  // routes through /api/credits/issue, which writes here.
+  //
+  // 'earned'   — money the client already paid (deposit conversion, partial
+  //              refund-to-credit on cancellation). Not a new business
+  //              expense — it's relabeling an existing liability from
+  //              "deposit, applies to one future booking" to "credit,
+  //              applies to anything." See depositCredits for the source
+  //              record this gets converted FROM.
+  // 'courtesy' — money the business is giving away (service recovery,
+  //              goodwill, referral reward, manager-issued). A real expense
+  //              (category 'Service Recovery'), since nothing was collected
+  //              for it.
+  //
+  // walletCredit (declared earlier in this type) is the PRE-UNIFICATION
+  // field. It is no longer written to by anything — IssueRecoveryDialog's
+  // wallet mode now issues here instead. Any pre-existing walletCredit
+  // balance on a client record needs a one-time migration into storeCredits
+  // to not be silently stranded; that migration hasn't been run, so don't
+  // remove the field yet.
   storeCredits?: {
     id: string;
     tenantId: string;
     clientId: string;
-    appointmentId: string;
+    appointmentId?: string;
     amountCents: number;
     amount: number;
+    type: 'earned' | 'courtesy';
+    source:
+      | 'cancellation_deposit_conversion'
+      | 'cancellation_retain_partial'
+      | 'service_recovery'
+      | 'goodwill'
+      | 'referral_reward'
+      | 'membership_adjustment'
+      | 'manual_credit';
     reason: string;
     cancelReason?: string;
+    createdBy: string; // staffId, or 'system'
     expiresAt: string | null;
     createdAt: string;
     usedAt: string | null;
     usedOnAppointmentId: string | null;
-    status: 'available' | 'used' | 'expired';
+    status: 'available' | 'used' | 'expired' | 'voided';
   }[];
   totalStoreCredit?: number;
+  // ── Arrears / aging debt (charge-card-on-file, write-off) ────────────────
+  collectionAttempts?: number;
+  lastCollectionAttemptAt?: string;
+  badDebtWrittenOff?: number;
   stripeCustomerId?: string;
 };
 
@@ -1025,6 +1061,34 @@ export type Tenant = {
   /** Whether a paid deposit is automatically forfeited on no-show
    *  (vs. requiring explicit staff action). */
   forfeitDepositOnNoShow?: boolean;
+
+  // ── Credit & Recovery Ledger ─────────────────────────────────────────────
+  /** Auto-consume available store credit against a checkout total before
+   *  any new payment is requested. Default: true. */
+  autoApplyStoreCredit?: boolean;
+  /** Whether a client's credit balance is allowed to go negative (e.g. a
+   *  voided redemption after credit was already spent). Default: false. */
+  allowNegativeCredit?: boolean;
+  /** Courtesy credit above this dollar amount requires manager PIN
+   *  authorization in IssueRecoveryDialog / the cancellation dialog's
+   *  goodwill field. 0 = always require it. */
+  courtesyCreditApprovalThreshold?: number;
+
+  // ── Accounts Receivable & Arrears ─────────────────────────────────────────
+  /** Automatically attempt to charge the card on file for a new
+   *  outstanding balance, rather than requiring staff to manually use
+   *  "Charge Card on File" in the client profile. Default: false. */
+  autoChargeArrears?: boolean;
+  /** Hours to wait after a balance is incurred before the auto-charge
+   *  attempt fires. 0 = immediately. */
+  arrearsGracePeriodHours?: number;
+  /** Whether to automatically retry a failed arrears charge. */
+  retryFailedArrearsCharges?: boolean;
+  /** Days between retry attempts, e.g. [3, 7, 14]. */
+  arrearsRetryScheduleDays?: number[];
+  /** Auto-flag (not auto-write-off) a balance for manager review once it's
+   *  been outstanding this many days. 0 = disabled, review is manual only. */
+  autoFlagWriteOffAfterDays?: number;
 
   // ── Scheduling ─────────────────────────────────────────────────────────
   bookingSlotInterval?: 15 | 30 | 60;
