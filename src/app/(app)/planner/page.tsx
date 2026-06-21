@@ -26,7 +26,6 @@ import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { FloatingActionButton } from '@/components/planner/FloatingActionButton';
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
-import { RescheduleDialog } from '@/components/planner/RescheduleDialog';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
@@ -36,7 +35,6 @@ import { useInventory } from '@/context/InventoryContext';
 import { nanoid } from 'nanoid';
 import { type Transaction, type BillDefinition } from '@/lib/financial-data';
 import { DebugErrorBoundary } from '@/components/shared/DebugErrorBoundary';
-import { RescheduleAppointmentDialog } from '@/components/planner/RescheduleAppointmentDialog';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -102,7 +100,6 @@ function PlannerPageContent() {
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
   const [isEditAppointmentOpen, setIsEditAppointmentOpen] = useState(false);
-  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
@@ -401,34 +398,7 @@ function PlannerPageContent() {
     updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), apt);
     if (apt.checkInToken) updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { ...apt, tenantId });
     setIsEditAppointmentOpen(false);
-    setIsRescheduleOpen(false);
     toast({ title: "Session Updated" });
-  };
-
-  const handleRescheduleConfirm = async (data: any) => {
-    if (!firestore || !tenantId) return;
-    const { applyFee, feeAmount, paymentMethod, ...aptData } = data;
-    const batch = writeBatch(firestore);
-    const now = new Date().toISOString();
-    const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', aptData.id);
-    const updates: any = { startTime: aptData.startTime, endTime: aptData.endTime };
-    if (applyFee && feeAmount > 0) {
-        if (paymentMethod === 'add_to_session') {
-            updates['checkoutState.additionalCharge'] = increment(feeAmount);
-        } else {
-            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(txnRef, sanitizeForFirestore({ id: txnRef.id, date: now, description: `Reschedule Protocol Fee: ${aptData.clientName}`, clientOrVendor: aptData.clientName || 'Client', clientId: aptData.clientId, type: 'income', context: 'Business', category: 'Adjustment Fee', amount: feeAmount, paymentMethod: paymentMethod === 'card_on_file' ? 'Card on File' : 'Credit Card (Mobile)', hasReceipt: false, appointmentId: aptData.id, staffId: aptData.staffId }));
-        }
-    }
-    batch.update(appointmentRef, sanitizeForFirestore(updates));
-    try {
-        await batch.commit();
-        toast({ title: "Protocol Synchronized", description: applyFee ? `Session shifted with a $${feeAmount.toFixed(2)} adjustment applied.` : "Session shifted successfully." });
-        setIsRescheduleOpen(false);
-        setIsDetailsOpen(false);
-    } catch (e) {
-        toast({ variant: 'destructive', title: "Process Error" });
-    }
   };
 
   const handleOverrideConfirm = async (staffId: string, reason: string) => {
@@ -637,7 +607,7 @@ function PlannerPageContent() {
           onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
           onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onChecklistItemToggleCallback={() => {}} onUpdateEvent={() => {}}
           dailyTransactions={transactions?.filter(t => isSameDay(safeDate(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
-          onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
+          onReschedule={a => { setSelectedAppointment(a); setIsDetailsOpen(true); }}
           onRebook={a => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
           onStartService={handleStartService} onFinishService={handleFinishService}
           onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
@@ -658,7 +628,6 @@ function PlannerPageContent() {
           onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
           onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
           onCancel={id => { setSelectedAppointment(appointments.find(a => a.id === id) || null); setIsCancelDialogOpen(true); }}
-          onReschedule={a => { setSelectedAppointment(a); setIsRescheduleOpen(true); }}
           onRebook={a => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
           onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
           onPrintTicket={() => {}} onOverride={handleOverrideConfirm}
@@ -678,10 +647,6 @@ function PlannerPageContent() {
 
       {selectedAppointment && (
         <EditAppointmentDialog open={isEditAppointmentOpen} onOpenChange={setIsEditAppointmentOpen} appointment={selectedAppointment} clients={clients || []} services={services || []} appointments={appointments} onConfirm={handleUpdateAppointment} />
-      )}
-
-      {selectedAppointment && (
-        <RescheduleDialog open={isRescheduleOpen} onOpenChange={setIsRescheduleOpen} appointment={selectedAppointment} clients={clients || []} services={services || []} appointments={appointments || []} onConfirm={handleRescheduleConfirm} />
       )}
 
       {selectedAppointment && <CancelAppointmentDialog open={isCancelDialogOpen} onOpenChange={setIsCancelDialogOpen} appointment={selectedAppointment} tenant={selectedTenant} onConfirm={handleConfirmCancellation} />}
