@@ -682,6 +682,18 @@ export type Appointment = {
     balanceRequired?: boolean;
     needsConsultationBuffer?: boolean;
   };
+  // ── Reschedule tracking ─────────────────────────────────────────────────
+  // A reschedule MOVES this same appointment to a new time. It deliberately
+  // does NOT run through the cancellation pipeline: no cancellationCount
+  // increment, no deposit refund/re-collect (the deposit stays attached to
+  // this same appointment id), no cancellationEvent. These fields record the
+  // movement so repeat-reschedulers are visible as their own pattern,
+  // distinct from cancellations and no-shows.
+  rescheduledFromTime?: any;          // the most recent previous startTime
+  rescheduleCount?: number;           // how many times this appt has moved
+  lastRescheduledAt?: string;         // ISO
+  lastRescheduledBy?: string;         // staffId or 'client'
+  rescheduleFeeApplied?: number;      // separate, usually lenient — NOT a cancellation fee
 };
 
 export type EventChecklistItem = {
@@ -1027,6 +1039,12 @@ export type Tenant = {
   defaultCancellationMode?: 'matrix' | 'flat' | 'percentage';
   defaultRescheduleMode?: 'matrix' | 'flat';
   allowGuestFeeDeferral?: boolean;
+  // ── Reschedule fee policy — SEPARATE from cancellation. A reschedule is a
+  // retained client moving their time, not a loss, so this is deliberately
+  // its own (usually more lenient) lever. The dialog only SUGGESTS a fee when
+  // both are set AND the move is inside the window; staff still opt in.
+  rescheduleFee?: number;             // flat fee, e.g. 15
+  rescheduleFeeWindowHours?: number;  // only suggest fee if moved within N hours of the appt
 
   // ── Cancellation & No-Show — automation v2 ──────────────────────────────
   // Read directly by functions/src/autoCancel.ts and
