@@ -2,34 +2,49 @@
  * functions/src/autoCancel.ts
  *
  * Scheduled function that runs every 5 minutes and enforces the studio's
- * cancellation business rules automatically:
+ * no-show detection rules. As of this revision, this function NEVER cancels
+ * an appointment directly — it only flags and escalates. The actual
+ * cancellation (fee charge, deposit forfeiture, cancellationEvent creation)
+ * happens exclusively in api/notifications/handle-no-show-action's
+ * `confirm_no_show` action, once a staff member confirms. This keeps a
+ * single source of truth for "what actually cancels a no-show" instead of
+ * two competing code paths racing each other.
  *
- *   Rule 1 — No-Show Window
- *     If an appointment is still 'confirmed' or 'servicing' X minutes after
- *     its start time and the client never arrived, auto-cancel as no-show.
- *     Default window: 15 minutes. Configurable per tenant: tenant.noShowWindowMinutes
+ *   Rule 1 — No-Show Detection (flag only)
+ *     If an appointment is still 'confirmed' X minutes after its start time
+ *     and the client never checked in, flag it as a suspected no-show and
+ *     notify the assigned staff member (or admins/owners if unassigned).
+ *     Default window: 15 minutes. Configurable: tenant.noShowWindowMinutes
+ *
+ *   Rule 1b — Escalation
+ *     If a suspected no-show goes unresolved for tenant.noShowConfirmWindowMinutes
+ *     (default 10), escalate by notifying admins/owners directly. Each
+ *     appointment escalates at most once.
  *
  *   Rule 2 — Late Cancellation Window
- *     If a client's self-service cancellation link is used inside the studio's
- *     cancellation window, automatically flag the fee rather than waiving it.
- *     (This rule logs a flag — the actual charge still goes through the event pipeline.)
+ *     Implemented in api/appointments/self-cancel/route.ts, NOT here — that
+ *     route owns the entire self-service cancellation flow (the client-facing
+ *     link), so it's the natural place for the window check: if the
+ *     self-service link is used inside tenant.cancellationWindowHours, the
+ *     fee is flagged rather than waived, and routes through the same
+ *     cancellationEvent pipeline as every other cancellation path.
  *
  *   Rule 3 — Deposit Forfeiture on No-Show
- *     If a no-show appointment had a deposit paid, automatically mark it
- *     forfeited and create a transaction record.
+ *     Handled in api/notifications/handle-no-show-action's confirm_no_show
+ *     action, NOT here — keeping it in one place since this function no
+ *     longer owns the cancellation moment.
  *
  *   Rule 4 — Repeat No-Show Flag
- *     If a client has ≥ N no-shows in the past 90 days, automatically add
- *     a flag to their profile (e.g. requireDeposit, requireCardOnFile).
- *     Configurable: tenant.repeatNoShowThreshold (default: 2)
- *
- * The function creates a cancellationEvent document for each auto-cancel,
- * which then triggers onCancellationEvent for Stripe + email + SMS.
+ *     If a client has ≥ N confirmed no-shows in the past 90 days,
+ *     automatically add a flag to their profile (requireDeposit,
+ *     requireCardOnFile). Configurable: tenant.repeatNoShowThreshold
+ *     (default: 2). Keys off `cancellationAudit.actorType === 'no_show'`
+ *     on cancelled appointments — NOT `autoCancelledNoShow`, which nothing
+ *     in the current pipeline sets anymore (see note on that field).
  */
 
 import * as functions from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
-import { nanoid } from 'nanoid';
 
 const db = admin.firestore();
 
@@ -38,14 +53,10 @@ const db = admin.firestore();
 interface TenantConfig {
   id: string;
   name: string;
-  noShowWindowMinutes?: number;       // minutes after start before auto no-show (default 15)
-  cancellationWindowHours?: number;   // hours before appt inside which fee applies (default 24)
-  repeatNoShowThreshold?: number;     // no-shows before flagging client (default 2)
-  noShowFeeMode?: 'full_service' | 'flat' | 'matrix'; // how to compute the fee
-  flatNoShowFee?: number;
-  autoCancelEnabled?: boolean;        // master kill-switch (default true)
-  cancellationEmailEnabled?: boolean;
-  cancellationSmsEnabled?: boolean;
+  noShowWindowMinutes?: number;        // minutes after start before flagging suspected no-show (default 15)
+  noShowConfirmWindowMinutes?: number; // minutes staff have to respond before escalation (default 10)
+  repeatNoShowThreshold?: number;      // no-shows before flagging client (default 2)
+  autoCancelEnabled?: boolean;         // master kill-switch (default true)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -56,10 +67,6 @@ function minutesAgo(minutes: number): Date {
 
 function daysAgo(days: number): Date {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-}
-
-function hoursUntil(dateStr: string): number {
-  return (new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60);
 }
 
 // ── Main scheduled function ───────────────────────────────────────────────────
@@ -88,18 +95,23 @@ export const autoCancel = functions.scheduler.onSchedule(
   },
 );
 
-// ── Rule 1: No-Show Detection ─────────────────────────────────────────────────
+// ── Rule 1 + 1b: No-Show Flagging & Escalation ────────────────────────────────
 async function processNoShows(tenant: TenantConfig) {
   const windowMinutes = tenant.noShowWindowMinutes ?? 15;
+  const confirmWindowMinutes = tenant.noShowConfirmWindowMinutes ?? 10;
   const cutoff = minutesAgo(windowMinutes);
 
-  // Find appointments that started more than `windowMinutes` ago,
-  // are still in 'confirmed' status, and haven't been auto-cancelled yet.
+  // Deliberately NOT filtering on a third equality clause here (e.g.
+  // `autoCancelledNoShow == false` / `suspectedNoShow == false`). Firestore
+  // equality filters never match a document where the field is missing
+  // entirely, so any appointment created without that field pre-initialized
+  // would be permanently invisible to this query. Instead we do the
+  // "already handled" checks in code below, against whatever appointments
+  // are still sitting in 'confirmed' status past the cutoff.
   const apptSnap = await db
     .collection(`tenants/${tenant.id}/appointments`)
     .where('status', '==', 'confirmed')
     .where('startTime', '<=', cutoff.toISOString())
-    .where('autoCancelledNoShow', '==', false)  // prevent double-processing
     .get();
 
   if (apptSnap.empty) return;
@@ -108,166 +120,93 @@ async function processNoShows(tenant: TenantConfig) {
     apptSnap.docs.map(async apptDoc => {
       const appt = { id: apptDoc.id, ...apptDoc.data() } as any;
 
-      // Guard: if the appointment was checked in (actualStartTime set), skip
+      // Checked in — not a no-show candidate.
       if (appt.actualStartTime) return;
 
-      const clientSnap = await db
-        .doc(`tenants/${tenant.id}/clients/${appt.clientId}`)
-        .get();
-      const client = clientSnap.data();
-      if (!client) return;
+      // Legacy/defensive: some older doc somehow has this set directly. Skip.
+      if (appt.autoCancelledNoShow) return;
 
-      // Compute fee
-      let feeAmount = 0;
-      if (tenant.noShowFeeMode === 'flat' && tenant.flatNoShowFee) {
-        feeAmount = tenant.flatNoShowFee;
-      } else {
-        // Default: 100% of service price
-        const svcSnap = await db
-          .doc(`tenants/${tenant.id}/services/${appt.serviceId}`)
-          .get();
-        const svc = svcSnap.data();
-        feeAmount = svc?.price || 0;
+      // Staff already said "client is here" — trust that and stop flagging
+      // this appointment. If it's still stuck in 'confirmed' afterward,
+      // that's a separate manual-workflow issue, not something to keep
+      // re-flagging every 5 minutes.
+      if (appt.suspectedNoShowCleared) return;
 
-        // Include add-on prices
-        if (appt.addOnIds?.length) {
-          const addOnSnaps = await Promise.all(
-            appt.addOnIds.map((id: string) =>
-              db.doc(`tenants/${tenant.id}/services/${id}`).get(),
-            ),
-          );
-          addOnSnaps.forEach(s => {
-            if (s.exists) feeAmount += s.data()?.price || 0;
-          });
-        }
-      }
-
-      const hasCard = !!(
-        client.cardOnFile?.paymentMethodId || client.cardOnFile?.token
-      );
-      const paymentMethod = hasCard ? 'card_on_file' : 'add_to_balance';
-      const eventId = nanoid();
       const now = new Date().toISOString();
 
-      const batch = db.batch();
+      if (!appt.suspectedNoShow) {
+        // ── First time crossing the window — flag and notify, never cancel ──
+        const staffIds = new Set<string>();
+        if (appt.staffId) staffIds.add(appt.staffId);
 
-      // Mark appointment cancelled
-      batch.update(apptDoc.ref, {
-        status: 'cancelled',
-        cancelledAt: now,
-        autoCancelledNoShow: true,
-        cancellationEventId: eventId,
-        cancellationFeeCharged: feeAmount,
-        cancellationAudit: {
-          actorType: 'no_show',
-          actorId: 'system',
-          actorName: 'Auto-Cancel System',
-          reason: 'no-show',
-          feeAmount,
-          feeWaived: false,
-          paymentStatus: 'unpaid',
-          timestamp: now,
-        },
-      });
+        // No assigned staff — fall back to notifying admins/owners directly
+        // so the flag doesn't go unseen.
+        if (staffIds.size === 0) {
+          const adminsSnap = await db
+            .collection(`tenants/${tenant.id}/staff`)
+            .where('role', 'in', ['admin', 'owner'])
+            .get();
+          adminsSnap.docs.forEach(d => staffIds.add(d.id));
+        }
 
-      // Optimistic balance update
-      if (paymentMethod === 'add_to_balance' && feeAmount > 0) {
-        const clientRef = db.doc(`tenants/${tenant.id}/clients/${appt.clientId}`);
-        batch.update(clientRef, {
-          outstandingBalance: admin.firestore.FieldValue.increment(feeAmount),
-        });
-      }
-
-      // Handle deposit forfeiture (Rule 3)
-      if (appt.depositStatus === 'paid' && appt.depositAmountCents > 0) {
+        const batch = db.batch();
         batch.update(apptDoc.ref, {
-          depositForfeited: true,
-          depositForfeitedAt: now,
-          depositForfeitedReason: 'no_show',
+          suspectedNoShow: true,
+          suspectedNoShowAt: now,
         });
-        const txRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
-        batch.set(txRef, {
-          id: txRef.id,
-          tenantId: tenant.id,
-          appointmentId: appt.id,
-          clientId: appt.clientId,
-          type: 'deposit_forfeiture',
-          category: 'No-Show Deposit',
-          amount: appt.depositAmountCents / 100,
-          amountCents: appt.depositAmountCents,
-          status: 'forfeited',
-          createdAt: now,
+
+        staffIds.forEach(staffId => {
+          const notifRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
+          batch.set(notifRef, {
+            id: notifRef.id,
+            userId: staffId,
+            type: 'suspected_no_show',
+            appointmentId: appt.id,
+            resolved: false,
+            message: `${appt.clientName || 'A client'}'s appointment hasn't checked in (${windowMinutes}m past start) — confirm no-show or dismiss`,
+            link: `/pos?appointment=${appt.id}`,
+            createdAt: now,
+            read: false,
+          });
         });
+
+        await batch.commit();
+        console.log(`Flagged suspected no-show: tenant=${tenant.id} appt=${appt.id}`);
+        return;
       }
 
-      // Audit log
-      const auditRef = db.collection(`tenants/${tenant.id}/auditLog`).doc();
-      batch.set(auditRef, {
-        id: auditRef.id,
-        tenantId: tenant.id,
-        entityType: 'appointment_cancellation',
-        entityId: appt.id,
-        actorType: 'no_show',
-        actorId: 'system',
-        actorName: 'Auto-Cancel System',
-        timestamp: now,
-        summary: `Auto no-show: ${client.name || appt.clientName} — $${feeAmount.toFixed(2)} fee`,
-        detail: {
-          clientId: appt.clientId,
-          clientName: client.name || appt.clientName,
-          reason: 'no-show',
-          feeAmount,
-          paymentMethod,
-          windowMinutes,
-          autoTriggered: true,
-        },
-      });
+      // ── Already flagged — check whether it's time to escalate ───────────────
+      if (appt.noShowEscalatedAt) return; // escalates at most once per appointment
 
-      // Create the cancellationEvent — triggers onCancellationEvent
-      const eventRef = db
-        .doc(`tenants/${tenant.id}/cancellationEvents/${eventId}`);
-      batch.set(eventRef, {
-        id: eventId,
-        tenantId: tenant.id,
-        appointmentId: appt.id,
-        clientId: appt.clientId,
-        clientName: client.name || appt.clientName || 'Guest',
-        clientEmail: client.email || null,
-        clientPhone: client.phone || null,
-        serviceId: appt.serviceId,
-        serviceName: appt.serviceName || null,
-        staffId: appt.staffId,
-        appointmentStartTime: appt.startTime,
-        chargeFee: feeAmount > 0,
-        feeAmount,
-        paymentMethod,
-        stripeCustomerId: client.stripeCustomerId || null,
-        stripePaymentMethodId:
-          client.cardOnFile?.paymentMethodId || client.cardOnFile?.token || null,
-        cancellationAudit: {
-          actorType: 'no_show',
-          actorId: 'system',
-          actorName: 'Auto-Cancel System',
-          reason: 'no-show',
-          feeAmount,
-          feeWaived: false,
-          paymentStatus: 'unpaid',
-          timestamp: now,
-        },
-        reason: 'no-show',
-        status: 'pending',
-        chargeStatus: hasCard ? 'pending' : 'balance',
-        emailStatus: 'pending',
-        smsStatus: 'pending',
-        autoTriggered: true,
-        createdAt: now,
-        processedAt: null,
-        stripeChargeId: null,
-        errorMessage: null,
+      const flaggedAt = new Date(appt.suspectedNoShowAt || now).getTime();
+      const minutesSinceFlagged = (Date.now() - flaggedAt) / (60 * 1000);
+      if (minutesSinceFlagged < confirmWindowMinutes) return;
+
+      const adminsSnap = await db
+        .collection(`tenants/${tenant.id}/staff`)
+        .where('role', 'in', ['admin', 'owner'])
+        .get();
+
+      const batch = db.batch();
+      batch.update(apptDoc.ref, { noShowEscalatedAt: now });
+
+      adminsSnap.docs.forEach(d => {
+        const notifRef = db.collection(`tenants/${tenant.id}/notifications`).doc();
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId: d.id,
+          type: 'no_show_escalation',
+          appointmentId: appt.id,
+          resolved: false,
+          message: `Unresolved no-show: ${appt.clientName || 'a client'} — staff hasn't responded in ${confirmWindowMinutes}m`,
+          link: `/pos?appointment=${appt.id}`,
+          createdAt: now,
+          read: false,
+        });
       });
 
       await batch.commit();
-      console.log(`Auto no-show: tenant=${tenant.id} appt=${appt.id} fee=$${feeAmount}`);
+      console.log(`Escalated no-show: tenant=${tenant.id} appt=${appt.id}`);
     }),
   );
 }
@@ -277,11 +216,14 @@ async function processRepeatNoShowFlags(tenant: TenantConfig) {
   const threshold = tenant.repeatNoShowThreshold ?? 2;
   const since = daysAgo(90).toISOString();
 
-  // Find no-show cancellations in the past 90 days
+  // Keys off cancellationAudit.actorType — the field actually written by
+  // handle-no-show-action's confirm_no_show path. autoCancelledNoShow is
+  // never set by anything in the current pipeline (this function no longer
+  // auto-cancels), so querying on it here would silently match nothing.
   const noShowSnap = await db
     .collection(`tenants/${tenant.id}/appointments`)
     .where('status', '==', 'cancelled')
-    .where('autoCancelledNoShow', '==', true)
+    .where('cancellationAudit.actorType', '==', 'no_show')
     .where('cancelledAt', '>=', since)
     .get();
 
