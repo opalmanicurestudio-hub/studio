@@ -53,6 +53,8 @@ import {
 import { cn, safeNumber } from '@/lib/utils';
 import { differenceInHours, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
+import { useFirebase } from '@/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { Checkbox } from '@/components/ui/checkbox';
 import { nanoid } from 'nanoid';
 
@@ -128,6 +130,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   onConfirm,
 }) => {
   const { services, clients, staff, inventory } = useInventory();
+  const { firestore } = useFirebase();
 
   const [actorType, setActorType] = useState<ActorType>('studio');
   const [studioReason, setStudioReason] = useState<StudioCancellationReason>('client_request_relayed');
@@ -144,13 +147,22 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [overrideFeeValue, setOverrideFeeValue] = useState(0);
   const [depositDisposition, setDepositDisposition] = useState<'refund' | 'store_credit'>('refund');
 
+  // Live deposit lookup against depositCredits — NOT appointment.depositStatus
+  // / depositAmountCents. Those appointment-level fields aren't populated by
+  // the actual deposit-payment webhook in this codebase; depositCredits is
+  // the single source of truth every cancellation path now agrees on
+  // (studio-cancel-refund, handle-no-show-action, useCancellationConfirm,
+  // self-cancel). Looked up fresh each time the dialog opens.
+  const [depositCredit, setDepositCredit] = useState<any>(null);
+  const [isLoadingDeposit, setIsLoadingDeposit] = useState(false);
+
   const client = useMemo(
     () => clients?.find(c => c.id === appointment.clientId),
     [clients, appointment.clientId],
   );
   const hasCardOnFile = !!client?.cardOnFile?.token;
-  const hasDeposit = appointment.depositStatus === 'paid' && (appointment.depositAmountCents || 0) > 0;
-  const depositDollars = (appointment.depositAmountCents || 0) / 100;
+  const hasDeposit = !!depositCredit;
+  const depositDollars = depositCredit ? Number(depositCredit.amountDollars ?? (depositCredit.amountCents || 0) / 100) : 0;
   const tmhr = tenant?.tmhr || 50;
   const taxBurden = tenant?.employerTaxBurdenPct || 10;
 
@@ -221,20 +233,63 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         setUseOverrideFee(false);
         setOverrideFeeValue(tenant?.cancellationFee || 0);
       }
-
-      // Default to the tenant's configured policy, but if there's no Stripe
-      // payment intent on file for the deposit, refunding will just fail and
-      // fall back to store credit anyway (see /api/stripe/studio-cancel-refund) —
-      // so default straight to store credit in that case instead of making
-      // staff discover the failure first.
-      const tenantDefault = tenant?.studioRefundPolicy || 'refund';
-      setDepositDisposition(
-        tenantDefault === 'refund' && !appointment.depositStripePaymentIntentId
-          ? 'store_credit'
-          : tenantDefault,
-      );
     }
-  }, [open, sessionItems, recoveryMatrix, tenant, appointment.depositStripePaymentIntentId]);
+  }, [open, sessionItems, recoveryMatrix, tenant]);
+
+  // Live deposit-credit lookup — runs each time the dialog opens for a given
+  // appointment/client. Mirrors the exact lookup pattern used in
+  // useCancellationConfirm and the self-cancel route, by clientId then by
+  // email, most-recent-first, excluding expired credits.
+  useEffect(() => {
+    if (!open || !firestore || !tenant?.id) {
+      setDepositCredit(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingDeposit(true);
+    (async () => {
+      try {
+        const creditsCol = collection(firestore, `tenants/${tenant.id}/depositCredits`);
+        let snap = appointment.clientId
+          ? await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientId', '==', appointment.clientId)))
+          : null;
+        if ((!snap || snap.empty) && client?.email) {
+          snap = await getDocs(query(creditsCol, where('status', '==', 'available'), where('clientEmail', '==', String(client.email).toLowerCase().trim())));
+        }
+        if (cancelled) return;
+        if (snap && !snap.empty) {
+          const candidates = snap.docs
+            .map(d => ({ id: d.id, ...(d.data() as any) }))
+            .filter((c: any) => !c.expiresAt || new Date(c.expiresAt).getTime() > Date.now());
+          candidates.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          setDepositCredit(candidates[0] || null);
+        } else {
+          setDepositCredit(null);
+        }
+      } catch (e) {
+        console.warn('[CancelAppointmentDialog deposit lookup]', e);
+        if (!cancelled) setDepositCredit(null);
+      } finally {
+        if (!cancelled) setIsLoadingDeposit(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, firestore, tenant?.id, appointment.clientId, client?.email]);
+
+  // Default the disposition once the lookup resolves. If there's no Stripe
+  // payment intent on file for the deposit, refunding will just fail and
+  // fall back to store credit anyway (see /api/stripe/studio-cancel-refund)
+  // — so default straight to store credit in that case instead of making
+  // staff discover the failure first.
+  useEffect(() => {
+    if (!depositCredit) return;
+    const tenantDefault = tenant?.studioRefundPolicy || 'refund';
+    setDepositDisposition(
+      tenantDefault === 'refund' && !depositCredit.stripePaymentIntentId
+        ? 'store_credit'
+        : tenantDefault,
+    );
+  }, [depositCredit, tenant]);
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -558,7 +613,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                         </div>
                       </label>
                     </RadioGroup>
-                    {depositDisposition === 'refund' && !appointment.depositStripePaymentIntentId && (
+                    {depositDisposition === 'refund' && depositCredit && !depositCredit.stripePaymentIntentId && (
                       <p className="text-[9px] font-bold text-amber-600 uppercase tracking-tight flex items-start gap-1.5">
                         <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
                         No Stripe record found for this deposit — will automatically fall back to store credit.
