@@ -9,7 +9,7 @@ import {
   AlertTriangle, Undo2, FileSignature, CheckCircle2, ArrowRight, MessageSquare,
   Ear, Unlock, Scale, FileImage, Maximize2, Zap, FlaskConical, Target,
   RefreshCw, History, HeartHandshake, AlertCircle, BookMarked, Heart,
-  CreditCard,
+  CreditCard, CalendarClock,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,7 @@ import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase,
 import { collection, doc, increment, writeBatch, arrayUnion, deleteField } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
+import { RescheduleAppointmentDialog } from './RescheduleAppointmentDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
 import { Separator } from '../ui/separator';
@@ -252,6 +253,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   useEffect(() => { setMounted(true); }, []);
 
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
+  const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
@@ -885,11 +887,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> Profile</Link>
           </Button>
           {!isCancelled && (
-            <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}>
-              <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel
+            <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-primary hover:bg-primary/5" onClick={() => setIsRescheduleOpen(true)}>
+              <CalendarClock className="mr-2 h-3.5 w-3.5" /> Reschedule
             </Button>
           )}
         </div>
+        {!isCancelled && (
+          <Button variant="outline" className="w-full h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}>
+            <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel
+          </Button>
+        )}
 
         <Separator className="bg-muted/50" />
 
@@ -979,6 +986,19 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         initialSelected={currentAddOns}
         staff={staff || []}
         defaultStaffId={appointment.staffId || ''}
+      />
+
+      <RescheduleAppointmentDialog
+        open={isRescheduleOpen}
+        onOpenChange={setIsRescheduleOpen}
+        appointment={appointment}
+        client={client}
+        tenant={selectedTenant}
+        tenantId={tenantId}
+        actorName={currentUser?.displayName || 'Staff'}
+        actorId={currentUser?.uid || 'system'}
+        isMobile={isMobile}
+        onRescheduled={() => onOpenChange(false)}
       />
 
       {appointment.inspirationPhotoUrl && isMarkupOpen && (
