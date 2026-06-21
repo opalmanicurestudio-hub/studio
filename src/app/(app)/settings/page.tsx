@@ -17,7 +17,7 @@ import {
   Activity, Tag, Shield, Star, Landmark, PlusCircle, LayoutGrid, Sparkles,
   Flame, Workflow, Printer, QrCode, Scale as ScaleIcon, HeartHandshake, Trash2,
   FileWarning, MapPin, Timer, TrendingUp, Bell, Coffee as BreakIcon, Eye,
-  Monitor, Wallet, RefreshCw, Ban,
+  Monitor, Wallet, RefreshCw, Ban, CreditCard,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
