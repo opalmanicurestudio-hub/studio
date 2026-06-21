@@ -295,8 +295,11 @@ export async function POST(req: NextRequest) {
         id: `credit_${appointmentId}`,
         tenantId, clientId, appointmentId,
         amountCents: depositAmountCents, amount: dollars,
+        type: 'earned' as const,
+        source: 'cancellation_deposit_conversion' as const,
         reason: 'Studio cancellation — deposit converted to credit',
         cancelReason: reason || 'studio_cancelled',
+        createdBy: staffId || 'system',
         expiresAt: getStoreCreditExpiry(tenant),
         createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
       };
@@ -311,8 +314,11 @@ export async function POST(req: NextRequest) {
           id: `goodwill_${appointmentId}_${Date.now()}`,
           tenantId, clientId, appointmentId,
           amountCents: extraCents, amount: extraDollars,
+          type: 'courtesy' as const,
+          source: 'goodwill' as const,
           reason: additionalCreditReason || 'Service recovery — goodwill credit',
           cancelReason: reason || 'studio_cancelled',
+          createdBy: staffId || 'system',
           expiresAt: getStoreCreditExpiry(tenant),
           createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
         };
@@ -323,7 +329,7 @@ export async function POST(req: NextRequest) {
         batch.set(goodwillTxRef, {
           id: goodwillTxRef.id, tenantId, appointmentId, clientId,
           clientName: client.name || 'Client',
-          type: 'expense', category: 'Discounts',
+          type: 'expense', category: 'Service Recovery',
           amount: extraDollars, amountCents: extraCents, status: 'issued',
           reason: additionalCreditReason || 'Service recovery — goodwill credit',
           disposition: 'store_credit', createdAt: now,
