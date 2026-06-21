@@ -68,8 +68,14 @@ export async function POST(req: NextRequest) {
 
   const appt = apptSnap.data();
 
-  // Guard: if already resolved, return success silently (duplicate tap)
-  if (!appt.suspectedNoShow || appt.status === 'cancelled') {
+  // Guard: only the "already cancelled" case is a true duplicate-tap/idempotency
+  // situation. Do NOT also gate on `!appt.suspectedNoShow` — this route is the
+  // canonical no-show confirmation endpoint, called both from a flagged
+  // notification AND from staff manually confirming a no-show via
+  // CancelAppointmentDialog (e.g. before the 15-minute auto-flag window even
+  // elapses). The latter case legitimately has suspectedNoShow unset, and
+  // previously got silently swallowed here instead of actually cancelling.
+  if (appt.status === 'cancelled') {
     if (notificationId) {
       await db.doc(`tenants/${tenantId}/notifications/${notificationId}`)
         .update({ resolved: true, resolvedAt: now });
@@ -119,13 +125,20 @@ export async function POST(req: NextRequest) {
   const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
   const tenant     = tenantSnap.data() || {};
 
+  // Always look up the primary service — needed for an accurate service name
+  // in the client-facing email/SMS regardless of fee mode (previously this
+  // lookup was skipped entirely when noShowFeeMode === 'flat', leaving the
+  // cancellationEvent's serviceName null and emails saying generic
+  // "your service").
+  const primarySvcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
+  const primarySvcName = primarySvcSnap.data()?.name || null;
+
   // Compute fee (100% of service by default; respects noShowFeeMode)
   let feeAmount = 0;
   if (tenant.noShowFeeMode === 'flat' && tenant.flatNoShowFee) {
     feeAmount = tenant.flatNoShowFee;
   } else {
-    const svcSnap = await db.doc(`tenants/${tenantId}/services/${appt.serviceId}`).get();
-    feeAmount = svcSnap.data()?.price || 0;
+    feeAmount = primarySvcSnap.data()?.price || 0;
     if (appt.addOnIds?.length) {
       const addOnSnaps = await Promise.all(
         appt.addOnIds.map((id: string) =>
@@ -219,7 +232,7 @@ export async function POST(req: NextRequest) {
     clientEmail:           client.email || null,
     clientPhone:           client.phone || null,
     serviceId:             appt.serviceId,
-    serviceName:           appt.serviceName || null,
+    serviceName:           primarySvcName,
     staffId:               appt.staffId,
     appointmentStartTime:  appt.startTime,
     chargeFee:             feeAmount > 0,
