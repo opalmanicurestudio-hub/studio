@@ -17,7 +17,7 @@ import {
   Activity, Tag, Shield, Star, Landmark, PlusCircle, LayoutGrid, Sparkles,
   Flame, Workflow, Printer, QrCode, Scale as ScaleIcon, HeartHandshake, Trash2,
   FileWarning, MapPin, Timer, TrendingUp, Bell, Coffee as BreakIcon, Eye,
-  Monitor,
+  Monitor, Wallet, RefreshCw, Ban,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Switch } from '@/components/ui/switch';
@@ -837,6 +837,157 @@ function SettingsPageImpl() {
                       <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                       <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">Refunds send money back through Stripe and can't be undone — that outcome asks for a one-tap confirmation before it runs.</p>
                     </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* ── CREDIT & RECOVERY LEDGER ── */}
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Wallet} title="Credit & Recovery Ledger" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+                    Controls every source of client credit — cancellation deposit conversions, service recovery, goodwill — through one ledger.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                  <SettingRow icon={RefreshCw} color="green" title="Auto-Apply Store Credit" description="Automatically reduce a checkout total by the client's available credit before requesting any new payment.">
+                    <Switch
+                      checked={(tenantData as any).autoApplyStoreCredit !== false}
+                      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, autoApplyStoreCredit: val } as any))}
+                      disabled={!isEditing}
+                      className="scale-125 data-[state=checked]:bg-green-600"
+                    />
+                  </SettingRow>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Credit Expiry (Days)</Label>
+                      <Input
+                        type="number"
+                        value={(tenantData as any).storeCreditExpiryDays ?? ''}
+                        onChange={e => setTenantData(prev => ({ ...prev, storeCreditExpiryDays: parseInt(e.target.value) || 0 } as any))}
+                        disabled={!isEditing}
+                        placeholder="0 = never expires"
+                        className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center"
+                      />
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Applies to all new credit issued — cancellations, goodwill, everything.</p>
+                    </div>
+                    <div className="space-y-3">
+                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Manager Approval Threshold ($)</Label>
+                      <div className="relative">
+                        <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
+                        <Input
+                          type="number"
+                          value={(tenantData as any).courtesyCreditApprovalThreshold ?? ''}
+                          onChange={e => setTenantData(prev => ({ ...prev, courtesyCreditApprovalThreshold: parseFloat(e.target.value) || 0 } as any))}
+                          disabled={!isEditing}
+                          placeholder="0 = always require"
+                          className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5"
+                        />
+                      </div>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Courtesy/goodwill credit above this amount requires the manager PIN already used in Issue Recovery.</p>
+                    </div>
+                  </div>
+                  <Separator className="border-dashed" />
+                  <SettingRow icon={ShieldAlert} color="amber" title="Allow Negative Credit Balances" description="Permit a client's credit total to go below zero (e.g. a voided redemption after the credit was already spent). Off is safer for most studios.">
+                    <Switch
+                      checked={!!(tenantData as any).allowNegativeCredit}
+                      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, allowNegativeCredit: val } as any))}
+                      disabled={!isEditing}
+                      className="scale-125 data-[state=checked]:bg-amber-500"
+                    />
+                  </SettingRow>
+                  <div className="p-4 rounded-2xl border-2 border-dashed bg-primary/5 border-primary/20 flex items-start gap-3">
+                    <Sparkles className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="text-[9px] font-bold text-primary uppercase tracking-widest leading-relaxed">
+                      Earned credit (deposit conversions) and courtesy credit (goodwill, service recovery) share this exact ledger — the same balance shown on a client's profile and at checkout, regardless of which screen issued it.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* ── ACCOUNTS RECEIVABLE & ARREARS ── */}
+              <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+                <CardHeader className="bg-muted/5 border-b p-6 md:p-8">
+                  <SectionHeader icon={Ban} title="Accounts Receivable & Arrears" />
+                  <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+                    Controls how unpaid balances get collected — and what happens when they don't.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-6 md:p-8 space-y-8 text-left">
+                  <SettingRow icon={CreditCard} color="primary" title="Auto-Charge Card on File" description="Automatically attempt to charge an outstanding balance instead of requiring staff to use 'Charge Card on File' manually in the client profile.">
+                    <Switch
+                      checked={!!(tenantData as any).autoChargeArrears}
+                      onCheckedChange={(val) => setTenantData(prev => ({ ...prev, autoChargeArrears: val } as any))}
+                      disabled={!isEditing}
+                      className="scale-125 data-[state=checked]:bg-primary"
+                    />
+                  </SettingRow>
+                  <AnimatePresence>
+                    {(tenantData as any).autoChargeArrears && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-6 overflow-hidden">
+                        <div className="space-y-3">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Grace Period Before First Attempt</Label>
+                          <Select
+                            value={String((tenantData as any).arrearsGracePeriodHours ?? 0)}
+                            onValueChange={(v: any) => setTenantData(prev => ({ ...prev, arrearsGracePeriodHours: Number(v) } as any))}
+                            disabled={!isEditing}
+                          >
+                            <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm"><SelectValue /></SelectTrigger>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl">
+                              <SelectItem value="0"  className="font-bold uppercase text-[10px] tracking-widest">Immediately</SelectItem>
+                              <SelectItem value="24" className="font-bold uppercase text-[10px] tracking-widest">24 Hours</SelectItem>
+                              <SelectItem value="72" className="font-bold uppercase text-[10px] tracking-widest">72 Hours</SelectItem>
+                              <SelectItem value="168" className="font-bold uppercase text-[10px] tracking-widest">1 Week</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <SettingRow icon={RefreshCw} color="blue" title="Retry Failed Attempts" description="If the first auto-charge attempt fails, try again automatically rather than waiting for staff to notice.">
+                          <Switch
+                            checked={!!(tenantData as any).retryFailedArrearsCharges}
+                            onCheckedChange={(val) => setTenantData(prev => ({ ...prev, retryFailedArrearsCharges: val } as any))}
+                            disabled={!isEditing}
+                            className="scale-125 data-[state=checked]:bg-blue-600"
+                          />
+                        </SettingRow>
+                        {(tenantData as any).retryFailedArrearsCharges && (
+                          <div className="space-y-3">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Retry Schedule (Days After Failure)</Label>
+                            <Input
+                              value={((tenantData as any).arrearsRetryScheduleDays || [3, 7, 14]).join(', ')}
+                              onChange={e => {
+                                const days = e.target.value.split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n) && n > 0);
+                                setTenantData(prev => ({ ...prev, arrearsRetryScheduleDays: days } as any));
+                              }}
+                              disabled={!isEditing}
+                              placeholder="3, 7, 14"
+                              className="h-12 rounded-2xl border-2 font-black bg-muted/5"
+                            />
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">Comma-separated days after the first failure. E.g. "3, 7, 14" retries 3 days later, then 7, then 14.</p>
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <Separator className="border-dashed" />
+                  <div className="space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Flag for Manager Review After (Days)</Label>
+                    <Input
+                      type="number"
+                      value={(tenantData as any).autoFlagWriteOffAfterDays ?? ''}
+                      onChange={e => setTenantData(prev => ({ ...prev, autoFlagWriteOffAfterDays: parseInt(e.target.value) || 0 } as any))}
+                      disabled={!isEditing}
+                      placeholder="0 = manual review only"
+                      className="h-14 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5 text-center max-w-xs"
+                    />
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 ml-1 leading-relaxed">
+                      This never writes anything off automatically — it only flags old balances so a manager can decide. Write-offs always require an explicit action in the client profile.
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-2xl border-2 border-dashed bg-amber-50 border-amber-200 flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <p className="text-[9px] font-bold text-amber-700 uppercase tracking-widest leading-relaxed">
+                      The Ledger's Bad Debt Aging widget reads directly from each client's unpaid fees — every fee added here (cancellation, no-show, manual) carries its own incurred date, so aging buckets stay accurate even as new charges land.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
