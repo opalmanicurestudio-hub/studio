@@ -4,31 +4,52 @@
  * Handles the deposit disposition when the STUDIO cancels an appointment.
  * The studio is always at fault here — client should never lose money.
  *
- * REVISED: the previous version trusted depositAmountCents and
- * stripePaymentIntentId passed directly in the request body, sourced from
- * appointment.depositAmountCents / appointment.depositStripePaymentIntentId.
- * Those appointment-level fields are not populated by the actual
- * deposit-payment webhook in this codebase — only
- * tenants/{tenantId}/depositCredits is. This route now looks the deposit up
- * itself from that collection, the same way every other cancellation path
- * (self-cancel, useCancellationConfirm's client/no-show handling) does, so
- * there's exactly one source of truth for "does this client have a paid
- * deposit on file."
+ * Looks the deposit up itself from tenants/{tenantId}/depositCredits — the
+ * single source of truth every cancellation path now agrees on
+ * (studio-cancel-refund, handle-no-show-action, useCancellationConfirm,
+ * self-cancel). Never trusts amounts passed in the request body.
  *
- * Three places money can land for a studio cancellation, now reconciled:
- *   1. depositCredits/{id} — the SOURCE record. Always marked
- *      'refunded' or 'consumed' here so it can never be double-applied to
- *      a future booking.
- *   2. Stripe refund — only for the 'refund' disposition.
- *   3. client.storeCredits[] / client.totalStoreCredit — the GENERAL
- *      wallet actually spent at POS via StoreCreditPanel. Only written for
- *      the 'store_credit' disposition; this is deliberately a different
- *      mechanism from depositCredits (which auto-applies to a specific
- *      future booking) — converting a deposit moves its value here so
- *      staff/client can use it on anything, not just a re-booking.
+ * ── Stripe processing fee visibility ──────────────────────────────────────
+ * Refunding does NOT return the original processing fee to the studio in
+ * most Stripe configurations — that fee is gone the moment the deposit was
+ * first collected, refund or not. This route surfaces both costs instead of
+ * silently absorbing them:
+ *   - The ORIGINAL fee paid when the deposit was collected is looked up
+ *     (via the deposit's payment intent) and attached as a note on the
+ *     ledger transaction — informational only, NOT a new expense line,
+ *     since that fee was already logged as an expense when the charge
+ *     happened. Re-logging it here would double-count it.
+ *   - Any INCREMENTAL fee Stripe reports specifically for the refund
+ *     transaction itself (rare, but some Connect configurations adjust the
+ *     application fee on refund) IS logged as a new expense line, since
+ *     that's a genuinely new cost incurred right now.
+ *   - Store-credit conversions never touch Stripe, so there's no
+ *     incremental fee — but the same "what fee was already sunk on this
+ *     deposit" note is attached for transparency.
+ *
+ * ── Discretionary / goodwill credit ───────────────────────────────────────
+ * Converting a deposit to store credit isn't an expense — the client
+ * already paid that money, the studio is just moving it from "applies to a
+ * specific re-booking" (depositCredits) to "spendable on anything"
+ * (client.totalStoreCredit). If staff want to add MORE than the deposit
+ * amount as a goodwill gesture, that additional amount IS a real expense
+ * (nothing was collected for it) and is logged as its own ledger line,
+ * separate from the deposit conversion. Pass additionalCreditCents +
+ * additionalCreditReason to use this.
+ *
+ * NOTE: this goodwill-credit mechanism duplicates what IssueRecoveryDialog
+ * presumably already does elsewhere in this app for the same purpose
+ * (issuing discretionary client credit/recovery). They should eventually
+ * share one implementation rather than each minting client.storeCredits
+ * entries independently — flagged, not fixed here, since this route
+ * doesn't have visibility into that dialog's existing contract.
  *
  * POST body:
- *   { tenantId, clientId, appointmentId, disposition, staffId, reason }
+ *   {
+ *     tenantId, clientId, appointmentId, disposition, staffId, reason,
+ *     additionalCreditCents?,   // optional — only meaningful for disposition: 'store_credit'
+ *     additionalCreditReason?,  // optional — shown on the ledger line and store credit entry
+ *   }
  *   disposition: 'refund' | 'store_credit'
  */
 
@@ -61,11 +82,33 @@ function isCreditExpired(expiresAt: string | null | undefined): boolean {
   return new Date(expiresAt).getTime() <= Date.now();
 }
 
-// ── Helper: compute store credit expiry from tenant config ────────────────────
 function getStoreCreditExpiry(tenant: any): string | null {
   const days = tenant?.storeCreditExpiryDays;
   if (!days || days === 0) return null; // never expires
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+// ── Look up the fee Stripe charged on the ORIGINAL deposit payment ───────────
+// Informational only — never logged as a new ledger line (it's a sunk cost,
+// already expensed when the charge happened).
+async function getOriginalChargeFeeCents(
+  stripe: Stripe,
+  stripeAccountId: string,
+  stripePaymentIntentId: string | null | undefined,
+): Promise<number> {
+  if (!stripePaymentIntentId) return 0;
+  try {
+    const intent: any = await stripe.paymentIntents.retrieve(
+      stripePaymentIntentId,
+      { expand: ['latest_charge.balance_transaction'] },
+      { stripeAccount: stripeAccountId },
+    );
+    const bt = intent?.latest_charge?.balance_transaction;
+    return bt && typeof bt === 'object' ? Math.abs(bt.fee || 0) : 0;
+  } catch (e) {
+    console.warn('[studio-cancel-refund] could not retrieve original charge fee', e);
+    return 0;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -74,7 +117,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 });
   }
 
-  const { tenantId, clientId, appointmentId, disposition, staffId, reason } = body;
+  const {
+    tenantId, clientId, appointmentId, disposition, staffId, reason,
+    additionalCreditCents, additionalCreditReason,
+  } = body;
 
   if (!tenantId || !clientId || !appointmentId || !disposition) {
     return NextResponse.json({ ok: false, error: 'Missing required fields' }, { status: 400 });
@@ -112,10 +158,9 @@ export async function POST(req: NextRequest) {
 
   const depositAmountCents = Math.round(Number(credit.amountDollars ?? (credit.amountCents || 0) / 100) * 100);
   const dollars = depositAmountCents / 100;
-  // Field name matches the convention used everywhere else in this codebase
-  // (stripePaymentIntentId). If the deposit-payment webhook stores it under a
-  // different key on depositCredits docs, update this one line.
   const stripePaymentIntentId = credit.stripePaymentIntentId || null;
+  const extraCents = Math.max(0, Math.round(Number(additionalCreditCents) || 0));
+  const extraDollars = extraCents / 100;
 
   const batch = db.batch();
 
@@ -125,9 +170,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, reason: 'No connected Stripe account.' }, { status: 400 });
       }
       if (!stripePaymentIntentId) {
-        // No payment intent to refund against — fall back to store credit.
-        // Handles deposits paid cash, or where depositCredits doesn't carry
-        // a Stripe reference for this client/tenant.
         return NextResponse.json({
           ok: false,
           reason: 'No Stripe payment intent on file for this deposit — apply store credit instead',
@@ -156,8 +198,24 @@ export async function POST(req: NextRequest) {
         { stripeAccount: tenant.stripeAccountId },
       );
 
-      // Mark the SOURCE credit refunded — prevents it from ever being
-      // auto-applied to a future booking's deposit offset.
+      // ── Fee visibility ──────────────────────────────────────────────────
+      const originalFeeCents = await getOriginalChargeFeeCents(stripe, tenant.stripeAccountId, stripePaymentIntentId);
+      let refundFeeCents = 0;
+      try {
+        const refundWithBalance: any = await stripe.refunds.retrieve(
+          refund.id,
+          { expand: ['balance_transaction'] },
+          { stripeAccount: tenant.stripeAccountId },
+        );
+        const bt = refundWithBalance?.balance_transaction;
+        // balance_transaction.fee on a refund is usually 0 — Stripe doesn't
+        // return the original fee in most configurations. Capture whatever
+        // it actually reports rather than assuming either way.
+        if (bt && typeof bt === 'object') refundFeeCents = Math.abs(bt.fee || 0);
+      } catch (e) {
+        console.warn('[studio-cancel-refund] could not retrieve refund balance transaction', e);
+      }
+
       batch.set(credit.ref, {
         status: 'refunded',
         refundedAt: now,
@@ -165,8 +223,6 @@ export async function POST(req: NextRequest) {
         stripeRefundId: refund.id,
       }, { merge: true });
 
-      // Informational mirror on the appointment — NOT authoritative, just
-      // for quick display (e.g. "deposit was refunded" on the client page).
       batch.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
         depositRefunded: true,
         depositRefundedAt: now,
@@ -183,25 +239,51 @@ export async function POST(req: NextRequest) {
         amount: -dollars, amountCents: -depositAmountCents,
         stripePaymentIntentId, stripeRefundId: refund.id, status: 'succeeded',
         reason: reason || 'studio_cancelled', disposition: 'refunded', createdAt: now,
+        // Informational only — the original fee was already expensed when
+        // the deposit was charged. Surfaced here so reports can show "this
+        // refund's true cost" without double-counting it as a new expense.
+        notes: originalFeeCents > 0
+          ? `Original processing fee already sunk at charge time: $${(originalFeeCents / 100).toFixed(2)} (not re-logged as a separate expense).`
+          : undefined,
       });
+
+      // Genuinely new cost — only logged if Stripe actually reports one.
+      if (refundFeeCents > 0) {
+        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        batch.set(feeRef, {
+          id: feeRef.id, tenantId, appointmentId, clientId,
+          clientName: client.name || 'Client',
+          type: 'expense', category: 'Processing Fee',
+          amount: refundFeeCents / 100, amountCents: refundFeeCents,
+          stripeRefundId: refund.id, status: 'succeeded',
+          reason: 'Incremental Stripe fee on refund', createdAt: now,
+        });
+      }
 
       const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
       batch.set(auditRef, {
         id: auditRef.id, tenantId, entityType: 'deposit_refund', entityId: appointmentId,
         actorId: staffId || 'system', timestamp: now,
         summary: `Deposit refunded $${dollars.toFixed(2)} to ${client.name || 'client'} — studio cancelled`,
-        detail: { disposition: 'refunded', stripeRefundId: refund.id, reason },
+        detail: { disposition: 'refunded', stripeRefundId: refund.id, reason, originalFeeCents, refundFeeCents },
       });
 
       await batch.commit();
-      return NextResponse.json({ ok: true, disposition: 'refunded', refundId: refund.id, amount: dollars });
+      return NextResponse.json({
+        ok: true, disposition: 'refunded', refundId: refund.id, amount: dollars,
+        originalFeeCents, refundFeeCents,
+      });
 
     } else {
       // ── Store credit path ────────────────────────────────────────────────
+      let originalFeeCents = 0;
+      if (stripePaymentIntentId && tenant.stripeAccountId) {
+        originalFeeCents = await getOriginalChargeFeeCents(getStripe(), tenant.stripeAccountId, stripePaymentIntentId);
+      }
+
       // Consume the SOURCE depositCredits record (so it can't also get
       // auto-applied to a future booking) and add the same amount to the
-      // client's general store-credit wallet — the mechanism actually spent
-      // at POS checkout via StoreCreditPanel.
+      // client's general store-credit wallet.
       batch.set(credit.ref, {
         status: 'consumed',
         consumedAt: now,
@@ -219,9 +301,39 @@ export async function POST(req: NextRequest) {
         createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
       };
 
+      const storeCreditsToAdd: any[] = [creditEntry];
+      let totalCreditDollars = dollars;
+
+      // Discretionary/goodwill credit — a REAL expense, separate from the
+      // deposit conversion above, since nothing was collected for it.
+      if (extraCents > 0) {
+        const goodwillEntry = {
+          id: `goodwill_${appointmentId}_${Date.now()}`,
+          tenantId, clientId, appointmentId,
+          amountCents: extraCents, amount: extraDollars,
+          reason: additionalCreditReason || 'Service recovery — goodwill credit',
+          cancelReason: reason || 'studio_cancelled',
+          expiresAt: getStoreCreditExpiry(tenant),
+          createdAt: now, usedAt: null, usedOnAppointmentId: null, status: 'available',
+        };
+        storeCreditsToAdd.push(goodwillEntry);
+        totalCreditDollars += extraDollars;
+
+        const goodwillTxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        batch.set(goodwillTxRef, {
+          id: goodwillTxRef.id, tenantId, appointmentId, clientId,
+          clientName: client.name || 'Client',
+          type: 'expense', category: 'Discounts',
+          amount: extraDollars, amountCents: extraCents, status: 'issued',
+          reason: additionalCreditReason || 'Service recovery — goodwill credit',
+          disposition: 'store_credit', createdAt: now,
+          notes: 'Discretionary credit beyond the deposit amount — staff-issued goodwill, distinct from the deposit conversion below.',
+        });
+      }
+
       batch.update(db.doc(`tenants/${tenantId}/clients/${clientId}`), {
-        storeCredits: FieldValue.arrayUnion(creditEntry),
-        totalStoreCredit: FieldValue.increment(dollars),
+        storeCredits: FieldValue.arrayUnion(...storeCreditsToAdd),
+        totalStoreCredit: FieldValue.increment(totalCreditDollars),
       });
 
       batch.update(db.doc(`tenants/${tenantId}/appointments/${appointmentId}`), {
@@ -239,18 +351,25 @@ export async function POST(req: NextRequest) {
         amount: dollars, amountCents: depositAmountCents, status: 'issued',
         reason: reason || 'studio_cancelled', disposition: 'store_credit',
         expiresAt: creditEntry.expiresAt, createdAt: now,
+        notes: originalFeeCents > 0
+          ? `Processing fee already sunk on the original deposit charge: $${(originalFeeCents / 100).toFixed(2)} (not recoverable; the appointment isn't happening, so there's no revenue to offset it).`
+          : undefined,
       });
 
       const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
       batch.set(auditRef, {
         id: auditRef.id, tenantId, entityType: 'deposit_store_credit', entityId: appointmentId,
         actorId: staffId || 'system', timestamp: now,
-        summary: `$${dollars.toFixed(2)} deposit converted to store credit for ${client.name || 'client'}`,
-        detail: { disposition: 'store_credit', creditId: credit.id, reason },
+        summary: `$${dollars.toFixed(2)} deposit converted to store credit for ${client.name || 'client'}${extraCents > 0 ? ` + $${extraDollars.toFixed(2)} goodwill credit` : ''}`,
+        detail: { disposition: 'store_credit', creditId: credit.id, reason, originalFeeCents, additionalCreditCents: extraCents },
       });
 
       await batch.commit();
-      return NextResponse.json({ ok: true, disposition: 'store_credit', creditId: credit.id, amount: dollars, expiresAt: creditEntry.expiresAt });
+      return NextResponse.json({
+        ok: true, disposition: 'store_credit', creditId: credit.id,
+        amount: dollars, additionalCredit: extraDollars, totalCredit: totalCreditDollars,
+        expiresAt: creditEntry.expiresAt, originalFeeCents,
+      });
     }
   } catch (err: any) {
     console.error('[studio-cancel-refund]', err);
