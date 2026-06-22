@@ -1,11 +1,11 @@
-
 'use client';
 
 import React, { createContext, useContext, useState, ReactNode, useMemo, useEffect } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { differenceInDays, isPast, parseISO, format } from 'date-fns';
 import { ShieldAlert, PackageX, Calendar, Landmark, XCircle, Users } from 'lucide-react';
-import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { useFirebase, useMemoFirebase, useUser } from '@/firebase/provider';
+import { useCollection } from '@/firebase/firestore/use-collection';
 import { collection, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { type Event, type Notification } from '@/lib/data';
