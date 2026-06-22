@@ -61,9 +61,18 @@ interface ApplyCreditResult {
 export function useStoreCredit(client: Client | null | undefined): UseCreditResult {
   const [isApplying, setIsApplying] = useState(false);
 
+  // Guard against storeCredits not being an array. Firestore can hand back
+  // `undefined`, `null`, or — if a doc was ever written with a map/object
+  // shape instead of an array (e.g. by an older migration or a hand-edited
+  // record) — a plain object. `(raw || [])` only catches the first two; an
+  // object passes straight through and crashes every consumer the moment it
+  // hits `.filter` below. This was crashing AppointmentDetailsSheet (via
+  // StoreCreditSection / StoreCreditBadge / the sheet's own useStoreCredit
+  // call) for any client whose storeCredits field wasn't a real array.
   const credits = useMemo<StoreCredit[]>(() => {
     if (!client) return [];
-    return (client as any).storeCredits || [];
+    const raw = (client as any).storeCredits;
+    return Array.isArray(raw) ? raw : [];
   }, [client]);
 
   const availableCredits = useMemo(() => {
@@ -78,7 +87,7 @@ export function useStoreCredit(client: Client | null | undefined): UseCreditResu
   }, [credits]);
 
   const totalAvailable = useMemo(
-    () => availableCredits.reduce((sum, c) => sum + c.amount, 0),
+    () => availableCredits.reduce((sum, c) => sum + (Number(c.amount) || 0), 0),
     [availableCredits],
   );
 
