@@ -247,18 +247,14 @@ export async function POST(req: NextRequest) {
           : undefined,
       });
 
-      // Genuinely new cost — only logged if Stripe actually reports one.
-      if (refundFeeCents > 0) {
-        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        batch.set(feeRef, {
-          id: feeRef.id, tenantId, appointmentId, clientId,
-          clientName: client.name || 'Client',
-          type: 'expense', category: 'Processing Fee',
-          amount: refundFeeCents / 100, amountCents: refundFeeCents,
-          stripeRefundId: refund.id, status: 'succeeded',
-          reason: 'Incremental Stripe fee on refund', createdAt: now,
-        });
-      }
+      // NOTE: the incremental refund fee is intentionally NOT written here.
+      // The Connect webhook's charge.refunded handler is the single source of
+      // truth for refund-side fees — it reads the refund's balance transaction
+      // and books any returned fee with the correct sign (a credit/return, not
+      // an expense), deduped by stripeBalanceTxnId. Writing it here too would
+      // double-count it, and as an expense rather than a credit it would also
+      // have the wrong sign. refundFeeCents is still surfaced in the audit
+      // detail below for visibility.
 
       const auditRef = db.collection(`tenants/${tenantId}/auditLog`).doc();
       batch.set(auditRef, {
