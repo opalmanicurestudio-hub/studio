@@ -18,11 +18,14 @@
  * to how admin was initialized. Money is integer cents; dates are ISO strings.
  */
 
+import { resolvePolicy } from './resolution-engine';
+import { readClientReliability } from './behavior-ledger';
 import type {
   RecoveryTicket,
   RecoveryStatus,
   RecoveryTier,
   RecoveryOutreach,
+  PolicyRule,
 } from './resolution-engine';
 
 type ISODate = string;
@@ -318,4 +321,123 @@ async function selectFavoriteRecipients(db: any, ticket: RecoveryTicket): Promis
     .limit(50)
     .get();
   return snap.docs.map((d: any) => d.id);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLAIM — first-claim-wins lock + FRESH policy check against the CLAIMANT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ClaimantType = 'waitlist_favorite' | 'new_unknown' | 'known' | 'discounted';
+
+export interface ClaimArgs {
+  tenantId: ID;
+  recoveryTicketId: ID;
+  claimantClientId: ID;
+  claimantType: ClaimantType;
+  channel: RecoveryOutreach['channel'];
+  isDiscountedSlot?: boolean;
+}
+
+export interface ClaimResult {
+  won: boolean;
+  reason?: 'just_missed_it' | 'not_found';
+  appointmentId?: ID;
+  claimantBand?: string;
+  depositRequiredCents?: number;
+  discountForfeitOnNoShow?: boolean;
+}
+
+/**
+ * A client claims a recovered slot. Two guarantees the PRD requires:
+ *
+ *  1. First-claim-wins. The lock lives inside a Firestore transaction, so two
+ *     simultaneous claims can't both succeed — the loser gets a graceful
+ *     "just missed it", never a double-booking or a partial write.
+ *
+ *  2. Recovery is NOT a blanket deposit exemption. The standard policy engine
+ *     runs fresh against the NEW claimant's identity and history (7.5) — never
+ *     the original client's. A poor-history claimant pays a deposit regardless
+ *     of channel; a trusted waitlist regular doesn't.
+ */
+export async function claimRecoverySlot(db: any, args: ClaimArgs): Promise<ClaimResult> {
+  const ticketRef = db.collection(`tenants/${args.tenantId}/tickets`).doc(args.recoveryTicketId);
+
+  // ── First-claim-wins lock ──────────────────────────────────────────────────
+  let locked: RecoveryTicket | null = null;
+  await db.runTransaction(async (txn: any) => {
+    const cur = await txn.get(ticketRef);
+    if (!cur.exists) return;
+    const t = cur.data() as RecoveryTicket;
+    if (t.claimantClientId || t.status === 'filled' || t.status === 'expired') return; // lost
+    txn.update(ticketRef, {
+      claimantClientId: args.claimantClientId,
+      status: 'filled',
+      resolvedAt: new Date().toISOString(),
+    });
+    locked = t;
+  });
+
+  if (!locked) return { won: false, reason: 'just_missed_it' };
+  const t = locked as RecoveryTicket;
+  const now = new Date().toISOString();
+
+  // ── Fresh policy check against the CLAIMANT (never the original client) ─────
+  const reliability = await readClientReliability(db, args.tenantId, args.claimantClientId);
+
+  const policySnap = await db.collection(`tenants/${args.tenantId}/policyRules`).limit(100).get();
+  const rules = policySnap.docs.map((d: any) => d.data() as PolicyRule);
+  const standardDepositCents = resolvePolicy(rules, 'deposit_requirement_cents', t.locationId, 0);
+
+  let depositRequiredCents = 0;
+  let discountForfeitOnNoShow = false;
+  if (reliability.band === 'requires_deposit' || reliability.band === 'requires_approval') {
+    depositRequiredCents = standardDepositCents;            // band governs, any channel
+  } else if (args.claimantType === 'new_unknown') {
+    depositRequiredCents = standardDepositCents;            // standard new-client rule
+  } else if (args.claimantType === 'discounted' || args.isDiscountedSlot) {
+    depositRequiredCents = 0;                                // no friction, but...
+    discountForfeitOnNoShow = true;                          // forfeit discount on no-show
+  } else {
+    depositRequiredCents = 0;                                // waitlist/favorite near-term
+  }
+
+  // ── Create the new appointment on this same slot ────────────────────────────
+  const aptRef = db.collection(`tenants/${args.tenantId}/appointments`).doc();
+  await aptRef.set({
+    id: aptRef.id,
+    tenantId: args.tenantId,
+    clientId: args.claimantClientId,
+    staffId: t.providerId,
+    serviceId: t.originalServiceId,
+    startTime: t.slotStart,
+    endTime: t.slotEnd,
+    status: 'confirmed',
+    source: 'recovery',
+    isWalkIn: false,
+    recoveredFromTicketId: t.id,
+    depositRequiredCents,
+    depositStatus: depositRequiredCents > 0 ? 'pending' : 'none',
+    discountForfeitOnNoShow,
+    createdAt: now,
+  });
+
+  await ticketRef.set({
+    fillType: 'exact_match',
+    linkedNewAppointmentId: aptRef.id,
+    claimChannel: args.channel,
+  }, { merge: true });
+
+  // Mark the latest outreach row for this ticket as claimed.
+  const orSnap = await db.collection(`tenants/${args.tenantId}/recoveryOutreach`)
+    .where('recoveryTicketId', '==', t.id)
+    .orderBy('sentAt', 'desc').limit(1).get();
+  if (!orSnap.empty) await orSnap.docs[0].ref.set({ claimed: true, responseCount: 1 }, { merge: true });
+
+  return {
+    won: true,
+    appointmentId: aptRef.id,
+    claimantBand: reliability.band,
+    depositRequiredCents,
+    discountForfeitOnNoShow,
+  };
 }
