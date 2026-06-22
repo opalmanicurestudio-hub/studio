@@ -1,5 +1,4 @@
 'use client';
-
 /**
  * StoreCreditSection
  *
@@ -9,27 +8,21 @@
  * the session starts that the client has credit waiting at checkout.
  * Read-only here — application happens at the POS.
  */
-
 import React from 'react';
 import { Wallet, Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStoreCredit, formatCreditExpiry, isCreditExpiringSoon } from '@/hooks/useStoreCredit';
 import type { Client } from '@/lib/data';
-
 interface Props {
   client: Client | null | undefined;
 }
-
 export const StoreCreditSection: React.FC<Props> = ({ client }) => {
   const { availableCredits, totalAvailable } = useStoreCredit(client);
-
   if (totalAvailable <= 0) return null;
-
   const expiringSoon = availableCredits.some(c => isCreditExpiringSoon(c.expiresAt, 14));
   const soonestExpiry = availableCredits
     .filter(c => c.expiresAt)
     .sort((a, b) => new Date(a.expiresAt!).getTime() - new Date(b.expiresAt!).getTime())[0];
-
   return (
     <div className={cn(
       'flex items-center justify-between text-[10px] font-black uppercase',
