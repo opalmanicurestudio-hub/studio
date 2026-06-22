@@ -33,6 +33,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
+import { spawnRecoveryTicket } from '@/lib/opal/recovery-engine';
+import { appendBehaviorEvent } from '@/lib/opal/behavior-ledger';
 
 function getAdmin() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -298,5 +300,36 @@ export async function POST(req: NextRequest) {
   });
 
   await batch.commit();
+
+  // ── Behavior ledger + recovery, post-commit (the slot is now genuinely dead).
+  //    A no-show is the trigger; the Resolution ticket is the cancellationEvent
+  //    (eventId). Wrapped so a recovery hiccup never fails the confirmation.
+  try {
+    await appendBehaviorEvent(db, {
+      tenantId,
+      clientId: appt.clientId,
+      eventType: 'no_show',
+      // If the no-showed appointment was itself a recovered fill, weigh leniently.
+      weightContext: appt.source === 'recovery' ? 'recovery_fill' : 'normal',
+      locationId: appt.locationId || null,
+      resolutionTicketId: eventId,
+    });
+    await spawnRecoveryTicket(db, {
+      tenantId,
+      resolutionTicketId: eventId,
+      locationId: appt.locationId || null,
+      providerId: appt.staffId || appt.providerId || '',
+      resourceIds: appt.resourceIds || [],
+      serviceId: appt.serviceId || '',
+      durationMinutes: appt.durationMinutes
+        || Math.max(15, Math.round((new Date(appt.endTime).getTime() - new Date(appt.startTime).getTime()) / 60000)),
+      slotStart: appt.startTime,
+      slotEnd: appt.endTime,
+      originalAppointmentValueCents: Math.round((feeAmount || 0) * 100),
+    });
+  } catch (e) {
+    console.error('[handle-no-show-action] behavior/recovery post-commit failed', e);
+  }
+
   return NextResponse.json({ ok: true, action: 'confirmed', eventId, depositForfeitedAmount });
 }
