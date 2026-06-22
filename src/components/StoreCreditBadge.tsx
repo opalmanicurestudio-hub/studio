@@ -1,5 +1,4 @@
 'use client';
-
 /**
  * StoreCreditBadge
  *
@@ -7,23 +6,18 @@
  * Used in: booking search results, WalkInQueue, AppointmentDetailsSheet header.
  * Intentionally tiny — just a signal, not the full panel.
  */
-
 import React from 'react';
 import { Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type StoreCredit, isCreditExpiringSoon } from '@/hooks/useStoreCredit';
-
 interface Props {
   credits: StoreCredit[];
   totalAvailable: number;
   className?: string;
 }
-
 export const StoreCreditBadge: React.FC<Props> = ({ credits, totalAvailable, className }) => {
   if (totalAvailable <= 0) return null;
-
   const expiringSoon = credits.some(c => isCreditExpiringSoon(c.expiresAt, 14));
-
   return (
     <span className={cn(
       'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border-2',
