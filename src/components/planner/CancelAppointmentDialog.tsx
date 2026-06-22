@@ -50,6 +50,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
+import { resolveAppointmentCancellationFee, toCents2 } from '@/lib/opal/cancellation-policy';
 import { differenceInHours, parseISO } from 'date-fns';
 import { useInventory } from '@/context/InventoryContext';
 import { useFirebase } from '@/firebase';
@@ -222,24 +223,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     });
   }, [sessionItems, tmhr, inventory, staff, appointment, taxBurden, tenant]);
 
-  // The suggested fee — every service's configured override fee where set
-  // (Settings → Service-Specific Protocols), or its house-floor + labor-
-  // protection cost otherwise, summed across all services in the session.
-  // This used to be filtered by which per-service checkboxes were checked,
-  // and only looked at the FIRST service's override (ignoring the rest on
-  // multi-service appointments) — both fixed here. feeValue starts at this
-  // total, and staff edit the single number directly if they want something
-  // different.
-  //
-  // NOTE: this must be declared before any useEffect that references it
-  // (see the feeValue-sync effect below) — `const` bindings stay in the
-  // temporal dead zone until their declaration line runs, so an effect
-  // earlier in the component referencing this would throw
-  // "Cannot access before initialization" the moment the component mounts.
-  const suggestedFeeTotal = useMemo(() => {
-    return recoveryMatrix.reduce((sum, m) => sum + (m.overrideFee > 0 ? m.overrideFee : m.houseFloor + m.laborProtection), 0);
-  }, [recoveryMatrix]);
-
   // Reset state each time the dialog opens
   useEffect(() => {
     if (open) {
@@ -249,7 +232,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       setCustomReason('');
       setAdditionalCreditValue(0);
       setShowFeeBreakdown(false);
-      setChargeFee(true);
     }
   }, [open]);
 
@@ -257,7 +239,13 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   // recomputed whenever the underlying suggestion changes (e.g. actor type
   // toggles which fee logic applies), but only while still un-edited.
   useEffect(() => {
-    if (open) setFeeValue(suggestedFeeTotal);
+    if (open) {
+      setFeeValue(suggestedFeeTotal);
+      // Default the toggle to whether a fee is actually owed: enough notice
+      // (suggested 0) → off, so a routine in-policy cancel never pre-loads a
+      // charge. No-show always defaults on.
+      setChargeFee(actorType === 'no_show' ? true : suggestedFeeTotal > 0);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, suggestedFeeTotal]);
 
@@ -341,6 +329,32 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     [actorType, studioReason, clientReason],
   );
 
+  // The suggested fee — every service's configured override fee where set
+  // (Settings → Service-Specific Protocols), or its house-floor + labor-
+  // protection cost otherwise, summed across all services in the session.
+  // This used to be filtered by which per-service checkboxes were checked,
+  // and only looked at the FIRST service's override (ignoring the rest on
+  // multi-service appointments) — both fixed here. feeValue starts at this
+  // total, and staff edit the single number directly if they want something
+  // different.
+  const hoursUntilAppt = useMemo(() => {
+    const st = appointment?.startTime ? new Date(appointment.startTime).getTime() : 0;
+    return st ? (st - Date.now()) / 3600000 : 0;
+  }, [appointment]);
+
+  // A CANCELLATION fee follows the cancellation POLICY, not the full service
+  // cost. (Full cost is no-show economics — handled in the isNoShow branch of
+  // finalFeeAmount.) Enough notice → free; a per-service cancellation fee wins
+  // where set; otherwise the studio's flat fee applies once. Rounded to cents.
+  const suggestedFeeTotal = useMemo(() => {
+    return resolveAppointmentCancellationFee({
+      services: recoveryMatrix.map(m => ({ overrideFee: m.overrideFee, window: m.window })),
+      tenantFlatFee: tenant?.cancellationFee || 0,
+      hoursUntilAppointment: hoursUntilAppt,
+      defaultWindowHours: tenant?.cancellationWindowHours || 24,
+    });
+  }, [recoveryMatrix, hoursUntilAppt, tenant]);
+
   const isFeeOverridden = !isNoShow && Math.abs(feeValue - suggestedFeeTotal) > 0.005;
 
   const finalFeeAmount = useMemo(() => {
@@ -350,7 +364,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       // the fee staff sees here always matches what's actually charged
       // regardless of which no-show entry point was used.
       if (tenant?.noShowFeeMode === 'flat' && tenant?.flatNoShowFee) return tenant.flatNoShowFee;
-      return sessionItems.reduce((acc, s) => acc + s.price, 0);
+      return toCents2(sessionItems.reduce((acc, s) => acc + s.price, 0));
     }
     return feeValue;
   }, [chargeFee, isNoShow, feeValue, sessionItems, tenant]);
@@ -727,7 +741,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                 className="w-full flex items-center justify-between px-1 text-left"
               >
                 <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">
-                  {showFeeBreakdown ? 'Hide' : 'See'} how the suggested fee (${suggestedFeeTotal.toFixed(2)}) was calculated
+                  {showFeeBreakdown ? 'Hide' : 'See'} each service's cost basis (for reference)
                 </span>
                 <ArrowRight className={cn('w-3 h-3 text-muted-foreground opacity-40 transition-transform', showFeeBreakdown && 'rotate-90')} />
               </button>
@@ -777,7 +791,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     type="number"
                     step="0.01"
                     value={feeValue || ''}
-                    onChange={e => setFeeValue(parseFloat(e.target.value) || 0)}
+                    onChange={e => setFeeValue(toCents2(parseFloat(e.target.value) || 0))}
                     className="h-16 pl-12 rounded-2xl border-2 font-black text-3xl tracking-tighter text-primary bg-white shadow-inner"
                   />
                 </div>
