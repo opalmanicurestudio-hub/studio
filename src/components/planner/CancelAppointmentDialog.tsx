@@ -219,6 +219,9 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
         laborProtection: burdenedLabor,
         overrideFee: s.customCancellationFee || 0,
         window: s.cancellationWindowHours || tenant?.cancellationWindowHours || 24,
+        feeMode: s.cancellationFeeMode || 'inherit',
+        feeValue: s.cancellationFeeValue ?? s.customCancellationFee ?? 0,
+        price,
       };
     });
   }, [sessionItems, tmhr, inventory, staff, appointment, taxBurden, tenant]);
@@ -348,10 +351,17 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   // where set; otherwise the studio's flat fee applies once. Rounded to cents.
   const suggestedFeeTotal = useMemo(() => {
     return resolveAppointmentCancellationFee({
-      services: recoveryMatrix.map(m => ({ overrideFee: m.overrideFee, window: m.window })),
+      services: recoveryMatrix.map(m => ({
+        mode: m.feeMode,
+        value: m.feeValue,
+        window: m.window,
+        matrixBasis: m.houseFloor + m.laborProtection,
+        price: m.price,
+      })),
+      globalMode: (tenant?.defaultCancellationMode || 'matrix'),
       tenantFlatFee: tenant?.cancellationFee || 0,
-      hoursUntilAppointment: hoursUntilAppt,
       defaultWindowHours: tenant?.cancellationWindowHours || 24,
+      hoursUntilAppointment: hoursUntilAppt,
     });
   }, [recoveryMatrix, hoursUntilAppt, tenant]);
 
