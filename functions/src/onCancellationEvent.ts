@@ -174,6 +174,20 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
       try {
         const amountCents = Math.round(data.feeAmount * 100);
 
+        // The card on file (customer + payment method) was vaulted on the
+        // tenant's CONNECTED account by the Stripe Connect webhook — so the
+        // charge MUST be made on that connected account, not the platform.
+        // Without { stripeAccount }, Stripe can't find the customer/payment
+        // method and the charge fails ("No such customer"). This is almost
+        // certainly why cancellation fees via this pipeline weren't landing.
+        const connectedAccountId = tenant.stripeAccountId;
+        if (!connectedAccountId) {
+          updates.chargeStatus = 'failed';
+          updates.errorMessage = 'Tenant has no stripeAccountId — cannot charge connected-account card.';
+          await eventRef.update(updates);
+          return;
+        }
+
         const paymentIntent = await stripe.paymentIntents.create({
           amount: amountCents,
           currency: 'usd',
@@ -181,57 +195,55 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           payment_method: data.stripePaymentMethodId,
           confirm: true,
           off_session: true,
-          // Expand the balance transaction so we can read the ACTUAL Stripe
-          // processing fee Stripe charged on this specific transaction, at
-          // the moment it happens — rather than relying on a separate
-          // charge.succeeded webhook to backfill it later. This makes fee
-          // capture self-contained and independent of whether any webhook
-          // is deployed: every charge records its own gross/fee/net here.
-          expand: ['latest_charge.balance_transaction'],
+          // Expand the charge so we can store its id on the income line. We do
+          // NOT compute or write the processing fee here — the Connect
+          // webhook's charge.succeeded handler is the single source of truth
+          // for fees and will book this charge's fee + back-fill net onto the
+          // revenue line below (matched by stripeChargeId). Writing a fee line
+          // here too would double-count it.
+          expand: ['latest_charge'],
           description: `Cancellation fee — ${data.serviceName || 'Service'} — ${data.clientName}`,
           metadata: {
             tenantId,
+            // clientId is read by the webhook's fee handler to attribute the
+            // processing-fee expense to this client.
+            clientId: data.clientId,
             appointmentId: data.appointmentId,
             cancellationEventId: eventId,
             reason: data.reason,
             actorType: data.cancellationAudit?.actorType || 'unknown',
           },
-        });
+        }, { stripeAccount: connectedAccountId });
 
-        // Pull the real fee/net off the balance transaction. Falls back to
-        // 0 fee (and net === gross) only if Stripe didn't return it, which
-        // is then visibly reconcilable rather than silently wrong.
-        let stripeFeeCents = 0;
-        let netCents = amountCents;
         const latestCharge: any = paymentIntent.latest_charge;
-        const bt: any = latestCharge && typeof latestCharge === 'object' ? latestCharge.balance_transaction : null;
-        if (bt && typeof bt === 'object') {
-          stripeFeeCents = bt.fee || 0;
-          netCents = bt.net || (amountCents - stripeFeeCents);
-        }
+        const chargeId: string | null =
+          latestCharge && typeof latestCharge === 'object' ? latestCharge.id : (latestCharge || null);
 
         updates.chargeStatus = 'charged';
-        updates.stripeChargeId = paymentIntent.id;
+        updates.stripeChargeId = chargeId || paymentIntent.id;
         updates.stripeChargeAmountCents = amountCents;
-        updates.stripeFeeCents = stripeFeeCents;
-        updates.stripeNetCents = netCents;
 
-        // Record the transaction in the tenant's transactions collection
+        // Record the cancellation-fee REVENUE line. taxBucket:'revenue' +
+        // stripeChargeId are exactly what the webhook's charge.succeeded
+        // back-fill looks for, so it will attach stripeNetAmountDollars /
+        // stripeFeeAmountDollars to this row once the fee posts. The matching
+        // fee EXPENSE line is written by the webhook, not here.
         const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txRef.set({
           id: txRef.id,
           tenantId,
+          date: new Date().toISOString(),
           appointmentId: data.appointmentId,
           clientId: data.clientId,
           clientName: data.clientName,
-          type: 'cancellation_fee',
+          clientOrVendor: data.clientName,
+          type: 'income',
+          context: 'Business',
           category: 'Cancellation Fee',
+          taxBucket: 'revenue',
           amount: data.feeAmount,
           amountCents,
-          // Gross / fee / net all recorded on the income line itself, so the
-          // ledger never has to guess what a charge actually netted.
-          stripeFeeCents,
-          netCents,
+          stripeChargeId: chargeId,
           stripePaymentIntentId: paymentIntent.id,
           stripePaymentMethodId: data.stripePaymentMethodId,
           status: 'succeeded',
@@ -239,31 +251,6 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
           actorType: data.cancellationAudit?.actorType,
           createdAt: new Date().toISOString(),
         });
-
-        // Separate expense line for the processing fee, so it shows up as a
-        // real cost in the ledger (not just netted invisibly against income).
-        // This mirrors how the refund route logs its incremental fee, and is
-        // the same shape a charge.succeeded webhook would write — but written
-        // here, synchronously, where we know the charge definitely happened.
-        if (stripeFeeCents > 0) {
-          const feeTxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-          await feeTxRef.set({
-            id: feeTxRef.id,
-            tenantId,
-            appointmentId: data.appointmentId,
-            clientId: data.clientId,
-            clientName: data.clientName,
-            type: 'expense',
-            category: 'Card Processing Fee',
-            amount: stripeFeeCents / 100,
-            amountCents: stripeFeeCents,
-            relatedTransactionId: txRef.id,
-            stripePaymentIntentId: paymentIntent.id,
-            status: 'succeeded',
-            reason: 'stripe_processing_fee',
-            createdAt: new Date().toISOString(),
-          });
-        }
 
         // Notify owner/admin that card was charged
         const adminsSnap = await db
