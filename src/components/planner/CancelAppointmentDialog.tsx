@@ -123,6 +123,16 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
+// Derives the correct default for chargeFee based on who is cancelling:
+//   - no_show  → always charge (no-show policy)
+//   - studio   → never charge by default (studio is at fault)
+//   - client   → charge if the cancellation policy produces a non-zero fee
+function defaultChargeFee(actorType: ActorType, suggestedFeeTotal: number): boolean {
+  if (actorType === 'no_show') return true;
+  if (actorType === 'studio') return false;
+  return suggestedFeeTotal > 0;
+}
+
 export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = ({
   open,
   onOpenChange,
@@ -139,18 +149,10 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   const [clientReason, setClientReason] = useState<ClientCancellationReason>('schedule_conflict');
   const [customReason, setCustomReason] = useState('');
 
-  const [chargeFee, setChargeFee] = useState(true);
+  const [chargeFee, setChargeFee] = useState(false); // studio is the initial actorType → default off
   const [paymentMethod, setPaymentMethod] = useState<'card_on_file' | 'add_to_balance'>('card_on_file');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ── Fee — one number, not four separate mechanisms ──────────────────────
-  // Previously: per-service House Floor / Labor Protection checkboxes, PLUS
-  // a separate "Fixed Rate Override" toggle, PLUS a separate override input
-  // — three independent ways to arrive at the same single dollar figure.
-  // Now: one editable amount. It starts at the computed suggestion; editing
-  // it IS the override, with no separate toggle to flip first. Whether it
-  // was overridden is derived by comparing to the suggestion, not tracked
-  // as its own state.
   const [feeValue, setFeeValue] = useState(0);
   const [showFeeBreakdown, setShowFeeBreakdown] = useState(false);
   const [depositDisposition, setDepositDisposition] = useState<'refund' | 'store_credit'>('refund');
@@ -271,19 +273,19 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     }
   }, [open]);
 
-  // feeValue tracks the suggestion until the person edits it directly —
-  // recomputed whenever the underlying suggestion changes (e.g. actor type
-  // toggles which fee logic applies), but only while still un-edited.
+  // Sync feeValue and chargeFee whenever the dialog opens or the actor/suggested
+  // fee changes. actorType is in the dep array so switching the "who is
+  // cancelling" toggle immediately re-evaluates the default:
+  //   - studio  → fee off (studio is at fault; clients are never charged)
+  //   - client  → fee on if the policy produces a non-zero amount
+  //   - no_show → fee always on
   useEffect(() => {
     if (open) {
       setFeeValue(suggestedFeeTotal);
-      // Default the toggle to whether a fee is actually owed: enough notice
-      // (suggested 0) → off, so a routine in-policy cancel never pre-loads a
-      // charge. No-show always defaults on.
-      setChargeFee(actorType === 'no_show' ? true : suggestedFeeTotal > 0);
+      setChargeFee(defaultChargeFee(actorType, suggestedFeeTotal));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, suggestedFeeTotal]);
+  }, [open, suggestedFeeTotal, actorType]);
 
   // Live deposit-credit lookup — runs each time the dialog opens for a given
   // appointment/client. Mirrors the exact lookup pattern used in
@@ -380,6 +382,16 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
   }, [chargeFee, isNoShow, feeValue, sessionItems, tenant]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  // Human-readable label for the fee toggle subtext. Distinguishes between
+  // studio-fault (fee off by policy), client-cancel (policy-driven suggestion),
+  // and an explicit staff override.
+  const feeToggleSubtext = useMemo(() => {
+    if (isNoShow) return '100% of service total — no-show policy';
+    if (actorType === 'studio') return 'Studio cancelled — client is not charged by default';
+    if (isFeeOverridden) return `Edited from suggested $${suggestedFeeTotal.toFixed(2)}`;
+    return 'Suggested by cancellation policy — tap to edit';
+  }, [isNoShow, actorType, isFeeOverridden, suggestedFeeTotal]);
 
   // ── Submit ──────────────────────────────────────────────────────────────────
 
@@ -784,11 +796,7 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
                     <DollarSign className="w-4 h-4 text-primary" /> Cancellation Fee
                   </Label>
                   <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-tight opacity-60">
-                    {isNoShow
-                      ? '100% of service total — no-show policy'
-                      : isFeeOverridden
-                      ? `Edited from suggested $${suggestedFeeTotal.toFixed(2)}`
-                      : 'Suggested — tap to edit'}
+                    {feeToggleSubtext}
                   </p>
                 </div>
                 <Switch checked={chargeFee} onCheckedChange={setChargeFee} className="scale-110" />
