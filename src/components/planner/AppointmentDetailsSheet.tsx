@@ -27,7 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
 import { cn, safeNumber } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { type Appointment, type Client, type Service, type Staff, AppointmentCheckoutState, ConsentForm } from '@/lib/data';
+import { type Appointment, type Client, type Service, type Staff, type AppointmentCheckoutState, type ConsentForm } from '@/lib/data';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
