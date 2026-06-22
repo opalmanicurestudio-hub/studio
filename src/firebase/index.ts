@@ -40,6 +40,7 @@ export function getSdks(firebaseApp: FirebaseApp) {
   };
 }
 
+export * from './init';
 export * from './provider';
 export * from './client-provider';
 export * from './firestore/use-collection';
