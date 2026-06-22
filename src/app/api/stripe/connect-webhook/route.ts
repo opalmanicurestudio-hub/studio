@@ -9,21 +9,12 @@ import { nanoid } from 'nanoid';
 //
 // Events handled:
 //   checkout.session.completed  → 3 branches by metadata.type:
-//                                   'deposit'           — public booking page
-//                                     deposit: converts the bookingRequest into
-//                                     a real appointment, marks deposit paid,
-//                                     posts the ledger entry.
-//                                   'completion'         — phone-booking
-//                                     completion link WITH a deposit: vaults the
-//                                     card AND marks the existing appointment's
-//                                     deposit paid + posts the ledger entry.
-//                                   'completion_setup'   — completion link with
-//                                     NO deposit: vaults the card only.
+//                                   'deposit' / 'completion' / 'completion_setup'
 //   charge.succeeded            → write exact Stripe processing fee to ledger
-//   charge.refunded             → write fee credit back to ledger
-//   charge.dispute.created      → write dispute fee
-//   charge.dispute.closed        → reverse fee if won, note if lost
-//   payout.paid                 → record net payout for reconciliation
+//   charge.refunded             → record refund principal + any fee credit
+//   charge.dispute.created      → write dispute fee ($15)
+//   charge.dispute.closed       → reverse actual fee if won, chargeback if lost
+//   payout.paid                 → record payout + instant-payout fee
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -62,7 +53,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Webhook Error' }, { status: 400 });
   }
 
-  // All connected account events have an account field
   const connAcct = (event as any).account as string | undefined;
   if (!connAcct) {
     console.warn('[connect-webhook] No connected account on event — ignoring');
@@ -72,7 +62,6 @@ export async function POST(req: NextRequest) {
   const db      = getAdminDb();
   const stripe2 = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
 
-  // Helper: find tenant by connected Stripe account ID
   const getTenant = async (accountId: string) => {
     const snap = await db.collection('tenants')
       .where('stripeAccountId', '==', accountId)
@@ -84,7 +73,6 @@ export async function POST(req: NextRequest) {
   try {
     switch (event.type) {
 
-      // ── checkout.session.completed: deposit / completion / card vaulting ──
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         const tenant  = await getTenant(connAcct);
@@ -92,7 +80,6 @@ export async function POST(req: NextRequest) {
 
         const sessionType = session.metadata?.type;
 
-        // Resolve the resulting charge (if any) so fee tracking can link to it
         let chargeId: string | null = null;
         let stripeCustomerId: string | null = null;
         let stripePaymentMethodId: string | null = null;
@@ -112,10 +99,6 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // ───────────────────────────────────────────────────────────────────
-        // 'deposit' — public booking-page deposit. The appointment doesn't
-        // exist yet; it lives as a pending bookingRequest. Convert it now.
-        // ───────────────────────────────────────────────────────────────────
         if (sessionType === 'deposit') {
           const bookingRequestId = session.metadata?.bookingRequestId;
           if (!bookingRequestId) break;
@@ -128,12 +111,10 @@ export async function POST(req: NextRequest) {
           }
           const br = brSnap.data() as any;
 
-          // Idempotency — don't double-create the appointment on retried events
           if (br.status === 'completed' && br.appointmentId) break;
 
           const depositAmountCents = session.amount_total ?? Math.round((br.depositAmount || 0) * 100);
 
-          // Resolve or create the client by email
           const email = String(br.clientEmail || '').toLowerCase().trim();
           let clientId: string;
           const clientMatch = email
@@ -163,8 +144,6 @@ export async function POST(req: NextRequest) {
 
           const batch = db.batch();
 
-          // Save the card used for the deposit to the client's profile, so it's
-          // on file for the final balance / future fees without re-entering it.
           if (stripePaymentMethodId) {
             try {
               const pm = await stripe2.paymentMethods.retrieve(stripePaymentMethodId, {}, { stripeAccount: connAcct });
@@ -211,8 +190,6 @@ export async function POST(req: NextRequest) {
           batch.set(aptRef, appointmentPayload);
           batch.set(db.collection('appointmentCheckIns').doc(checkInToken), appointmentPayload);
 
-          // Post the deposit to the ledger — taxBucket 'revenue' + checkoutSessionId
-          // so the charge.succeeded handler below can backfill the exact fee later.
           const txnRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
           batch.set(txnRef, {
             id: txnRef.id,
@@ -240,13 +217,6 @@ export async function POST(req: NextRequest) {
             completedAt: new Date().toISOString(),
           }, { merge: true });
 
-          // Create a depositCredits doc — this is what the POS checkout's
-          // handleCheckout() actually looks up to write the offsetting
-          // "Deposit Applied" ledger line. Without this doc, the deposit
-          // correctly reduces what's charged at checkout, but the ledger
-          // double-counts revenue (full service price + the original
-          // deposit income line, with nothing netting them against each
-          // other).
           const creditRef = db.collection(`tenants/${tenant.id}/depositCredits`).doc();
           batch.set(creditRef, {
             id: creditRef.id,
@@ -267,11 +237,6 @@ export async function POST(req: NextRequest) {
           break;
         }
 
-        // ───────────────────────────────────────────────────────────────────
-        // 'completion' / 'completion_setup' — phone-booking completion link.
-        // Vault the card; if a deposit was collected, mark it paid on the
-        // EXISTING appointment and post the ledger entry.
-        // ───────────────────────────────────────────────────────────────────
         if (sessionType === 'completion' || sessionType === 'completion_setup') {
           const clientId      = session.metadata?.clientId;
           const appointmentId = session.metadata?.appointmentId;
@@ -316,7 +281,6 @@ export async function POST(req: NextRequest) {
 
             const aptRef  = db.collection(`tenants/${tenant.id}/appointments`).doc(appointmentId);
             const aptSnap = await aptRef.get();
-            // Idempotency — skip if this appointment's deposit is already marked paid
             if (!aptSnap.exists || aptSnap.data()?.depositStatus !== 'paid') {
               await aptRef.set({
                 depositStatus: 'paid',
@@ -344,8 +308,6 @@ export async function POST(req: NextRequest) {
                 tenantId: tenant.id,
               });
 
-              // Same depositCredits doc as the 'deposit' branch above — needed
-              // so the POS checkout's "Deposit Applied" offset logic finds it.
               const creditRef = db.collection(`tenants/${tenant.id}/depositCredits`).doc();
               await creditRef.set({
                 id: creditRef.id,
@@ -367,7 +329,6 @@ export async function POST(req: NextRequest) {
           break;
         }
 
-        // ── Legacy fallback: original vaulting-only path keyed on client_reference_id ──
         if (session.client_reference_id && session.setup_intent) {
           const clientId = session.client_reference_id;
           const siId = typeof session.setup_intent === 'string'
@@ -398,7 +359,6 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.succeeded: record exact Stripe processing fee ─────────────
       case 'charge.succeeded': {
         let charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
@@ -409,10 +369,7 @@ export async function POST(req: NextRequest) {
           : (charge.balance_transaction as any)?.id;
 
         // Stripe occasionally sends charge.succeeded a moment before the
-        // balance_transaction is fully attached to the charge object in the
-        // webhook payload. Rather than silently dropping the fee, re-fetch
-        // the charge fresh — by the time we're processing this event
-        // server-side, the balance transaction is almost always ready.
+        // balance_transaction is attached. Re-fetch rather than drop the fee.
         if (!balTxnId) {
           try {
             const freshCharge = await stripe2.charges.retrieve(charge.id, {}, { stripeAccount: connAcct });
@@ -426,11 +383,10 @@ export async function POST(req: NextRequest) {
         }
 
         if (!balTxnId) {
-          console.warn(`[connect-webhook] No balance_transaction available for charge ${charge.id} even after re-fetch — fee not recorded`);
+          console.warn(`[connect-webhook] No balance_transaction for charge ${charge.id} after re-fetch — fee not recorded`);
           break;
         }
 
-        // Fetch the balance transaction — contains the EXACT fee Stripe took
         const balTxn = await stripe2.balanceTransactions.retrieve(
           balTxnId, {}, { stripeAccount: connAcct }
         );
@@ -442,14 +398,12 @@ export async function POST(req: NextRequest) {
 
         if (feeAmountCents <= 0) break;
 
-        // Idempotency check — don't write the same fee twice
         const existing = await db.collection(`tenants/${tenant.id}/transactions`)
           .where('stripeBalanceTxnId', '==', balTxnId)
           .where('category', '==', 'Processing Fee')
           .limit(1).get();
         if (!existing.empty) break;
 
-        // Identify payment method type for the description
         const pmDetails    = charge.payment_method_details;
         const isTerminal   = pmDetails?.type === 'card_present';
         const isManual     = (pmDetails?.card as any)?.read_method === 'contact_emv_fallback'
@@ -458,7 +412,6 @@ export async function POST(req: NextRequest) {
           : isManual ? 'Manual card entry'
           : 'Card on file';
 
-        // Write the fee as an expense
         const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
         await feeRef.set({
           id:                       feeRef.id,
@@ -473,7 +426,6 @@ export async function POST(req: NextRequest) {
           amount:                   feeAmountDollars,
           paymentMethod:            paymentLabel,
           hasReceipt:               false,
-          // Reconciliation fields
           stripeChargeId:           charge.id,
           stripeBalanceTxnId:       balTxnId,
           stripeConnectedAccountId: connAcct,
@@ -488,7 +440,6 @@ export async function POST(req: NextRequest) {
           tenantId:                 tenant.id,
         });
 
-        // Back-fill net amount on the original revenue transaction for accurate reporting
         if (charge.metadata?.checkoutSessionId) {
           const revTxns = await db.collection(`tenants/${tenant.id}/transactions`)
             .where('checkoutSessionId', '==', charge.metadata.checkoutSessionId)
@@ -501,12 +452,7 @@ export async function POST(req: NextRequest) {
               stripeChargeId:         charge.id,
             });
           }
-        }
-
-        // Also back-fill by stripeChargeId directly (covers deposit/completion
-        // transactions, which set stripeChargeId at creation time rather than
-        // relying on charge.metadata.checkoutSessionId).
-        if (!charge.metadata?.checkoutSessionId) {
+        } else {
           const revByCharge = await db.collection(`tenants/${tenant.id}/transactions`)
             .where('stripeChargeId', '==', charge.id)
             .where('taxBucket', '==', 'revenue')
@@ -523,7 +469,6 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.refunded: record the actual refund + any fee credit ───────
       case 'charge.refunded': {
         const charge  = event.data.object as Stripe.Charge;
         const tenant  = await getTenant(connAcct);
@@ -532,21 +477,17 @@ export async function POST(req: NextRequest) {
         const latestRefund = charge.refunds?.data?.[0];
         if (!latestRefund) break;
 
-        // ── 1. Record the refund itself — this is the part that was missing.
-        // Stripe usually does NOT return the processing fee on a refund, so
-        // relying on a fee credit to detect "a refund happened" misses nearly
-        // every refund. This writes the actual amount returned to the client,
-        // keyed on the refund ID itself so it can't double-post on retries.
+        // 1. Record the refund PRINCIPAL — the part that was missing. Stripe
+        // usually does NOT return the fee on a refund, so keying off a fee
+        // credit misses nearly every refund (including ones issued from the
+        // Stripe dashboard). Deduped by stripeRefundId, so app-initiated
+        // refunds that already wrote their own line (studio-cancel-refund)
+        // are not double-counted.
         const existingRefund = await db.collection(`tenants/${tenant.id}/transactions`)
           .where('stripeRefundId', '==', latestRefund.id)
           .limit(1).get();
 
         if (existingRefund.empty) {
-          // Try to find the original revenue transaction for this charge so
-          // the refund can inherit a sensible description/client/category.
-          // Not every charge-creation path tags stripeChargeId consistently
-          // yet, so this is best-effort — the refund is recorded with or
-          // without a match.
           const origSnap = await db.collection(`tenants/${tenant.id}/transactions`)
             .where('stripeChargeId', '==', charge.id)
             .where('taxBucket', '==', 'revenue')
@@ -575,12 +516,10 @@ export async function POST(req: NextRequest) {
             stripeConnectedAccountId: connAcct,
             tenantId:                 tenant.id,
           });
-
-          console.log(`[connect-webhook] Refund of $${refundAmountDollars.toFixed(2)} recorded for charge ${charge.id}`);
+          console.log(`[connect-webhook] Refund $${refundAmountDollars.toFixed(2)} recorded for charge ${charge.id}`);
         }
 
-        // ── 2. Record any fee Stripe actually returned (rare, but possible
-        // depending on dispute/refund timing and account settings).
+        // 2. Record any fee Stripe actually returned (rare).
         const refundBalTxnId = typeof latestRefund.balance_transaction === 'string'
           ? latestRefund.balance_transaction
           : (latestRefund.balance_transaction as any)?.id;
@@ -595,7 +534,6 @@ export async function POST(req: NextRequest) {
           refundBalTxnId, {}, { stripeAccount: connAcct }
         );
 
-        // Stripe returns part of the fee — fee will be negative (a credit)
         const feeReturn = Math.abs(refundBalTxn.fee) / 100;
         if (feeReturn <= 0) break;
 
@@ -622,7 +560,6 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.dispute.created: write dispute record + fee + flag client ───
       case 'charge.dispute.created': {
         const dispute  = event.data.object as Stripe.Dispute;
         const tenant   = await getTenant(connAcct);
@@ -631,13 +568,11 @@ export async function POST(req: NextRequest) {
         const chargeId = typeof dispute.charge === 'string'
           ? dispute.charge : (dispute.charge as any)?.id;
 
-        // Idempotency — check if we already wrote this dispute
         const existingDisp = await db.collection(`tenants/${tenant.id}/disputes`)
           .where('stripeDisputeId', '==', dispute.id)
           .limit(1).get();
         if (!existingDisp.empty) break;
 
-        // ── Look up the original charge to link client, session, receipt ──────
         let clientId:          string | null = null;
         let clientName:        string        = 'Unknown Client';
         let checkoutSessionId: string | null = null;
@@ -647,7 +582,6 @@ export async function POST(req: NextRequest) {
         let consentFormUrls:   string[]      = [];
 
         if (chargeId) {
-          // Find the revenue transaction linked to this charge
           const revTxns = await db.collection(`tenants/${tenant.id}/transactions`)
             .where('stripeChargeId', '==', chargeId)
             .where('taxBucket', '==', 'revenue')
@@ -662,7 +596,6 @@ export async function POST(req: NextRequest) {
             appointmentId  = txn.appointmentId  || null;
           }
 
-          // If we have a client, find their signatures for this appointment
           if (clientId && appointmentId) {
             const sigsSnap = await db.collection(`tenants/${tenant.id}/signatures`)
               .where('clientId', '==', clientId)
@@ -671,23 +604,19 @@ export async function POST(req: NextRequest) {
             signatureUrls = sigsSnap.docs.map((d: any) => d.data().signatureUrl).filter(Boolean);
           }
 
-          // Also get any consent forms signed by this client (most recent 3)
           if (clientId) {
             const allSigsSnap = await db.collection(`tenants/${tenant.id}/signatures`)
               .where('clientId', '==', clientId)
               .orderBy('signedAt', 'desc')
               .limit(3).get();
             const allSigUrls = allSigsSnap.docs.map((d: any) => d.data().signatureUrl).filter(Boolean);
-            // Merge with appointment-specific, deduplicate
             signatureUrls = Array.from(new Set([...signatureUrls, ...allSigUrls]));
           }
         }
 
-        // Calculate response deadline (Stripe gives 7-10 days typically)
         const deadlineDate = new Date(dispute.created * 1000);
         deadlineDate.setDate(deadlineDate.getDate() + 7);
 
-        // ── Write dispute record ──────────────────────────────────────────────
         const disputeDocRef = db.collection(`tenants/${tenant.id}/disputes`).doc();
         await disputeDocRef.set({
           id:                       disputeDocRef.id,
@@ -711,7 +640,8 @@ export async function POST(req: NextRequest) {
           tenantId:                 tenant.id,
         });
 
-        // ── Write dispute fee as expense transaction ───────────────────────────
+        // Dispute fee is $15.00 in the US, not $1.50.
+        const DISPUTE_FEE = 15.00;
         const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
         await feeRef.set({
           id:                       feeRef.id,
@@ -723,7 +653,7 @@ export async function POST(req: NextRequest) {
           context:                  'Business',
           category:                 'Processing Fee',
           taxBucket:                'processing_fee',
-          amount:                   15.00,
+          amount:                   DISPUTE_FEE,
           paymentMethod:            'Stripe',
           hasReceipt:               false,
           stripeDisputeId:          dispute.id,
@@ -733,7 +663,6 @@ export async function POST(req: NextRequest) {
           tenantId:                 tenant.id,
         });
 
-        // ── Flag client profile ────────────────────────────────────────────────
         if (clientId) {
           const clientRef = db.collection(`tenants/${tenant.id}/clients`).doc(clientId);
           const clientDoc = await clientRef.get();
@@ -746,7 +675,6 @@ export async function POST(req: NextRequest) {
           }, { merge: true });
         }
 
-        // Increment open dispute count on tenant doc for sidebar badge
         const tenantDoc  = await db.collection('tenants').doc(tenant.id).get();
         const currentCount = tenantDoc.data()?.openDisputeCount || 0;
         await db.collection('tenants').doc(tenant.id).set({
@@ -757,19 +685,18 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── charge.dispute.closed: fires for won, lost, or warning_closed ──────
       case 'charge.dispute.closed': {
         const dispute = event.data.object as Stripe.Dispute;
         const tenant  = await getTenant(connAcct);
         if (!tenant) break;
 
         if (dispute.status === 'won') {
-          // Reverse the original dispute fee — we get it back
           const original = await db.collection(`tenants/${tenant.id}/transactions`)
             .where('stripeDisputeId', '==', dispute.id)
             .where('type', '==', 'expense')
             .limit(1).get();
           if (original.empty) break;
+          // Reverse the ACTUAL fee that was charged, not a hardcoded guess.
           const originalFeeAmount = Number(original.docs[0].data()?.amount) || 15.00;
 
           const revRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
@@ -790,7 +717,6 @@ export async function POST(req: NextRequest) {
             reversalOf:               original.docs[0].id,
             tenantId:                 tenant.id,
           });
-          // Decrement open dispute count
           const wonTenantDoc = await db.collection('tenants').doc(tenant.id).get();
           const wonCount = wonTenantDoc.data()?.openDisputeCount || 0;
           await db.collection('tenants').doc(tenant.id).set({
@@ -799,13 +725,11 @@ export async function POST(req: NextRequest) {
 
           console.log(`[connect-webhook] Dispute won — fee reversed for ${dispute.id}`);
 
-          // Update dispute record
           const wonSnap = await db.collection(`tenants/${tenant.id}/disputes`)
             .where('stripeDisputeId', '==', dispute.id).limit(1).get();
           if (!wonSnap.empty) {
             await wonSnap.docs[0].ref.set({ status: 'won', outcome: 'won', closedAt: new Date().toISOString() }, { merge: true });
           }
-          // Clear client flag if no other open disputes
           const wonDispRef = wonSnap.empty ? null : wonSnap.docs[0].data();
           if (wonDispRef?.clientId) {
             const otherOpen = await db.collection(`tenants/${tenant.id}/disputes`)
@@ -819,7 +743,6 @@ export async function POST(req: NextRequest) {
           }
 
         } else if (dispute.status === 'lost') {
-          // Lost — write chargeback expense
           const chargeId = typeof dispute.charge === 'string'
             ? dispute.charge : (dispute.charge as any)?.id;
 
@@ -843,20 +766,17 @@ export async function POST(req: NextRequest) {
             tenantId:                 tenant.id,
           });
 
-          // Update dispute record
           const lostSnap = await db.collection(`tenants/${tenant.id}/disputes`)
             .where('stripeDisputeId', '==', dispute.id).limit(1).get();
           if (!lostSnap.empty) {
             await lostSnap.docs[0].ref.set({ status: 'lost', outcome: 'lost', closedAt: new Date().toISOString() }, { merge: true });
           }
-          // Clear open flag on client
           const lostDispData = lostSnap.empty ? null : lostSnap.docs[0].data();
           if (lostDispData?.clientId) {
             await db.collection(`tenants/${tenant.id}/clients`).doc(lostDispData.clientId)
               .set({ hasOpenDispute: false }, { merge: true });
           }
 
-          // Decrement open dispute count
           const lostTenantDoc = await db.collection('tenants').doc(tenant.id).get();
           const lostCount = lostTenantDoc.data()?.openDisputeCount || 0;
           await db.collection('tenants').doc(tenant.id).set({
@@ -866,13 +786,11 @@ export async function POST(req: NextRequest) {
           console.log(`[connect-webhook] Dispute lost — chargeback $${(dispute.amount / 100).toFixed(2)} for ${dispute.id}`);
 
         } else {
-          // warning_closed — update status, no financial impact
           const wcSnap = await db.collection(`tenants/${tenant.id}/disputes`)
             .where('stripeDisputeId', '==', dispute.id).limit(1).get();
           if (!wcSnap.empty) {
             await wcSnap.docs[0].ref.set({ status: 'charge_refunded', closedAt: new Date().toISOString() }, { merge: true });
           }
-          // Decrement open dispute count
           const wcTenantDoc = await db.collection('tenants').doc(tenant.id).get();
           const wcCount = wcTenantDoc.data()?.openDisputeCount || 0;
           await db.collection('tenants').doc(tenant.id).set({
@@ -884,20 +802,16 @@ export async function POST(req: NextRequest) {
         break;
       }
 
-      // ── payout.paid: record net payout for month-end reconciliation ───────
       case 'payout.paid': {
         const payout = event.data.object as Stripe.Payout;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
 
-        // Idempotency
         const existing = await db.collection(`tenants/${tenant.id}/stripePayouts`)
           .where('stripePayoutId', '==', payout.id)
           .limit(1).get();
         if (!existing.empty) break;
 
-        // Write to a separate payouts collection for reconciliation
-        // (not the transactions ledger — this is a bank transfer, not revenue)
         const payoutRef = db.collection(`tenants/${tenant.id}/stripePayouts`).doc(payout.id);
         await payoutRef.set({
           id:                       payout.id,
@@ -916,17 +830,18 @@ export async function POST(req: NextRequest) {
         console.log(`[connect-webhook] Payout $${(payout.amount / 100).toFixed(2)} recorded for ${tenant.id}`);
 
         // Standard payouts are free. Instant payouts carry a fee (commonly
-        // ~1%) that's charged as a separate balance transaction, NOT
-        // deducted from payout.amount above — so without this, instant
-        // payout fees are invisible anywhere in the books.
+        // ~1.5%) charged as a SEPARATE balance transaction — NOT deducted
+        // from payout.amount above. Without this, instant-payout fees are
+        // invisible everywhere in the books.
         if (payout.method === 'instant') {
           try {
             const balTxns = await stripe2.balanceTransactions.list(
               { payout: payout.id, limit: 10 }, { stripeAccount: connAcct }
             );
-            const feeTxn = balTxns.data.find((bt: any) => bt.fee > 0);
-            if (feeTxn) {
-              const feeDollars = feeTxn.fee / 100;
+            const feeTxn = balTxns.data.find((bt: any) => bt.fee > 0 || bt.type === 'payout_fee');
+            const feeCents = feeTxn ? (feeTxn.fee || Math.abs(feeTxn.amount)) : 0;
+            if (feeCents > 0) {
+              const feeDollars = feeCents / 100;
               const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
               await feeRef.set({
                 id:                       feeRef.id,
@@ -944,7 +859,7 @@ export async function POST(req: NextRequest) {
                 stripeConnectedAccountId: connAcct,
                 tenantId:                 tenant.id,
               });
-              console.log(`[connect-webhook] Instant payout fee $${feeDollars.toFixed(2)} recorded for payout ${payout.id}`);
+              console.log(`[connect-webhook] Instant payout fee $${feeDollars.toFixed(2)} recorded for ${payout.id}`);
             }
           } catch (e) {
             console.error('[connect-webhook] Could not check instant payout fee', e);
