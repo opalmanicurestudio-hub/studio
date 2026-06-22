@@ -222,6 +222,24 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     });
   }, [sessionItems, tmhr, inventory, staff, appointment, taxBurden, tenant]);
 
+  // The suggested fee — every service's configured override fee where set
+  // (Settings → Service-Specific Protocols), or its house-floor + labor-
+  // protection cost otherwise, summed across all services in the session.
+  // This used to be filtered by which per-service checkboxes were checked,
+  // and only looked at the FIRST service's override (ignoring the rest on
+  // multi-service appointments) — both fixed here. feeValue starts at this
+  // total, and staff edit the single number directly if they want something
+  // different.
+  //
+  // NOTE: this must be declared before any useEffect that references it
+  // (see the feeValue-sync effect below) — `const` bindings stay in the
+  // temporal dead zone until their declaration line runs, so an effect
+  // earlier in the component referencing this would throw
+  // "Cannot access before initialization" the moment the component mounts.
+  const suggestedFeeTotal = useMemo(() => {
+    return recoveryMatrix.reduce((sum, m) => sum + (m.overrideFee > 0 ? m.overrideFee : m.houseFloor + m.laborProtection), 0);
+  }, [recoveryMatrix]);
+
   // Reset state each time the dialog opens
   useEffect(() => {
     if (open) {
@@ -322,18 +340,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       ),
     [actorType, studioReason, clientReason],
   );
-
-  // The suggested fee — every service's configured override fee where set
-  // (Settings → Service-Specific Protocols), or its house-floor + labor-
-  // protection cost otherwise, summed across all services in the session.
-  // This used to be filtered by which per-service checkboxes were checked,
-  // and only looked at the FIRST service's override (ignoring the rest on
-  // multi-service appointments) — both fixed here. feeValue starts at this
-  // total, and staff edit the single number directly if they want something
-  // different.
-  const suggestedFeeTotal = useMemo(() => {
-    return recoveryMatrix.reduce((sum, m) => sum + (m.overrideFee > 0 ? m.overrideFee : m.houseFloor + m.laborProtection), 0);
-  }, [recoveryMatrix]);
 
   const isFeeOverridden = !isNoShow && Math.abs(feeValue - suggestedFeeTotal) > 0.005;
 
