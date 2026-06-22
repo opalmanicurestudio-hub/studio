@@ -180,6 +180,25 @@ export const RescheduleAppointmentDialog: React.FC<RescheduleAppointmentDialogPr
         }),
       });
 
+      // Fire recovery for the VACATED (old) slot and log the behavior event —
+      // one call to the spawn route does both. Non-blocking: a recovery hiccup
+      // must never fail the reschedule the client just confirmed. auditId is the
+      // resolution ticket id linking this disruption to its recovery.
+      fetch('/api/opal/recovery-spawn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          appointmentId: appointment.id,
+          resolutionTicketId: auditId,
+          clientId: client?.id || appointment.clientId,
+          eventType: 'reschedule',
+          vacatedSlotStart: appointment.startTime,
+          vacatedSlotEnd: appointment.endTime,
+          locationId: appointment.locationId || null,
+        }),
+      }).catch(() => {});
+
       toast({
         title: 'Appointment Rescheduled',
         description: `Moved to ${format(newStartDate, 'EEE MMM d, h:mm a')}${willApplyFee ? ` · $${rescheduleFee.toFixed(2)} fee added` : ''}.`,
