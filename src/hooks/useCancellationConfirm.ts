@@ -385,6 +385,31 @@ export function useCancellationConfirm(
         }
       }
 
+      // ── Vacated slot → recovery (+ behavior event). A studio/business cancel
+      //    still frees the slot (so recovery fires) but is NOT the client's
+      //    fault (so the behavior event is skipped via skipBehavior). Late
+      //    client cancels log late_cancel; benign ones a neutral reschedule
+      //    signal. Non-blocking — never fail the cancel the user just made.
+      try {
+        const isLate = !!(chargeFee && feeAmount > 0);
+        const evType = isNoShowCancel ? 'no_show' : (isLate ? 'late_cancel' : 'reschedule');
+        fetch('/api/opal/recovery-spawn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            appointmentId: appointment.id,
+            resolutionTicketId: eventId,
+            clientId: client.id,
+            eventType: evType,
+            skipBehavior: isStudioCancel,
+            vacatedSlotStart: appointment.startTime,
+            vacatedSlotEnd: appointment.endTime,
+            locationId: (appointment as any).locationId || null,
+          }),
+        }).catch(() => {});
+      } catch { /* recovery is best-effort */ }
+
       // ── Toast ────────────────────────────────────────────────────────────────
       if (isStudioCancel) {
         toast({
