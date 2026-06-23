@@ -40,6 +40,7 @@ import {
   LeasePerk,
   RentLedgerEntry,
   Receipt,
+  Location,
   RentFrequency,
   LedgerEntryType,
   BOOTH_RENTAL_COLLECTIONS,
@@ -929,5 +930,44 @@ export async function createRenter(
   };
   const ref = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.renters(input.tenantId)));
   await writeBatch(firestore).set(ref, renterDoc).commit();
+  return ref.id;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Location creation (new — was missing entirely)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// There was no create path anywhere for Location documents until now.
+// The schema, security rules, and useLocations() read hook all assumed
+// locations would exist, but nothing could ever write the first one —
+// which is exactly why RentersPage's "No locations set up yet" empty
+// state was unavoidable for any tenant starting from zero. This is the
+// missing piece that closes that gap.
+
+export interface CreateLocationInput {
+  tenantId: string;
+  name: string;
+  address?: string;
+  timezone: string;
+}
+
+export async function createLocation(
+  firestore: Firestore,
+  input: CreateLocationInput
+): Promise<string> {
+  const now = new Date().toISOString();
+  const locationDoc: Omit<Location, 'id'> = {
+    tenantId: input.tenantId,
+    name: input.name,
+    address: input.address,
+    timezone: input.timezone,
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const ref = doc(
+    collection(firestore, BOOTH_RENTAL_COLLECTIONS.locations(input.tenantId))
+  );
+  await writeBatch(firestore).set(ref, locationDoc).commit();
   return ref.id;
 }
