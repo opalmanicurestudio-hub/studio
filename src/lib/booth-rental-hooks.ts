@@ -23,6 +23,7 @@ import {
   Renter,
   Lease,
   RentLedgerEntry,
+  Receipt,
   BOOTH_RENTAL_COLLECTIONS,
 } from '@/lib/booth-rental-types';
 import {
@@ -81,7 +82,7 @@ export function useBoothRentalCollections(tenantId: string | null) {
   const renters = useCollection<Renter>(rentersRef);
   const leases = useCollection<Lease>(leasesRef);
   const ledger = useCollection<RentLedgerEntry>(ledgerRef);
-  const receipts = useCollection<any>(receiptsRef);
+  const receipts = useCollection<Receipt>(receiptsRef);
 
   return { firestore, booths, renters, leases, ledger, receipts };
 }
