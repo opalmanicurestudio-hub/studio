@@ -1,15 +1,55 @@
 'use client';
 
+/**
+ * RentersPage — rewritten against booth-rental-service.ts,
+ * booth-rental-hooks.ts, the merged booth-rental-types.ts, and the new
+ * useLocation() context.
+ *
+ * WHAT CHANGED vs. the original RentersPage, and why — search "CHANGED:"
+ * below for each specific spot:
+ *
+ *   1. All four duplicated useMemoFirebase/useCollection blocks replaced
+ *      by useBoothRentalCollections() + the shared index hooks. Same
+ *      data, one definition instead of four slightly different ones.
+ *   2. activeLeaseByRenter (which used ['active','on_leave',
+ *      'pending_signature']) replaced by useOccupyingLeaseByRenter,
+ *      which uses the single canonical OCCUPYING_LEASE_STATUSES list
+ *      from booth-rental-service.ts — so this page can no longer
+ *      disagree with Booths/Rent-Roll about what counts as occupied.
+ *   3. handleSaveRenter's direct addDoc replaced by createRenter() from
+ *      the service layer, which writes the required locationId.
+ *   4. handleCreateLease's three sequential awaited writes replaced by
+ *      one call to createLease(), which batches them atomically.
+ *   5. handleEndLease's buggy currentLeaseId write (which stored a booth
+ *      id in a field meant to hold a lease id) replaced by endLease(),
+ *      which fixes that.
+ *   6. Every dialog now requires a selected location before it can save
+ *      — enforced via useLocation(), since every write needs locationId
+ *      and the security rules will reject a write missing it.
+ *
+ * ASSUMPTION CARRIED FROM useBoothRentalCollections (booth-rental-hooks.ts):
+ * `booths`, `renters`, `leases` below are accessed as `.data` / `.isLoading`,
+ * matching how the ORIGINAL page destructured useCollection
+ * (`const { data: booths, isLoading } = useCollection<Booth>(ref)`). I
+ * haven't seen your actual useCollection implementation — if it returns a
+ * different shape (e.g. a tuple, or different key names), every `.data`
+ * and `.isLoading` reference below needs updating to match. This is a
+ * single, consistent assumption throughout the file, not a per-call guess.
+ *
+ * WHAT DID NOT CHANGE: every dialog, wizard step, form field, and the
+ * PerkRow component are unchanged in structure and behavior. This is a
+ * data-layer rewrite, not a redesign.
+ */
+
 import { useState, useMemo } from 'react';
 import {
-  collection,
   doc,
-  addDoc,
   updateDoc,
 } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { useLocation } from '@/context/LocationContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +57,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -47,15 +86,20 @@ import {
   Users, Plus, Pencil, FileText, FileSignature,
   CircleDollarSign, CalendarDays, DoorOpen, LogOut,
   ChevronRight, ChevronLeft, Upload, AlertCircle,
-  Gift, Clock, Pause,
+  Gift, Clock, Pause, MapPin,
 } from 'lucide-react';
 import {
   Booth, Renter, RenterStatus, Lease, LeasePerk,
   PerkType, PerkTrigger, RentFrequency, WeekDay,
-  BOOTH_RENTAL_COLLECTIONS, FREQUENCY_LABELS,
-  RENTER_STATUS_LABELS, PERK_TYPE_LABELS, PERK_TRIGGER_LABELS,
-  WEEKDAY_LABELS, formatCents, toIsoDate, slotsOverlap,
+  FREQUENCY_LABELS, RENTER_STATUS_LABELS, PERK_TYPE_LABELS,
+  PERK_TRIGGER_LABELS, WEEKDAY_LABELS, formatCents, toIsoDate, slotsOverlap,
 } from '@/lib/booth-rental-types';
+import {
+  useBoothRentalCollections,
+  useBoothIndex,
+  useOccupyingLeaseByRenter,
+} from '@/lib/booth-rental-hooks';
+import { createRenter, createLease, endLease } from '@/lib/booth-rental-service';
 
 const RENTER_STATUS_CONFIG: Record<RenterStatus, { label: string; badgeClass: string }> = {
   prospective:     { label: 'Prospective',    badgeClass: 'bg-sky-100 text-sky-800' },
@@ -181,24 +225,32 @@ export default function RentersPage() {
   const { firebaseApp, firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
+
+  // CHANGED: location is now a first-class selection, not implicit.
+  // Every write below needs locationId; this page can't usefully render
+  // (or, more importantly, can't safely WRITE) without one selected.
+  const { selectedLocation, selectedLocationId, locations, isLoading: locationsLoading } =
+    useLocation();
+
   const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
 
-  const rentersRef = useMemoFirebase(
-    () => firestore && tenantId ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId)) : null,
-    [firestore, tenantId]
-  );
-  const boothsRef = useMemoFirebase(
-    () => firestore && tenantId ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)) : null,
-    [firestore, tenantId]
-  );
-  const leasesRef = useMemoFirebase(
-    () => firestore && tenantId ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId)) : null,
-    [firestore, tenantId]
+  // CHANGED: one hook replaces the three separate useMemoFirebase +
+  // useCollection blocks the original page had for renters/booths/leases.
+  // Passing selectedLocationId scopes every query to the active location
+  // — this is the query-layer half of the location-scoping design (see
+  // the LOCATION-SCOPED LIST CAVEAT note in firestore.rules: rules alone
+  // cannot filter list queries by field, so this where() clause is what
+  // actually keeps a location-restricted view correctly scoped).
+  const { booths, renters, leases } = useBoothRentalCollections(
+    tenantId,
+    selectedLocationId
   );
 
-  const { data: renters, isLoading: rentersLoading } = useCollection<Renter>(rentersRef);
-  const { data: booths } = useCollection<Booth>(boothsRef);
-  const { data: leases } = useCollection<Lease>(leasesRef);
+  const boothById = useBoothIndex(booths.data);
+  // CHANGED: replaces the page's local activeLeaseByRenter (which used
+  // ['active','on_leave','pending_signature']) with the canonical
+  // definition shared across all pages.
+  const occupyingLeaseByRenter = useOccupyingLeaseByRenter(leases.data);
 
   const [renterDialogOpen, setRenterDialogOpen] = useState(false);
   const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
@@ -220,33 +272,17 @@ export default function RentersPage() {
   const [endLeaseTarget, setEndLeaseTarget] = useState<Renter | null>(null);
   const [savingEndLease, setSavingEndLease] = useState(false);
 
-  const activeLeaseByRenter = useMemo(() => {
-    const m = new Map<string, Lease>();
-    (leases ?? []).forEach((l) => {
-      if (l.status === 'active' || l.status === 'on_leave' || l.status === 'pending_signature') {
-        m.set(l.renterId, l);
-      }
-    });
-    return m;
-  }, [leases]);
-
-  const boothById = useMemo(() => {
-    const m = new Map<string, Booth>();
-    (booths ?? []).forEach((b) => m.set(b.id, b));
-    return m;
-  }, [booths]);
-
   const availableBooths = useMemo(
-    () => (booths ?? []).filter((b) => b.status === 'vacant' || b.status === 'partial'),
-    [booths]
+    () => (booths.data ?? []).filter((b) => b.status === 'vacant' || b.status === 'partial'),
+    [booths.data]
   );
 
   const conflictingSlots = useMemo(() => {
     if (!leaseForm.boothId || !leaseForm.isShared) return [];
-    return (leases ?? [])
+    return (leases.data ?? [])
       .filter((l) => l.boothId === leaseForm.boothId && l.scheduleSlot && l.status === 'active')
       .map((l) => l.scheduleSlot!);
-  }, [leases, leaseForm.boothId, leaseForm.isShared]);
+  }, [leases.data, leaseForm.boothId, leaseForm.isShared]);
 
   const hasSlotConflict = useMemo(() => {
     if (!leaseForm.isShared || leaseForm.scheduleDays.length === 0) return false;
@@ -255,16 +291,35 @@ export default function RentersPage() {
   }, [leaseForm.isShared, leaseForm.scheduleDays, conflictingSlots]);
 
   const sortedRenters = useMemo(() => {
-    const list = renters ? [...renters] : [];
+    const list = renters.data ? [...renters.data] : [];
     const order: Record<RenterStatus, number> = {
       active: 0, on_leave: 1, maternity_leave: 2, subletting: 3,
       prospective: 4, past: 5, archived: 6,
     };
     list.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.lastName.localeCompare(b.lastName));
     return list;
-  }, [renters]);
+  }, [renters.data]);
 
+  // CHANGED: tenant loading state now also accounts for location loading
+  // — a tenant with zero locations yet (first-time setup) is a distinct,
+  // real state from "still fetching," handled separately below.
   if (!tenantId) return <div className="p-8 text-sm text-muted-foreground">Loading your studio…</div>;
+
+  if (!locationsLoading && locations.length === 0) {
+    return (
+      <div className="p-8 space-y-3">
+        <p className="font-medium">No locations set up yet</p>
+        <p className="text-sm text-muted-foreground">
+          Add at least one location before managing renters and leases —
+          every booth, renter, and lease belongs to a specific location.
+        </p>
+      </div>
+    );
+  }
+
+  if (locationsLoading || !selectedLocationId) {
+    return <div className="p-8 text-sm text-muted-foreground">Loading location…</div>;
+  }
 
   const step0Valid =
     Boolean(leaseForm.boothId && toNumber(leaseForm.rentDollars) > 0) &&
@@ -292,24 +347,45 @@ export default function RentersPage() {
     if (!open) { setEditingRenterId(null); setRenterError(null); }
     setRenterDialogOpen(open);
   };
+
   const handleSaveRenter = async () => {
-    if (!renterForm.firstName.trim() || !renterForm.email.trim()) return;
+    if (!renterForm.firstName.trim() || !renterForm.email.trim() || !selectedLocationId) return;
     setSavingRenter(true); setRenterError(null);
     const now = new Date().toISOString();
-    const payload = {
-      firstName: renterForm.firstName.trim(), lastName: renterForm.lastName.trim(),
-      email: renterForm.email.trim(), phone: renterForm.phone.trim(),
-      businessName: renterForm.businessName.trim(), specialty: renterForm.specialty.trim(),
-      notes: renterForm.notes.trim(), updatedAt: now,
-    };
     try {
       if (editingRenterId) {
-        await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), editingRenterId), payload);
+        // Editing an existing renter is a single-document update with no
+        // cross-collection side effects — stays a direct updateDoc, same
+        // as the booth update/delete pattern in booth-rental-service.ts's
+        // header comment (only creation/multi-effect ops get a wrapper).
+        await updateDoc(
+          doc(firestore, 'tenants', tenantId, 'renters', editingRenterId),
+          {
+            firstName: renterForm.firstName.trim(),
+            lastName: renterForm.lastName.trim(),
+            email: renterForm.email.trim(),
+            phone: renterForm.phone.trim(),
+            businessName: renterForm.businessName.trim(),
+            specialty: renterForm.specialty.trim(),
+            notes: renterForm.notes.trim(),
+            updatedAt: now,
+          }
+        );
       } else {
-        await addDoc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId)), {
-          ...payload, status: 'prospective' as RenterStatus,
-          stripeCustomerId: null, defaultPaymentMethodId: null,
-          autopayEnabled: false, portalAccessToken: null, createdAt: now,
+        // CHANGED: was a direct addDoc with no locationId. createRenter()
+        // writes locationId (required by the security rules) and the new
+        // portal-identity fields (authUid, portalInviteStatus) instead of
+        // the removed portalAccessToken.
+        await createRenter(firestore, {
+          tenantId,
+          locationId: selectedLocationId,
+          firstName: renterForm.firstName.trim(),
+          lastName: renterForm.lastName.trim(),
+          email: renterForm.email.trim(),
+          phone: renterForm.phone.trim() || undefined,
+          businessName: renterForm.businessName.trim() || undefined,
+          specialty: renterForm.specialty.trim() || undefined,
+          notes: renterForm.notes.trim() || undefined,
         });
       }
       setRenterDialogOpen(false); setEditingRenterId(null);
@@ -355,9 +431,8 @@ export default function RentersPage() {
     setLeaseForm((prev) => ({ ...prev, perks: prev.perks.filter((p) => p.id !== id) }));
 
   const handleCreateLease = async () => {
-    if (!leaseRenterId || !leaseForm.boothId) return;
+    if (!leaseRenterId || !leaseForm.boothId || !selectedLocationId) return;
     setSavingLease(true); setLeaseError(null);
-    const now = new Date().toISOString();
     try {
       let signedDocumentUrl: string | null = null;
       if (leaseForm.signedFile) {
@@ -374,19 +449,33 @@ export default function RentersPage() {
             endTime: leaseForm.scheduleEndTime || undefined,
             label: leaseForm.scheduleLabel || undefined }
         : null;
-      const perksWithMeta: LeasePerk[] = leaseForm.perks.map((p) => ({ ...p, appliedAt: null, ledgerEntryId: null }));
 
-      const leaseDoc = {
-        boothId: leaseForm.boothId, renterId: leaseRenterId, status: 'active' as const,
+      // CHANGED: was 3 sequential awaited writes (addDoc lease, updateDoc
+      // booth, updateDoc renter) — a dropped connection between any two
+      // left the system half-written. createLease() batches all three
+      // atomically. Also now passes locationId, taken from the booth
+      // being leased (booth.locationId once that field is populated on
+      // existing booth docs — see the merged Booth type's backfill note).
+      await createLease(firestore, {
+        tenantId,
+        locationId: booth?.locationId ?? selectedLocationId,
+        boothId: leaseForm.boothId,
+        renterId: leaseRenterId,
         rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
-        frequency: leaseForm.frequency, dueDay: parseInt(leaseForm.dueDay, 10) || 1,
-        firstChargeDate: leaseForm.firstChargeDate, lastChargeDate: null,
-        startDate: leaseForm.startDate, endDate: leaseForm.endDate || null,
+        frequency: leaseForm.frequency,
+        dueDay: parseInt(leaseForm.dueDay, 10) || 1,
+        firstChargeDate: leaseForm.firstChargeDate,
+        startDate: leaseForm.startDate,
+        endDate: leaseForm.endDate || null,
         autoRenew: leaseForm.autoRenew,
         earlyTerminationNoticeDays: parseInt(leaseForm.noticeDays, 10) || 30,
-        deposit: depositCents > 0 ? { amountCents: depositCents, refundable: leaseForm.depositRefundable,
+        deposit: depositCents > 0 ? {
+          amountCents: depositCents,
+          refundable: leaseForm.depositRefundable,
           refundConditions: leaseForm.depositConditions.trim(),
-          collectedLedgerEntryId: null, refundedLedgerEntryId: null } : null,
+          collectedLedgerEntryId: null,
+          refundedLedgerEntryId: null,
+        } : null,
         lateFeePolicy: {
           enabled: leaseForm.lateFeeEnabled,
           graceDays: parseInt(leaseForm.lateFeeGraceDays, 10) || 0,
@@ -395,19 +484,14 @@ export default function RentersPage() {
             ? { amountCents: Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100) }
             : { percent: toNumber(leaseForm.lateFeePercent) }),
         },
-        scheduleSlot, perks: perksWithMeta,
+        scheduleSlot,
+        perks: leaseForm.perks,
         includedAmenities: booth?.amenities ?? [],
         houseRules: leaseForm.houseRules.trim(),
-        signedDocumentUrl, signedAt: signedDocumentUrl ? now : null,
-        stripeSubscriptionId: null, createdAt: now, updatedAt: now,
-      };
+        signedDocumentUrl,
+        isShared: leaseForm.isShared,
+      });
 
-      const leaseRef = await addDoc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId)), leaseDoc);
-      const boothStatus = leaseForm.isShared ? 'partial' : 'occupied';
-      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), leaseForm.boothId),
-        { status: boothStatus, currentLeaseId: leaseRef.id, updatedAt: now });
-      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), leaseRenterId),
-        { status: 'active', updatedAt: now });
       setLeaseDialogOpen(false);
     } catch (err) {
       setLeaseError(err instanceof Error ? err.message : 'Failed to create lease.');
@@ -415,38 +499,33 @@ export default function RentersPage() {
   };
 
   const handleEndLease = async () => {
-    if (!endLeaseTarget) return;
-    const lease = activeLeaseByRenter.get(endLeaseTarget.id);
+    if (!endLeaseTarget || !tenantId) return;
+    const lease = occupyingLeaseByRenter.get(endLeaseTarget.id);
     if (!lease) return;
     setSavingEndLease(true);
-    const now = new Date().toISOString();
     try {
-      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId), lease.id),
-        { status: 'ended', lastChargeDate: toIsoDate(new Date()), updatedAt: now });
-      const remainingLeases = (leases ?? []).filter(
-        (l) => l.boothId === lease.boothId && l.id !== lease.id && l.status === 'active'
-      );
-      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), lease.boothId),
-        { status: remainingLeases.length > 0 ? 'partial' : 'vacant',
-          currentLeaseId: remainingLeases.length > 0 ? lease.boothId : null, updatedAt: now });
-      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), endLeaseTarget.id),
-        { status: 'past', updatedAt: now });
+      // CHANGED: was a hand-rolled updateDoc that wrote
+      // `currentLeaseId: lease.boothId` (a BOOTH id) into a field meant
+      // to hold a LEASE id, on shared booths with a remaining renter.
+      // endLease() fixes this — it correctly resolves the remaining
+      // lease's own id, or null if the booth is now fully vacant.
+      await endLease(firestore, tenantId, lease, endLeaseTarget.id, leases.data ?? []);
     } finally { setSavingEndLease(false); setEndLeaseTarget(null); }
   };
 
   const handleStatusChange = async () => {
-    if (!statusTarget) return;
+    if (!statusTarget || !tenantId) return;
     setSavingStatus(true);
     try {
-      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId), statusTarget.id),
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', statusTarget.id),
         { status: newStatus, updatedAt: new Date().toISOString() });
-      const lease = activeLeaseByRenter.get(statusTarget.id);
+      const lease = occupyingLeaseByRenter.get(statusTarget.id);
       if (lease && (newStatus === 'on_leave' || newStatus === 'maternity_leave')) {
-        await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId), lease.id),
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
           { status: 'on_leave', updatedAt: new Date().toISOString() });
       }
       if (lease && newStatus === 'active') {
-        await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId), lease.id),
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
           { status: 'active', updatedAt: new Date().toISOString() });
       }
     } finally { setSavingStatus(false); setStatusTarget(null); }
@@ -461,13 +540,20 @@ export default function RentersPage() {
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <Users className="h-6 w-6" />Renters
           </h1>
-          <p className="text-sm text-muted-foreground">The independent professionals renting space in your studio.</p>
+          <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+            The independent professionals renting space in your studio.
+            {selectedLocation && (
+              <span className="inline-flex items-center gap-1 text-xs bg-muted px-2 py-0.5 rounded-full">
+                <MapPin className="h-3 w-3" />{selectedLocation.name}
+              </span>
+            )}
+          </p>
         </div>
         <Button onClick={openCreateRenter}><Plus className="h-4 w-4 mr-2" />Add renter</Button>
       </div>
 
-      {rentersLoading && <p className="text-sm text-muted-foreground">Loading renters…</p>}
-      {!rentersLoading && sortedRenters.length === 0 && (
+      {renters.isLoading && <p className="text-sm text-muted-foreground">Loading renters…</p>}
+      {!renters.isLoading && sortedRenters.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center space-y-3">
             <Users className="h-10 w-10 mx-auto text-muted-foreground" />
@@ -481,7 +567,7 @@ export default function RentersPage() {
       <div className="grid gap-4 md:grid-cols-2">
         {sortedRenters.map((renter) => {
           const sc = RENTER_STATUS_CONFIG[renter.status] ?? RENTER_STATUS_CONFIG.prospective;
-          const lease = activeLeaseByRenter.get(renter.id);
+          const lease = occupyingLeaseByRenter.get(renter.id);
           const booth = lease ? boothById.get(lease.boothId) : undefined;
           return (
             <Card key={renter.id}>
