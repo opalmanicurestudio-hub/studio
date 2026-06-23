@@ -5,6 +5,19 @@
  * booth-rental-hooks.ts, the merged booth-rental-types.ts, and the new
  * useLocation() context.
  *
+ * BUILD FIX: this page reads live, per-user Firestore data (tenant,
+ * location, renters — all scoped to whoever is signed in), so it must
+ * never be statically prerendered. Without this line, Next.js attempts
+ * prerendering anyway, hits useLocation() with no real LocationProvider
+ * mounted during that attempt, and the thrown error fails the entire
+ * build (see DEPLOYMENT_FIX.md for the full diagnosis). Every page that
+ * calls useTenant()/useLocation()/the booth-rental hooks needs this same
+ * line — add it now to Booths, Receipts, and Rent Roll when those are
+ * rewritten, rather than rediscovering this once per page.
+ */
+export const dynamic = 'force-dynamic';
+
+/**
  * WHAT CHANGED vs. the original RentersPage, and why — search "CHANGED:"
  * below for each specific spot:
  *
