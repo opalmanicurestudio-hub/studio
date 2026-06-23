@@ -4,6 +4,11 @@
 //   - All money amounts are INTEGER CENTS. $250.00 = 25000.
 //   - All dates are ISO 8601 strings ("2026-06-10"). No Firestore Timestamps here.
 //   - Firestore paths: everything lives under tenants/{tenantId}/ (see BOOTH_RENTAL_COLLECTIONS).
+//
+// MERGE NOTE: this file now includes the multi-location + renter-portal
+// additions designed alongside firestore.rules and booth-rental-service.ts.
+// Search "MERGED:" comments below for exactly what was added or changed
+// relative to the original version of this file, and why.
 
 // ─── Primitives ──────────────────────────────────────────────────────────────
 
@@ -36,6 +41,29 @@ export type LeaseStatus =
   | 'cancelled';
 
 export type WeekDay = 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0=Sun … 6=Sat
+
+// ─── MERGED: Location ─────────────────────────────────────────────────────
+//
+// A tenant is one business. A business can run multiple physical studios.
+// Booth, Renter, Lease (and optionally RentLedgerEntry/Receipt) below each
+// gain a `locationId` field rather than splitting into per-location
+// Firestore paths — every existing tenants/{t}/booths-style path stays
+// valid; nothing renamed, nothing moved.
+
+export interface Location {
+  id: string;
+  tenantId: string;
+  name: string;                // "Downtown", "Westside" — owner's own label
+  address?: string;
+  timezone: string;            // IANA tz, e.g. "America/New_York" — the
+                                // daily automation job runs once per
+                                // tenant but "due at midnight" means a
+                                // different UTC instant per location
+  isActive: boolean;            // soft-disable a closed location without
+                                 // deleting its historical data
+  createdAt: string;
+  updatedAt: string;
+}
 
 // ─── Schedule slot (for shared/part-time booths) ─────────────────────────────
 
@@ -75,6 +103,11 @@ export interface LeasePerk {
 
 export interface Booth {
   id: string;
+  // MERGED: required — every booth belongs to exactly one location.
+  // Existing booth docs created before this field existed will read back
+  // as `undefined` here; backfill them with a one-time migration script
+  // before relying on locationId-scoped queries/rules for those records.
+  locationId: string;
   name: string;
   type: 'booth' | 'chair' | 'room' | 'suite';
   status: BoothStatus;
@@ -96,6 +129,8 @@ export interface Booth {
 
 export interface Renter {
   id: string;
+  // MERGED: required, same backfill caveat as Booth.locationId above.
+  locationId: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -107,7 +142,39 @@ export interface Renter {
   stripeCustomerId: string | null;
   defaultPaymentMethodId: string | null;
   autopayEnabled: boolean;
-  portalAccessToken: string | null;
+  // MERGED: portalAccessToken REMOVED. A bare token string isn't how
+  // Firebase Auth grants scoped Firestore access — security rules need
+  // to compare request.auth.uid against a real UID, not validate an
+  // arbitrary token against a Firestore field (which would require a
+  // rule that reads the renter doc to check the token, defeating the
+  // purpose of having auth at all). Replaced with:
+  authUid: string | null;
+  portalInviteStatus: 'not_sent' | 'sent' | 'accepted';
+  portalInviteSentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── MERGED: StaffMember ────────────────────────────────────────────────────
+//
+// Not previously modeled as a TS interface in this file (the original
+// firestore.rules referenced tenants/{t}/staff/{staffId} with a `role`
+// field, but nothing here declared its shape). Added now because
+// isStaffForLocation() in the updated rules reads `locationIds` off this
+// document — without a typed interface, that field has no compile-time
+// guarantee of existing when staff docs are created in app code.
+
+export type StaffRole = 'owner' | 'manager' | 'staff';
+
+export interface StaffMember {
+  id: string;               // matches the Firebase Auth uid
+  role: StaffRole;
+  // Owners conventionally have implicit access to every location (see
+  // isOwner() short-circuit in firestore.rules) but locationIds is still
+  // stored explicitly even for owners, rather than leaving "owner = all
+  // locations" as an unwritten rule — so a future co-owner restricted to
+  // one location doesn't require a schema change later.
+  locationIds: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -133,6 +200,12 @@ export interface Deposit {
 
 export interface Lease {
   id: string;
+  // MERGED: required. Denormalized from the booth's own locationId
+  // (rather than requiring a join through Booth on every lease query) —
+  // leases are read far more often than written, so this trades a small
+  // write-time duplication for a much cheaper, much more common
+  // read-time filter. Must always equal the locationId of `boothId`.
+  locationId: string;
   boothId: string;
   renterId: string;
   status: LeaseStatus;
@@ -187,6 +260,12 @@ export interface LedgerEntry {
   leaseId: string;
   renterId: string;
   boothId: string;
+  // MERGED: optional — added for symmetry with RentLedgerEntry below and
+  // for cheap location-filtered queries on this entry type, but this
+  // interface isn't currently written anywhere in the four pages (they
+  // all use RentLedgerEntry instead), so it's optional rather than
+  // required to avoid retroactively breaking anything that does use it.
+  locationId?: string;
   type: LedgerEntryType;
   amountCents: number;        // positive = owed to owner, negative = credit
   status: LedgerEntryStatus;
@@ -201,6 +280,9 @@ export interface LedgerEntry {
 /** Ledger entry shape used by the rent roll page (superset, mostly optional). */
 export interface RentLedgerEntry {
   id: string;
+  // MERGED: optional, same reasoning as LedgerEntry.locationId above —
+  // existing rentLedger documents predate this field.
+  locationId?: string;
   leaseId: string;
   renterId: string;
   boothId?: string;
@@ -227,6 +309,8 @@ export interface ReceiptLineItem {
 
 export interface Receipt {
   id: string;
+  // MERGED: optional, same backfill reasoning as RentLedgerEntry.locationId.
+  locationId?: string;
   receiptNumber: string;      // e.g. "RCP-2024-0042"
   leaseId: string;
   renterId: string;
@@ -267,6 +351,92 @@ export interface Expense {
   updatedAt: string;
 }
 
+// ─── MERGED: StudioSettings — the owner policy layer ──────────────────────────
+//
+// One per LOCATION, not per tenant — late fee grace days, reminder
+// cadence, and vacancy thresholds are operational decisions that
+// reasonably differ between a flagship downtown studio and a smaller
+// satellite location.
+
+export type AutoVacancyAction = 'none' | 'discount_percent';
+export type AutoRenewalAction = 'none' | 'auto_renew' | 'auto_end';
+
+export interface StudioSettings {
+  id: string;             // == locationId, one settings doc per location
+  tenantId: string;
+  locationId: string;
+
+  defaultLeaseTerms: {
+    graceDays: number;
+    lateFeeType: 'flat' | 'percent';
+    lateFeeAmountCents?: number;
+    lateFeePercent?: number;
+    autoRenew: boolean;
+    noticeDays: number;
+  };
+
+  reminders: {
+    daysBeforeDueToRemindRenter: number;       // e.g. 3
+    daysLateBeforeRenagging: number;           // e.g. 2 — re-send after this many late days
+    daysLateBeforeNotifyingOwner: number;      // e.g. 5 — escalate to owner
+  };
+
+  renewal: {
+    flagWindowDays: number;              // matches isLeaseEndingSoon's windowDays
+    autoSendOfferAtDays: number | null;  // null = never auto-send
+    autoActionIfNoResponse: AutoRenewalAction;
+    autoActionGraceDays: number;         // days after offer before auto-action fires
+  };
+
+  vacancy: {
+    alertAfterDays: number;
+    autoAction: AutoVacancyAction;
+    autoDiscountPercent?: number;       // only used if autoAction = discount_percent
+    autoDiscountAfterDays?: number;     // only used if autoAction = discount_percent
+  };
+
+  notificationChannels: {
+    owner: { email: boolean; sms: boolean; inApp: boolean };
+    renter: { email: boolean; sms: boolean; inApp: boolean };
+  };
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── MERGED: NotificationLog ───────────────────────────────────────────────
+
+export type NotificationRecipientType = 'owner' | 'renter';
+export type NotificationChannel = 'email' | 'sms' | 'in_app';
+export type NotificationEventType =
+  | 'rent_due_soon'
+  | 'rent_late'
+  | 'late_fee_applied'
+  | 'lease_ending_soon'
+  | 'renewal_offer_sent'
+  | 'booth_vacant_alert'
+  | 'payment_received'
+  | 'perk_applied';
+export type NotificationStatus = 'pending' | 'sent' | 'failed';
+
+export interface NotificationLogEntry {
+  id: string;
+  tenantId: string;
+  locationId: string;
+  recipientType: NotificationRecipientType;
+  recipientId: string;       // renterId or staff/owner uid
+  channel: NotificationChannel;
+  eventType: NotificationEventType;
+  relatedId: string;         // leaseId / boothId / ledgerEntryId, depending on eventType
+  status: NotificationStatus;
+  // Checked before sending so the same event never notifies twice across
+  // daily job re-runs, e.g. `rent_due_soon:{leaseId}:{dueDate}`.
+  dedupeKey: string;
+  createdAt: string;
+  sentAt: string | null;
+  error?: string;
+}
+
 // ─── Firestore collection paths ───────────────────────────────────────────────
 // NOTE: rentLedger is the original, live collection — your existing ledger data
 // lives at tenants/{t}/rentLedger. Both keys below intentionally point there.
@@ -279,6 +449,11 @@ export const BOOTH_RENTAL_COLLECTIONS = {
   ledger:     (t: string) => `tenants/${t}/rentLedger`,
   receipts:   (t: string) => `tenants/${t}/receipts`,
   expenses:   (t: string) => `tenants/${t}/expenses`,
+  // MERGED: new collections for multi-location + automation.
+  locations:        (t: string) => `tenants/${t}/locations`,
+  studioSettings:   (t: string) => `tenants/${t}/studioSettings`,
+  notificationLog:  (t: string) => `tenants/${t}/notificationLog`,
+  staff:            (t: string) => `tenants/${t}/staff`,
 };
 
 /** Back-compat alias — some earlier files referenced COLLECTIONS directly. */
