@@ -873,6 +873,19 @@ export async function createBooth(
 // Renter creation (new — was previously inline in RentersPage.handleSaveRenter)
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * DEPENDENCY: written against the TARGET Renter shape from
+ * booth-rental-types.additions.ts (authUid, portalInviteStatus,
+ * portalInviteSentAt) — not today's real Renter interface, which still
+ * has a required `portalAccessToken: string | null` field and no
+ * `locationId`. This will fail to compile until that merge lands.
+ * Two ways to unblock if you need this sooner than the full merge:
+ *   (a) merge just the Renter portion of the additions doc now, or
+ *   (b) temporarily add `portalAccessToken: null` back into the object
+ *       below and drop the three new fields until the merge happens.
+ * Left written against the target shape rather than the current one so
+ * nothing here needs touching twice.
+ */
 export interface CreateRenterInput {
   tenantId: string;
   locationId: string;
