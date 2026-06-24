@@ -209,191 +209,497 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
   );
 }
 
+// ── QuickBookForm — receptionist-optimised 3-step wizard ─────────────────────
+// Step 1: Client  (recent clients, rebook shortcut, new-client inline create)
+// Step 2: Service + Provider + Time
+// Step 3: Confirm summary + link/deposit options
 export function QuickBookForm({ clients, services, staff, tenantId, tenant, firestore, onSuccess, onCancel }: any) {
   const { toast } = useToast();
+
+  // ── wizard state ────────────────────────────────────────────────────────────
+  const [step, setStep] = React.useState<1 | 2 | 3>(1);
+
+  // step 1
   const [clientSearch, setClientSearch] = React.useState('');
   const [selectedClient, setSelectedClient] = React.useState<any>(null);
+  const [isNewClient, setIsNewClient] = React.useState(false);
   const [newClientName, setNewClientName] = React.useState('');
   const [newClientPhone, setNewClientPhone] = React.useState('');
-  const [email, setEmail] = React.useState('');
+  const [newClientEmail, setNewClientEmail] = React.useState('');
+
+  // step 2
   const [selectedService, setSelectedService] = React.useState<string>('');
   const [selectedStaff, setSelectedStaff] = React.useState<string>('any');
   const [aptDate, setAptDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
   const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 15), 'HH:mm'));
+
+  // step 3
   const [sendLink, setSendLink] = React.useState(true);
   const [requestFiles, setRequestFiles] = React.useState(false);
+  const [notes, setNotes] = React.useState('');
+
+  // submit
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [sendStatus, setSendStatus] = React.useState<any>(null);
 
+  const searchRef = React.useRef<HTMLInputElement>(null);
+
+  // ── derived ─────────────────────────────────────────────────────────────────
+  const recentClients = React.useMemo(() => {
+    return [...(clients || [])]
+      .filter((c: any) => c.lastAppointment)
+      .sort((a: any, b: any) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime())
+      .slice(0, 6);
+  }, [clients]);
+
   const filteredClients = React.useMemo(() => {
-    if (!clientSearch.trim()) return clients.slice(0, 8);
+    if (!clientSearch.trim()) return [];
     const s = clientSearch.toLowerCase();
-    return clients.filter((c: any) => c.name?.toLowerCase().includes(s) || c.phone?.includes(s) || c.email?.toLowerCase().includes(s)).slice(0, 8);
+    return (clients || []).filter((c: any) =>
+      c.name?.toLowerCase().includes(s) || c.phone?.includes(s) || c.email?.toLowerCase().includes(s)
+    ).slice(0, 8);
   }, [clients, clientSearch]);
 
-  const selectedSvc = services.find((s: any) => s.id === selectedService);
-  const staffMember = staff.find((s: any) => s.id === selectedStaff);
-  const svcPrice = selectedSvc ? getServicePrice(selectedSvc, staffMember) : 0;
+  const selectedSvc = (services || []).find((s: any) => s.id === selectedService);
+  const resolvedStaffMember = (staff || []).find((s: any) => s.id === selectedStaff);
+  const svcPrice = selectedSvc ? getServicePrice(selectedSvc, resolvedStaffMember) : 0;
   const depositCents = selectedSvc ? computeDepositCents({ service: selectedSvc, price: svcPrice, depositsLive: tenant?.depositsLive === true }) : 0;
   const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
   const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
+  const clientEmail = selectedClient?.email || newClientEmail;
 
-  React.useEffect(() => { if (requiredFormIds.length > 0 && !sendLink) setSendLink(true); }, [requiredFormIds.length]);
+  // last service this client booked — enables one-tap rebook
+  const lastServiceId = React.useMemo(() => {
+    if (!selectedClient) return null;
+    return selectedClient.lastServiceId || null;
+  }, [selectedClient]);
+
+  const lastService = (services || []).find((s: any) => s.id === lastServiceId);
+
+  // quick suggested times — next 4 round-30-min slots from now
+  const suggestedTimes = React.useMemo(() => {
+    const slots: string[] = [];
+    const base = addMinutes(new Date(), 5);
+    const mins = base.getMinutes();
+    const rounded = mins < 30 ? 30 : 60;
+    let cursor = new Date(base);
+    cursor.setMinutes(rounded, 0, 0);
+    for (let i = 0; i < 4; i++) {
+      slots.push(format(cursor, 'HH:mm'));
+      cursor = addMinutes(cursor, 30);
+    }
+    return slots;
+  }, []);
+
+  React.useEffect(() => { if (requiredFormIds.length > 0) setSendLink(true); }, [requiredFormIds.length]);
+
+  // focus search on open
+  React.useEffect(() => { if (step === 1) setTimeout(() => searchRef.current?.focus(), 80); }, [step]);
+
+  const selectClient = (c: any) => {
+    setSelectedClient(c);
+    setIsNewClient(false);
+    setClientSearch('');
+    setStep(2);
+    // pre-fill last service for instant rebook
+    if (c.lastServiceId) setSelectedService(c.lastServiceId);
+  };
 
   const copyLink = async () => {
     if (!generatedLink) return;
     try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-    catch { toast({ variant: 'destructive', title: 'Copy failed', description: 'Select and copy the link manually.' }); }
+    catch { toast({ variant: 'destructive', title: 'Copy failed' }); }
   };
 
   const handleBook = async () => {
+    const clientName = selectedClient?.name || newClientName.trim();
     if (!selectedService || !tenantId || !firestore) return;
-    if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client Required' }); return; }
-    if (sendLink && !email.trim()) { toast({ variant: 'destructive', title: 'Email required', description: 'An email is needed to send the secure completion link.' }); return; }
+    if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client name required' }); return; }
+    if (sendLink && !clientEmail.trim()) { toast({ variant: 'destructive', title: 'Email required', description: 'Needed to send the secure completion link.' }); return; }
     setIsSubmitting(true);
     const { nanoid: _nanoid } = await import('nanoid');
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
     try {
       let clientId = selectedClient?.id;
-      const clientName = selectedClient?.name || newClientName.trim();
       if (!clientId) {
         clientId = _nanoid();
-        batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({ id: clientId, name: clientName, phone: newClientPhone, email: email.trim(), lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false }));
-      } else if (email.trim() && !selectedClient?.email) {
-        batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { email: email.trim() }, { merge: true });
+        batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+          id: clientId, name: clientName, phone: newClientPhone.trim(), email: newClientEmail.trim(),
+          lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
+        }));
+      } else {
+        const updates: any = {};
+        if (newClientEmail.trim() && !selectedClient.email) updates.email = newClientEmail.trim();
+        if (Object.keys(updates).length) batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), updates, { merge: true });
       }
+
       const aptId = _nanoid();
       const checkInToken = _nanoid();
       const startTime = new Date(`${aptDate}T${aptTime}:00`);
       const endTime = addMinutes(startTime, selectedSvc?.duration || 60);
-      const resolvedStaffId = selectedStaff === 'any' ? (staff.find((s: any) => s.active)?.id || null) : selectedStaff;
-      const aptDoc = sanitizeForFirestore({ id: aptId, tenantId, clientId, clientName, serviceId: selectedService, staffId: resolvedStaffId, checkInToken, status: 'confirmed', source: 'pos_quick_book', startTime: startTime.toISOString(), endTime: endTime.toISOString(), createdAt: now, reminderSent: false, ...(sendLink ? { completionStatus: 'pending', depositAmountCents: depositCents, depositStatus: depositCents > 0 ? 'pending' : 'none' } : {}) });
+      const resolvedStaffId = selectedStaff === 'any' ? ((staff || []).find((s: any) => s.active)?.id || null) : selectedStaff;
+
+      const aptDoc = sanitizeForFirestore({
+        id: aptId, tenantId, clientId, clientName,
+        serviceId: selectedService, staffId: resolvedStaffId, checkInToken,
+        status: 'confirmed', source: 'pos_quick_book',
+        startTime: startTime.toISOString(), endTime: endTime.toISOString(),
+        createdAt: now, reminderSent: false,
+        notes: notes.trim() || undefined,
+        ...(sendLink ? { completionStatus: 'pending', depositAmountCents: depositCents, depositStatus: depositCents > 0 ? 'pending' : 'none' } : {}),
+      });
+
       batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
       batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
+
+      // update client's lastServiceId for future rebook shortcuts
+      batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), { lastServiceId: selectedService, lastAppointment: now }, { merge: true });
+
       let link: string | null = null;
       if (sendLink) {
         const token = _nanoid();
         const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
-        batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({ token, tenantId, appointmentId: aptId, clientId, clientName, clientEmail: email.trim().toLowerCase(), serviceId: selectedService, serviceName: selectedSvc?.name || '', depositAmountCents: depositCents, requiredConsentFormIds: requiredFormIds, skipCardStep: alreadyHasCard, cardAlreadyOnFile: alreadyHasCard, fileRequirements: requestFiles ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [], status: 'pending', createdAt: now, expiresAt }));
+        batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
+          token, tenantId, appointmentId: aptId, clientId, clientName,
+          clientEmail: clientEmail.trim().toLowerCase(),
+          serviceId: selectedService, serviceName: selectedSvc?.name || '',
+          depositAmountCents: depositCents,
+          requiredConsentFormIds: requiredFormIds,
+          skipCardStep: alreadyHasCard, cardAlreadyOnFile: alreadyHasCard,
+          fileRequirements: requestFiles ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
+          status: 'pending', createdAt: now, expiresAt,
+        }));
         const origin = typeof window !== 'undefined' ? window.location.origin : '';
         link = `${origin}/complete/${tenantId}/${token}`;
       }
+
       await batch.commit();
+
       if (link) {
         setGeneratedLink(link);
         const clientPhone = selectedClient?.phone || newClientPhone;
-        try { const sr = await fetch('/api/notifications/send-completion-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link, clientName, clientEmail: email.trim(), clientPhone, studioName: tenant?.name }) }); setSendStatus(await sr.json().catch(() => null)); } catch { setSendStatus(null); }
-        toast({ title: 'Appointment booked', description: 'Secure link generated.' });
-      } else { onSuccess(); }
+        try {
+          const sr = await fetch('/api/notifications/send-completion-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ link, clientName, clientEmail: clientEmail.trim(), clientPhone, studioName: tenant?.name }) });
+          setSendStatus(await sr.json().catch(() => null));
+        } catch { setSendStatus(null); }
+        toast({ title: 'Booked!', description: `${clientName} · ${format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}` });
+      } else {
+        onSuccess();
+      }
     } catch (e) { toast({ variant: 'destructive', title: 'Booking Failed' }); }
     finally { setIsSubmitting(false); }
   };
 
+  // ── SUCCESS SCREEN ───────────────────────────────────────────────────────────
   if (generatedLink) {
+    const firstName = (selectedClient?.name || newClientName).split(' ')[0];
     return (
       <div className="space-y-6">
         <div className="text-center space-y-3 pt-2">
-          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto"><CheckCircle2 className="w-8 h-8 text-green-500" /></div>
-          <p className="text-lg font-black uppercase tracking-tight text-slate-900">Appointment booked</p>
-          <p className="text-xs text-muted-foreground font-medium max-w-xs mx-auto">{alreadyHasCard ? requiredFormIds.length > 0 ? `Send this link to ${selectedClient?.name?.split(' ')[0] || 'the client'}. They'll sign ${requiredFormIds.length} consent form${requiredFormIds.length > 1 ? 's' : ''} — their card is already on file.` : `Appointment booked. Card is on file — signature will be collected at checkout.` : `Send this secure link to the client. They'll ${depositCents > 0 ? `pay the $${(depositCents / 100).toFixed(2)} deposit, ` : ''}save their card${requiredFormIds.length > 0 ? `, and sign ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.`}</p>
-        </div>
-        <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Link2 className="w-3 h-3" /> Completion link</Label>
-          <div className="flex items-center gap-2">
-            <Input readOnly value={generatedLink} onFocus={(e) => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
-            <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest shrink-0">{copied ? <><CheckCircle2 className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}</Button>
+          <div className="w-16 h-16 rounded-full bg-green-50 border-4 border-green-100 flex items-center justify-center mx-auto"><CheckCircle2 className="w-8 h-8 text-green-500" /></div>
+          <div>
+            <p className="text-lg font-black uppercase tracking-tight text-slate-900">{selectedClient?.name || newClientName} · Booked</p>
+            <p className="text-xs font-bold text-muted-foreground mt-0.5">{selectedSvc?.name} · {format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}</p>
           </div>
-          {sendStatus && (sendStatus.smsSent || sendStatus.emailSent) ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''} · valid 7 days</p> : <p className="text-[10px] text-muted-foreground font-medium">{sendStatus && !sendStatus.smsConfigured && !sendStatus.emailConfigured ? "Auto-send isn't set up yet — copy the link to send it. " : ''}Valid for 7 days.</p>}
         </div>
-        <Button onClick={onSuccess} variant="outline" className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Done</Button>
+
+        <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2"><Link2 className="w-3 h-3" /> Completion link · valid 7 days</p>
+          <div className="flex items-center gap-2">
+            <Input readOnly value={generatedLink} onFocus={e => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
+            <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] shrink-0">
+              {copied ? <><CheckCircle2 className="w-4 h-4 mr-1" />Copied</> : <><Copy className="w-4 h-4 mr-1" />Copy</>}
+            </Button>
+          </div>
+          {sendStatus?.smsSent || sendStatus?.emailSent
+            ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Auto-sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''}</p>
+            : <p className="text-[10px] text-muted-foreground font-medium">Copy and send to {firstName} to secure their spot.</p>}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Button onClick={() => { setStep(1); setSelectedClient(null); setSelectedService(''); setAptTime(format(addMinutes(new Date(), 15), 'HH:mm')); setGeneratedLink(null); setSendStatus(null); setNotes(''); setIsNewClient(false); setNewClientName(''); setNewClientPhone(''); setNewClientEmail(''); }} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Book Another</Button>
+          <Button onClick={onSuccess} className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest">Done</Button>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="space-y-3">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Client</Label>
-        {selectedClient ? (
-          <div className="flex items-center justify-between p-3 rounded-2xl border-2 border-primary/20 bg-primary/5">
-            <div><p className="font-black text-sm text-slate-900">{selectedClient.name}</p><p className="text-[10px] text-muted-foreground">{selectedClient.phone}</p></div>
-            <Button variant="ghost" size="sm" onClick={() => { setSelectedClient(null); setEmail(''); }} className="text-[10px] font-black uppercase">Change</Button>
+  // ── STEP INDICATOR ──────────────────────────────────────────────────────────
+  const StepDots = () => (
+    <div className="flex items-center gap-2 mb-6">
+      {([1, 2, 3] as const).map(n => (
+        <div key={n} className={cn("h-1.5 rounded-full transition-all duration-300", n === step ? "flex-1 bg-primary" : n < step ? "w-6 bg-primary/30" : "flex-1 bg-slate-100")} />
+      ))}
+    </div>
+  );
+
+  // ── STEP 1: CLIENT ──────────────────────────────────────────────────────────
+  if (step === 1) {
+    return (
+      <div className="space-y-5">
+        <StepDots />
+
+        {/* New client inline form */}
+        {isNewClient ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-2">
+              <button onClick={() => setIsNewClient(false)} className="text-[10px] font-black uppercase text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"><ChevronLeft className="w-3 h-3" />Back</button>
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">New Client</p>
+            <Input autoFocus placeholder="Full name *" value={newClientName} onChange={e => setNewClientName(e.target.value)} className="h-12 rounded-xl border-2" />
+            <Input placeholder="Phone number" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} className="h-12 rounded-xl border-2" type="tel" />
+            <Input placeholder="Email (for link & receipt)" value={newClientEmail} onChange={e => setNewClientEmail(e.target.value)} className="h-12 rounded-xl border-2" type="email" />
+            <Button disabled={!newClientName.trim()} onClick={() => { setIsNewClient(true); setStep(2); }} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+              Continue → Pick Service
+            </Button>
           </div>
         ) : (
           <>
-            <Input placeholder="Search by name or phone..." value={clientSearch} onChange={e => setClientSearch(e.target.value)} className="h-12 rounded-xl border-2" />
+            {/* Search */}
+            <div className="relative">
+              <Input ref={searchRef} placeholder="Search client by name, phone, email…" value={clientSearch} onChange={e => { setClientSearch(e.target.value); }} className="h-12 rounded-xl border-2 pr-10" />
+              {clientSearch && <button onClick={() => setClientSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-slate-700"><XCircle className="w-4 h-4" /></button>}
+            </div>
+
+            {/* Search results */}
             {filteredClients.length > 0 && (
-              <div className="rounded-xl border-2 divide-y overflow-hidden">
+              <div className="rounded-2xl border-2 divide-y overflow-hidden shadow-sm">
                 {filteredClients.map((c: any) => (
-                  <button key={c.id} onClick={() => { setSelectedClient(c); setClientSearch(''); setEmail(c.email || ''); }} className="w-full flex items-center justify-between p-3 hover:bg-muted/30 transition-colors text-left">
-                    <p className="font-bold text-sm text-slate-900">{c.name}</p><p className="text-[10px] text-muted-foreground">{c.phone}</p>
+                  <button key={c.id} onClick={() => selectClient(c)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-primary/5 transition-colors text-left group">
+                    <div>
+                      <p className="font-black text-sm text-slate-900">{c.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{c.phone || c.email || '—'}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {c.lastServiceId && <span className="text-[9px] font-black uppercase text-primary/60 bg-primary/5 px-2 py-0.5 rounded-full">Rebook ready</span>}
+                      {c.lifetimeValue > 0 && <span className="text-[9px] font-bold text-slate-400">${Math.round(c.lifetimeValue)}</span>}
+                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-80" />
+                    </div>
                   </button>
                 ))}
               </div>
             )}
+
+            {/* No results — offer new client */}
             {clientSearch && filteredClients.length === 0 && (
-              <div className="space-y-3 p-4 rounded-xl border-2 border-dashed">
-                <p className="text-[10px] font-bold uppercase text-muted-foreground">New Client</p>
-                <Input placeholder="Full name" value={newClientName} onChange={e => setNewClientName(e.target.value)} className="h-10 rounded-xl border-2" />
-                <Input placeholder="Phone number" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} className="h-10 rounded-xl border-2" />
+              <button onClick={() => { setNewClientName(clientSearch); setIsNewClient(true); }} className="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10 transition-all text-left">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><UserPlus className="w-4 h-4 text-primary" /></div>
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-primary">Create "{clientSearch}"</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase">New client · add details next</p>
+                </div>
+              </button>
+            )}
+
+            {/* Recent clients when no search */}
+            {!clientSearch && recentClients.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Recent Clients</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {recentClients.map((c: any) => (
+                    <button key={c.id} onClick={() => selectClient(c)} className="flex items-center gap-3 p-3 rounded-2xl border-2 border-muted/50 hover:border-primary/30 hover:bg-primary/5 transition-all text-left group">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-[11px] font-black text-slate-500 group-hover:bg-primary/10 group-hover:text-primary transition-colors">{c.name?.charAt(0)?.toUpperCase()}</div>
+                      <div className="min-w-0">
+                        <p className="font-black text-[11px] text-slate-900 truncate">{c.name}</p>
+                        {c.lastAppointment && <p className="text-[9px] text-muted-foreground">{format(new Date(c.lastAppointment), 'MMM d')}</p>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
+            )}
+
+            {/* New client CTA when no search */}
+            {!clientSearch && (
+              <button onClick={() => setIsNewClient(true)} className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 border-dashed border-muted hover:border-primary/30 hover:bg-primary/5 transition-all text-left">
+                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"><UserPlus className="w-4 h-4 text-slate-400" /></div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">New Client</p>
+              </button>
             )}
           </>
         )}
-        <Input type="email" placeholder="Email (for receipt & secure link)" value={email} onChange={e => setEmail(e.target.value)} className="h-11 rounded-xl border-2" />
       </div>
-      <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Service</Label>
-        <select value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
-          <option value="">Select service…</option>
-          {services.filter((s: any) => s.type === 'service').map((s: any) => (<option key={s.id} value={s.id}>{s.name} ({s.duration}m)</option>))}
-        </select>
-      </div>
-      <div className="space-y-2">
-        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Provider</Label>
-        <select value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white">
-          <option value="any">First Available</option>
-          {staff.filter((s: any) => s.active).map((s: any) => (<option key={s.id} value={s.id}>{s.name}</option>))}
-        </select>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Date</Label>
-          <input type="date" value={aptDate} onChange={e => setAptDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Time</Label>
-          <input type="time" value={aptTime} onChange={e => setAptTime(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
-        </div>
-      </div>
-      <button type="button" onClick={() => { if (!sendLink && requiredFormIds.length > 0) { toast({ title: 'Link required', description: 'This service has required consent forms — the completion link must be sent.' }); return; } setSendLink(v => !v); }} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" /> Send completion link</p>
-            <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">{selectedSvc ? (alreadyHasCard && requiredFormIds.length === 0 ? 'Card already on file — link will only collect consent forms if added.' : alreadyHasCard && requiredFormIds.length > 0 ? <>Card already on file. Client still needs to sign {requiredFormIds.length} consent form{requiredFormIds.length > 1 ? 's' : ''}.</> : <>Client secures a card on file{depositCents > 0 ? `, pays a $${(depositCents / 100).toFixed(2)} deposit` : ''}{requiredFormIds.length > 0 ? `, and signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''}.</>) : <>Pick a service to see what the client will complete.</>}</p>
-            {requiredFormIds.length > 0 && <p className="text-[9px] font-black text-primary uppercase tracking-widest mt-1">Required — {requiredFormIds.length} consent form{requiredFormIds.length > 1 ? 's' : ''} must be signed</p>}
-            {alreadyHasCard && requiredFormIds.length === 0 && <p className="text-[9px] font-black text-green-600 uppercase tracking-widest mt-1">Card on file — signature collected at checkout instead</p>}
+    );
+  }
+
+  // ── STEP 2: SERVICE + PROVIDER + TIME ───────────────────────────────────────
+  if (step === 2) {
+    const activeStaff = (staff || []).filter((s: any) => s.active);
+    return (
+      <div className="space-y-5">
+        <StepDots />
+
+        {/* Client pill */}
+        <div className="flex items-center justify-between p-3 rounded-2xl bg-primary/5 border-2 border-primary/10">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-[10px] font-black text-primary">{(selectedClient?.name || newClientName).charAt(0).toUpperCase()}</div>
+            <div>
+              <p className="text-[11px] font-black text-slate-900">{selectedClient?.name || newClientName}</p>
+              {alreadyHasCard && <p className="text-[9px] text-green-600 font-bold">Card on file ✓</p>}
+            </div>
           </div>
-          <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", sendLink ? "bg-primary" : "bg-slate-200")}><div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", sendLink ? "left-[22px]" : "left-0.5")} /></div>
+          <button onClick={() => { setStep(1); setSelectedService(''); }} className="text-[9px] font-black uppercase text-muted-foreground hover:text-primary transition-colors">Change</button>
+        </div>
+
+        {/* Rebook shortcut */}
+        {lastService && (
+          <button onClick={() => setSelectedService(lastService.id)} className={cn("w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left", selectedService === lastService.id ? "border-primary bg-primary/5" : "border-amber-200 bg-amber-50 hover:border-amber-300")}>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0"><ArrowRight className="w-3.5 h-3.5 text-amber-600" /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Rebook last service</p>
+                <p className="text-[11px] font-bold text-slate-900">{lastService.name} · {lastService.duration}m · ${getServicePrice(lastService, null)}</p>
+              </div>
+            </div>
+            {selectedService === lastService.id && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
+          </button>
+        )}
+
+        {/* Service list */}
+        <div className="space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Service</p>
+          <div className="rounded-2xl border-2 divide-y overflow-hidden">
+            {(services || []).filter((s: any) => s.type === 'service').map((s: any) => {
+              const price = getServicePrice(s, resolvedStaffMember);
+              return (
+                <button key={s.id} onClick={() => setSelectedService(s.id)} className={cn("w-full flex items-center justify-between px-4 py-3 text-left transition-colors", selectedService === s.id ? "bg-primary/5" : "hover:bg-muted/30")}>
+                  <div>
+                    <p className={cn("font-bold text-sm", selectedService === s.id ? "text-primary" : "text-slate-900")}>{s.name}</p>
+                    <p className="text-[9px] text-muted-foreground">{s.duration}m</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="font-black text-sm text-slate-900">${price.toFixed(0)}</p>
+                    {selectedService === s.id && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Provider */}
+        <div className="space-y-2">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Provider</p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setSelectedStaff('any')} className={cn("px-3 py-2 rounded-xl border-2 text-[11px] font-black uppercase transition-all", selectedStaff === 'any' ? "border-primary bg-primary/5 text-primary" : "border-muted text-muted-foreground hover:border-primary/30")}>Any</button>
+            {activeStaff.map((s: any) => (
+              <button key={s.id} onClick={() => setSelectedStaff(s.id)} className={cn("px-3 py-2 rounded-xl border-2 text-[11px] font-black uppercase transition-all", selectedStaff === s.id ? "border-primary bg-primary/5 text-primary" : "border-muted text-muted-foreground hover:border-primary/30")}>
+                {s.name.split(' ')[0]}
+                {s.status === 'idle' || s.status === 'available' ? <span className="ml-1 w-1.5 h-1.5 rounded-full bg-green-400 inline-block" /> : null}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Date */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Date</p>
+            <input type="date" value={aptDate} onChange={e => setAptDate(e.target.value)} min={format(new Date(), 'yyyy-MM-dd')} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Time</p>
+            <input type="time" value={aptTime} onChange={e => setAptTime(e.target.value)} className="w-full h-12 rounded-xl border-2 px-3 font-bold text-sm bg-white" />
+          </div>
+        </div>
+
+        {/* Quick time chips */}
+        {aptDate === format(new Date(), 'yyyy-MM-dd') && (
+          <div className="flex gap-2 flex-wrap">
+            {suggestedTimes.map(t => (
+              <button key={t} onClick={() => setAptTime(t)} className={cn("px-3 py-1.5 rounded-xl border-2 text-[11px] font-black transition-all", aptTime === t ? "border-primary bg-primary/5 text-primary" : "border-muted text-muted-foreground hover:border-primary/30")}>
+                {format(new Date(`2000-01-01T${t}`), 'h:mm a')}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <Button onClick={() => setStep(1)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
+          <Button disabled={!selectedService} onClick={() => setStep(3)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Review →</Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP 3: CONFIRM ─────────────────────────────────────────────────────────
+  const summaryStaff = selectedStaff === 'any' ? 'First available' : (staff || []).find((s: any) => s.id === selectedStaff)?.name || '—';
+  return (
+    <div className="space-y-5">
+      <StepDots />
+
+      {/* Summary card */}
+      <div className="rounded-2xl border-2 border-primary/10 bg-primary/5 p-4 space-y-3">
+        <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Booking Summary</p>
+        <div className="space-y-1.5">
+          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Client</p><p className="text-[11px] font-black text-slate-900">{selectedClient?.name || newClientName}</p></div>
+          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Service</p><p className="text-[11px] font-black text-slate-900">{selectedSvc?.name}</p></div>
+          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Provider</p><p className="text-[11px] font-black text-slate-900">{summaryStaff}</p></div>
+          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">When</p><p className="text-[11px] font-black text-slate-900">{format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}</p></div>
+          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Price</p><p className="text-[11px] font-black text-slate-900">${svcPrice.toFixed(2)}{depositCents > 0 ? ` · $${(depositCents / 100).toFixed(2)} deposit` : ''}</p></div>
+        </div>
+        <button onClick={() => setStep(2)} className="text-[9px] font-black uppercase tracking-widest text-primary/60 hover:text-primary transition-colors">Edit details</button>
+      </div>
+
+      {/* Email for link */}
+      {!selectedClient?.email && (
+        <div className="space-y-1.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Client email {sendLink ? '(required for link)' : '(optional)'}</p>
+          <Input type="email" placeholder="client@email.com" value={newClientEmail} onChange={e => setNewClientEmail(e.target.value)} className="h-11 rounded-xl border-2" />
+        </div>
+      )}
+      {selectedClient?.email && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
+          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+          <p className="text-[10px] font-bold text-green-700">{selectedClient.email}</p>
+        </div>
+      )}
+
+      {/* Notes */}
+      <div className="space-y-1.5">
+        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Receptionist notes (optional)</p>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Allergies, special requests, etc." rows={2} className="w-full rounded-xl border-2 p-3 text-sm font-medium resize-none outline-none focus:border-primary transition-colors" />
+      </div>
+
+      {/* Completion link toggle */}
+      <button type="button" onClick={() => { if (!sendLink && requiredFormIds.length > 0) { toast({ title: 'Link required', description: 'This service has required consent forms.' }); return; } setSendLink(v => !v); }} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", sendLink ? "border-primary bg-primary/5" : "border-border bg-white")}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" />Send secure completion link</p>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              {alreadyHasCard && requiredFormIds.length === 0
+                ? 'Card on file — no link needed unless forms required.'
+                : depositCents > 0
+                ? `Client pays $${(depositCents / 100).toFixed(2)} deposit${requiredFormIds.length > 0 ? ` + signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''} · secures card.`
+                : requiredFormIds.length > 0
+                ? `Client signs ${requiredFormIds.length} consent form${requiredFormIds.length > 1 ? 's' : ''} · secures card.`
+                : 'Client secures card on file before arrival.'}
+            </p>
+            {requiredFormIds.length > 0 && <p className="text-[9px] font-black text-primary uppercase mt-0.5">Required — consent forms must be signed</p>}
+          </div>
+          <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", sendLink ? "bg-primary" : "bg-slate-200")}>
+            <div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", sendLink ? "left-[22px]" : "left-0.5")} />
+          </div>
         </div>
       </button>
+
       {sendLink && (
-        <button type="button" onClick={() => setRequestFiles(v => !v)} className={cn("w-full rounded-2xl border-2 p-4 text-left transition-all", requestFiles ? "border-primary bg-primary/5" : "border-border bg-white")}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" /> Request inspiration photos</p>
-              <p className="text-[10px] text-muted-foreground font-medium leading-relaxed">Client uploads reference photos in the same link (up to 5).</p>
-            </div>
+        <button type="button" onClick={() => setRequestFiles(v => !v)} className={cn("w-full rounded-2xl border-2 p-3.5 text-left transition-all", requestFiles ? "border-primary bg-primary/5" : "border-border bg-white")}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" />Request inspiration photos</p>
             <div className={cn("w-11 h-6 rounded-full shrink-0 transition-colors relative", requestFiles ? "bg-primary" : "bg-slate-200")}><div className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all", requestFiles ? "left-[22px]" : "left-0.5")} /></div>
           </div>
         </button>
       )}
-      <div className="flex gap-3 pt-2">
-        <Button onClick={onCancel} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Cancel</Button>
-        <Button onClick={handleBook} disabled={isSubmitting || !selectedService || (!selectedClient && !newClientName.trim())} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">{isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : sendLink ? 'Book & Get Link →' : 'Book Appointment →'}</Button>
+
+      <div className="flex gap-3 pt-1">
+        <Button onClick={() => setStep(2)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
+        <Button onClick={handleBook} disabled={isSubmitting || (sendLink && !clientEmail.trim())} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
+          {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : sendLink ? 'Book & Send Link →' : 'Confirm Booking →'}
+        </Button>
       </div>
     </div>
   );
