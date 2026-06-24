@@ -971,3 +971,60 @@ export async function createLocation(
   await writeBatch(firestore).set(ref, locationDoc).commit();
   return ref.id;
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Default-location auto-provisioning
+// ─────────────────────────────────────────────────────────────────────────
+//
+// CONTEXT: this app is a multi-tenant SaaS product where each Tenant
+// optionally has multiple physical locations. The large majority of
+// tenants have exactly ONE location, and that location's data (address,
+// name) already lives on fields the existing single-location Settings
+// page has always written directly to the Tenant document
+// (tenantData.name, tenantData.studioAddress, tenantData.studioAddressParts,
+// tenantData.studioLocation — see the real SettingsPage component).
+//
+// Without this function, every tenant — including ones that have used
+// this app for years under the old single-location model — would hit
+// RentersPage's "No locations set up yet" wall and have to manually
+// re-enter information they already typed into Settings once. That's
+// the wrong UX for the common case. This function closes that gap: call
+// it once, automatically, the moment a tenant with zero Location
+// documents is detected (e.g. from LocationContext's loading effect, or
+// a one-time migration script across all existing tenants) — never
+// requiring a manual "set up your first location" step for the common
+// single-location case.
+//
+// Tenant typing note: `tenant` is typed loosely here (not importing the
+// real Tenant interface from '@/lib/data', which lives outside the
+// booth-rental module boundary) — only the specific fields this function
+// actually reads are declared, so this stays decoupled from the full
+// Tenant shape and won't break if unrelated Tenant fields change.
+
+export interface TenantLocationSeedFields {
+  name?: string;
+  studioAddress?: string;
+  studioLocation?: { lat: number; lng: number };
+}
+
+/**
+ * Creates exactly one default Location for a tenant, seeded from
+ * whatever the tenant already has in Settings. Call this only when you've
+ * already confirmed (via useLocations or an equivalent query) that the
+ * tenant has zero Location documents — it does not check for you, to
+ * avoid an extra read inside what should be a single, deliberate
+ * provisioning call.
+ */
+export async function provisionDefaultLocation(
+  firestore: Firestore,
+  tenantId: string,
+  tenant: TenantLocationSeedFields,
+  timezone = 'America/New_York'
+): Promise<string> {
+  return createLocation(firestore, {
+    tenantId,
+    name: tenant.name ? `${tenant.name} — Main Location` : 'Main Location',
+    address: tenant.studioAddress,
+    timezone,
+  });
+}
