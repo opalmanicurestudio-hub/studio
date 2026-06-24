@@ -24,6 +24,7 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   type ReactNode,
 } from 'react';
 import { collection, query, where } from 'firebase/firestore';
@@ -33,6 +34,7 @@ import { useDoc } from '@/firebase/firestore/use-doc';
 import { doc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { Location, BOOTH_RENTAL_COLLECTIONS } from '@/lib/booth-rental-types';
+import { provisionDefaultLocation } from '@/lib/booth-rental-service';
 
 // ─────────────────────────────────────────────────────────────────────────
 // CORRECTIONS — what changed once the real TenantContext.tsx arrived
@@ -114,6 +116,56 @@ export const LocationProvider = ({ children }: { children: ReactNode }) => {
 
   const { data: staffMember, isLoading: staffMemberLoading } =
     useDoc(staffMemberRef);
+
+  // ── Auto-provision a default Location for brand-new/legacy tenants ──────
+  //
+  // CONTEXT: this app is multi-tenant SaaS where each Tenant optionally has
+  // multiple locations, but the existing single-location Settings page has
+  // always stored studio name/address directly on the Tenant document with
+  // no Location concept at all. Without this effect, EVERY tenant —
+  // including ones that have used this app for years — would hit
+  // RentersPage's "No locations set up yet" wall the first time anyone
+  // opened the booth-rental module, and have to manually re-enter
+  // information already sitting in Settings. This effect closes that gap
+  // automatically: the moment a tenant with zero Location documents is
+  // detected, seed exactly one from whatever Tenant fields already exist.
+  //
+  // Runs ONLY for owners (role-gated) — staff should never be the ones
+  // implicitly creating tenant-level data as a side effect of opening a
+  // page. Guarded with a ref so a re-render during the async write can't
+  // fire a second create — Firestore writes aren't free, and the
+  // dependency array alone (locations.length, tenantLoading, etc.) isn't
+  // enough to prevent a double-fire during the brief window between
+  // starting the write and the locations query reflecting it.
+  const hasProvisionedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOwner || !firestore || !tenantId) return;
+    if (tenantLoading || locationsLoading) return;
+    if ((allLocations ?? []).length > 0) return;
+    if (hasProvisionedRef.current) return;
+
+    hasProvisionedRef.current = true;
+    provisionDefaultLocation(firestore, tenantId, {
+      name: selectedTenant?.name,
+      studioAddress: (selectedTenant as any)?.studioAddress,
+      studioLocation: (selectedTenant as any)?.studioLocation,
+    }).catch(() => {
+      // Allow a retry on the next render if this failed (network blip,
+      // etc.) rather than permanently locking the tenant out of ever
+      // getting a default location because one attempt failed silently.
+      hasProvisionedRef.current = false;
+    });
+  }, [
+    isOwner,
+    firestore,
+    tenantId,
+    tenantLoading,
+    locationsLoading,
+    allLocations,
+    selectedTenant,
+    hasProvisionedRef,
+  ]);
 
   // ── Locations actually selectable by this user ─────────────────────────
   const locations = useMemo(() => {
