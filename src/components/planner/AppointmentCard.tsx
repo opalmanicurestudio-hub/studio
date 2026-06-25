@@ -1,7 +1,7 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIX applied: the previous version had
+// FIX #1 (previous pass): the earlier version had
 //   <profitStyles[profitTier].Icon className="..." />
 // which is invalid JSX — you cannot use a member/index expression directly
 // as a JSX tag. JSX tag names must be either a plain identifier (capitalized
@@ -9,8 +9,15 @@
 // not an arbitrary expression with a bracket index in it. The fix: extract
 // the icon component into a local variable first (capitalized, since it
 // holds a component reference), then use that variable as the tag. Search
-// "FIX:" to find the one changed spot. Every other "PROFIT:" tagged change
-// from before is otherwise identical.
+// "FIX #1:" to find that spot.
+//
+// FIX #2 (this pass): the runtime crash
+//   ReferenceError: Cannot access '_' before initialization
+// was caused by the `estimatedArrival` useMemo listing itself
+// (`estimatedArrival`) inside its own dependency array — a temporal-dead-zone
+// reference to a `const` before that `const`'s initializer has finished
+// running. Removed the self-reference from the deps array. Search "FIX #2:"
+// to find that spot.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -139,7 +146,7 @@ export function AppointmentCard({
     negative: { edgeClass: 'border-l-4 border-l-red-500', badgeClass: 'bg-red-600', Icon: TrendingDown, label: 'Below cost' },
   };
 
-  // FIX: pull the icon component reference out into its own variable BEFORE
+  // FIX #1: pull the icon component reference out into its own variable BEFORE
   // the JSX return, rather than indexing into profitStyles[...] inline
   // inside the tag position. `ProfitIcon` is a plain capitalized identifier,
   // which is valid as a JSX tag; `profitStyles[profitTier].Icon` used
@@ -166,12 +173,22 @@ export function AppointmentCard({
   const cardStatus = appointment.checkInStatus === 'auto_cancelled' ? 'cancelled' : appointment.status;
   const currentStatus = statusDisplay[cardStatus];
 
+  // FIX #2: removed the self-reference to `estimatedArrival` from this memo's
+  // own dependency array. The previous array was:
+  //   [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]
+  // `estimatedArrival` cannot be read inside the array that determines its own
+  // value — at the moment this array is evaluated, the `const estimatedArrival`
+  // binding exists (hoisted) but is still in the temporal dead zone, since its
+  // initializer (this very useMemo call) hasn't returned yet. Referencing it
+  // here throws "Cannot access 'estimatedArrival' before initialization",
+  // which is exactly what the minified stack trace ("Cannot access '_' before
+  // initialization") was reporting.
   const estimatedArrival = useMemo(() => {
       if (appointment.checkInStatus === 'running_late' && appointment.lateTimeMinutes) {
           return format(addMinutes(safeDate(appointment.startTime), appointment.lateTimeMinutes), 'h:mm a');
       }
       return null;
-  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]);
+  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
 
   const hasDeferredFee = safeNumber(appointment.checkoutState?.additionalCharge) > 0;
   const reqFiles = appointment.requirementFiles || [];
@@ -293,7 +310,7 @@ export function AppointmentCard({
                     )}
                     {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
-                    {/* FIX: ProfitIcon used as the tag here, not the indexed expression */}
+                    {/* FIX #1: ProfitIcon used as the tag here, not the indexed expression */}
                     {profitTier && ProfitIcon && (
                         <TooltipProvider>
                             <Tooltip>
