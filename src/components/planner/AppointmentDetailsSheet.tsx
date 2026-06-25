@@ -1,5 +1,17 @@
 'use client';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CLEANUP applied: `useStoreCredit(client)` was being called twice — once
+// inside this component's top-level body (the one actually used by the JSX
+// below: `availableCredits`, `totalStoreCreditAvailable`), and a second,
+// completely unused time right before `financialData`. The second call did
+// nothing harmful by itself (no self-reference / TDZ issue, unlike the bug in
+// AppointmentCard.tsx), but it's dead code that re-runs the hook's internal
+// computation for no reason on every render and risked masking a real bug if
+// the two call sites' results were ever assumed to differ. Removed the
+// second, unused call. Search "CLEANUP:" to find the removed spot.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
 import {
