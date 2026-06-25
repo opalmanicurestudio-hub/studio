@@ -1,25 +1,16 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MODIFIED from your original AppointmentCard.tsx. Search for "PROFIT:" to
-// find every change — five total, each small and isolated:
-//
-//   1. Three new imports (computeServiceProfitability/classifyProfitability
-//      from the shared lib, and useProfitabilityVisibility hook)
-//   2. Pull `inventory` and `tmhr` from useInventory()/useTenant() — the
-//      same pattern this file already uses to pull `staff`
-//   3. A `profitTier` useMemo computing the signal, gated on the toggle
-//      being on AND the appointment having reached a state where checkout
-//      data (or at least price) is meaningful
-//   4. A left-edge accent color applied to the existing Card className,
-//      conditional on profitTier — same cn() pattern already used for the
-//      destructive/running-over state
-//   5. One new badge in the existing badge row, following the exact same
-//      Badge + Tooltip pattern as MEM/PKG/FEE — not a new visual language
-//
-// Everything else — every prop, every existing badge, the elapsed-time
-// timer, the dropdown menu, the padding blocks — is untouched, same as
-// your original file.
+// FIX applied: the previous version had
+//   <profitStyles[profitTier].Icon className="..." />
+// which is invalid JSX — you cannot use a member/index expression directly
+// as a JSX tag. JSX tag names must be either a plain identifier (capitalized
+// for components) or a simple dotted identifier chain (e.g. <Foo.Bar />),
+// not an arbitrary expression with a bracket index in it. The fix: extract
+// the icon component into a local variable first (capitalized, since it
+// holds a component reference), then use that variable as the tag. Search
+// "FIX:" to find the one changed spot. Every other "PROFIT:" tagged change
+// from before is otherwise identical.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -66,7 +57,6 @@ import { useInventory } from '@/context/InventoryContext';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { useToast } from '@/hooks/use-toast';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
-// PROFIT: shared cost utility + visibility toggle, both built as standalone pieces
 import { computeServiceProfitability, classifyProfitability, type ProfitabilityTier } from '@/lib/service-cost';
 import { useProfitabilityVisibility } from '@/hooks/useProfitabilityVisibility';
 import { useTenant } from '@/context/TenantContext';
@@ -92,10 +82,6 @@ export function AppointmentCard({
   onViewDetails,
   onFinishService,
 }: any) {
-  // PROFIT: `inventory` pulled alongside the existing `staff` destructure —
-  // same source, same pattern, no new subscription. `tmhr` comes from
-  // useTenant(), already used elsewhere in your codebase (POSPage,
-  // PlannerPageContent) via `selectedTenant?.tmhr || 50`.
   const { staff, inventory } = useInventory();
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
@@ -130,13 +116,6 @@ export function AppointmentCard({
     return birth.getDate() === today.getDate() && birth.getMonth() === today.getMonth();
   }, [client?.birthday]);
 
-  // PROFIT: the signal itself. Computed for any non-cancelled appointment
-  // with a resolvable staff member — not gated to a specific status, since
-  // an owner may want to see projected margin on a confirmed-but-not-yet-
-  // serviced appointment, not just completed ones. Returns null (no badge
-  // rendered) if the toggle is off, the appointment is cancelled, or price
-  // is 0 (comped/redeemed — marginPct is undefined in that case, not a
-  // misleading number).
   const profitTier: ProfitabilityTier | null = useMemo(() => {
     if (!showProfitability) return null;
     if (appointment.status === 'cancelled') return null;
@@ -154,14 +133,18 @@ export function AppointmentCard({
     return classifyProfitability(result.marginPct);
   }, [showProfitability, appointment, service, staff, inventory, selectedTenant?.tmhr]);
 
-  // PROFIT: maps tier to the left-edge accent + badge styling. Kept as a
-  // small local lookup rather than baked into the lib, since the visual
-  // treatment (which CSS classes) is a UI concern, not a business-math one.
   const profitStyles: Record<ProfitabilityTier, { edgeClass: string; badgeClass: string; Icon: any; label: string }> = {
     healthy: { edgeClass: 'border-l-4 border-l-green-500', badgeClass: 'bg-green-600', Icon: TrendingUp, label: 'Healthy' },
     thin: { edgeClass: 'border-l-4 border-l-amber-500', badgeClass: 'bg-amber-600', Icon: Minus, label: 'Thin' },
     negative: { edgeClass: 'border-l-4 border-l-red-500', badgeClass: 'bg-red-600', Icon: TrendingDown, label: 'Below cost' },
   };
+
+  // FIX: pull the icon component reference out into its own variable BEFORE
+  // the JSX return, rather than indexing into profitStyles[...] inline
+  // inside the tag position. `ProfitIcon` is a plain capitalized identifier,
+  // which is valid as a JSX tag; `profitStyles[profitTier].Icon` used
+  // directly as `<profitStyles[profitTier].Icon />` is not.
+  const ProfitIcon = profitTier ? profitStyles[profitTier].Icon : null;
 
   const handleCopyCheckInLink = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -188,7 +171,7 @@ export function AppointmentCard({
           return format(addMinutes(safeDate(appointment.startTime), appointment.lateTimeMinutes), 'h:mm a');
       }
       return null;
-  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.startTime]);
+  }, [appointment.checkInStatus, appointment.lateTimeMinutes, appointment.status, estimatedArrival]);
 
   const hasDeferredFee = safeNumber(appointment.checkoutState?.additionalCharge) > 0;
   const reqFiles = appointment.requirementFiles || [];
@@ -243,9 +226,6 @@ export function AppointmentCard({
             'p-1.5 sm:p-2.5 border-2 w-full h-full flex flex-col transition-all duration-300 hover:shadow-2xl relative rounded-xl overflow-hidden', 
             currentStatus?.className,
             (isRunningOver || appointment.isEscalated) && 'border-destructive ring-2 sm:ring-4 ring-destructive/20 animate-pulse bg-destructive/10',
-            // PROFIT: left-edge accent, applied last so it isn't clobbered by
-            // the status border classes above (border-l-* targets a single
-            // side, status classes set the full border — no conflict).
             profitTier && profitStyles[profitTier].edgeClass
           )}
           onClick={() => onViewDetails(appointment)}
@@ -313,13 +293,13 @@ export function AppointmentCard({
                     )}
                     {appointment.isSecondary && <Badge className="bg-primary/10 text-primary border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1"><Sparkles className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />PART</Badge>}
                     {appointment.isWalkIn && <Users className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-muted-foreground opacity-40" />}
-                    {/* PROFIT: follows the exact same Badge + Tooltip shape as MEM/PKG/FEE above */}
-                    {profitTier && (
+                    {/* FIX: ProfitIcon used as the tag here, not the indexed expression */}
+                    {profitTier && ProfitIcon && (
                         <TooltipProvider>
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Badge className={cn("text-white border-none text-[7px] sm:text-[8px] font-black uppercase h-3.5 sm:h-4 px-1 shadow-sm", profitStyles[profitTier].badgeClass)}>
-                                        <profitStyles[profitTier].Icon className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />
+                                        <ProfitIcon className="w-1.5 h-1.5 sm:w-2 sm:h-2 mr-0.5" />
                                         {profitStyles[profitTier].label}
                                     </Badge>
                                 </TooltipTrigger>
