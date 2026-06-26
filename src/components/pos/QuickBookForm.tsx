@@ -14,7 +14,8 @@
 import React from 'react';
 import { format, addMinutes } from 'date-fns';
 import { doc, writeBatch, collection } from 'firebase/firestore';
-import { getServicePrice, computeDepositCents } from '@/lib/deposit-policy';
+import { getServicePrice } from '@/lib/data';
+import { computeDepositCents } from '@/lib/deposit-policy';
 import { nanoid } from 'nanoid';
 import { cn, safeNumber } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
