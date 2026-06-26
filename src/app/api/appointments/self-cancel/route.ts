@@ -178,7 +178,14 @@ export async function POST(req: NextRequest) {
   const feeAmount = isLate ? (tenant.cancellationFee || service.price || 0) : 0;
   const chargeFee = feeAmount > 0; // flagged, not waived, when inside the window
 
-  const hasCard = !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token);
+  const stripePaymentMethodId =
+    client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token || null;
+  const stripeCustomerId =
+    client?.cardOnFile?.stripeCustomerId ||
+    client?.cardOnFile?.customerId ||
+    client?.stripeCustomerId ||
+    null;
+  const hasCard = !!(stripePaymentMethodId && stripeCustomerId);
   const paymentMethod: 'card_on_file' | 'add_to_balance' | 'waived' =
     !chargeFee ? 'waived' : (hasCard ? 'card_on_file' : 'add_to_balance');
 
