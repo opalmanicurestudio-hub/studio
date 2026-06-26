@@ -86,75 +86,131 @@ const safeTicketId = (id: any): string => {
   return 'N/A';
 };
 
-// ─── Cancellation Record ────────────────────────────────────────────────────────
-// Shown in place of the ReadinessBanner once an appointment is cancelled —
-// readiness checks (deposit, forms, card) are meaningless for a cancelled
-// session. This is the only place in the POS/Planner flow that surfaces
-// who cancelled, why, what fee applied, and what happened to the deposit;
-// previously a cancelled appointment looked identical to any other once you
-// opened this sheet, with no record of any of that.
-const CancellationRecord = ({ appointment }: { appointment: any }) => {
+// ─── Cancellation Record (full resolution wrap) ──────────────────────────────
+// Shows the complete post-cancellation story: who/why, the fee outcome, the
+// deposit disposition, store credit issued, and the actual ledger receipts for
+// this appointment — so a settled/cancelled appointment is a real audit trail,
+// not a dead end. Also flags the case where a fee was marked as owed but no
+// matching charge exists in the ledger (the exact symptom of a cancellation
+// path that promised a fee but never recorded one).
+const CancellationRecord = ({ appointment, transactions }: { appointment: any; transactions: any[] }) => {
   const audit = appointment?.cancellationAudit;
-  if (!audit) {
-    return (
-      <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-muted/10 border-2 border-border">
-        <Ban className="w-4 h-4 text-muted-foreground shrink-0" />
-        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-          Cancelled — no further detail on file
-        </p>
-      </div>
-    );
-  }
+
+  // This appointment's ledger receipts — the real paper trail.
+  const aptTxns = (transactions || [])
+    .filter((t: any) => t.appointmentId === appointment.id)
+    .sort((a: any, b: any) => new Date(a.createdAt || a.date || 0).getTime() - new Date(b.createdAt || b.date || 0).getTime());
+
+  const feeAmount = safeNumber(audit?.feeAmount);
+  const feeWaived = !!audit?.feeWaived && feeAmount > 0;
+  const feeCharged = audit && !audit.feeWaived ? feeAmount : 0;
+
+  const refunded = safeNumber(appointment.depositRefundedAmountCents) / 100;
+  const creditFromDeposit = safeNumber(appointment.depositConvertedAmountCents) / 100;
+  const depositPaid = appointment.depositStatus === 'paid'
+    ? safeNumber(appointment.depositAmountCents) / 100
+    : 0;
+
+  const storeCreditIssued = aptTxns
+    .filter((t: any) => t.type === 'store_credit_issued' || t.category === 'Store Credit')
+    .reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+
+  const feeChargeRecorded = aptTxns.some((t: any) =>
+    t.type === 'income' &&
+    (String(t.category || '').toLowerCase().includes('cancellation') ||
+     String(t.description || '').toLowerCase().includes('cancellation'))
+  );
+  const feeMarkedButMissing = feeCharged > 0 && !feeChargeRecorded;
 
   const actorLabel =
-    audit.actorType === 'studio' ? 'Studio / Staff' :
-    audit.actorType === 'no_show' ? 'No-Show (automatic)' :
-    'Client';
+    audit?.actorType === 'studio' ? 'Studio / Staff' :
+    audit?.actorType === 'no_show' ? 'No-Show (automatic)' :
+    audit ? 'Client' : 'Unknown';
 
-  const reasonText = (audit.studioReason || audit.clientReason || audit.reason || '')
+  const reasonText = (audit?.studioReason || audit?.clientReason || audit?.reason || '')
     .toString().replace(/_/g, ' ');
 
-  const feeLabel = audit.feeWaived
-    ? 'Fee waived'
-    : safeNumber(audit.feeAmount) > 0
-    ? `Fee charged: $${safeNumber(audit.feeAmount).toFixed(2)}`
-    : 'No fee';
-
-  const depositLabel =
-    appointment.depositDisposition === 'refunded' ? 'Deposit refunded to card' :
-    appointment.depositDisposition === 'store_credit' ? 'Deposit converted to store credit' :
-    appointment.depositDisposition === 'forfeited' ? 'Deposit forfeited' :
+  const dispositionLabel =
+    appointment.depositDisposition === 'refunded' ? `Deposit refunded to card${refunded > 0 ? ` · $${refunded.toFixed(2)}` : ''}` :
+    appointment.depositDisposition === 'store_credit' ? `Deposit → store credit${creditFromDeposit > 0 ? ` · $${creditFromDeposit.toFixed(2)}` : ''}` :
+    appointment.depositDisposition === 'forfeited' ? 'Deposit forfeited (studio kept it)' :
     null;
 
+  const rows: { label: string; value: string; tone: string }[] = [];
+  if (depositPaid > 0) rows.push({ label: 'Deposit collected', value: `$${depositPaid.toFixed(2)}`, tone: 'text-slate-700' });
+  rows.push({
+    label: 'Cancellation fee',
+    value: feeWaived ? 'Waived' : feeCharged > 0 ? `$${feeCharged.toFixed(2)}` : 'None',
+    tone: feeWaived ? 'text-green-600' : feeCharged > 0 ? 'text-amber-600' : 'text-muted-foreground opacity-50',
+  });
+  if (dispositionLabel) rows.push({ label: 'Deposit', value: dispositionLabel, tone: 'text-primary/80' });
+  if (storeCreditIssued > 0) rows.push({ label: 'Store credit issued', value: `$${storeCreditIssued.toFixed(2)}`, tone: 'text-green-600' });
+
   return (
-    <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/20 space-y-2.5">
-      <div className="flex items-center gap-2.5">
-        <Ban className="w-5 h-5 text-destructive shrink-0" />
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-widest text-destructive leading-tight">
-            Cancelled by {actorLabel}
-          </p>
-          {audit.timestamp && (
-            <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">
-              {format(safeDate(audit.timestamp), 'MMM d, yyyy · h:mm a')}
+    <div className="rounded-2xl bg-destructive/5 border-2 border-destructive/20 overflow-hidden">
+      <div className="p-4 space-y-2.5">
+        <div className="flex items-center gap-2.5">
+          <Ban className="w-5 h-5 text-destructive shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-destructive leading-tight">
+              Cancelled by {actorLabel}
             </p>
-          )}
+            {audit?.timestamp && (
+              <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">
+                {format(safeDate(audit.timestamp), 'MMM d, yyyy · h:mm a')}
+              </p>
+            )}
+          </div>
         </div>
+        {reasonText && (
+          <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed pl-7">
+            {reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}
+          </p>
+        )}
       </div>
-      {reasonText && (
-        <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed pl-7">
-          {reasonText}{audit.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}
-        </p>
-      )}
-      <div className="flex items-center justify-between pl-7 pt-1 border-t border-dashed border-destructive/10">
-        <span className={cn(
-          'text-[9px] font-black uppercase tracking-widest',
-          audit.feeWaived ? 'text-green-600' : safeNumber(audit.feeAmount) > 0 ? 'text-amber-600' : 'text-muted-foreground opacity-50'
-        )}>
-          {feeLabel}
-        </span>
-        {depositLabel && (
-          <span className="text-[9px] font-black uppercase tracking-widest text-primary/70">{depositLabel}</span>
+
+      <div className="px-4 pb-4 space-y-2">
+        <div className="rounded-xl bg-white border-2 border-destructive/10 divide-y divide-dashed divide-muted/40">
+          {rows.map((r, i) => (
+            <div key={i} className="flex items-center justify-between px-3.5 py-2.5">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{r.label}</span>
+              <span className={cn('text-[10px] font-black uppercase tracking-tight font-mono', r.tone)}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {feeMarkedButMissing && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-[9px] font-black uppercase tracking-wide text-amber-700 leading-relaxed">
+              A ${feeCharged.toFixed(2)} fee was marked but no matching charge is in the ledger — verify the card was actually run.
+            </p>
+          </div>
+        )}
+
+        {aptTxns.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-50 pl-1">Ledger Receipts</p>
+            {aptTxns.map((t: any) => (
+              <div key={t.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/10 border border-muted/30">
+                <div className="min-w-0 flex items-center gap-2">
+                  <History className="w-3 h-3 text-muted-foreground opacity-40 shrink-0" />
+                  <span className="text-[9px] font-bold uppercase tracking-tight text-slate-600 truncate">
+                    {String(t.description || t.category || 'Transaction')}
+                  </span>
+                </div>
+                <span className={cn(
+                  'text-[10px] font-black font-mono shrink-0 ml-2',
+                  t.type === 'income' ? 'text-green-600' :
+                  t.type === 'refund' || t.type === 'reversal' ? 'text-slate-400' :
+                  t.type === 'store_credit_issued' ? 'text-primary' : 'text-amber-600'
+                )}>
+                  {t.type === 'income' ? '+' : t.type === 'refund' || t.type === 'reversal' ? '−' : ''}
+                  ${Math.abs(safeNumber(t.amount)).toFixed(2)}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
@@ -533,7 +589,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-8 p-5 md:p-8 pb-16">
 
-        {isCancelled ? <CancellationRecord appointment={appointment} /> : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} />}
+        {isCancelled ? <CancellationRecord appointment={appointment} transactions={transactions} /> : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} />}
 
         {appointment.status === 'confirmed' && (
           <Button
