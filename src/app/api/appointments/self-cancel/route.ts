@@ -21,6 +21,14 @@
  *     onCancellationEvent pipeline as every other cancellation path — this
  *     route never calls Stripe directly for the cancellation fee.
  *
+ * Card-on-file resolution: the customer id and payment-method id are read
+ * from client.cardOnFile (where the Stripe Connect webhook vaults them on the
+ * CONNECTED account), NOT from the top-level client.stripeCustomerId — which
+ * is frequently unset and, even when set, may be a platform-level customer
+ * the connected-account charge can't see. Preferring cardOnFile.customerId is
+ * what lets onCancellationEvent actually charge the card; reading the
+ * top-level field was why cancellation fees silently never landed.
+ *
  * Fee calculation is intentionally simple — flat tenant.cancellationFee,
  * falling back to the service price. It does NOT replicate the staff-side
  * profitability matrix (labor/overhead breakdown) used in
@@ -178,6 +186,10 @@ export async function POST(req: NextRequest) {
   const feeAmount = isLate ? (tenant.cancellationFee || service.price || 0) : 0;
   const chargeFee = feeAmount > 0; // flagged, not waived, when inside the window
 
+  // Read the card's customer + payment method from where the Connect webhook
+  // actually vaults them (client.cardOnFile), preferring cardOnFile.customerId
+  // over the top-level client.stripeCustomerId. These exact two values are
+  // written onto the cancellationEvent below so onCancellationEvent can charge.
   const stripePaymentMethodId =
     client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token || null;
   const stripeCustomerId =
@@ -257,7 +269,10 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // cancellationEvent → triggers onCancellationEvent for Stripe + email + SMS
+  // cancellationEvent → triggers onCancellationEvent for Stripe + email + SMS.
+  // NOTE: stripeCustomerId / stripePaymentMethodId here use the RESOLVED
+  // variables above (cardOnFile-first), NOT inline top-level reads — this is
+  // the line that makes the fee actually charge.
   batch.set(db.doc(`tenants/${tenantId}/cancellationEvents/${eventId}`), {
     id: eventId,
     tenantId,
@@ -273,8 +288,8 @@ export async function POST(req: NextRequest) {
     chargeFee,
     feeAmount,
     paymentMethod,
-    stripeCustomerId: client?.stripeCustomerId || null,
-    stripePaymentMethodId: client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token || null,
+    stripeCustomerId,
+    stripePaymentMethodId,
     cancellationAudit,
     reason: cancellationAudit.reason,
     status: 'pending',
@@ -346,6 +361,15 @@ async function resolveDepositForClientCancel(opts: {
       forfeitedAt: now,
       forfeitedFromAppointmentId: appointmentId,
       lastDecisionReason: 'client_cancel_late',
+    }, { merge: true });
+
+    // Stamp the disposition on the appointment too, so the resolution wrap in
+    // AppointmentDetailsSheet can show "deposit forfeited" rather than only
+    // surfacing it via the ledger receipt line.
+    await db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).set({
+      depositForfeited: true,
+      depositForfeitedAt: now,
+      depositForfeitedReason: 'client_cancel_late',
     }, { merge: true });
 
     const decisionRef = db.collection(`tenants/${tenantId}/depositDecisions`).doc();
