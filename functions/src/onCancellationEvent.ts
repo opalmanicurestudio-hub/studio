@@ -10,6 +10,13 @@
  *  - Send cancellation SMS via Twilio
  *  - Update the event document with results
  *  - Notify assigned staff member
+ *
+ * The card on file (customer + payment method) is vaulted on the tenant's
+ * CONNECTED account by the Stripe Connect webhook, so the charge is made with
+ * { stripeAccount: connectedAccountId }. The event doc must carry both
+ * stripeCustomerId AND stripePaymentMethodId for the charge branch to run;
+ * the route that writes the event resolves stripeCustomerId from
+ * client.cardOnFile.customerId (not the often-null top-level field).
  */
 
 import * as functions from 'firebase-functions/v2';
@@ -178,8 +185,7 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         // tenant's CONNECTED account by the Stripe Connect webhook — so the
         // charge MUST be made on that connected account, not the platform.
         // Without { stripeAccount }, Stripe can't find the customer/payment
-        // method and the charge fails ("No such customer"). This is almost
-        // certainly why cancellation fees via this pipeline weren't landing.
+        // method and the charge fails ("No such customer").
         const connectedAccountId = tenant.stripeAccountId;
         if (!connectedAccountId) {
           updates.chargeStatus = 'failed';
@@ -280,15 +286,12 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         updates.errorMessage = stripeErr?.message || 'Stripe charge failed';
 
         // If card declined, notify staff so they can collect manually
-        const staffSnap = await db
-          .doc(`tenants/${tenantId}/staff/${data.staffId}`)
-          .get();
         const staffNotifRef = db
           .collection(`tenants/${tenantId}/notifications`)
           .doc();
         await staffNotifRef.set({
           id: staffNotifRef.id,
-          userId: data.staffId,
+          userId: data.staffId || 'owner',
           type: 'charge_failed',
           message: `Card charge failed for ${data.clientName} — collect $${data.feeAmount.toFixed(2)} manually`,
           link: `/clients/${data.clientId}`,
@@ -298,9 +301,9 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
       }
     } else if (data.paymentMethod === 'waived' || !data.chargeFee) {
       updates.chargeStatus = 'waived';
-  } else if (data.paymentMethod === 'add_to_balance') {
+    } else if (data.paymentMethod === 'add_to_balance') {
       updates.chargeStatus = 'balance';
-      // Balance was already incremented client-side; log the transaction here
+      // Balance was already incremented by the route; log the transaction here
       const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
       await txRef.set({
         id: txRef.id,
@@ -321,8 +324,8 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
       // paymentMethod was 'card_on_file' yet the customer/payment-method ids
       // were missing, so the Stripe guard failed. The OLD behaviour fell
       // through here and marked the event 'complete' with no chargeStatus and
-      // no ledger line — the fee vanished silently. Record it as owed and
-      // flag staff so nothing is ever lost again.
+      // no ledger line — the fee vanished silently. Record it as owed, add it
+      // to the client's balance, and flag staff so nothing is ever lost again.
       updates.chargeStatus = 'uncollected';
       const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
       await txRef.set({
