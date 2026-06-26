@@ -298,7 +298,7 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
       }
     } else if (data.paymentMethod === 'waived' || !data.chargeFee) {
       updates.chargeStatus = 'waived';
-    } else if (data.paymentMethod === 'add_to_balance') {
+  } else if (data.paymentMethod === 'add_to_balance') {
       updates.chargeStatus = 'balance';
       // Balance was already incremented client-side; log the transaction here
       const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
@@ -315,6 +315,45 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         reason: data.reason,
         actorType: data.cancellationAudit?.actorType,
         createdAt: new Date().toISOString(),
+      });
+    } else {
+      // SAFETY NET: chargeFee was true but no branch above ran — e.g.
+      // paymentMethod was 'card_on_file' yet the customer/payment-method ids
+      // were missing, so the Stripe guard failed. The OLD behaviour fell
+      // through here and marked the event 'complete' with no chargeStatus and
+      // no ledger line — the fee vanished silently. Record it as owed and
+      // flag staff so nothing is ever lost again.
+      updates.chargeStatus = 'uncollected';
+      const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      await txRef.set({
+        id: txRef.id,
+        tenantId,
+        appointmentId: data.appointmentId,
+        clientId: data.clientId,
+        clientName: data.clientName,
+        type: 'cancellation_fee',
+        category: 'Cancellation Fee',
+        amount: data.feeAmount,
+        status: 'balance_owed',
+        reason: data.reason,
+        actorType: data.cancellationAudit?.actorType,
+        notes: 'No chargeable card on file at cancellation time — added to balance.',
+        createdAt: new Date().toISOString(),
+      });
+      if (data.clientId) {
+        await db.doc(`tenants/${tenantId}/clients/${data.clientId}`).update({
+          outstandingBalance: admin.firestore.FieldValue.increment(data.feeAmount),
+        });
+      }
+      const failNotifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await failNotifRef.set({
+        id: failNotifRef.id,
+        userId: data.staffId || 'owner',
+        type: 'charge_failed',
+        message: `Couldn't auto-charge $${data.feeAmount.toFixed(2)} cancellation fee for ${data.clientName} — no card on file. Added to balance.`,
+        link: `/clients/${data.clientId}`,
+        createdAt: new Date().toISOString(),
+        read: false,
       });
     }
 
