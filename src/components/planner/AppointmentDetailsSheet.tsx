@@ -1,19 +1,5 @@
 'use client';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// FIX applied: ReadinessBanner was trusting appointment.readinessFlags.depositRequired
-// to decide whether to show "Deposit not received — cannot proceed." That flag
-// depends on appointment.depositStatus / depositAmountCents staying in sync via
-// the deposit-payment webhook — which, per the comments in CancelAppointmentDialog,
-// it doesn't reliably do in this codebase. Net effect: the banner could say
-// "Ready to start — all requirements met" while a deposit was actually still
-// outstanding. Now uses the same shared useDepositCredit hook that
-// CancelAppointmentDialog already trusts (live lookup against the
-// depositCredits collection) to confirm a deposit was actually paid, not just
-// that the appointment record claims one isn't required. Search "FIX:" to find
-// the changed spots.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { format, differenceInMinutes, parseISO, differenceInSeconds } from 'date-fns';
 import {
@@ -23,7 +9,7 @@ import {
   AlertTriangle, Undo2, FileSignature, CheckCircle2, ArrowRight, MessageSquare,
   Ear, Unlock, Scale, FileImage, Maximize2, Zap, FlaskConical, Target,
   RefreshCw, History, HeartHandshake, AlertCircle, BookMarked, Heart,
-  CreditCard, CalendarClock,
+  CreditCard, CalendarClock, MoreHorizontal, HeartPulse,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -74,6 +60,7 @@ const safeDate = (val: any): Date => {
   if (val instanceof Date) return val;
   if (typeof val === 'string') return parseISO(val);
   if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
+  if (typeof val === 'object' && typeof val.toDate === 'function') return val.toDate();
   return new Date(val);
 };
 
@@ -82,27 +69,37 @@ const safeFormatPhone = (phone: any): string => {
   try { return formatPhoneNumber(phone) || phone; } catch { return phone; }
 };
 
-// Guarded ticket-id formatter: never throws regardless of what appointment.id is.
 const safeTicketId = (id: any): string => {
   if (typeof id === 'string' && id.length > 0) return id.slice(-6).toUpperCase();
   if (typeof id === 'number') return String(id).slice(-6).toUpperCase();
   return 'N/A';
 };
 
-// ─── Cancellation Record (full resolution wrap) ──────────────────────────────
-// Shows the complete post-cancellation story: who/why, the fee outcome, the
-// deposit disposition, store credit issued, and the actual ledger receipts for
-// this appointment — so a settled/cancelled appointment is a real audit trail,
-// not a dead end. Also flags the case where a fee was marked as owed but no
-// matching charge exists in the ledger (the exact symptom of a cancellation
-// path that promised a fee but never recorded one).
+type RowStatus = 'good' | 'warn' | 'bad' | 'neutral';
+const STATUS_TEXT: Record<RowStatus, string> = {
+  good: 'text-green-600', warn: 'text-amber-600', bad: 'text-destructive', neutral: 'text-muted-foreground opacity-50',
+};
+const RequirementRow = ({
+  icon, label, value, status, action,
+}: {
+  icon: React.ReactNode; label: string; value: React.ReactNode; status: RowStatus; action?: React.ReactNode;
+}) => (
+  <div className="flex items-center justify-between gap-3 py-2">
+    <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-wide text-muted-foreground">
+      <span className="opacity-50">{icon}</span>{label}
+    </span>
+    <div className="flex items-center gap-2 shrink-0">
+      <span className={cn('text-[10px] font-black uppercase tracking-tight font-mono', STATUS_TEXT[status])}>{value}</span>
+      {action}
+    </div>
+  </div>
+);
 const CancellationRecord = ({ appointment, transactions }: { appointment: any; transactions: any[] }) => {
   const audit = appointment?.cancellationAudit;
 
-  // This appointment's ledger receipts — the real paper trail.
   const aptTxns = (transactions || [])
     .filter((t: any) => t.appointmentId === appointment.id)
-    .sort((a: any, b: any) => new Date(a.createdAt || a.date || 0).getTime() - new Date(b.createdAt || b.date || 0).getTime());
+    .sort((a: any, b: any) => safeDate(a.createdAt || a.date || 0).getTime() - safeDate(b.createdAt || b.date || 0).getTime());
 
   const feeAmount = safeNumber(audit?.feeAmount);
   const feeWaived = !!audit?.feeWaived && feeAmount > 0;
@@ -134,9 +131,9 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
     .toString().replace(/_/g, ' ');
 
   const dispositionLabel =
-    appointment.depositDisposition === 'refunded' ? `Deposit refunded to card${refunded > 0 ? ` · $${refunded.toFixed(2)}` : ''}` :
-    appointment.depositDisposition === 'store_credit' ? `Deposit → store credit${creditFromDeposit > 0 ? ` · $${creditFromDeposit.toFixed(2)}` : ''}` :
-    appointment.depositDisposition === 'forfeited' ? 'Deposit forfeited (studio kept it)' :
+    appointment.depositDisposition === 'refunded' ? `Refunded to card${refunded > 0 ? ` · $${refunded.toFixed(2)}` : ''}` :
+    appointment.depositDisposition === 'store_credit' ? `Converted to credit${creditFromDeposit > 0 ? ` · $${creditFromDeposit.toFixed(2)}` : ''}` :
+    appointment.depositDisposition === 'forfeited' || appointment.depositForfeited ? 'Forfeited (studio kept it)' :
     null;
 
   const rows: { label: string; value: string; tone: string }[] = [];
@@ -146,16 +143,16 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
     value: feeWaived ? 'Waived' : feeCharged > 0 ? `$${feeCharged.toFixed(2)}` : 'None',
     tone: feeWaived ? 'text-green-600' : feeCharged > 0 ? 'text-amber-600' : 'text-muted-foreground opacity-50',
   });
-  if (dispositionLabel) rows.push({ label: 'Deposit', value: dispositionLabel, tone: 'text-primary/80' });
+  if (dispositionLabel) rows.push({ label: 'Deposit outcome', value: dispositionLabel, tone: 'text-primary/80' });
   if (storeCreditIssued > 0) rows.push({ label: 'Store credit issued', value: `$${storeCreditIssued.toFixed(2)}`, tone: 'text-green-600' });
 
   return (
-    <div className="rounded-2xl bg-destructive/5 border-2 border-destructive/20 overflow-hidden">
-      <div className="p-4 space-y-2.5">
+    <div className="rounded-[1.75rem] bg-destructive/5 border-2 border-destructive/20 overflow-hidden">
+      <div className="p-5 space-y-2.5">
         <div className="flex items-center gap-2.5">
           <Ban className="w-5 h-5 text-destructive shrink-0" />
           <div className="min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-widest text-destructive leading-tight">
+            <p className="text-[11px] font-black uppercase tracking-widest text-destructive leading-tight">
               Cancelled by {actorLabel}
             </p>
             {audit?.timestamp && (
@@ -172,12 +169,12 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
         )}
       </div>
 
-      <div className="px-4 pb-4 space-y-2">
-        <div className="rounded-xl bg-white border-2 border-destructive/10 divide-y divide-dashed divide-muted/40">
+      <div className="px-5 pb-5 space-y-2">
+        <div className="rounded-2xl bg-white border-2 border-destructive/10 divide-y divide-dashed divide-muted/40">
           {rows.map((r, i) => (
-            <div key={i} className="flex items-center justify-between px-3.5 py-2.5">
+            <div key={i} className="flex items-center justify-between px-4 py-3">
               <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{r.label}</span>
-              <span className={cn('text-[10px] font-black uppercase tracking-tight font-mono', r.tone)}>{r.value}</span>
+              <span className={cn('text-[11px] font-black uppercase tracking-tight font-mono', r.tone)}>{r.value}</span>
             </div>
           ))}
         </div>
@@ -219,32 +216,34 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
     </div>
   );
 };
-
-// ─── Readiness Banner ─────────────────────────────────────────────────────────
 const ReadinessBanner = ({
-  appointment, client, complianceInfo, hasDeposit, isLoadingDeposit,
+  appointment, client, complianceInfo, hasDeposit, isLoadingDeposit, cardSecured,
 }: {
   appointment: any;
   client: any;
-  complianceInfo: { pendingForms: any[]; allCertified: boolean };
+  complianceInfo: { healthPendingForms: ConsentForm[]; otherPendingForms: ConsentForm[]; allCertified: boolean };
   hasDeposit: boolean;
   isLoadingDeposit: boolean;
+  cardSecured: boolean;
 }) => {
-  const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
-
   const flags      = appointment?.readinessFlags || {};
   const hasBan     = client?.status === 'banned';
   const hasDispute = client?.hasOpenDispute === true;
   const hasAllergy = !!(client?.allergyNotes || client?.medicalNotes);
+  const outstandingBalance = safeNumber(client?.outstandingBalance);
 
-  // FIX: this is the actual deposit blocker now — derived from the live
-  // lookup instead of trusting flags.depositRequired in isolation.
   const depositRequiredButMissing = !!flags.depositRequired && !hasDeposit && !isLoadingDeposit;
+  const healthFormsPending = complianceInfo.healthPendingForms.length > 0;
+  const otherFormsPending  = complianceInfo.otherPendingForms.length > 0;
+  const cardActuallyMissing = !!flags.cardRequired && !cardSecured;
 
   const blockers = [
     hasBan     && { level: 'banned',  msg: `Banned — ${client?.banMessage || 'No service permitted'}` },
     hasDispute && { level: 'dispute', msg: `Open chargeback dispute on file — verify before service` },
-    flags.healthGateActive && { level: 'danger', msg: `Health disclosure required before any product is applied` },
+    healthFormsPending && {
+      level: 'danger',
+      msg: `Health disclosure required: ${complianceInfo.healthPendingForms.map(f => f.title).join(', ')}`,
+    },
     hasAllergy && {
       level: 'allergy',
       msg: [
@@ -252,24 +251,19 @@ const ReadinessBanner = ({
         client.medicalNotes ? `Medical: ${client.medicalNotes}` : '',
       ].filter(Boolean).join(' · '),
     },
-    flags.formGateActive && { level: 'danger', msg: `Required consent form not signed — collect before starting` },
-    !complianceInfo.allCertified && complianceInfo.pendingForms.length > 0 && {
+    otherFormsPending && {
       level: 'warn',
-      msg: `${complianceInfo.pendingForms.length} consent form${complianceInfo.pendingForms.length !== 1 ? 's' : ''} not yet signed`,
+      msg: `${complianceInfo.otherPendingForms.length} consent form${complianceInfo.otherPendingForms.length !== 1 ? 's' : ''} not yet signed`,
     },
-    depositRequiredButMissing && { level: 'danger', msg: `Deposit not received — cannot proceed` },
-    flags.cardRequired    && { level: 'warn',   msg: `No card on file — collect at check-in` },
-    flags.balanceRequired && { level: 'warn',   msg: `Outstanding $${Number(client?.outstandingBalance || 0).toFixed(2)} — settle at checkout` },
+    depositRequiredButMissing && { level: 'danger', msg: `Deposit not received — collect below before starting` },
+    cardActuallyMissing && { level: 'warn',   msg: `No card on file — collect at check-in` },
+    outstandingBalance > 0 && { level: 'warn', msg: `Outstanding $${outstandingBalance.toFixed(2)} — settle at checkout` },
     flags.needsConsultationBuffer && { level: 'info', msg: `No reference photos — allow 15 min design consultation` },
   ].filter(Boolean) as { level: string; msg: string }[];
 
-  // FIX: while the live deposit lookup is still in flight AND the
-  // appointment record claims a deposit is required, don't show the green
-  // "all requirements met" state yet — that was the exact failure mode:
-  // claiming readiness before we'd actually confirmed payment.
   if (flags.depositRequired && isLoadingDeposit) {
     return (
-      <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-muted/10 border-2 border-muted/30">
+      <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-muted/10 border-2 border-muted/30">
         <Loader className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
         <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
           Verifying deposit status…
@@ -280,7 +274,7 @@ const ReadinessBanner = ({
 
   if (blockers.length === 0) {
     return (
-      <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-green-50 border-2 border-green-200">
+      <div className="flex items-center gap-2.5 p-4 rounded-2xl bg-green-50 border-2 border-green-200">
         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
         <p className="text-[10px] font-black uppercase tracking-widest text-green-700">
           Ready to start — all requirements met
@@ -317,7 +311,7 @@ const ReadinessBanner = ({
   return (
     <div className="space-y-2">
       {blockers.map((b, i) => (
-        <div key={i} className={cn('flex items-start gap-3 p-3.5 rounded-2xl border-2', BG[b.level])}>
+        <div key={i} className={cn('flex items-start gap-3 p-4 rounded-2xl border-2', BG[b.level])}>
           <AlertTriangle className={cn('w-4 h-4 shrink-0 mt-0.5', IC[b.level])} />
           <p className={cn('text-[10px] font-black uppercase tracking-wide leading-snug', TX[b.level])}>
             {b.msg}
@@ -327,8 +321,6 @@ const ReadinessBanner = ({
     </div>
   );
 };
-
-// ─── Main Component ───────────────────────────────────────────────────────────
 export const AppointmentDetailsSheet: React.FC<any> = ({
   open, onOpenChange, appointment: initialAppointment, client, service, tmhr,
   transactions, onStartService, onFinishService, onEdit, onDelete, onCancel,
@@ -359,6 +351,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [reqLink, setReqLink] = useState<string | null>(null);
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);
+  const [isCollectingDeposit, setIsCollectingDeposit] = useState(false);
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -425,32 +418,35 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const { data: signedConsents } = useCollection<any>(signedConsentsQuery);
 
   const complianceInfo = useMemo(() => {
-    if (!service || !consentForms) return { requiredForms: [], pendingForms: [], allCertified: true };
+    if (!service || !consentForms) {
+      return { requiredForms: [], pendingForms: [], healthPendingForms: [], otherPendingForms: [], allCertified: true };
+    }
     const requiredIds   = service.requiredFormIds || [];
     const requiredForms = (consentForms || []).filter(f => requiredIds.includes(f.id));
     const aptSignedIds  = (appointment?.signedForms || []).map((f: any) => f.formId);
     const pendingForms  = requiredForms.filter(rf =>
       !signedConsents?.some(sc => sc.formId === rf.id) && !aptSignedIds.includes(rf.id)
     );
-    return { requiredForms, pendingForms, allCertified: pendingForms.length === 0 };
+    const healthPendingForms = pendingForms.filter(f => f.category === 'Intake');
+    const otherPendingForms  = pendingForms.filter(f => f.category !== 'Intake');
+    return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0 };
   }, [service, consentForms, signedConsents, appointment?.signedForms]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
 
-  // Same live deposit truth used by ReadinessBanner — lifted to this level
-  // too because the "Start Session" button below was independently gating
-  // on appointment.readinessFlags.depositRequired, the exact stale flag the
-  // banner now overrides. Two checks reading two different sources of truth
-  // for the same question is how this bug happened in the first place — both
-  // now derive from this one hook call.
   const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(
     appointment?.clientId,
     client?.email,
     tenantId,
     true,
   );
-  const depositActuallyMissing =
-    !!appointment?.readinessFlags?.depositRequired && !hasLiveDeposit && !isLoadingLiveDeposit;
+
+  const cardSecured = !!(appointment?.cardOnFileSecured || client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+
+  const depositOwedCents = safeNumber(appointment?.depositAmountCents);
+  const depositUnpaid = depositOwedCents > 0 && appointment?.depositStatus !== 'paid' && !hasLiveDeposit && !isLoadingLiveDeposit;
+  const depositActuallyMissing = !!appointment?.readinessFlags?.depositRequired && depositUnpaid;
+  const canCollectDepositNow = !!appointment && appointment.status !== 'cancelled' && cardSecured && depositUnpaid;
 
   const financialData = useMemo(() => {
     if (!appointment || !service) return null;
@@ -613,130 +609,254 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     } finally { setReqSending(false); }
   };
 
-  // ── All hooks done — safe to early-return now ──────────────────────────────
+  const handleCollectDepositNow = async () => {
+    if (!firestore || !tenantId || !appointment?.id || !client?.id || !service) return;
+    setIsCollectingDeposit(true);
+    try {
+      const staffIdForPricing = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
+      const staffForPricing = (staff || []).find((s: any) => s.id === staffIdForPricing);
+      const price = service.serviceTiers?.find((t: any) => t.tierId === staffForPricing?.pricingTierId)?.price ?? service.price ?? 0;
+      const depositCents = depositOwedCents > 0
+        ? depositOwedCents
+        : (() => {
+            try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); }
+            catch { return 0; }
+          })();
+
+      if (!depositCents || depositCents <= 0) {
+        toast({ variant: 'destructive', title: 'No deposit amount set', description: 'Set a deposit on this service or appointment first.' });
+        return;
+      }
+
+      const res = await fetch('/api/stripe/charge-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          clientId: client.id,
+          amountCents: depositCents,
+          description: `Deposit — ${service.name}`,
+          category: 'Retainers',
+          appointmentId: appointment.id,
+          reason: 'Deposit collection (card on file)',
+          mode: 'pos',
+        }),
+      });
+      const out = await res.json().catch(() => null);
+
+      if (!out?.ok) {
+        if (out?.requiresAction) {
+          toast({ variant: 'destructive', title: 'Card needs verification', description: out.reason || 'Ask the client to verify their card.' });
+        } else {
+          toast({ variant: 'destructive', title: 'Could not collect deposit', description: out?.reason || 'Card charge failed.' });
+        }
+        return;
+      }
+
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), {
+        depositStatus: 'paid',
+        depositAmountCents: depositCents,
+        depositStripePaymentIntentId: out.paymentIntentId,
+      });
+      const creditRef = doc(collection(firestore, `tenants/${tenantId}/depositCredits`));
+      batch.set(creditRef, {
+        id: creditRef.id,
+        tenantId,
+        clientId: client.id,
+        clientEmail: String(client.email || '').toLowerCase().trim(),
+        clientName: client.name || 'Client',
+        amountCents: depositCents,
+        status: 'available',
+        sourceAppointmentId: appointment.id,
+        createdAt: new Date().toISOString(),
+        stripeChargeId: out.paymentIntentId,
+      });
+      await batch.commit();
+
+      toast({ title: 'Deposit collected', description: `$${(depositCents / 100).toFixed(2)} charged to the card on file.` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not collect deposit', description: e?.message || 'Unknown error' });
+    } finally {
+      setIsCollectingDeposit(false);
+    }
+  };
+
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
   const ticketId           = safeTicketId(appointment.id);
   const mainStaffId        = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
   const mainStaffMember    = (staff || []).find((s: Staff) => s.id === mainStaffId);
-  const cardSecured        = !!(appointment.cardOnFileSecured || client.cardOnFile?.token || client.cardOnFile?.paymentMethodId);
   const reqFiles           = appointment.requirementFiles || [];
   const isCancelled        = appointment.status === 'cancelled';
+  const outstandingBalance = safeNumber(client.outstandingBalance);
+  const adjustmentCharge   = financialData?.adjustmentCharge ?? 0;
 
-  // ── Sheet body ─────────────────────────────────────────────────────────────
+  const canStart  = appointment.status === 'confirmed';
+  const canFinish = appointment.status === 'servicing';
+  const startDisabled = !!(
+    complianceInfo.healthPendingForms.length > 0 ||
+    complianceInfo.otherPendingForms.length > 0 ||
+    depositActuallyMissing
+  );
+
+  const IdentityHeader = (
+    <div className="flex items-center gap-3.5">
+      <Avatar className="w-12 h-12 border-3 border-background shadow-lg rounded-2xl shrink-0">
+        <AvatarImage src={client.avatarUrl} className="object-cover" />
+        <AvatarFallback className="text-base font-black bg-primary/10 text-primary uppercase">
+          {(client?.name || 'G').substring(0, 2).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 className="font-black uppercase tracking-tighter text-slate-900 truncate text-lg leading-none">{client.name}</h2>
+          {client.activeMembershipId && <Badge className="h-[18px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
+          {client.status === 'banned' && <Badge className="h-[18px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
+          {client.hasOpenDispute && <Badge className="h-[18px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-purple-600 text-white border-none shrink-0"><AlertTriangle className="w-2 h-2 mr-0.5" />Dispute</Badge>}
+          <StoreCreditBadge credits={Array.isArray(availableCredits) ? availableCredits : []} totalAvailable={totalStoreCreditAvailable} />
+        </div>
+        <div className="flex items-center gap-3 mt-0.5">
+          {client.phone && (
+            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1">
+              <Phone className="w-2.5 h-2.5 opacity-40" /> {safeFormatPhone(client.phone)}
+            </p>
+          )}
+          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-50 shrink-0">
+            #{ticketId}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
   const SheetBody = (
     <ScrollArea className="flex-1 overflow-y-auto">
-      <div className="space-y-8 p-5 md:p-8 pb-16">
+      <div className="space-y-6 p-5 md:p-8 pb-6">
 
         {isCancelled
           ? <CancellationRecord appointment={appointment} transactions={transactions} />
-          : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} />}
+          : <ReadinessBanner
+              appointment={appointment} client={client} complianceInfo={complianceInfo}
+              hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured}
+            />}
 
-        {appointment.status === 'confirmed' && (
-          <Button
-            onClick={() => onStartService(appointment.id)}
-            className="w-full h-14 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20"
-            size="lg"
-            disabled={!!(appointment.readinessFlags?.healthGateActive || appointment.readinessFlags?.formGateActive || depositActuallyMissing)}
-          >
-            <Play className="mr-3 h-5 w-5" /> Start Session
-          </Button>
-        )}
-
-        {appointment.status === 'servicing' && (
-          <div className="space-y-4">
-            <Button onClick={() => onFinishService(appointment)} className="w-full h-14 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20" size="lg">
-              <Square className="mr-3 h-5 w-5" /> Finish Service
-            </Button>
-            {elapsedTime && (
-              <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-1">Live Session Time</p>
-                <p className={cn('font-black font-mono tracking-tighter text-4xl', isRunningOver ? 'text-destructive' : 'text-primary')}>{elapsedTime}</p>
-              </div>
-            )}
+        {appointment.status === 'servicing' && elapsedTime && (
+          <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-1">Live Session Time</p>
+            <p className={cn('font-black font-mono tracking-tighter text-4xl', isRunningOver ? 'text-destructive' : 'text-primary')}>{elapsedTime}</p>
           </div>
         )}
 
-        {/* ── Client info ── */}
-        <div className="flex items-center gap-4">
-          <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-[1.5rem] shrink-0">
-            <AvatarImage src={client.avatarUrl} className="object-cover" />
-            <AvatarFallback className="text-xl font-black bg-primary/10 text-primary uppercase">
-              {(client?.name || 'G').substring(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <div className="space-y-1 flex-1 min-w-0">
-            <h2 className="font-black uppercase tracking-tighter text-slate-900 truncate text-xl">{client.name}</h2>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline" className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest border-2">
-                <UserIcon className="w-2.5 h-2.5 mr-1 opacity-40" /> Guest
-              </Badge>
-              {client.activeMembershipId && (
-                <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-indigo-600 text-white border-none">
-                  <Award className="w-2.5 h-2.5 mr-1" /> Member
-                </Badge>
-              )}
-              {client.status === 'banned' && (
-                <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-black text-white border-none">
-                  <Ban className="w-2.5 h-2.5 mr-1" /> Banned
-                </Badge>
-              )}
-              {client.hasOpenDispute && (
-                <Badge className="h-5 px-2 rounded-full font-black uppercase text-[8px] tracking-widest bg-purple-600 text-white border-none">
-                  <AlertTriangle className="w-2.5 h-2.5 mr-1" /> Dispute
-                </Badge>
-              )}
-              <StoreCreditBadge
-                credits={availableCredits}
-                totalAvailable={totalStoreCreditAvailable}
+        <Card className="rounded-[1.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex justify-between items-start gap-4">
+              <div className="space-y-1 min-w-0 flex-1">
+                <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
+                <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                  <Clock className="w-2.5 h-2.5" /> {service.duration}m
+                  {(appointment.addOnIds || []).length > 0 && (
+                    <span className="opacity-60">· {(appointment.addOnIds || []).length} add-on{(appointment.addOnIds || []).length !== 1 ? 's' : ''}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 pt-1.5 mt-1 border-t border-dashed border-primary/10">
+                  <Avatar className="h-5 w-5 border shadow-sm">
+                    <AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" />
+                    <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span>
+                </div>
+              </div>
+              <p className="text-2xl font-black text-primary tracking-tighter font-mono shrink-0">${(financialData?.revenue ?? 0).toFixed(2)}</p>
+            </div>
+            {(appointment.addOnIds || []).length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-dashed">
+                {(appointment.addOnIds || []).map((id: string) => {
+                  const s = (allServices || []).find((svc) => svc.id === id);
+                  if (!s) return null;
+                  return (
+                    <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-white p-2 rounded-lg border border-muted/20">
+                      <span className="truncate flex items-center gap-2"><Sparkles className="w-3 h-3" /> {s.name}</span>
+                      <span className="shrink-0 text-primary font-mono">${(s.price ?? 0).toFixed(2)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {!isCancelled && (
+              <Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-7 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 w-fit">
+                <PlusCircle className="w-3 h-3 mr-1" /> Add Part
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {!isCancelled && (
+          <div className="space-y-3">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+              <DollarSign className="w-3 h-3" /> Financial Summary
+            </h3>
+            <div className="rounded-2xl border-2 bg-white shadow-inner divide-y divide-dashed divide-muted/30 px-4">
+              <RequirementRow
+                icon={<Wallet className="w-3.5 h-3.5" />}
+                label="Deposit"
+                status={appointment.depositStatus === 'paid' ? 'good' : depositOwedCents > 0 ? 'bad' : 'neutral'}
+                value={
+                  appointment.depositStatus === 'paid'
+                    ? `Paid $${(depositOwedCents / 100).toFixed(2)}`
+                    : depositOwedCents > 0
+                      ? `Due $${(depositOwedCents / 100).toFixed(2)}`
+                      : '—'
+                }
+                action={canCollectDepositNow && (
+                  <Button
+                    size="sm"
+                    onClick={handleCollectDepositNow}
+                    disabled={isCollectingDeposit}
+                    className="h-7 px-2.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-md shadow-primary/20"
+                  >
+                    {isCollectingDeposit ? <Loader className="w-3 h-3 animate-spin" /> : <><CreditCard className="w-3 h-3 mr-1" />Collect Now</>}
+                  </Button>
+                )}
               />
-            </div>
-            {isOwnerOrAdminUser && (
-              <div className="flex flex-col gap-0.5 pt-1">
-                {client.email && (
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1.5">
-                    <Mail className="w-3 h-3 opacity-40" /> {client.email}
-                  </p>
-                )}
-                {client.phone && (
-                  <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1.5">
-                    <Phone className="w-3 h-3 opacity-40" /> {safeFormatPhone(client.phone)}
-                  </p>
-                )}
+              <RequirementRow
+                icon={<ShieldCheck className="w-3.5 h-3.5" />}
+                label="Card on File"
+                status={cardSecured ? 'good' : 'neutral'}
+                value={cardSecured ? 'Secured' : 'Not on file'}
+              />
+              {outstandingBalance > 0 && (
+                <RequirementRow
+                  icon={<AlertTriangle className="w-3.5 h-3.5" />}
+                  label="Outstanding Balance"
+                  status="bad"
+                  value={`$${outstandingBalance.toFixed(2)}`}
+                />
+              )}
+              {adjustmentCharge > 0 && (
+                <RequirementRow
+                  icon={<Scale className="w-3.5 h-3.5" />}
+                  label="Adjustment Fee"
+                  status="warn"
+                  value={`$${adjustmentCharge.toFixed(2)} at checkout`}
+                />
+              )}
+              <div className="py-2">
+                <StoreCreditSection client={client} />
               </div>
+            </div>
+            {canCollectDepositNow && (
+              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 leading-relaxed pl-1">
+                Card on file but no deposit was collected — charge it now instead of waiting on a link.
+              </p>
             )}
           </div>
-        </div>
+        )}
 
-        {/* ── Compliance ── */}
-        <div className="space-y-3 pt-4 border-t border-dashed">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Compliance & Digital Intake</h3>
-          <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-3 shadow-inner">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] font-black uppercase text-muted-foreground">Certified Status</span>
-              <Badge variant="outline" className={cn('text-[8px] font-black uppercase h-5 px-2 border-none shadow-sm text-white', complianceInfo.allCertified ? 'bg-green-500' : 'bg-amber-500')}>
-                {complianceInfo.allCertified
-                  ? <><CheckCircle2 className="w-2 h-2 mr-1" /> Protocol Certified</>
-                  : <><Clock className="w-2 h-2 mr-1" /> Signature Pending</>}
-              </Badge>
-            </div>
-            {complianceInfo.pendingForms.map(f => (
-              <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 bg-amber-50/50 p-2 rounded-lg border border-amber-200">
-                <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-40" /> {f.title}</span>
-                <span className="shrink-0 ml-4">Required</span>
-              </div>
-            ))}
-            <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
-              <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
-            </Button>
-          </div>
-        </div>
-
-        {/* ── Client Requirements ── */}
-        <div className="space-y-3 pt-4 border-t border-dashed">
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Client Requirements</h3>
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Requirements & Intake</h3>
             <Badge className={cn(
               'text-[8px] font-black uppercase h-5 px-2 border-none text-white shadow-sm',
               appointment.completionStatus === 'complete' ? 'bg-green-500'
@@ -750,30 +870,41 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   : 'None Requested'}
             </Badge>
           </div>
-          <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-2.5 shadow-inner">
-            <div className="flex items-center justify-between text-[10px] font-black uppercase">
-              <span className="flex items-center gap-2 text-muted-foreground"><Wallet className="w-3 h-3 opacity-40" /> Deposit</span>
-              <span className={cn(
-                appointment.depositStatus === 'paid' ? 'text-green-600'
-                : appointment.depositAmountCents ? 'text-amber-600'
-                : 'text-muted-foreground opacity-50'
-              )}>
-                {appointment.depositStatus === 'paid'
-                  ? `Paid $${((appointment.depositAmountCents || 0) / 100).toFixed(2)}`
-                  : appointment.depositAmountCents
-                    ? `Due $${(appointment.depositAmountCents / 100).toFixed(2)}`
-                    : '—'}
-              </span>
+
+          {complianceInfo.healthPendingForms.length > 0 && (
+            <div className="rounded-2xl bg-red-50 border-2 border-red-300 p-3.5 space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-red-700 flex items-center gap-1.5">
+                <HeartPulse className="w-3 h-3" /> Health Disclosure Required
+              </p>
+              {complianceInfo.healthPendingForms.map(f => (
+                <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-red-700 bg-white/70 p-2 rounded-lg border border-red-200">
+                  <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-50" /> {f.title}</span>
+                  <span className="shrink-0 ml-4 opacity-70">Unsigned</span>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center justify-between text-[10px] font-black uppercase">
-              <span className="flex items-center gap-2 text-muted-foreground"><ShieldCheck className="w-3 h-3 opacity-40" /> Card on File</span>
-              <span className={cn(cardSecured ? 'text-green-600' : 'text-muted-foreground opacity-50')}>
-                {cardSecured ? 'Secured' : 'Not on file'}
-              </span>
+          )}
+
+          <div className="p-4 rounded-2xl bg-muted/10 border-2 space-y-1 shadow-inner divide-y divide-dashed divide-muted/30">
+            {complianceInfo.otherPendingForms.map(f => (
+              <div key={f.id} className="flex items-center justify-between text-[10px] font-bold uppercase text-amber-700 py-2">
+                <span className="flex items-center gap-2 truncate"><FileSignature className="w-3 h-3 opacity-40" /> {f.title}</span>
+                <span className="shrink-0 ml-4">Required</span>
+              </div>
+            ))}
+            {complianceInfo.allCertified && (
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase text-green-600 py-1">
+                <CheckCircle2 className="w-3 h-3" /> All consent forms signed
+              </div>
+            )}
+            <div className="pt-2">
+              <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10" onClick={handleCopyLink}>
+                <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
+              </Button>
             </div>
-            <StoreCreditSection client={client} />
+
             {reqFiles.map((rf: any) => (
-              <div key={rf.requirementId} className="space-y-2 pt-1.5 border-t border-dashed border-muted/40">
+              <div key={rf.requirementId} className="space-y-2 pt-2">
                 <div className="flex items-center justify-between text-[10px] font-black uppercase">
                   <span className="flex items-center gap-2 text-muted-foreground"><FileImage className="w-3 h-3 opacity-40" /> {rf.label || 'Files'}</span>
                   <span className="text-green-600">{(rf.files || []).length} received</span>
@@ -798,7 +929,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   <ArrowRight className="w-3 h-3 mr-2" /> Request from Client
                 </Button>
               ) : (
-                <div className="space-y-3 pt-2 border-t border-dashed border-muted/40">
+                <div className="space-y-3 pt-2">
                   <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
                     <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><FileImage className="w-3.5 h-3.5 text-primary" /> Request inspo photos</span>
                     <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestPhotos ? 'bg-primary' : 'bg-slate-200')}>
@@ -815,7 +946,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </div>
               )
             ) : (
-              <div className="space-y-2 pt-2 border-t border-dashed border-muted/40">
+              <div className="space-y-2 pt-2">
                 <div className="flex items-center gap-2">
                   <input readOnly value={reqLink} onFocus={e => e.currentTarget.select()} className="flex-1 h-10 rounded-xl border-2 px-3 text-[10px] font-mono bg-white" />
                   <Button onClick={() => { navigator.clipboard.writeText(reqLink!); setReqCopied(true); setTimeout(() => setReqCopied(false), 2000); }} className="h-10 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0">
@@ -828,9 +959,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         </div>
 
-        {/* ── Inspiration photo ── */}
         {appointment.inspirationPhotoUrl && (
-          <div className="space-y-3 pt-4 border-t border-dashed">
+          <div className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inspiration & Mapping</h3>
               <Button variant="ghost" size="sm" onClick={() => setIsMarkupOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
@@ -849,8 +979,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
-        {/* ── Dossier Intelligence ── */}
-        <div className="space-y-3 pt-4 border-t border-dashed">
+        <div className="space-y-3">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Dossier Intelligence</h3>
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="pref-notes" className="border-2 rounded-2xl overflow-hidden bg-muted/5 mb-2 shadow-inner">
@@ -906,159 +1035,114 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </Accordion>
         </div>
 
-        {/* ── Escalation ── */}
-        <div className="space-y-3 pt-4 border-t border-dashed">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-primary">Service Recovery & Escalation</h3>
-            {selectedTenant?.escalationPolicy && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button className="text-[9px] font-black uppercase text-primary underline decoration-2 underline-offset-4">Standing Orders</button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-[280px] p-4 rounded-2xl border-2 shadow-2xl bg-white">
-                    <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed">{selectedTenant.escalationPolicy}</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-          </div>
-          <div className={cn(
-            'flex flex-col gap-4 p-5 rounded-[2rem] border-4 transition-all shadow-xl',
-            appointment.isEscalated
-              ? 'bg-destructive text-white border-destructive shadow-destructive/20'
-              : 'border-destructive/20 bg-destructive/[0.02] shadow-destructive/5'
-          )}>
-            <div className="flex items-center justify-between gap-4">
-              <div className="space-y-1">
-                <Label className={cn('text-sm font-black uppercase tracking-tight flex items-center gap-2', appointment.isEscalated ? 'text-white' : 'text-destructive')}>
-                  <ShieldAlert className="w-4 h-4" /> {appointment.isEscalated ? 'Priority Escalated' : 'Manager Escalation'}
-                </Label>
-                <p className={cn('text-[10px] font-bold uppercase tracking-widest', appointment.isEscalated ? 'text-white/80' : 'text-destructive/60')}>
-                  {appointment.isEscalated ? 'Manager dispatch active' : 'Immediate technical or guest issue'}
-                </p>
-              </div>
-              <Button
-                variant={appointment.isEscalated ? 'secondary' : 'destructive'}
-                size="icon"
-                disabled={isEscalating}
-                onClick={appointment.isEscalated ? undefined : handleEscalate}
-                className={cn('h-14 w-14 rounded-2xl shadow-xl', !appointment.isEscalated && 'shadow-destructive/20 animate-pulse')}
-              >
-                {isEscalating ? <Loader className="animate-spin" /> : appointment.isEscalated ? <CheckCircle2 className="w-6 h-6" /> : <AlertCircle className="w-6 h-6" />}
-              </Button>
-            </div>
-            {appointment.isEscalated && isOwnerOrAdminUser && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4 border-t border-white/20">
-                <div className="space-y-2">
-                  <Label className="text-[10px] font-black uppercase text-white/60 ml-1">Resolution Protocol Summary</Label>
-                  <Textarea
-                    value={resolutionNote}
-                    onChange={e => setResolutionNote(e.target.value)}
-                    placeholder="Detail the manager intervention..."
-                    className="bg-white/10 border-white/20 text-white placeholder:text-white/40 min-h-[80px] rounded-xl focus-visible:ring-white/20"
-                  />
+        <div className="space-y-3">
+          {appointment.isEscalated ? (
+            <div className="flex flex-col gap-4 p-5 rounded-[2rem] border-4 bg-destructive text-white border-destructive shadow-xl shadow-destructive/20">
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <Label className="text-sm font-black uppercase tracking-tight flex items-center gap-2 text-white">
+                    <ShieldAlert className="w-4 h-4" /> Priority Escalated
+                  </Label>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-white/80">Manager dispatch active</p>
                 </div>
-                <Button
-                  onClick={handleResolveEscalation}
-                  disabled={isResolving || !resolutionNote.trim()}
-                  className="w-full h-12 bg-white text-destructive hover:bg-white/90 rounded-xl font-black uppercase text-[10px] tracking-widest"
-                >
-                  {isResolving ? <Loader className="animate-spin" /> : 'Certify Resolution & Clear Alert'}
+                <Button variant="secondary" size="icon" className="h-12 w-12 rounded-2xl shadow-xl" disabled>
+                  <CheckCircle2 className="w-6 h-6" />
                 </Button>
-              </motion.div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Alerts ── */}
-        {financialData && financialData.adjustmentCharge > 0 && (
-          <Alert className="border-2 border-primary/20 bg-primary/[0.01] rounded-2xl p-5 shadow-sm">
-            <Scale className="h-5 w-5 text-primary" />
-            <AlertTitle className="text-[10px] font-black uppercase tracking-[0.2em] mb-2 text-primary">Strategic Adjustment Fee</AlertTitle>
-            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
-              This session includes <strong>${financialData.adjustmentCharge.toFixed(2)}</strong> in adjustments to be collected at checkout.
-            </AlertDescription>
-          </Alert>
-        )}
-        {safeNumber(client.outstandingBalance) > 0 && (
-          <Alert variant="destructive" className="bg-destructive/5 border-destructive/20 border-2 rounded-2xl p-5 shadow-sm">
-            <Wallet className="h-5 w-5" />
-            <AlertTitle className="text-[10px] font-black uppercase tracking-[0.2em] mb-2">Accounting Alert</AlertTitle>
-            <AlertDescription className="text-[10px] font-bold leading-relaxed opacity-80 uppercase">
-              Client owes <strong>${Number(client.outstandingBalance).toFixed(2)}</strong>. Settle at checkout.
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* ── Action buttons ── */}
-        <div className="grid grid-cols-2 gap-3">
-          <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest" asChild>
-            <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> Profile</Link>
-          </Button>
-          {!isCancelled && (
-            <Button variant="outline" className="h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-primary hover:bg-primary/5" onClick={() => setIsRescheduleOpen(true)}>
-              <CalendarClock className="mr-2 h-3.5 w-3.5" /> Reschedule
-            </Button>
-          )}
-        </div>
-        {!isCancelled && (
-          <Button variant="outline" className="w-full h-12 rounded-xl border-2 font-bold justify-start text-[10px] uppercase tracking-widest text-destructive hover:bg-destructive/5" onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}>
-            <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel
-          </Button>
-        )}
-
-        <Separator className="bg-muted/50" />
-
-        {/* ── Treatment details ── */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Treatment Details</h3>
-            {!isCancelled && (
-              <Button variant="ghost" size="sm" onClick={() => setIsAddAndConfigureOpen(true)} className="h-6 px-2 text-[8px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-                <PlusCircle className="w-3 h-3 mr-1" /> Add Part
-              </Button>
-            )}
-          </div>
-          <Card className="rounded-[1.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
-            <CardContent className="p-4 space-y-4">
-              <div className="flex justify-between items-start gap-4">
-                <div className="space-y-1 min-w-0">
-                  <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
-                  <div className="flex items-center gap-2 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
-                    <Clock className="w-2.5 h-2.5" /> {service.duration}m
-                  </div>
-                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-primary/10">
-                    <Avatar className="h-5 w-5 border shadow-sm">
-                      <AvatarImage src={mainStaffMember?.avatarUrl} className="object-cover" />
-                      <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(mainStaffMember?.name || 'S')[0]}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-[9px] font-black uppercase text-primary tracking-widest truncate">{mainStaffMember?.name || 'Unassigned'}</span>
-                  </div>
-                </div>
-                <p className="text-lg font-black text-primary tracking-tighter font-mono shrink-0">${(financialData?.revenue ?? 0).toFixed(2)}</p>
               </div>
-              {(appointment.addOnIds || []).length > 0 && (
-                <div className="space-y-3 pt-3 border-t border-dashed">
-                  <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-40">Add-ons</p>
-                  {(appointment.addOnIds || []).map((id: string) => {
-                    const s = (allServices || []).find((svc) => svc.id === id);
-                    if (!s) return null;
-                    return (
-                      <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-muted/10 p-2 rounded-lg border border-muted/20">
-                        <span className="truncate flex items-center gap-2"><Sparkles className="w-3 h-3" /> {s.name}</span>
-                        <span className="shrink-0 text-primary font-mono">${(s.price ?? 0).toFixed(2)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+              {isOwnerOrAdminUser && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4 pt-4 border-t border-white/20">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-black uppercase text-white/60 ml-1">Resolution Protocol Summary</Label>
+                    <Textarea
+                      value={resolutionNote}
+                      onChange={e => setResolutionNote(e.target.value)}
+                      placeholder="Detail the manager intervention..."
+                      className="bg-white/10 border-white/20 text-white placeholder:text-white/40 min-h-[80px] rounded-xl focus-visible:ring-white/20"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleResolveEscalation}
+                    disabled={isResolving || !resolutionNote.trim()}
+                    className="w-full h-12 bg-white text-destructive hover:bg-white/90 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {isResolving ? <Loader className="animate-spin" /> : 'Certify Resolution & Clear Alert'}
+                  </Button>
+                </motion.div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          ) : (
+            <button
+              onClick={handleEscalate}
+              disabled={isEscalating}
+              className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border-2 border-destructive/15 bg-destructive/[0.02] hover:bg-destructive/5 transition-all text-left"
+            >
+              <span className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-widest text-destructive/70">
+                <ShieldAlert className="w-3.5 h-3.5" /> Report an issue / escalate to manager
+              </span>
+              {isEscalating ? <Loader className="w-3.5 h-3.5 animate-spin text-destructive/50" /> : <ArrowRight className="w-3.5 h-3.5 text-destructive/30" />}
+            </button>
+          )}
         </div>
 
       </div>
     </ScrollArea>
+  );
+
+  const ActionBar = (
+    <div className="border-t bg-white/95 backdrop-blur-md flex-shrink-0 p-4 md:px-8 flex items-center gap-3">
+      {canStart && (
+        <Button
+          onClick={() => onStartService(appointment.id)}
+          disabled={startDisabled}
+          className="flex-1 h-12 rounded-2xl font-black uppercase shadow-xl shadow-primary/20"
+        >
+          <Play className="mr-2 h-4 w-4" /> Start Session
+        </Button>
+      )}
+      {canFinish && (
+        <Button onClick={() => onFinishService(appointment)} className="flex-1 h-12 rounded-2xl font-black uppercase shadow-xl shadow-primary/20">
+          <Square className="mr-2 h-4 w-4" /> Finish Service
+        </Button>
+      )}
+      {isCancelled && (
+        <Button onClick={() => onRebook?.(appointment)} className="flex-1 h-12 rounded-2xl font-black uppercase shadow-xl shadow-primary/20">
+          <Undo2 className="mr-2 h-4 w-4" /> Rebook
+        </Button>
+      )}
+      {!canStart && !canFinish && !isCancelled && (
+        <Button variant="outline" className="flex-1 h-12 rounded-2xl font-bold uppercase border-2" asChild>
+          <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-4 w-4" /> View Profile</Link>
+        </Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="icon" className="h-12 w-12 rounded-2xl border-2 shrink-0">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="rounded-2xl border-2 w-56">
+          <DropdownMenuItem asChild className="font-bold uppercase text-[10px] tracking-wide">
+            <Link href={`/clients/${client.id}`}><UserIcon className="mr-2 h-3.5 w-3.5" /> View Profile</Link>
+          </DropdownMenuItem>
+          {!isCancelled && (
+            <DropdownMenuItem onClick={() => setIsRescheduleOpen(true)} className="font-bold uppercase text-[10px] tracking-wide">
+              <CalendarClock className="mr-2 h-3.5 w-3.5" /> Reschedule
+            </DropdownMenuItem>
+          )}
+          {!isCancelled && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => { onOpenChange(false); onCancel(appointment.id, !!appointment.isWalkIn); }}
+                className="font-bold uppercase text-[10px] tracking-wide text-destructive focus:text-destructive"
+              >
+                <AlertTriangle className="mr-2 h-3.5 w-3.5" /> Cancel Appointment
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 
   return (
@@ -1071,20 +1155,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             isMobile ? 'h-[92dvh] rounded-t-[2.5rem] w-full' : 'sm:max-w-xl'
           )}
         >
-          <SheetHeader className="border-b bg-muted/5 flex-shrink-0 p-5 md:p-8 md:pb-6">
+          <SheetHeader className="border-b bg-muted/5 flex-shrink-0 p-5 md:p-6">
             {isMobile && <div className="w-10 h-1 bg-muted-foreground/20 rounded-full mx-auto mb-3" />}
-            <div className="flex items-center gap-3 mb-2">
-              <Sparkles className="w-5 h-5 text-primary" />
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Session Dossier</span>
-            </div>
-            <SheetTitle className="font-black uppercase tracking-tighter text-slate-900 leading-none text-xl md:text-3xl">
-              Session Summary
-            </SheetTitle>
-            <SheetDescription className="text-[9px] font-bold uppercase tracking-widest opacity-60 mt-1">
-              ID: {ticketId}
-            </SheetDescription>
+            <SheetTitle className="sr-only">Session Details for {client.name}</SheetTitle>
+            <SheetDescription className="sr-only">Appointment {ticketId}</SheetDescription>
+            {IdentityHeader}
           </SheetHeader>
           {SheetBody}
+          {ActionBar}
         </SheetContent>
       </Sheet>
 
