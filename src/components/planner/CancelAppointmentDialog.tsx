@@ -226,6 +226,42 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
     });
   }, [sessionItems, tmhr, inventory, staff, appointment, taxBurden, tenant]);
 
+  // ── FIX: moved up from the "Derived values" section below ───────────────
+  // These two were previously declared AFTER the `useEffect` that reads
+  // `suggestedFeeTotal` (both in its body and its dependency array). Because
+  // `const` bindings stay in the temporal dead zone until the line that
+  // declares them actually executes — regardless of where a callback that
+  // *closes over* them happens to run — that effect was throwing
+  // "Cannot access 'suggestedFeeTotal' before initialization" on every
+  // render where the effect's deps were evaluated before this declaration
+  // was reached. Moving the declarations above the effect fixes it; nothing
+  // about the calculation itself changed.
+  const hoursUntilAppt = useMemo(() => {
+    const st = appointment?.startTime ? new Date(appointment.startTime).getTime() : 0;
+    return st ? (st - Date.now()) / 3600000 : 0;
+  }, [appointment]);
+
+  // A CANCELLATION fee follows the cancellation POLICY, not the full service
+  // cost. (Full cost is no-show economics — handled in the isNoShow branch of
+  // finalFeeAmount.) Enough notice → free; a per-service cancellation fee wins
+  // where set; otherwise the studio's flat fee applies once. Rounded to cents.
+  const suggestedFeeTotal = useMemo(() => {
+    return resolveAppointmentCancellationFee({
+      services: recoveryMatrix.map(m => ({
+        mode: m.feeMode,
+        value: m.feeValue,
+        window: m.window,
+        matrixBasis: m.houseFloor + m.laborProtection,
+        price: m.price,
+      })),
+      globalMode: (tenant?.defaultCancellationMode || 'matrix'),
+      tenantFlatFee: tenant?.cancellationFee || 0,
+      defaultWindowHours: tenant?.cancellationWindowHours || 24,
+      hoursUntilAppointment: hoursUntilAppt,
+    });
+  }, [recoveryMatrix, hoursUntilAppt, tenant]);
+  // ── end moved block ───────────────────────────────────────────────────────
+
   // Reset state each time the dialog opens
   useEffect(() => {
     if (open) {
@@ -336,39 +372,6 @@ export const CancelAppointmentDialog: React.FC<CancelAppointmentDialogProps> = (
       ),
     [actorType, studioReason, clientReason],
   );
-
-  // The suggested fee — every service's configured override fee where set
-  // (Settings → Service-Specific Protocols), or its house-floor + labor-
-  // protection cost otherwise, summed across all services in the session.
-  // This used to be filtered by which per-service checkboxes were checked,
-  // and only looked at the FIRST service's override (ignoring the rest on
-  // multi-service appointments) — both fixed here. feeValue starts at this
-  // total, and staff edit the single number directly if they want something
-  // different.
-  const hoursUntilAppt = useMemo(() => {
-    const st = appointment?.startTime ? new Date(appointment.startTime).getTime() : 0;
-    return st ? (st - Date.now()) / 3600000 : 0;
-  }, [appointment]);
-
-  // A CANCELLATION fee follows the cancellation POLICY, not the full service
-  // cost. (Full cost is no-show economics — handled in the isNoShow branch of
-  // finalFeeAmount.) Enough notice → free; a per-service cancellation fee wins
-  // where set; otherwise the studio's flat fee applies once. Rounded to cents.
-  const suggestedFeeTotal = useMemo(() => {
-    return resolveAppointmentCancellationFee({
-      services: recoveryMatrix.map(m => ({
-        mode: m.feeMode,
-        value: m.feeValue,
-        window: m.window,
-        matrixBasis: m.houseFloor + m.laborProtection,
-        price: m.price,
-      })),
-      globalMode: (tenant?.defaultCancellationMode || 'matrix'),
-      tenantFlatFee: tenant?.cancellationFee || 0,
-      defaultWindowHours: tenant?.cancellationWindowHours || 24,
-      hoursUntilAppointment: hoursUntilAppt,
-    });
-  }, [recoveryMatrix, hoursUntilAppt, tenant]);
 
   const isFeeOverridden = !isNoShow && Math.abs(feeValue - suggestedFeeTotal) > 0.005;
 
