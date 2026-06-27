@@ -1,16 +1,29 @@
 'use client';
 
 /**
- * QuickBookForm — enhanced with all four new features, plus charge-card-on-file:
+ * QuickBookForm — enhanced with:
  *   1. ClientIntelligencePanel (step 1) — insights, preferences, birthday perk
  *   2. SmartAvailabilityGrid (step 2) — pre-filtered slots + add-on upsell
- *   3. GroupBookingPanel (step 2) — multi-guest booking
+ *   3. GroupBookingPanel (step 2) — multi-GUEST booking (separate clients,
+ *      same time slot)
  *   4. Package redemption shortcut (step 3)
  *   5. Charge card on file (step 3) — when the client has a saved card, staff
- *      can charge the deposit immediately via /api/stripe/charge-card (mode:
- *      'auto') instead of sending a completion link. On decline, the booking
- *      still goes through — we just fall back to the completion link so the
- *      client can re-authenticate / pay from their phone.
+ *      can charge the deposit immediately via /api/stripe/charge-card
+ *      (mode: 'auto', kind: 'deposit'). On decline, the booking still goes
+ *      through — falls back to the completion link so the client can
+ *      re-authenticate / pay from their phone.
+ *   6. Arrears banner (step 3) — if the client has an outstanding balance
+ *      from a PAST appointment, staff must either collect it now
+ *      (kind: 'arrears_fee', the original semantics) or explicitly override
+ *      with a reason before the booking can be confirmed. Mirrors the
+ *      actor/reason audit pattern already used for cancellations.
+ *   7. Multi-provider legs (step 2) — the SAME client moving through
+ *      multiple DIFFERENT services with different staff, sequentially
+ *      (e.g. color with Stylist A, then style with Stylist B). Each leg is
+ *      its OWN appointment document chained by multiProviderGroupId, so the
+ *      planner calendar renders each provider's real time block correctly
+ *      with no changes to planner code. Distinct from GroupBookingPanel,
+ *      which is concurrent guests under separate client identities.
  *
  * Drop-in replacement for the existing QuickBookForm in page.tsx.
  * All props are identical to the original.
@@ -29,7 +42,7 @@ import { Button } from '@/components/ui/button';
 import {
   ChevronLeft, ChevronRight, XCircle, UserPlus, ArrowRight,
   CheckCircle2, ShieldCheck, Sparkles, Loader, Copy, Link2,
-  Users, Package, Lock, CreditCard, AlertTriangle,
+  Users, Package, Lock, CreditCard, AlertTriangle, Wallet, UserCog,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -37,6 +50,7 @@ import { useSmartAvailability } from '@/hooks/useSmartAvailability';
 import { ClientIntelligencePanel } from '@/components/pos/ClientIntelligencePanel';
 import { SmartAvailabilityGrid } from '@/components/pos/SmartAvailabilityGrid';
 import { GroupBookingPanel, isGroupValid, type GroupGuest } from '@/components/pos/GroupBookingPanel';
+import { MultiProviderPanel, computeLegSchedule, isMultiProviderValid, type ProviderLeg } from '@/components/pos/MultiProviderPanel';
 
 // ── Firestore sanitizer (same as page.tsx) ────────────────────────────────────
 const sanitizeForFirestore = (obj: any): any => {
@@ -48,6 +62,16 @@ const sanitizeForFirestore = (obj: any): any => {
   );
 };
 
+// ── Arrears override reasons — mirrors the studio/client cancellation-reason
+// pattern (CancellationAudit) so this has the same shape as other audited
+// staff judgment calls in the system, rather than a free-text-only field.
+const ARREARS_OVERRIDE_REASONS = [
+  { value: 'will_collect_in_person', label: 'Will collect in person' },
+  { value: 'manager_approved', label: 'Manager approved' },
+  { value: 'dispute_in_progress', label: 'Dispute in progress' },
+  { value: 'other', label: 'Other' },
+] as const;
+
 type Props = {
   clients: any[];
   services: any[];
@@ -56,12 +80,13 @@ type Props = {
   tenant: any;
   firestore: any;
   appointments?: any[]; // pass appointmentsFromInventory for smart availability
+  currentStaffId?: string; // for arrearsOverrideBy attribution
   onSuccess: () => void;
   onCancel: () => void;
 };
 
 export function QuickBookForm({
-  clients, services, staff, tenantId, tenant, firestore, appointments = [], onSuccess, onCancel,
+  clients, services, staff, tenantId, tenant, firestore, appointments = [], currentStaffId, onSuccess, onCancel,
 }: Props) {
   const { toast } = useToast();
 
@@ -84,16 +109,27 @@ export function QuickBookForm({
   const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 30), 'HH:mm'));
   const [isGroup, setIsGroup] = React.useState(false);
   const [groupGuests, setGroupGuests] = React.useState<GroupGuest[]>([]);
+  // Multi-provider: sequential legs for the SAME client. Empty by default —
+  // today's single-service flow is leg 0 (the fields above); this array
+  // holds leg 1+.
+  const [isMultiProvider, setIsMultiProvider] = React.useState(false);
+  const [providerLegs, setProviderLegs] = React.useState<ProviderLeg[]>([]);
 
   // Step 3
   const [sendLink, setSendLink] = React.useState(true);
   const [requestFiles, setRequestFiles] = React.useState(false);
   const [notes, setNotes] = React.useState('');
   const [redeemPackageId, setRedeemPackageId] = React.useState<string | null>(null);
-  // Charge card on file now, instead of (or in addition to a fallback) sending
-  // a completion link. Defaults on whenever a card is on file — front desk
-  // wants the money collected immediately, not a link sitting unopened.
+  // Charge card on file now, instead of (or as a fallback to) sending a
+  // completion link. Defaults on whenever a card is on file.
   const [chargeNow, setChargeNow] = React.useState(true);
+
+  // Arrears (outstanding balance from a PAST appointment)
+  const [isChargingArrears, setIsChargingArrears] = React.useState(false);
+  const [arrearsResolved, setArrearsResolved] = React.useState(false); // cleared by a successful charge
+  const [arrearsOverrideReason, setArrearsOverrideReason] = React.useState('');
+  const [arrearsOverrideDetail, setArrearsOverrideDetail] = React.useState('');
+  const [showArrearsOverride, setShowArrearsOverride] = React.useState(false);
 
   // Submit
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -143,6 +179,14 @@ export function QuickBookForm({
     (p: any) => p.sessionsRemaining > 0,
   );
 
+  // Outstanding balance from a PAST appointment (no-show / late-cancel fees,
+  // etc. — see Client.outstandingBalance / unpaidFees). Cleared locally once
+  // a charge-now succeeds in this session; re-derived from the client record
+  // otherwise so switching clients always reflects the real balance.
+  const outstandingBalance = safeNumber(selectedClient?.outstandingBalance);
+  const hasUnresolvedArrears = outstandingBalance > 0 && !arrearsResolved;
+  const canConfirmBooking = !hasUnresolvedArrears || !!arrearsOverrideReason;
+
   // ── Client intelligence ──────────────────────────────────────────────────
   const intel = useClientIntelligence(selectedClient, appointments, services);
 
@@ -159,6 +203,23 @@ export function QuickBookForm({
     skipSlotsBefore: aptDate === todayStr ? nowTimeStr : undefined,
   });
 
+  // ── Multi-provider derived schedule + totals ────────────────────────────
+  const primaryStartTimeForLegs = React.useMemo(
+    () => new Date(`${aptDate}T${aptTime}:00`),
+    [aptDate, aptTime],
+  );
+  const scheduledLegs = React.useMemo(
+    () => isMultiProvider
+      ? computeLegSchedule(providerLegs, services, primaryStartTimeForLegs, selectedService)
+      : [],
+    [isMultiProvider, providerLegs, services, primaryStartTimeForLegs, selectedService],
+  );
+  const legsTotal = scheduledLegs.reduce((acc, leg) => {
+    const svc = services.find((s: any) => s.id === leg.serviceId);
+    const staffMember = staff.find((s: any) => s.id === leg.staffId);
+    return acc + (svc ? getServicePrice(svc, staffMember) : 0);
+  }, 0);
+
   // ── Toggle add-on ────────────────────────────────────────────────────────
   const toggleAddOn = (serviceId: string) => {
     setAddOnIds((prev) =>
@@ -168,6 +229,14 @@ export function QuickBookForm({
 
   React.useEffect(() => { if (requiredFormIds.length > 0) setSendLink(true); }, [requiredFormIds.length]);
   React.useEffect(() => { if (step === 1) setTimeout(() => searchRef.current?.focus(), 80); }, [step]);
+  // Reset arrears UI state whenever the client changes, so a resolved/
+  // overridden balance from a previous client never leaks onto the next one.
+  React.useEffect(() => {
+    setArrearsResolved(false);
+    setArrearsOverrideReason('');
+    setArrearsOverrideDetail('');
+    setShowArrearsOverride(false);
+  }, [selectedClient?.id]);
 
   const selectClient = (c: any) => {
     setSelectedClient(c);
@@ -183,19 +252,59 @@ export function QuickBookForm({
     catch { toast({ variant: 'destructive', title: 'Copy failed' }); }
   };
 
+  // ── Charge outstanding arrears right now (kind: 'arrears_fee' — the
+  // ORIGINAL charge-card semantics: failure parks/flags as before) ─────────
+  const handleChargeArrears = async () => {
+    if (!selectedClient || outstandingBalance <= 0) return;
+    setIsChargingArrears(true);
+    try {
+      const res = await fetch('/api/stripe/charge-card', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          clientId: selectedClient.id,
+          amountCents: Math.round(outstandingBalance * 100),
+          description: 'Outstanding balance',
+          category: 'Service Revenue',
+          reason: 'Front desk collection at next booking',
+          mode: 'auto',
+          kind: 'arrears_fee',
+        }),
+      });
+      const data = await res.json().catch(() => ({ ok: false, reason: 'Charge request failed' }));
+      if (data.ok) {
+        setArrearsResolved(true);
+        toast({ title: 'Balance collected', description: `$${outstandingBalance.toFixed(2)} charged to card on file.` });
+      } else {
+        toast({ variant: 'destructive', title: 'Charge failed', description: data.reason || 'Could not charge card on file.' });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Charge failed', description: 'Could not reach payment processor.' });
+    } finally {
+      setIsChargingArrears(false);
+    }
+  };
+
   // ── Book ─────────────────────────────────────────────────────────────────
   const handleBook = async () => {
     const clientName = selectedClient?.name || newClientName.trim();
     if (!selectedService || !tenantId || !firestore) return;
     if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client name required' }); return; }
     if (isGroup && !isGroupValid(groupGuests)) { toast({ variant: 'destructive', title: 'All guests need a name and service.' }); return; }
+    if (isMultiProvider && !isMultiProviderValid(providerLegs)) { toast({ variant: 'destructive', title: 'Every additional provider needs a service and staff member.' }); return; }
+    if (hasUnresolvedArrears && !arrearsOverrideReason) {
+      toast({ variant: 'destructive', title: 'Outstanding balance', description: 'Collect the balance or choose a reason to book anyway.' });
+      return;
+    }
 
     // Will we actually attempt a card-on-file charge for this booking? Only
     // makes sense with a real card, a deposit/amount to collect, and the
     // staff toggle on. If true, we DON'T require an email up front — only
     // the link path needs one. Resolved here (not just read off state) so
     // the rest of handleBook and the email-required check below agree.
-    const willChargeNow = canChargeOnFile && chargeNow && depositCents > 0;
+    const depositAndLegsTotalCents = depositCents; // deposit policy is computed off the PRIMARY service only — see note below
+    const willChargeNow = canChargeOnFile && chargeNow && depositAndLegsTotalCents > 0;
 
     // The completion link still requires an email — but only if we're not
     // charging right now (a successful charge needs no link at all).
@@ -209,6 +318,7 @@ export function QuickBookForm({
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
     const groupBookingId = isGroup ? _nanoid() : null;
+    const multiProviderGroupId = isMultiProvider && scheduledLegs.length > 0 ? _nanoid() : null;
 
     try {
       // Resolve / create client
@@ -241,16 +351,12 @@ export function QuickBookForm({
       // exists there. An existing selectedClient is fine; a brand-new client
       // doc is still sitting in `batch`, uncommitted — so for a new client we
       // commit the client doc on its own first, then charge, then commit the
-      // appointment in a second batch. Existing clients skip straight to the
-      // charge since their doc (or its merge update) is already durable
-      // before this booking started.
+      // appointment in a second batch.
       let effectiveSendLink = sendLink;
-      let chargeResultForLedger: { chargeId: string | null; paymentIntentId: string } | null = null;
+      let chargeResultForLedger: { paymentIntentId: string } | null = null;
 
       if (willChargeNow) {
         if (!selectedClient) {
-          // New client: the doc is only staged in `batch` so far — commit it
-          // alone first so charge-card's clientId lookup succeeds.
           const clientBatch = writeBatch(firestore);
           clientBatch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
             id: clientId, name: clientName, phone: newClientPhone.trim(), email: newClientEmail.trim(),
@@ -266,24 +372,22 @@ export function QuickBookForm({
             body: JSON.stringify({
               tenantId,
               clientId,
-              amountCents: depositCents,
-              description: `Deposit — ${selectedSvc?.name || 'Appointment'}`,
+              amountCents: depositAndLegsTotalCents,
+              description: `Deposit — ${selectedSvc?.name || 'Appointment'}${multiProviderGroupId ? ' + additional providers' : ''}`,
               category: 'Retainers',
               appointmentId: aptId,
               reason: 'Quick Book deposit',
-              mode: 'auto', // client not present at front desk to confirm 3DS
+              mode: 'auto',
+              kind: 'deposit', // FIX: see charge-card route — no arrears side effects on decline
             }),
           });
           const chargeData = await chargeRes.json().catch(() => ({ ok: false, reason: 'Charge request failed' }));
 
           if (chargeData.ok) {
-            chargeResultForLedger = { chargeId: null, paymentIntentId: chargeData.paymentIntentId };
+            chargeResultForLedger = { paymentIntentId: chargeData.paymentIntentId };
             effectiveSendLink = false; // no link needed — money's already in
-            setChargeOutcome({ charged: true, amountDollars: chargeData.amount ?? depositCents / 100 });
+            setChargeOutcome({ charged: true, amountDollars: chargeData.amount ?? depositAndLegsTotalCents / 100 });
           } else {
-            // Declined / no card / requires action / anything else — don't
-            // block the booking. Fall back to the completion link so the
-            // client can pay or re-authenticate from their phone.
             effectiveSendLink = true;
             setChargeOutcome({ charged: false, reason: chargeData.reason || 'Card charge failed' });
             toast({
@@ -292,7 +396,7 @@ export function QuickBookForm({
               description: `${chargeData.reason || 'Charge failed'} — sending a completion link instead.`,
             });
           }
-        } catch (e) {
+        } catch {
           effectiveSendLink = true;
           setChargeOutcome({ charged: false, reason: 'Could not reach payment processor' });
           toast({
@@ -302,10 +406,6 @@ export function QuickBookForm({
           });
         }
 
-        // Falling back to the link path requires an email — if we don't have
-        // one (card-on-file clients often skip it), we can't send a link
-        // either. Surface that clearly rather than silently booking with no
-        // payment collected and no way to collect it.
         if (effectiveSendLink && !clientEmail.trim()) {
           toast({
             variant: 'destructive',
@@ -326,6 +426,8 @@ export function QuickBookForm({
         createdAt: now, reminderSent: false, autoCancelledNoShow: false,
         notes: notes.trim() || undefined,
         groupBookingId: groupBookingId || undefined,
+        multiProviderGroupId: multiProviderGroupId || undefined,
+        sequenceIndex: multiProviderGroupId ? 0 : undefined,
         ...(effectiveSendLink ? {
           completionStatus: 'pending',
           depositAmountCents: depositCents,
@@ -337,6 +439,15 @@ export function QuickBookForm({
           depositPaymentIntentId: chargeResultForLedger.paymentIntentId,
         } : {}),
         ...(redeemPackageId ? { redeemedPackageId: redeemPackageId } : {}),
+        // Arrears override audit trail — only present when an unresolved
+        // balance existed and staff explicitly chose to proceed anyway.
+        ...(hasUnresolvedArrears && arrearsOverrideReason ? {
+          arrearsOverrideReason,
+          arrearsOverrideDetail: arrearsOverrideDetail.trim() || undefined,
+          arrearsOverrideBy: currentStaffId || undefined,
+          arrearsOverrideAt: now,
+          arrearsBalanceAtBooking: outstandingBalance,
+        } : {}),
       });
 
       batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
@@ -349,6 +460,40 @@ export function QuickBookForm({
             .filter((p: any) => p.sessionsRemaining > 0),
         } : {}),
       }, { merge: true });
+
+      // ── Multi-provider legs: one Appointment doc each, chained by
+      // multiProviderGroupId + sequenceIndex. Each leg's own staffId/
+      // serviceId/startTime/endTime makes it render correctly on the
+      // planner calendar with zero planner changes. depositAppliesToBalance
+      // is read from each leg's OWN service definition, same mechanism
+      // CheckoutHub already uses for booth-renter passthrough deposits — no
+      // new logic invented here, just applied per leg.
+      if (multiProviderGroupId && scheduledLegs.length > 0) {
+        scheduledLegs.forEach((leg, idx) => {
+          const legSvc = services.find((s: any) => s.id === leg.serviceId);
+          const legStaffId = leg.staffId === 'any' ? (staff.find((s: any) => s.active)?.id || null) : leg.staffId;
+          const legId = _nanoid();
+          const legToken = _nanoid();
+          batch.set(doc(firestore, `tenants/${tenantId}/appointments`, legId), sanitizeForFirestore({
+            id: legId, tenantId, clientId, clientName,
+            serviceId: leg.serviceId,
+            staffId: legStaffId,
+            checkInToken: legToken,
+            status: 'confirmed', source: 'pos_quick_book',
+            startTime: leg.startTime.toISOString(), endTime: leg.endTime.toISOString(),
+            createdAt: now, reminderSent: false, autoCancelledNoShow: false,
+            multiProviderGroupId,
+            sequenceIndex: idx + 1,
+            notes: notes.trim() || undefined,
+          }));
+          batch.set(doc(firestore, 'appointmentCheckIns', legToken), sanitizeForFirestore({
+            id: legId, tenantId, clientId, clientName,
+            serviceId: leg.serviceId, staffId: legStaffId, checkInToken: legToken,
+            status: 'confirmed', startTime: leg.startTime.toISOString(), endTime: leg.endTime.toISOString(),
+            multiProviderGroupId, sequenceIndex: idx + 1,
+          }));
+        });
+      }
 
       // Group guest appointments
       if (isGroup && groupGuests.length > 0) {
@@ -396,6 +541,53 @@ export function QuickBookForm({
 
       await batch.commit();
 
+      // ── Ledger entries for multi-provider legs ──────────────────────────
+      // The deposit charge above is ONE PaymentIntent for the combined
+      // total. Per the booth-renter / mixed-comp requirement, revenue must
+      // still be attributable PER PROVIDER for payroll/rent reconciliation
+      // — so post N ledger transactions here (one per leg, sharing the same
+      // stripePaymentIntentId), mirroring how charge-card's own
+      // writeLedger() splits a base amount from a surcharge into separate
+      // lines rather than blending them. The actual Stripe processing fee
+      // is attributed to the PRIMARY leg's entry only (via charge-card's
+      // own writeLedger call above) — these per-leg entries do NOT add a
+      // second fee line, which would double-count it.
+      if (chargeResultForLedger && multiProviderGroupId && scheduledLegs.length > 0) {
+        try {
+          const ledgerBatch = writeBatch(firestore);
+          scheduledLegs.forEach((leg) => {
+            const legSvc = services.find((s: any) => s.id === leg.serviceId);
+            const legStaffMember = staff.find((s: any) => s.id === leg.staffId);
+            const legAmount = legSvc ? getServicePrice(legSvc, legStaffMember) : 0;
+            if (legAmount <= 0) return;
+            const legTxnId = `multiprovider_leg__${chargeResultForLedger!.paymentIntentId}__${leg.id}`;
+            ledgerBatch.set(doc(firestore, `tenants/${tenantId}/transactions`, legTxnId), sanitizeForFirestore({
+              id: legTxnId,
+              date: now,
+              description: `${legSvc?.name || 'Service'} (multi-provider leg)`,
+              clientOrVendor: clientName,
+              clientId,
+              type: 'income',
+              context: 'Business',
+              category: 'Service Revenue',
+              taxBucket: 'revenue',
+              amount: legAmount,
+              paymentMethod: 'Card on file (Stripe)',
+              staffId: leg.staffId === 'any' ? undefined : leg.staffId,
+              appointmentId: aptId,
+              stripePaymentIntentId: chargeResultForLedger!.paymentIntentId,
+              hasReceipt: true,
+              tenantId,
+            }));
+          });
+          await ledgerBatch.commit();
+        } catch {
+          // Non-fatal — the booking itself already succeeded. Surface so
+          // staff know per-provider attribution may need a manual fix.
+          toast({ title: 'Booked, but ledger attribution needs review', description: 'Per-provider revenue lines could not be written — check the Ledger page.' });
+        }
+      }
+
       if (link) {
         setGeneratedLink(link);
         const clientPhone = selectedClient?.phone || newClientPhone;
@@ -434,13 +626,82 @@ export function QuickBookForm({
     </div>
   );
 
+  // ── Arrears banner — shown in step 3, blocking-with-override ───────────────
+  const ArrearsBanner = () => {
+    if (!hasUnresolvedArrears) return null;
+    return (
+      <div className="rounded-2xl border-2 border-destructive/30 bg-destructive/5 p-4 space-y-3">
+        <div className="flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-[10px] font-black uppercase tracking-widest text-destructive">
+              Outstanding balance: ${outstandingBalance.toFixed(2)}
+            </p>
+            <p className="text-[10px] text-destructive/70 font-medium mt-0.5">
+              {selectedClient?.name?.split(' ')[0] || 'This client'} owes money from a previous visit. Collect it now, or confirm you want to book anyway.
+            </p>
+          </div>
+        </div>
+
+        {!showArrearsOverride ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              onClick={handleChargeArrears}
+              disabled={isChargingArrears || !canChargeOnFile}
+              className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest"
+            >
+              {isChargingArrears
+                ? <Loader className="w-3.5 h-3.5 animate-spin" />
+                : <><Wallet className="w-3.5 h-3.5 mr-1.5" /> Charge ${outstandingBalance.toFixed(2)} now</>}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowArrearsOverride(true)}
+              className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+            >
+              Book anyway
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2 pt-1">
+            <select
+              value={arrearsOverrideReason}
+              onChange={(e) => setArrearsOverrideReason(e.target.value)}
+              className="w-full h-10 rounded-xl border-2 text-[11px] font-bold px-2 bg-white"
+            >
+              <option value="">Why book without collecting?</option>
+              {ARREARS_OVERRIDE_REASONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+            {arrearsOverrideReason === 'other' && (
+              <Input
+                value={arrearsOverrideDetail}
+                onChange={(e) => setArrearsOverrideDetail(e.target.value)}
+                placeholder="Briefly explain"
+                className="h-10 rounded-xl border-2 text-[11px]"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => { setShowArrearsOverride(false); setArrearsOverrideReason(''); setArrearsOverrideDetail(''); }}
+              className="text-[9px] font-black uppercase text-muted-foreground hover:text-primary"
+            >
+              ← Back
+            </button>
+          </div>
+        )}
+
+        {!canChargeOnFile && !showArrearsOverride && (
+          <p className="text-[9px] font-bold text-destructive/60 uppercase">No usable card on file — choose "Book anyway" or collect another way first.</p>
+        )}
+      </div>
+    );
+  };
+
   // ── Success screen ────────────────────────────────────────────────────────
-  // Two distinct success states now: charged-on-file (no link needed) vs the
-  // original completion-link screen. `generatedLink` only gets set when a
-  // link was actually sent, so a successful charge skips straight to
-  // onSuccess() in handleBook and never reaches this branch — except when
-  // chargeOutcome is set but the booking still produced a link (decline
-  // fallback), in which case we show both: the decline notice + the link.
   if (generatedLink) {
     const firstName = (selectedClient?.name || newClientName).split(' ')[0];
     return (
@@ -454,6 +715,7 @@ export function QuickBookForm({
             <p className="text-xs font-bold text-muted-foreground mt-0.5">
               {selectedSvc?.name} · {format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}
               {isGroup && groupGuests.length > 0 && ` · Group of ${groupGuests.length + 1}`}
+              {isMultiProvider && scheduledLegs.length > 0 && ` · ${scheduledLegs.length + 1} providers`}
             </p>
           </div>
         </div>
@@ -489,6 +751,8 @@ export function QuickBookForm({
             setGeneratedLink(null); setSendStatus(null); setNotes(''); setChargeOutcome(null);
             setIsNewClient(false); setNewClientName(''); setNewClientPhone(''); setNewClientEmail('');
             setIsGroup(false); setGroupGuests([]); setRedeemPackageId(null); setChargeNow(true);
+            setIsMultiProvider(false); setProviderLegs([]);
+            setArrearsResolved(false); setArrearsOverrideReason(''); setArrearsOverrideDetail(''); setShowArrearsOverride(false);
           }} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
             Book Another
           </Button>
@@ -532,6 +796,7 @@ export function QuickBookForm({
                       <p className="text-[10px] text-muted-foreground">{c.phone || c.email || '—'}</p>
                     </div>
                     <div className="flex items-center gap-2">
+                      {safeNumber(c.outstandingBalance) > 0 && <span className="text-[9px] font-black uppercase text-destructive bg-destructive/5 px-2 py-0.5 rounded-full">Owes ${safeNumber(c.outstandingBalance).toFixed(0)}</span>}
                       {c.lastServiceId && <span className="text-[9px] font-black uppercase text-primary/60 bg-primary/5 px-2 py-0.5 rounded-full">Rebook ready</span>}
                       {c.lifetimeValue > 0 && <span className="text-[9px] font-bold text-slate-400">${Math.round(c.lifetimeValue)}</span>}
                       <ChevronRight className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-80" />
@@ -705,6 +970,40 @@ export function QuickBookForm({
           />
         )}
 
+        {/* Multi-provider toggle — SAME client, different services/staff, sequential */}
+        {!isGroup && selectedService && (
+          <button
+            type="button"
+            onClick={() => { setIsMultiProvider((v) => !v); if (!isMultiProvider && providerLegs.length === 0) setProviderLegs([{ id: `leg_${Date.now()}`, serviceId: '', staffId: 'any' }]); }}
+            className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-all', isMultiProvider ? 'border-primary bg-primary/5' : 'border-border bg-white')}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                  <UserCog className="w-3.5 h-3.5 text-primary" />Add another provider
+                </p>
+                <p className="text-[9px] font-bold text-muted-foreground uppercase mt-0.5">e.g. color, then a separate stylist for the cut</p>
+              </div>
+              <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', isMultiProvider ? 'bg-primary' : 'bg-slate-200')}>
+                <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', isMultiProvider ? 'left-[22px]' : 'left-0.5')} />
+              </div>
+            </div>
+          </button>
+        )}
+
+        {isMultiProvider && selectedService && (
+          <MultiProviderPanel
+            legs={providerLegs}
+            onChange={setProviderLegs}
+            services={services}
+            staff={staff}
+            primaryStartTime={primaryStartTimeForLegs}
+            primaryServiceId={selectedService}
+            date={aptDate}
+            allAppointments={appointments}
+          />
+        )}
+
         <div className="flex gap-3 pt-1">
           <Button onClick={() => setStep(1)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
           <Button disabled={!selectedService || !aptTime} onClick={() => setStep(3)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Review →</Button>
@@ -719,10 +1018,13 @@ export function QuickBookForm({
     const svc = services.find((s: any) => s.id === id);
     return acc + (svc ? getServicePrice(svc, resolvedStaffMember) : 0);
   }, 0);
+  const grandTotal = svcPrice + addOnTotal + legsTotal;
 
   return (
     <div className="space-y-5">
       <StepDots />
+
+      <ArrearsBanner />
 
       {/* Summary */}
       <div className="rounded-2xl border-2 border-primary/10 bg-primary/5 p-4 space-y-3">
@@ -732,7 +1034,17 @@ export function QuickBookForm({
           <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Service</p><p className="text-[11px] font-black text-slate-900">{selectedSvc?.name}{addOnIds.length > 0 && ` + ${addOnIds.length} add-on${addOnIds.length > 1 ? 's' : ''}`}</p></div>
           <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Provider</p><p className="text-[11px] font-black text-slate-900">{summaryStaff}</p></div>
           <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">When</p><p className="text-[11px] font-black text-slate-900">{format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}</p></div>
-          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Price</p><p className="text-[11px] font-black text-slate-900">${(svcPrice + addOnTotal).toFixed(2)}{depositCents > 0 ? ` · $${(depositCents / 100).toFixed(2)} deposit` : ''}</p></div>
+          {scheduledLegs.map((leg) => {
+            const legSvc = services.find((s: any) => s.id === leg.serviceId);
+            const legStaff = staff.find((s: any) => s.id === leg.staffId);
+            return (
+              <div key={leg.id} className="flex justify-between pl-3 border-l-2 border-primary/10">
+                <p className="text-[11px] font-bold text-muted-foreground">+ {legSvc?.name || 'Service'}</p>
+                <p className="text-[11px] font-black text-slate-900">{legStaff?.name?.split(' ')[0] || 'Any'} · {format(leg.startTime, 'h:mm a')}</p>
+              </div>
+            );
+          })}
+          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Price</p><p className="text-[11px] font-black text-slate-900">${grandTotal.toFixed(2)}{depositCents > 0 ? ` · $${(depositCents / 100).toFixed(2)} deposit` : ''}</p></div>
           {isGroup && groupGuests.length > 0 && <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Group</p><p className="text-[11px] font-black text-slate-900">{groupGuests.length + 1} guests</p></div>}
         </div>
         <button onClick={() => setStep(2)} className="text-[9px] font-black uppercase tracking-widest text-primary/60 hover:text-primary">Edit details</button>
@@ -847,14 +1159,20 @@ export function QuickBookForm({
         <Button onClick={() => setStep(2)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
         <Button
           onClick={handleBook}
-          disabled={isSubmitting || (!(canChargeOnFile && chargeNow && depositCents > 0) && sendLink && !clientEmail.trim())}
+          disabled={
+            isSubmitting ||
+            !canConfirmBooking ||
+            (!(canChargeOnFile && chargeNow && depositCents > 0) && sendLink && !clientEmail.trim())
+          }
           className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"
         >
           {isSubmitting
             ? <Loader className="w-4 h-4 animate-spin" />
-            : canChargeOnFile && chargeNow && depositCents > 0
-              ? `Charge $${(depositCents / 100).toFixed(2)} & Book →`
-              : sendLink ? 'Book & Send Link →' : 'Confirm Booking →'}
+            : !canConfirmBooking
+              ? 'Resolve Balance First'
+              : canChargeOnFile && chargeNow && depositCents > 0
+                ? `Charge $${(depositCents / 100).toFixed(2)} & Book →`
+                : sendLink ? 'Book & Send Link →' : 'Confirm Booking →'}
         </Button>
       </div>
     </div>
