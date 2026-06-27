@@ -35,11 +35,37 @@ function getStripe() {
 //                      avoids authentication_required declines.
 //
 //   mode: 'auto'     — Client is NOT present (policy engine: no-show, late
-//                      cancel). Uses off_session + confirm:true. On failure,
-//                      parks the amount as arrears and raises a charge flag.
+//                      cancel; or a front-desk deposit charge with no client
+//                      standing at the terminal). Uses off_session +
+//                      confirm:true. On failure, the ARREARS_FEE kind parks
+//                      the amount and raises a charge flag; the DEPOSIT kind
+//                      does not (see `kind` below).
 //
 // If `mode` is omitted it defaults to 'pos' so existing POS callers work
 // without any changes to CheckoutHub.
+//
+// ── FIX: `kind` discriminator for auto-mode failures ────────────────────────
+// `mode: 'auto'` was originally written for ONE thing: charging a no-show /
+// late-cancel fee for a service that already happened. On failure it calls
+// flagAndPark(), which bumps the client's `outstandingBalance` and pushes a
+// record into `unpaidFees` — both fields whose documented semantics (see the
+// Client type) are specifically post-service arrears.
+//
+// QuickBookForm now also calls this route in `auto` mode to charge a
+// DEPOSIT for a brand-new booking, before the appointment even exists. A
+// declined deposit attempt is not arrears — nothing was owed yet, no
+// service was rendered, there is no debt. Writing it into `unpaidFees`
+// would silently mix "this client skipped out on a finished appointment"
+// with "we tried to pre-charge a deposit and the card said no" under one
+// field, with no way to tell them apart later (collections workflows,
+// `autoChargeArrears`, `repeatNoShowThreshold` etc. all read this same
+// field and have no business looking at failed deposit attempts).
+//
+// Fix: accept an optional `kind` ('deposit' | 'arrears_fee'), defaulting to
+// 'arrears_fee' so every existing caller (no-show policy engine, etc.) is
+// completely unaffected. Only 'arrears_fee' triggers flagAndPark on
+// failure. 'deposit' just returns { ok: false, reason, code } and lets the
+// caller decide what to do (QuickBookForm falls back to a completion link).
 //
 // ── Card processing fee passthrough ─────────────────────────────────────────
 // `amountCents` is the FULL amount actually charged (already inclusive of any
@@ -86,6 +112,9 @@ export async function POST(req: NextRequest) {
     appointmentId = null,
     reason       = 'Studio Services',
     mode         = 'pos',           // 'pos' | 'auto'
+    // FIX: 'deposit' | 'arrears_fee'. Default preserves every existing
+    // caller's behavior exactly (they're all arrears use cases today).
+    kind         = 'arrears_fee',
     checkoutSessionId = null,       // FIX: optional, forwarded into Stripe metadata + ledger
   } = parsed;
 
@@ -101,6 +130,10 @@ export async function POST(req: NextRequest) {
   const surchargeDollars = Math.max(0, Number(surchargeAmountCents) || 0) / 100;
   const baseDollars      = Number((amountDollars - surchargeDollars).toFixed(2));
   const nowISO           = new Date().toISOString();
+  // FIX: only post arrears bookkeeping (outstandingBalance / unpaidFees /
+  // chargeFlags) for genuine arrears attempts. A declined deposit attempt
+  // for a booking that hasn't happened yet has nothing to park.
+  const isArrearsKind    = kind === 'arrears_fee';
 
   // ── Helper: write the ledger record(s) for a successful charge ────────────
   // Splits into a base line + a separate Card Processing Fee line when a
@@ -164,6 +197,7 @@ export async function POST(req: NextRequest) {
   };
 
   // ── Helper: park as arrears + write flag record (auto-mode failure path) ──
+  // FIX: only called for kind === 'arrears_fee' now (see call sites below).
   const flagAndPark = async (failReason: string, code?: string) => {
     try {
       const batch = db.batch();
@@ -207,12 +241,12 @@ export async function POST(req: NextRequest) {
     const card       = clientData?.cardOnFile;
 
     if (!card?.customerId || !card?.paymentMethodId) {
-      if (mode === 'auto') await flagAndPark('no_card_on_file');
+      if (mode === 'auto' && isArrearsKind) await flagAndPark('no_card_on_file');
       return NextResponse.json({
         ok: false,
-        flagged:        mode === 'auto',
+        flagged:        mode === 'auto' && isArrearsKind,
         reason:         'No card on file',
-        parkedAsBalance: mode === 'auto',
+        parkedAsBalance: mode === 'auto' && isArrearsKind,
       });
     }
 
@@ -220,12 +254,12 @@ export async function POST(req: NextRequest) {
     const tenantSnap      = await db.doc(`tenants/${tenantId}`).get();
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
-      if (mode === 'auto') await flagAndPark('no_connected_account');
+      if (mode === 'auto' && isArrearsKind) await flagAndPark('no_connected_account');
       return NextResponse.json({
         ok: false,
-        flagged:         mode === 'auto',
+        flagged:         mode === 'auto' && isArrearsKind,
         reason:          'No connected payment account. Configure Stripe in Settings.',
-        parkedAsBalance: mode === 'auto',
+        parkedAsBalance: mode === 'auto' && isArrearsKind,
       });
     }
 
@@ -313,7 +347,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    // AUTO MODE — client NOT present (policy engine: no-show, late-cancel)
+    // AUTO MODE — client NOT present (policy engine: no-show, late-cancel;
+    // OR a front-desk deposit charge per `kind: 'deposit'` — see header note)
     // ══════════════════════════════════════════════════════════════════════════
     const idempotencyKey = `fee_${appointmentId || clientId}_${amountCents}`;
 
@@ -342,24 +377,24 @@ export async function POST(req: NextRequest) {
       );
     } catch (stripeErr: any) {
       const code = stripeErr?.code || stripeErr?.raw?.code || 'charge_failed';
-      await flagAndPark('stripe_error', code);
+      if (isArrearsKind) await flagAndPark('stripe_error', code);
       return NextResponse.json({
         ok:              false,
-        flagged:         true,
+        flagged:         isArrearsKind,
         reason:          stripeErr?.message || 'Charge failed',
         code,
-        parkedAsBalance: true,
+        parkedAsBalance: isArrearsKind,
       });
     }
 
     if (intent.status !== 'succeeded') {
-      await flagAndPark('not_succeeded', intent.status);
+      if (isArrearsKind) await flagAndPark('not_succeeded', intent.status);
       return NextResponse.json({
         ok:              false,
-        flagged:         true,
+        flagged:         isArrearsKind,
         reason:          `Charge ${intent.status}`,
         code:            intent.status,
-        parkedAsBalance: true,
+        parkedAsBalance: isArrearsKind,
       });
     }
 
@@ -369,12 +404,12 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error('[stripe/charge-card]', err);
-    if (mode === 'auto') await flagAndPark('unexpected_error', err?.code);
+    if (mode === 'auto' && isArrearsKind) await flagAndPark('unexpected_error', err?.code);
     return NextResponse.json({
       ok:              false,
-      flagged:         mode === 'auto',
+      flagged:         mode === 'auto' && isArrearsKind,
       reason:          err.message,
-      parkedAsBalance: mode === 'auto',
+      parkedAsBalance: mode === 'auto' && isArrearsKind,
     }, { status: 200 });
   }
 }
