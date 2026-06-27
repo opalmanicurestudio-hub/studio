@@ -1003,27 +1003,50 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     servicing: 'In Session', completed: 'Completed', cancelled: 'Cancelled',
   };
 
+  // Click-to-contact: phone/email/profile were static text before — staff
+  // had to copy a number out by hand to call or text a client. Avatar and
+  // name now link straight to the client profile (the explicit "View
+  // Profile" action elsewhere stays as the unambiguous nav option, this is
+  // just a faster path from the dossier itself). Phone is a tel: link with
+  // its own adjacent sms: icon for texting; email is a mailto: link. Email
+  // was present in the original sheet (owner/admin only) and got dropped in
+  // the layout pass — restored here, visible to everyone since it's no more
+  // sensitive than the phone number sitting right next to it.
   const IdentityHeader = (
     <div className="flex items-center gap-3.5">
-      <Avatar className="w-12 h-12 border-3 border-background shadow-lg rounded-2xl shrink-0">
-        <AvatarImage src={client.avatarUrl} className="object-cover" />
-        <AvatarFallback className="text-base font-black bg-primary/10 text-primary uppercase">
-          {(client?.name || 'G').substring(0, 2).toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
+      <Link href={`/clients/${client.id}`} className="shrink-0 transition-opacity hover:opacity-80">
+        <Avatar className="w-12 h-12 border-3 border-background shadow-lg rounded-2xl shrink-0">
+          <AvatarImage src={client.avatarUrl} className="object-cover" />
+          <AvatarFallback className="text-base font-black bg-primary/10 text-primary uppercase">
+            {(client?.name || 'G').substring(0, 2).toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+      </Link>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="font-black uppercase tracking-tighter text-slate-900 truncate text-lg leading-none">{client.name}</h2>
+          <Link href={`/clients/${client.id}`} className="hover:underline">
+            <h2 className="font-black uppercase tracking-tighter text-slate-900 truncate text-lg leading-none">{client.name}</h2>
+          </Link>
           {client.activeMembershipId && <Badge className="h-[18px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-indigo-600 text-white border-none shrink-0"><Award className="w-2 h-2 mr-0.5" />Member</Badge>}
           {client.status === 'banned' && <Badge className="h-[18px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-black text-white border-none shrink-0"><Ban className="w-2 h-2 mr-0.5" />Banned</Badge>}
           {client.hasOpenDispute && <Badge className="h-[18px] px-1.5 rounded-full font-black uppercase text-[7px] tracking-widest bg-purple-600 text-white border-none shrink-0"><AlertTriangle className="w-2 h-2 mr-0.5" />Dispute</Badge>}
           <StoreCreditBadge credits={Array.isArray(availableCredits) ? availableCredits : []} totalAvailable={totalStoreCreditAvailable} />
         </div>
-        <div className="flex items-center gap-3 mt-0.5">
+        <div className="flex items-center gap-2.5 mt-0.5 flex-wrap">
           {client.phone && (
-            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1">
-              <Phone className="w-2.5 h-2.5 opacity-40" /> {safeFormatPhone(client.phone)}
-            </p>
+            <span className="flex items-center gap-1 shrink-0">
+              <a href={`tel:${client.phone}`} className="text-[9px] font-bold text-primary uppercase tracking-widest truncate flex items-center gap-1 hover:underline">
+                <Phone className="w-2.5 h-2.5" /> {safeFormatPhone(client.phone)}
+              </a>
+              <a href={`sms:${client.phone}`} title="Text" className="text-primary/40 hover:text-primary transition-colors">
+                <MessageSquare className="w-3 h-3" />
+              </a>
+            </span>
+          )}
+          {client.email && (
+            <a href={`mailto:${client.email}`} className="text-[9px] font-bold text-primary uppercase tracking-widest truncate flex items-center gap-1 hover:underline min-w-0 max-w-[160px]">
+              <Mail className="w-2.5 h-2.5 shrink-0" /> <span className="truncate">{client.email}</span>
+            </a>
           )}
           <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-50 shrink-0">
             #{ticketId}
