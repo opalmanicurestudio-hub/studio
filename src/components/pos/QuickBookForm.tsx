@@ -1,11 +1,16 @@
 'use client';
 
 /**
- * QuickBookForm — enhanced with all four new features:
+ * QuickBookForm — enhanced with all four new features, plus charge-card-on-file:
  *   1. ClientIntelligencePanel (step 1) — insights, preferences, birthday perk
  *   2. SmartAvailabilityGrid (step 2) — pre-filtered slots + add-on upsell
  *   3. GroupBookingPanel (step 2) — multi-guest booking
  *   4. Package redemption shortcut (step 3)
+ *   5. Charge card on file (step 3) — when the client has a saved card, staff
+ *      can charge the deposit immediately via /api/stripe/charge-card (mode:
+ *      'auto') instead of sending a completion link. On decline, the booking
+ *      still goes through — we just fall back to the completion link so the
+ *      client can re-authenticate / pay from their phone.
  *
  * Drop-in replacement for the existing QuickBookForm in page.tsx.
  * All props are identical to the original.
@@ -24,7 +29,7 @@ import { Button } from '@/components/ui/button';
 import {
   ChevronLeft, ChevronRight, XCircle, UserPlus, ArrowRight,
   CheckCircle2, ShieldCheck, Sparkles, Loader, Copy, Link2,
-  Users, Package, Lock,
+  Users, Package, Lock, CreditCard, AlertTriangle,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -85,12 +90,20 @@ export function QuickBookForm({
   const [requestFiles, setRequestFiles] = React.useState(false);
   const [notes, setNotes] = React.useState('');
   const [redeemPackageId, setRedeemPackageId] = React.useState<string | null>(null);
+  // Charge card on file now, instead of (or in addition to a fallback) sending
+  // a completion link. Defaults on whenever a card is on file — front desk
+  // wants the money collected immediately, not a link sitting unopened.
+  const [chargeNow, setChargeNow] = React.useState(true);
 
   // Submit
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
   const [sendStatus, setSendStatus] = React.useState<any>(null);
+  // Outcome of the charge-card-on-file attempt, shown on the success screen.
+  const [chargeOutcome, setChargeOutcome] = React.useState<
+    { charged: true; amountDollars: number } | { charged: false; reason: string } | null
+  >(null);
 
   const searchRef = React.useRef<HTMLInputElement>(null);
 
@@ -118,6 +131,10 @@ export function QuickBookForm({
     : 0;
   const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
   const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
+  // The charge-card route needs Stripe's customer + payment method ids, not
+  // just "a card exists" — some older records only have a `token` (legacy
+  // vaulting) without a usable customerId/paymentMethodId pair.
+  const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
   const clientEmail = selectedClient?.email || newClientEmail;
   const lastService = services.find((s: any) => s.id === selectedClient?.lastServiceId);
 
@@ -171,8 +188,21 @@ export function QuickBookForm({
     const clientName = selectedClient?.name || newClientName.trim();
     if (!selectedService || !tenantId || !firestore) return;
     if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client name required' }); return; }
-    if (sendLink && !clientEmail.trim()) { toast({ variant: 'destructive', title: 'Email required' }); return; }
     if (isGroup && !isGroupValid(groupGuests)) { toast({ variant: 'destructive', title: 'All guests need a name and service.' }); return; }
+
+    // Will we actually attempt a card-on-file charge for this booking? Only
+    // makes sense with a real card, a deposit/amount to collect, and the
+    // staff toggle on. If true, we DON'T require an email up front — only
+    // the link path needs one. Resolved here (not just read off state) so
+    // the rest of handleBook and the email-required check below agree.
+    const willChargeNow = canChargeOnFile && chargeNow && depositCents > 0;
+
+    // The completion link still requires an email — but only if we're not
+    // charging right now (a successful charge needs no link at all).
+    if (!willChargeNow && sendLink && !clientEmail.trim()) {
+      toast({ variant: 'destructive', title: 'Email required' });
+      return;
+    }
 
     setIsSubmitting(true);
     const { nanoid: _nanoid } = await import('nanoid');
@@ -205,6 +235,87 @@ export function QuickBookForm({
       const resolvedStaffId =
         selectedStaff === 'any' ? (staff.find((s: any) => s.active)?.id || null) : selectedStaff;
 
+      // ── Charge card on file FIRST, before the appointment batch commits ──
+      // /api/stripe/charge-card writes its own ledger entry directly to
+      // Firestore (outside this batch) and needs a clientId that already
+      // exists there. An existing selectedClient is fine; a brand-new client
+      // doc is still sitting in `batch`, uncommitted — so for a new client we
+      // commit the client doc on its own first, then charge, then commit the
+      // appointment in a second batch. Existing clients skip straight to the
+      // charge since their doc (or its merge update) is already durable
+      // before this booking started.
+      let effectiveSendLink = sendLink;
+      let chargeResultForLedger: { chargeId: string | null; paymentIntentId: string } | null = null;
+
+      if (willChargeNow) {
+        if (!selectedClient) {
+          // New client: the doc is only staged in `batch` so far — commit it
+          // alone first so charge-card's clientId lookup succeeds.
+          const clientBatch = writeBatch(firestore);
+          clientBatch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+            id: clientId, name: clientName, phone: newClientPhone.trim(), email: newClientEmail.trim(),
+            lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
+          }));
+          await clientBatch.commit();
+        }
+
+        try {
+          const chargeRes = await fetch('/api/stripe/charge-card', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId,
+              clientId,
+              amountCents: depositCents,
+              description: `Deposit — ${selectedSvc?.name || 'Appointment'}`,
+              category: 'Retainers',
+              appointmentId: aptId,
+              reason: 'Quick Book deposit',
+              mode: 'auto', // client not present at front desk to confirm 3DS
+            }),
+          });
+          const chargeData = await chargeRes.json().catch(() => ({ ok: false, reason: 'Charge request failed' }));
+
+          if (chargeData.ok) {
+            chargeResultForLedger = { chargeId: null, paymentIntentId: chargeData.paymentIntentId };
+            effectiveSendLink = false; // no link needed — money's already in
+            setChargeOutcome({ charged: true, amountDollars: chargeData.amount ?? depositCents / 100 });
+          } else {
+            // Declined / no card / requires action / anything else — don't
+            // block the booking. Fall back to the completion link so the
+            // client can pay or re-authenticate from their phone.
+            effectiveSendLink = true;
+            setChargeOutcome({ charged: false, reason: chargeData.reason || 'Card charge failed' });
+            toast({
+              variant: 'destructive',
+              title: 'Card on file declined',
+              description: `${chargeData.reason || 'Charge failed'} — sending a completion link instead.`,
+            });
+          }
+        } catch (e) {
+          effectiveSendLink = true;
+          setChargeOutcome({ charged: false, reason: 'Could not reach payment processor' });
+          toast({
+            variant: 'destructive',
+            title: 'Card charge failed',
+            description: 'Sending a completion link instead.',
+          });
+        }
+
+        // Falling back to the link path requires an email — if we don't have
+        // one (card-on-file clients often skip it), we can't send a link
+        // either. Surface that clearly rather than silently booking with no
+        // payment collected and no way to collect it.
+        if (effectiveSendLink && !clientEmail.trim()) {
+          toast({
+            variant: 'destructive',
+            title: 'No email on file',
+            description: 'Charge failed and there is no email to send a completion link to. Booking with no payment collected — please follow up.',
+          });
+          effectiveSendLink = false;
+        }
+      }
+
       const aptDoc = sanitizeForFirestore({
         id: aptId, tenantId, clientId, clientName,
         serviceId: selectedService,
@@ -215,10 +326,15 @@ export function QuickBookForm({
         createdAt: now, reminderSent: false, autoCancelledNoShow: false,
         notes: notes.trim() || undefined,
         groupBookingId: groupBookingId || undefined,
-        ...(sendLink ? {
+        ...(effectiveSendLink ? {
           completionStatus: 'pending',
           depositAmountCents: depositCents,
           depositStatus: depositCents > 0 ? 'pending' : 'none',
+        } : {}),
+        ...(chargeResultForLedger ? {
+          depositAmountCents: depositCents,
+          depositStatus: 'paid',
+          depositPaymentIntentId: chargeResultForLedger.paymentIntentId,
         } : {}),
         ...(redeemPackageId ? { redeemedPackageId: redeemPackageId } : {}),
       });
@@ -257,7 +373,7 @@ export function QuickBookForm({
 
       // Completion link
       let link: string | null = null;
-      if (sendLink) {
+      if (effectiveSendLink) {
         const token = _nanoid();
         const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
         batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
@@ -293,6 +409,12 @@ export function QuickBookForm({
         } catch { setSendStatus(null); }
         toast({ title: 'Booked!', description: `${clientName} · ${format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}` });
       } else {
+        if (chargeResultForLedger) {
+          toast({
+            title: 'Booked & charged!',
+            description: `${clientName} · $${(depositCents / 100).toFixed(2)} charged to card on file`,
+          });
+        }
         onSuccess();
       }
     } catch (e) {
@@ -313,6 +435,12 @@ export function QuickBookForm({
   );
 
   // ── Success screen ────────────────────────────────────────────────────────
+  // Two distinct success states now: charged-on-file (no link needed) vs the
+  // original completion-link screen. `generatedLink` only gets set when a
+  // link was actually sent, so a successful charge skips straight to
+  // onSuccess() in handleBook and never reaches this branch — except when
+  // chargeOutcome is set but the booking still produced a link (decline
+  // fallback), in which case we show both: the decline notice + the link.
   if (generatedLink) {
     const firstName = (selectedClient?.name || newClientName).split(' ')[0];
     return (
@@ -329,6 +457,17 @@ export function QuickBookForm({
             </p>
           </div>
         </div>
+
+        {chargeOutcome && !chargeOutcome.charged && (
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3.5 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Card on file declined</p>
+              <p className="text-[10px] text-amber-700/80 font-medium mt-0.5">{chargeOutcome.reason} — sent a completion link below instead.</p>
+            </div>
+          </div>
+        )}
+
         <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
             <Link2 className="w-3 h-3" /> Completion link · valid 7 days
@@ -347,9 +486,9 @@ export function QuickBookForm({
           <Button onClick={() => {
             setStep(1); setSelectedClient(null); setSelectedService(''); setAddOnIds([]);
             setAptTime(format(addMinutes(new Date(), 15), 'HH:mm'));
-            setGeneratedLink(null); setSendStatus(null); setNotes('');
+            setGeneratedLink(null); setSendStatus(null); setNotes(''); setChargeOutcome(null);
             setIsNewClient(false); setNewClientName(''); setNewClientPhone(''); setNewClientEmail('');
-            setIsGroup(false); setGroupGuests([]); setRedeemPackageId(null);
+            setIsGroup(false); setGroupGuests([]); setRedeemPackageId(null); setChargeNow(true);
           }} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
             Book Another
           </Button>
@@ -620,10 +759,39 @@ export function QuickBookForm({
         </div>
       )}
 
+      {/* Charge card on file */}
+      {canChargeOnFile && depositCents > 0 && (
+        <button
+          type="button"
+          onClick={() => setChargeNow((v) => !v)}
+          className={cn('w-full rounded-2xl border-2 p-4 text-left transition-all', chargeNow ? 'border-primary bg-primary/5' : 'border-border bg-white')}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
+                <CreditCard className="w-3.5 h-3.5 text-primary" />
+                Charge card on file now
+              </p>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                {selectedClient?.cardOnFile?.brand && selectedClient?.cardOnFile?.last4
+                  ? `${selectedClient.cardOnFile.brand.toUpperCase()} •••• ${selectedClient.cardOnFile.last4} — `
+                  : ''}
+                Charges ${(depositCents / 100).toFixed(2)} immediately. If it's declined, we'll send a completion link instead.
+              </p>
+            </div>
+            <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', chargeNow ? 'bg-primary' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', chargeNow ? 'left-[22px]' : 'left-0.5')} />
+            </div>
+          </div>
+        </button>
+      )}
+
       {/* Email */}
       {!selectedClient?.email && (
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Client email {sendLink ? '(required)' : '(optional)'}</p>
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+            Client email {(!canChargeOnFile || !chargeNow) && sendLink ? '(required)' : '(optional, needed if charge is declined)'}
+          </p>
           <Input type="email" placeholder="client@email.com" value={newClientEmail} onChange={(e) => setNewClientEmail(e.target.value)} className="h-11 rounded-xl border-2" />
         </div>
       )}
@@ -640,27 +808,31 @@ export function QuickBookForm({
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Allergies, special requests, etc." rows={2} className="w-full rounded-xl border-2 p-3 text-sm font-medium resize-none outline-none focus:border-primary transition-colors" />
       </div>
 
-      {/* Completion link toggle */}
-      <button type="button"
-        onClick={() => { if (!sendLink && requiredFormIds.length > 0) { toast({ title: 'Link required — consent forms must be signed.' }); return; } setSendLink((v) => !v); }}
-        className={cn('w-full rounded-2xl border-2 p-4 text-left transition-all', sendLink ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" />Send secure completion link</p>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              {alreadyHasCard && requiredFormIds.length === 0 ? 'Card on file — no link needed.' :
-               depositCents > 0 ? `Client pays $${(depositCents / 100).toFixed(2)} deposit${requiredFormIds.length > 0 ? ` + signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''} · secures card.` :
-               requiredFormIds.length > 0 ? `Client signs ${requiredFormIds.length} consent form${requiredFormIds.length > 1 ? 's' : ''} · secures card.` :
-               'Client secures card on file before arrival.'}
-            </p>
+      {/* Completion link toggle — hidden entirely when we're about to charge
+          the card on file now; it reappears automatically if that charge
+          gets declined, since handleBook falls back to effectiveSendLink. */}
+      {!(canChargeOnFile && chargeNow && depositCents > 0) && (
+        <button type="button"
+          onClick={() => { if (!sendLink && requiredFormIds.length > 0) { toast({ title: 'Link required — consent forms must be signed.' }); return; } setSendLink((v) => !v); }}
+          className={cn('w-full rounded-2xl border-2 p-4 text-left transition-all', sendLink ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" />Send secure completion link</p>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                {alreadyHasCard && requiredFormIds.length === 0 ? 'Card on file — no link needed.' :
+                 depositCents > 0 ? `Client pays $${(depositCents / 100).toFixed(2)} deposit${requiredFormIds.length > 0 ? ` + signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''} · secures card.` :
+                 requiredFormIds.length > 0 ? `Client signs ${requiredFormIds.length} consent form${requiredFormIds.length > 1 ? 's' : ''} · secures card.` :
+                 'Client secures card on file before arrival.'}
+              </p>
+            </div>
+            <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', sendLink ? 'bg-primary' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', sendLink ? 'left-[22px]' : 'left-0.5')} />
+            </div>
           </div>
-          <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', sendLink ? 'bg-primary' : 'bg-slate-200')}>
-            <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', sendLink ? 'left-[22px]' : 'left-0.5')} />
-          </div>
-        </div>
-      </button>
+        </button>
+      )}
 
-      {sendLink && (
+      {sendLink && !(canChargeOnFile && chargeNow && depositCents > 0) && (
         <button type="button" onClick={() => setRequestFiles((v) => !v)} className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-all', requestFiles ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" />Request inspiration photos</p>
@@ -673,8 +845,16 @@ export function QuickBookForm({
 
       <div className="flex gap-3 pt-1">
         <Button onClick={() => setStep(2)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
-        <Button onClick={handleBook} disabled={isSubmitting || (sendLink && !clientEmail.trim())} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-          {isSubmitting ? <Loader className="w-4 h-4 animate-spin" /> : sendLink ? 'Book & Send Link →' : 'Confirm Booking →'}
+        <Button
+          onClick={handleBook}
+          disabled={isSubmitting || (!(canChargeOnFile && chargeNow && depositCents > 0) && sendLink && !clientEmail.trim())}
+          className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"
+        >
+          {isSubmitting
+            ? <Loader className="w-4 h-4 animate-spin" />
+            : canChargeOnFile && chargeNow && depositCents > 0
+              ? `Charge $${(depositCents / 100).toFixed(2)} & Book →`
+              : sendLink ? 'Book & Send Link →' : 'Confirm Booking →'}
         </Button>
       </div>
     </div>
