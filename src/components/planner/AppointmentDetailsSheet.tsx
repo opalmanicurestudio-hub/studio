@@ -1,15 +1,17 @@
 'use client';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CLEANUP applied: `useStoreCredit(client)` was being called twice — once
-// inside this component's top-level body (the one actually used by the JSX
-// below: `availableCredits`, `totalStoreCreditAvailable`), and a second,
-// completely unused time right before `financialData`. The second call did
-// nothing harmful by itself (no self-reference / TDZ issue, unlike the bug in
-// AppointmentCard.tsx), but it's dead code that re-runs the hook's internal
-// computation for no reason on every render and risked masking a real bug if
-// the two call sites' results were ever assumed to differ. Removed the
-// second, unused call. Search "CLEANUP:" to find the removed spot.
+// FIX applied: ReadinessBanner was trusting appointment.readinessFlags.depositRequired
+// to decide whether to show "Deposit not received — cannot proceed." That flag
+// depends on appointment.depositStatus / depositAmountCents staying in sync via
+// the deposit-payment webhook — which, per the comments in CancelAppointmentDialog,
+// it doesn't reliably do in this codebase. Net effect: the banner could say
+// "Ready to start — all requirements met" while a deposit was actually still
+// outstanding. Now uses the same shared useDepositCredit hook that
+// CancelAppointmentDialog already trusts (live lookup against the
+// depositCredits collection) to confirm a deposit was actually paid, not just
+// that the appointment record claims one isn't required. Search "FIX:" to find
+// the changed spots.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
@@ -65,6 +67,7 @@ import { computeDepositCents } from '@/lib/deposit-policy';
 import { StoreCreditBadge } from '@/components/StoreCreditBadge';
 import { StoreCreditSection } from '@/components/appointments/StoreCreditSection';
 import { useStoreCredit } from '@/hooks/useStoreCredit';
+import { useDepositCredit } from '@/hooks/useDepositCredit';
 
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
@@ -219,17 +222,24 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
 
 // ─── Readiness Banner ─────────────────────────────────────────────────────────
 const ReadinessBanner = ({
-  appointment, client, complianceInfo,
+  appointment, client, complianceInfo, hasDeposit, isLoadingDeposit,
 }: {
   appointment: any;
   client: any;
   complianceInfo: { pendingForms: any[]; allCertified: boolean };
+  hasDeposit: boolean;
+  isLoadingDeposit: boolean;
 }) => {
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
+
   const flags      = appointment?.readinessFlags || {};
   const hasBan     = client?.status === 'banned';
   const hasDispute = client?.hasOpenDispute === true;
   const hasAllergy = !!(client?.allergyNotes || client?.medicalNotes);
+
+  // FIX: this is the actual deposit blocker now — derived from the live
+  // lookup instead of trusting flags.depositRequired in isolation.
+  const depositRequiredButMissing = !!flags.depositRequired && !hasDeposit && !isLoadingDeposit;
 
   const blockers = [
     hasBan     && { level: 'banned',  msg: `Banned — ${client?.banMessage || 'No service permitted'}` },
@@ -247,11 +257,26 @@ const ReadinessBanner = ({
       level: 'warn',
       msg: `${complianceInfo.pendingForms.length} consent form${complianceInfo.pendingForms.length !== 1 ? 's' : ''} not yet signed`,
     },
-    flags.depositRequired && { level: 'danger', msg: `Deposit not received — cannot proceed` },
+    depositRequiredButMissing && { level: 'danger', msg: `Deposit not received — cannot proceed` },
     flags.cardRequired    && { level: 'warn',   msg: `No card on file — collect at check-in` },
     flags.balanceRequired && { level: 'warn',   msg: `Outstanding $${Number(client?.outstandingBalance || 0).toFixed(2)} — settle at checkout` },
     flags.needsConsultationBuffer && { level: 'info', msg: `No reference photos — allow 15 min design consultation` },
   ].filter(Boolean) as { level: string; msg: string }[];
+
+  // FIX: while the live deposit lookup is still in flight AND the
+  // appointment record claims a deposit is required, don't show the green
+  // "all requirements met" state yet — that was the exact failure mode:
+  // claiming readiness before we'd actually confirmed payment.
+  if (flags.depositRequired && isLoadingDeposit) {
+    return (
+      <div className="flex items-center gap-2.5 p-3.5 rounded-2xl bg-muted/10 border-2 border-muted/30">
+        <Loader className="w-4 h-4 text-muted-foreground animate-spin shrink-0" />
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+          Verifying deposit status…
+        </p>
+      </div>
+    );
+  }
 
   if (blockers.length === 0) {
     return (
@@ -411,6 +436,21 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [service, consentForms, signedConsents, appointment?.signedForms]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
+
+  // Same live deposit truth used by ReadinessBanner — lifted to this level
+  // too because the "Start Session" button below was independently gating
+  // on appointment.readinessFlags.depositRequired, the exact stale flag the
+  // banner now overrides. Two checks reading two different sources of truth
+  // for the same question is how this bug happened in the first place — both
+  // now derive from this one hook call.
+  const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(
+    appointment?.clientId,
+    client?.email,
+    tenantId,
+    true,
+  );
+  const depositActuallyMissing =
+    !!appointment?.readinessFlags?.depositRequired && !hasLiveDeposit && !isLoadingLiveDeposit;
 
   const financialData = useMemo(() => {
     if (!appointment || !service) return null;
@@ -589,14 +629,16 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     <ScrollArea className="flex-1 overflow-y-auto">
       <div className="space-y-8 p-5 md:p-8 pb-16">
 
-        {isCancelled ? <CancellationRecord appointment={appointment} transactions={transactions} /> : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} />}
+        {isCancelled
+          ? <CancellationRecord appointment={appointment} transactions={transactions} />
+          : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} />}
 
         {appointment.status === 'confirmed' && (
           <Button
             onClick={() => onStartService(appointment.id)}
             className="w-full h-14 rounded-2xl font-black uppercase shadow-2xl shadow-primary/20"
             size="lg"
-            disabled={!!(appointment.readinessFlags?.healthGateActive || appointment.readinessFlags?.formGateActive || appointment.readinessFlags?.depositRequired)}
+            disabled={!!(appointment.readinessFlags?.healthGateActive || appointment.readinessFlags?.formGateActive || depositActuallyMissing)}
           >
             <Play className="mr-3 h-5 w-5" /> Start Session
           </Button>
