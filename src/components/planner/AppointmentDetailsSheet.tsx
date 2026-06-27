@@ -902,9 +902,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       }, 0);
       const start = safeDate(appointment.actualStartTime || appointment.startTime);
       const end   = safeDate(appointment.actualEndTime   || appointment.endTime);
-      const actualDuration = appointment.actualEndTime
-        ? differenceInMinutes(end, start)
-        : allServicesInApt.reduce((acc, s) => acc + (s?.duration || 0), 0);
+      const actualDuration = appointment.actualEndTime && !isNaN(start.getTime()) && !isNaN(end.getTime())
+  ? differenceInMinutes(end, start)
+  : allServicesInApt.reduce((acc, s) => acc + (s?.durati
       const timeCost    = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * (tmhr || 0);
       const breakEven   = timeCost + productCost;
       const baseRevenue = allServicesInApt.reduce((acc, s) => {
@@ -1180,8 +1180,8 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const outstandingBalance = safeNumber(client.outstandingBalance);
   const adjustmentCharge   = financialData?.adjustmentCharge ?? 0;
 
-  const canStart  = appointment.status === 'confirmed';
-  const canFinish = appointment.status === 'servicing';
+  const canStart  = !['servicing', 'completed', 'cancelled'].includes(appointment.status);
+const canFinish = appointment.status === 'servicing';
   const startDisabled = !!(
     complianceInfo.healthPendingForms.length > 0 ||
     complianceInfo.otherPendingForms.length > 0 ||
