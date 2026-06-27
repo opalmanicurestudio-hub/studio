@@ -1,7 +1,7 @@
-'use client'
+'use client';
+
 /**
  * useSmartAvailability
-
  *
  * Given a date, serviceId, and optional staffId, returns only the time
  * slots where the full service (duration + padBefore + padAfter) fits
@@ -28,11 +28,11 @@ import {
 } from 'date-fns';
 
 export type AvailableSlot = {
-  time: string;          // 'HH:mm'
-  label: string;         // '10:00 am'
+  time: string;
+  label: string;
   staffId: string;
   staffName: string;
-  gapMinutesAfter: number; // minutes until next appt / end of day
+  gapMinutesAfter: number;
   available: boolean;
 };
 
@@ -59,13 +59,13 @@ const BUSINESS_END_HOUR = 20;
 const SLOT_INTERVAL_MINUTES = 30;
 
 export function useSmartAvailability(params: {
-  date: string;                // 'yyyy-MM-dd'
+  date: string;
   serviceId: string;
   staffId: string | 'any';
   allAppointments: any[];
   allServices: any[];
   allStaff: any[];
-  skipSlotsBefore?: string;    // 'HH:mm' — for today, skip past slots
+  skipSlotsBefore?: string;
 }): {
   slots: AvailableSlot[];
   addOnUpsells: AddOnUpsell[];
@@ -82,13 +82,11 @@ export function useSmartAvailability(params: {
 
     const svcDuration: number = (svc.duration ?? 60) + (svc.padBefore ?? 0) + (svc.padAfter ?? 0);
 
-    // Which staff members are candidates?
     const candidateStaff =
       staffId === 'any'
         ? allStaff.filter((s) => s.active !== false)
         : allStaff.filter((s) => s.id === staffId);
 
-    // Appointments on this date (only confirmed/deposit_pending block slots)
     const dayStart = startOfDay(new Date(`${date}T00:00:00`));
     const dayEnd = endOfDay(dayStart);
     const dayApts = allAppointments.filter((a) => {
@@ -98,14 +96,10 @@ export function useSmartAvailability(params: {
       return start >= dayStart && start <= dayEnd;
     });
 
-    // Skip slots before a minimum time (e.g. now + buffer for today)
     const minTimeStr = skipSlotsBefore ?? null;
-
-    // Generate slots for each candidate staff member
     const slots: AvailableSlot[] = [];
 
     for (const staffMember of candidateStaff) {
-      // Appointments for this staff on this day
       const staffApts = dayApts
         .filter((a) => a.staffId === staffMember.id)
         .map((a) => ({
@@ -115,7 +109,6 @@ export function useSmartAvailability(params: {
         .filter((a) => a.start != null)
         .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-      // Walk every 30-min slot through the business day
       let cursor = setMinutes(setHours(dayStart, BUSINESS_START_HOUR), 0);
       const businessEnd = setMinutes(setHours(dayStart, BUSINESS_END_HOUR), 0);
 
@@ -123,19 +116,16 @@ export function useSmartAvailability(params: {
         const slotEnd = addMinutes(cursor, svcDuration);
         const timeStr = format(cursor, 'HH:mm');
 
-        // Skip past slots when a minimum time is set
         if (minTimeStr && timeStr < minTimeStr) {
           cursor = addMinutes(cursor, SLOT_INTERVAL_MINUTES);
           continue;
         }
 
-        // Service must end before business hours end
         if (isAfter(slotEnd, businessEnd)) {
           cursor = addMinutes(cursor, SLOT_INTERVAL_MINUTES);
           continue;
         }
 
-        // Check for overlaps with existing appointments
         const blocked = staffApts.some((a) =>
           areIntervalsOverlapping(
             { start: cursor, end: slotEnd },
@@ -144,7 +134,6 @@ export function useSmartAvailability(params: {
           ),
         );
 
-        // Compute gap until next appointment or business end
         const nextApt = staffApts.find((a) => a.start >= slotEnd);
         const gapEnd = nextApt ? nextApt.start : businessEnd;
         const gapMinutesAfter = Math.max(
@@ -165,8 +154,6 @@ export function useSmartAvailability(params: {
       }
     }
 
-    // Deduplicate: if multiple staff are free at the same time, keep the
-    // one with the most gap (widest window) — receptionist can refine later.
     const slotMap = new Map<string, AvailableSlot>();
     for (const slot of slots) {
       const key = slot.time;
@@ -181,7 +168,6 @@ export function useSmartAvailability(params: {
       a.time.localeCompare(b.time),
     );
 
-    // Add-on upsells — services that fit in the best available gap
     const bestGap = deduped.at(0)?.gapMinutesAfter ?? 0;
     const addOnUpsells: AddOnUpsell[] = allServices
       .filter(
