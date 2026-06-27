@@ -10,7 +10,7 @@ import {
   Ear, Unlock, Scale, FileImage, Maximize2, Zap, FlaskConical, Target,
   RefreshCw, History, HeartHandshake, AlertCircle, BookMarked, Heart,
   CreditCard, CalendarClock, MoreHorizontal, HeartPulse,
-  Calendar, Camera, UserX, Globe, Receipt,
+  Calendar, Camera, UserX, Globe, Receipt, Send, Bell,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,7 +37,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, increment, writeBatch, arrayUnion, deleteField, query, where } from 'firebase/firestore';
+import { collection, doc, increment, writeBatch, arrayUnion, deleteField, query, where, orderBy, limit } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { RescheduleAppointmentDialog } from './RescheduleAppointmentDialog';
@@ -88,6 +88,165 @@ const staffName = (staffId: any, staffList: any[], fallback = 'Staff'): string =
   return match?.name || fallback;
 };
 
+// ─── Activity Timeline builder ────────────────────────────────────────────────
+// "So anyone can jump in and know what's happening" means assembling every
+// dated touchpoint on this appointment into one chronological feed, not just
+// the cancellation/financial summaries elsewhere in the sheet. Sources, in the
+// order they're read below: the appointment doc's own timestamped fields
+// (automation reminders, check-in, session start/end, no-show flagging,
+// reschedules, deposit disposition), the cancellationEvents doc (the actual
+// Stripe-pipeline lifecycle — created → processed, with outcome), the
+// depositDecisions doc (refund/credit decision and its later resolution), the
+// auditLog (human-written summaries, preferred over a synthesized line when
+// present), and every ledger transaction tied to this appointmentId. Nothing
+// here is fabricated — an event with no real timestamp on record is simply
+// not included, rather than guessed at.
+type TimelineEvent = { id: string; timestamp: string; icon: any; label: string; detail?: string; tone?: 'good' | 'warn' | 'bad' };
+const TIMELINE_TONE: Record<string, string> = {
+  good: 'text-green-600', warn: 'text-amber-600', bad: 'text-destructive', default: 'text-slate-600',
+};
+
+const buildTimelineEvents = (opts: {
+  appointment: any; transactions: any[]; cancellationEvent: any;
+  depositDecision: any; auditLogEntries: any[]; staff: any[];
+}): TimelineEvent[] => {
+  const { appointment, transactions, cancellationEvent, depositDecision, auditLogEntries, staff } = opts;
+  if (!appointment) return [];
+  const events: TimelineEvent[] = [];
+
+  const push = (ts: any, icon: any, label: string, detail?: string, tone?: 'good' | 'warn' | 'bad') => {
+    if (!ts) return;
+    let iso: string;
+    try { iso = typeof ts === 'string' ? ts : safeDate(ts).toISOString(); } catch { return; }
+    events.push({ id: `${label}-${iso}-${events.length}`, timestamp: iso, icon, label, detail, tone });
+  };
+
+  if (appointment.createdAt) {
+    push(appointment.createdAt, Calendar, 'Appointment booked',
+      appointment.source === 'online' ? 'Online booking' : (appointment.isWalkIn || appointment.source === 'walk-in') ? 'Walk-in' : 'Manual entry');
+  }
+
+  const auto = appointment.automationState || {};
+  if (auto.depositReminderSentAt) push(auto.depositReminderSentAt, Bell, 'Deposit reminder sent');
+  if (auto.formReminderSentAt) push(auto.formReminderSentAt, Bell, 'Consent form reminder sent');
+  if (auto.cardReminderSentAt) push(auto.cardReminderSentAt, Bell, 'Card-on-file reminder sent');
+  if (auto.photoReminderSentAt) push(auto.photoReminderSentAt, Bell, 'Reference photo reminder sent');
+  if (auto.balanceNotifiedAt) push(auto.balanceNotifiedAt, Bell, 'Outstanding balance notice sent');
+
+  if (appointment.healthDisclosedAt) push(appointment.healthDisclosedAt, HeartPulse, 'Health disclosure completed');
+
+  const depositTxn = (transactions || []).find((t: any) =>
+    t.appointmentId === appointment.id && (t.category === 'Retainers' || /deposit/i.test(String(t.description || '')))
+  );
+  if (depositTxn) push(depositTxn.date || depositTxn.createdAt, Wallet, 'Deposit collected', `$${safeNumber(depositTxn.amount).toFixed(2)}`, 'good');
+
+  if (appointment.checkInStatusTimestamp) {
+    push(appointment.checkInStatusTimestamp, MapPin, `Checked in — ${String(appointment.checkInStatus || '').replace(/_/g, ' ')}`);
+  }
+  if (appointment.suspectedNoShowAt) {
+    push(appointment.suspectedNoShowAt, AlertCircle, 'Flagged as suspected no-show',
+      appointment.lateTimeMinutes ? `${appointment.lateTimeMinutes}m past start` : undefined, 'warn');
+  }
+  if (appointment.noShowEscalatedAt) push(appointment.noShowEscalatedAt, ShieldAlert, 'No-show escalated to manager', undefined, 'warn');
+  if (appointment.suspectedNoShowClearedAt) {
+    push(appointment.suspectedNoShowClearedAt, CheckCircle2, 'No-show flag cleared',
+      appointment.suspectedNoShowClearedBy ? `by ${staffName(appointment.suspectedNoShowClearedBy, staff)}` : undefined, 'good');
+  }
+  if (appointment.noShowConfirmedAt) {
+    push(appointment.noShowConfirmedAt, UserX, 'No-show confirmed',
+      appointment.noShowConfirmedBy ? `by ${staffName(appointment.noShowConfirmedBy, staff)}` : undefined, 'bad');
+  }
+
+  if (appointment.actualStartTime) push(appointment.actualStartTime, Play, 'Session started');
+  if (appointment.actualEndTime) push(appointment.actualEndTime, Square, 'Session finished', undefined, 'good');
+
+  if (appointment.lastRescheduledAt) {
+    push(appointment.lastRescheduledAt, RefreshCw,
+      `Rescheduled${appointment.rescheduleCount ? ` (×${appointment.rescheduleCount})` : ''}`,
+      appointment.lastRescheduledBy ? `by ${staffName(appointment.lastRescheduledBy, staff)}` : undefined);
+  }
+
+  if (appointment.incident?.date) {
+    push(appointment.incident.date, AlertCircle, `Incident logged — ${appointment.incident.type}`,
+      appointment.incident.severity, appointment.incident.severity === 'Severe' ? 'bad' : 'warn');
+  }
+
+  // Cancellation — prefer the audit log's own human-written summary when one
+  // exists; only synthesize a line from the appointment's legacy fields when
+  // there's no audit entry at all, so the two never show a redundant/
+  // contradictory pair of lines for the same event.
+  const cancelAuditEntry = (auditLogEntries || []).find((a: any) => a.entityType === 'appointment_cancellation');
+  if (cancelAuditEntry) {
+    push(cancelAuditEntry.timestamp, Ban, cancelAuditEntry.summary || 'Appointment cancelled', undefined, 'bad');
+  } else if (appointment.cancelledAt) {
+    push(appointment.cancelledAt, Ban,
+      `Cancelled${appointment.cancellationReason ? ` — ${String(appointment.cancellationReason).replace(/_/g, ' ')}` : ''}`,
+      undefined, 'bad');
+  }
+
+  const chargeOutcomeKnown = !!cancellationEvent?.chargeStatus;
+  if (cancellationEvent) {
+    if (cancellationEvent.createdAt) push(cancellationEvent.createdAt, Send, 'Cancellation pipeline started');
+    if (cancellationEvent.processedAt) {
+      const map: Record<string, string> = {
+        charged: 'Card charged', failed: 'Card charge failed',
+        uncollected: 'No card on file — added to balance', waived: 'Fee waived', balance: 'Added to balance',
+      };
+      push(cancellationEvent.processedAt,
+        cancellationEvent.chargeStatus === 'charged' ? CheckCircle2 : AlertTriangle,
+        map[cancellationEvent.chargeStatus] || 'Cancellation pipeline processed',
+        undefined,
+        cancellationEvent.chargeStatus === 'charged' ? 'good'
+          : (cancellationEvent.chargeStatus === 'failed' || cancellationEvent.chargeStatus === 'uncollected') ? 'bad'
+          : undefined);
+    }
+  }
+
+  if (appointment.depositForfeitedAt) push(appointment.depositForfeitedAt, Ban, 'Deposit forfeited', appointment.depositForfeitedReason, 'bad');
+  if (appointment.depositConvertedToCreditAt) push(appointment.depositConvertedToCreditAt, HeartHandshake, 'Deposit converted to store credit', undefined, 'good');
+  if (appointment.depositRefundedAt) {
+    push(appointment.depositRefundedAt, Wallet, 'Deposit refunded',
+      `$${(safeNumber(appointment.depositRefundedAmountCents) / 100).toFixed(2)}`, 'good');
+  }
+
+  if (depositDecision?.decidedAt) {
+    push(depositDecision.decidedAt, Wallet, `Deposit decision: ${String(depositDecision.outcome || '').replace(/_/g, ' ')}`,
+      depositDecision.amountDollars ? `$${safeNumber(depositDecision.amountDollars).toFixed(2)}` : undefined);
+  }
+  if (depositDecision?.resolvedAt) {
+    push(depositDecision.resolvedAt, CheckCircle2, `Refund decision resolved — ${String(depositDecision.outcome || '').replace(/_/g, ' ')}`,
+      depositDecision.resolvedBy ? `by ${staffName(depositDecision.resolvedBy, staff)}` : undefined, 'good');
+  }
+
+  if (appointment.waivedAt) {
+    push(appointment.waivedAt, HeartHandshake, 'Cancellation fee waived',
+      appointment.waivedBy ? `by ${staffName(appointment.waivedBy, staff)}` : undefined, 'good');
+  }
+
+  if (!appointment.isEscalated && appointment.resolvedAt) {
+    push(appointment.resolvedAt, CheckCircle2, 'Escalation resolved',
+      appointment.resolvedBy ? `by ${staffName(appointment.resolvedBy, staff)}` : undefined, 'good');
+  }
+
+  // Every remaining ledger line tied to this appointment — checkout revenue,
+  // tips, adjustments, surcharges — as its own dated event. Cancellation-fee
+  // transactions are skipped here ONLY when the cancellationEvents pipeline
+  // already represents that exact charge above; otherwise they still show,
+  // so a legacy cancellation with no event doc never silently loses its fee.
+  (transactions || []).forEach((t: any) => {
+    if (t.appointmentId !== appointment.id) return;
+    if (t === depositTxn) return;
+    const isCancellationFeeTxn = String(t.category || '').toLowerCase().includes('cancellation');
+    if (isCancellationFeeTxn && chargeOutcomeKnown) return;
+    push(t.date || t.createdAt, DollarSign, t.description || t.category || 'Transaction',
+      `${t.type === 'income' ? '+' : (t.type === 'refund' || t.type === 'reversal') ? '−' : ''}$${Math.abs(safeNumber(t.amount)).toFixed(2)}`);
+  });
+
+  return events
+    .filter(e => e.timestamp)
+    .sort((a, b) => safeDate(a.timestamp).getTime() - safeDate(b.timestamp).getTime());
+};
+
 type RowStatus = 'good' | 'warn' | 'bad' | 'neutral';
 const STATUS_TEXT: Record<RowStatus, string> = {
   good: 'text-green-600', warn: 'text-amber-600', bad: 'text-destructive', neutral: 'text-muted-foreground opacity-50',
@@ -107,6 +266,7 @@ const RequirementRow = ({
     </div>
   </div>
 );
+
 
 // ─── Cancellation Record (full resolution wrap) ──────────────────────────────
 // Two write paths produce cancelled appointments in this codebase: the public
@@ -602,6 +762,40 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       safeDate(b.decidedAt || 0).getTime() - safeDate(a.decidedAt || 0).getTime()
     )[0];
   }, [depositDecisionDocs]);
+
+  // ── Activity Timeline data (this appointment) ───────────────────────────────
+  // auditLog entries give the human-written summary line for cancellations
+  // (preferred over a synthesized one in buildTimelineEvents).
+  const auditLogQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !appointment?.id) return null;
+    return query(
+      collection(firestore, `tenants/${tenantId}/auditLog`),
+      where('entityId', '==', appointment.id),
+    );
+  }, [firestore, tenantId, appointment?.id]);
+  const { data: auditLogDocs } = useCollection<any>(auditLogQuery);
+
+  const timelineEvents = useMemo(() => buildTimelineEvents({
+    appointment, transactions: transactions || [], cancellationEvent,
+    depositDecision: latestDepositDecision, auditLogEntries: auditLogDocs || [], staff: staff || [],
+  }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff]);
+
+  // ── Recent visits with this client (teaser only — full journey lives on the
+  // client profile; this is just enough context to jump in without a second
+  // navigation when the question is "have I seen them before").
+  const clientHistoryQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !client?.id) return null;
+    return query(
+      collection(firestore, `tenants/${tenantId}/appointments`),
+      where('clientId', '==', client.id),
+      orderBy('startTime', 'desc'),
+      limit(6),
+    );
+  }, [firestore, tenantId, client?.id]);
+  const { data: clientHistoryDocs } = useCollection<any>(clientHistoryQuery);
+  const recentVisits = useMemo(() => {
+    return (clientHistoryDocs || []).filter((a: any) => a.id !== appointment?.id).slice(0, 5);
+  }, [clientHistoryDocs, appointment?.id]);
 
   const handleEscalate = async () => {
     if (!firestore || !tenantId || !appointment?.id) return;
@@ -1101,6 +1295,53 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        {/* ── Activity Timeline — every dated event on this appointment, in one
+              feed, collapsed by default so it's discoverable but doesn't
+              dominate a routine open. This is the "anyone can jump in and know
+              what's happening" view. ── */}
+        <Accordion type="single" collapsible className="w-full">
+          <AccordionItem value="timeline" className="border-2 rounded-2xl overflow-hidden bg-white shadow-inner">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 font-black uppercase text-[10px] tracking-widest text-slate-700">
+                <History className="w-3.5 h-3.5 text-primary" /> Activity Timeline
+                <Badge variant="outline" className="h-5 px-2 rounded-full text-[8px] font-black border-2 ml-1">
+                  {timelineEvents.length}
+                </Badge>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4 pt-1">
+              {timelineEvents.length === 0 ? (
+                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-3">No recorded activity yet</p>
+              ) : (
+                <div className="border-l-2 border-dashed border-muted/40 ml-1.5 pl-4">
+                  {timelineEvents.map((ev) => {
+                    const Icon = ev.icon;
+                    const tone = TIMELINE_TONE[ev.tone || 'default'];
+                    return (
+                      <div key={ev.id} className="relative pb-4 last:pb-0">
+                        <span className={cn('absolute -left-[1.45rem] top-0.5 w-3 h-3 rounded-full border-2 border-white', tone.replace('text-', 'bg-'))} />
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className={cn('text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5', tone)}>
+                              <Icon className="w-3 h-3 shrink-0" /> {ev.label}
+                            </p>
+                            {ev.detail && (
+                              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 mt-0.5">{ev.detail}</p>
+                            )}
+                          </div>
+                          <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide opacity-50 shrink-0 whitespace-nowrap">
+                            {format(safeDate(ev.timestamp), 'MMM d, h:mm a')}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+
         <Card className="rounded-[1.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -1443,6 +1684,35 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 ) : (
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No historical formulas found</p>
                 )}
+              </AccordionContent>
+            </AccordionItem>
+            <AccordionItem value="recent-visits" className="border-2 rounded-2xl overflow-hidden bg-muted/5 shadow-inner mt-2">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
+                <Calendar className="w-3.5 h-3.5 mr-2 opacity-40" /> Recent Visits with {(client.name || 'Client').split(' ')[0]}
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-4 pt-2 space-y-2">
+                {recentVisits.length > 0 ? recentVisits.map((a: any) => {
+                  const svc = (allServices || []).find((s: any) => s.id === a.serviceId);
+                  return (
+                    <div key={a.id} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-muted/20">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-tight truncate">{svc?.name || 'Service'}</p>
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(a.startTime), 'MMM d, yyyy')}</p>
+                      </div>
+                      <Badge className={cn(
+                        'text-[7px] font-black uppercase border-none text-white shrink-0',
+                        a.status === 'cancelled' ? 'bg-destructive' : a.status === 'completed' ? 'bg-green-500' : 'bg-slate-400'
+                      )}>
+                        {a.status}
+                      </Badge>
+                    </div>
+                  );
+                }) : (
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No other visits on record</p>
+                )}
+                <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-tight opacity-50 text-center pt-1">
+                  Full history on the client profile
+                </p>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
