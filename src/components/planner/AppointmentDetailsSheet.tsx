@@ -10,6 +10,7 @@ import {
   Ear, Unlock, Scale, FileImage, Maximize2, Zap, FlaskConical, Target,
   RefreshCw, History, HeartHandshake, AlertCircle, BookMarked, Heart,
   CreditCard, CalendarClock, MoreHorizontal, HeartPulse,
+  Calendar, Camera, UserX, Globe, Receipt,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,7 +37,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useFirebase, updateDocumentNonBlocking, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, increment, writeBatch, arrayUnion, deleteField } from 'firebase/firestore';
+import { collection, doc, increment, writeBatch, arrayUnion, deleteField, query, where } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AddAndConfigurePartsDialog } from './AddAndConfigurePartsDialog';
 import { RescheduleAppointmentDialog } from './RescheduleAppointmentDialog';
@@ -75,6 +76,18 @@ const safeTicketId = (id: any): string => {
   return 'N/A';
 };
 
+// Resolves a staffId to a display name. Falls back to the raw id (or a
+// supplied label) rather than silently showing nothing — every accountability
+// field (waivedBy, resolvedBy, noShowConfirmedBy, lastRescheduledBy) is only
+// useful if it actually shows who, not just that someone did something.
+const staffName = (staffId: any, staffList: any[], fallback = 'Staff'): string => {
+  if (!staffId) return fallback;
+  if (staffId === 'client') return 'Client';
+  if (staffId === 'system') return 'System';
+  const match = (staffList || []).find((s: any) => s.id === staffId);
+  return match?.name || fallback;
+};
+
 type RowStatus = 'good' | 'warn' | 'bad' | 'neutral';
 const STATUS_TEXT: Record<RowStatus, string> = {
   good: 'text-green-600', warn: 'text-amber-600', bad: 'text-destructive', neutral: 'text-muted-foreground opacity-50',
@@ -94,8 +107,42 @@ const RequirementRow = ({
     </div>
   </div>
 );
-const CancellationRecord = ({ appointment, transactions }: { appointment: any; transactions: any[] }) => {
-  const audit = appointment?.cancellationAudit;
+
+// ─── Cancellation Record (full resolution wrap) ──────────────────────────────
+// Two write paths produce cancelled appointments in this codebase: the public
+// self-cancel route (writes appointment.cancellationAudit, the rich shape),
+// and the planner's CancelAppointmentDialog flow (writes only the legacy
+// discrete fields: cancellationReason / cancellationFeeApplied /
+// cancellationPaymentStatus, no audit object). Without a fallback, any
+// appointment cancelled from the planner showed "Cancelled by Unknown" with
+// no reason or fee row — the data existed, just under different field names.
+// This now synthesizes an equivalent audit shape from the legacy fields when
+// the real one is absent, so the comprehensive view is comprehensive
+// regardless of which surface cancelled it.
+const CancellationRecord = ({
+  appointment, transactions, staff, cancellationEvent, depositDecision,
+  onProcessRefund, onKeepAsCredit, isProcessingRefund,
+}: {
+  appointment: any; transactions: any[]; staff: any[];
+  cancellationEvent: any; depositDecision: any;
+  onProcessRefund: () => void; onKeepAsCredit: () => void; isProcessingRefund: boolean;
+}) => {
+  const realAudit = appointment?.cancellationAudit;
+  const hasLegacyData = !!(appointment?.cancellationReason || appointment?.cancellationFeeApplied != null || appointment?.cancelledAt);
+  const audit = realAudit || (hasLegacyData ? {
+    actorType: appointment.studioCancelled ? 'studio'
+      : appointment.cancellationReason === 'no-show' ? 'no_show'
+      : appointment.cancellationReason === 'automation' ? 'system'
+      : 'client',
+    reason: appointment.cancellationReason,
+    studioReason: appointment.cancellationStudioReason,
+    clientReason: appointment.cancellationClientReason,
+    feeAmount: safeNumber(appointment.cancellationFeeApplied ?? appointment.cancellationFeeCharged),
+    feeWaived: !!appointment.cancellationFeeWaived,
+    paymentStatus: appointment.cancellationPaymentStatus,
+    timestamp: appointment.cancelledAt,
+    _legacy: true,
+  } : null);
 
   const aptTxns = (transactions || [])
     .filter((t: any) => t.appointmentId === appointment.id)
@@ -120,11 +167,16 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
     (String(t.category || '').toLowerCase().includes('cancellation') ||
      String(t.description || '').toLowerCase().includes('cancellation'))
   );
-  const feeMarkedButMissing = feeCharged > 0 && !feeChargeRecorded;
+  // The charge-outcome doc (cancellationEvents) is the more precise source —
+  // if we have it, trust its chargeStatus over the ledger-presence guess.
+  const chargeOutcomeKnown = !!cancellationEvent?.chargeStatus;
+  const feeMarkedButMissing = feeCharged > 0 && !feeChargeRecorded &&
+    (!chargeOutcomeKnown || cancellationEvent.chargeStatus === 'uncollected' || cancellationEvent.chargeStatus === 'failed');
 
   const actorLabel =
-    audit?.actorType === 'studio' ? 'Studio / Staff' :
+    audit?.actorType === 'studio' ? `Studio / ${staffName(audit.actorId, staff, 'Staff')}` :
     audit?.actorType === 'no_show' ? 'No-Show (automatic)' :
+    audit?.actorType === 'system' ? 'System (automation)' :
     audit ? 'Client' : 'Unknown';
 
   const reasonText = (audit?.studioReason || audit?.clientReason || audit?.reason || '')
@@ -145,15 +197,47 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
   });
   if (dispositionLabel) rows.push({ label: 'Deposit outcome', value: dispositionLabel, tone: 'text-primary/80' });
   if (storeCreditIssued > 0) rows.push({ label: 'Store credit issued', value: `$${storeCreditIssued.toFixed(2)}`, tone: 'text-green-600' });
+  if (chargeOutcomeKnown) {
+    const chargeLabelMap: Record<string, string> = {
+      charged: 'Charged successfully', failed: 'Card declined', uncollected: 'No card — added to balance',
+      waived: 'Waived', balance: 'Added to balance',
+    };
+    rows.push({
+      label: 'Charge outcome',
+      value: chargeLabelMap[cancellationEvent.chargeStatus] || cancellationEvent.chargeStatus,
+      tone: cancellationEvent.chargeStatus === 'charged' ? 'text-green-600'
+        : cancellationEvent.chargeStatus === 'failed' || cancellationEvent.chargeStatus === 'uncollected' ? 'text-destructive'
+        : 'text-amber-600',
+    });
+  }
+
+  const isNoShow = audit?.actorType === 'no_show';
+  const waiverStaffId = appointment.waivedBy;
+  const showWaiverRow = (feeWaived || appointment.cancellationFeeWaived) && waiverStaffId;
+  const refundPending = depositDecision?.outcome === 'refund_pending';
+
+  if (!audit) {
+    return (
+      <div className="rounded-[1.75rem] bg-destructive/5 border-2 border-destructive/20 overflow-hidden p-5">
+        <div className="flex items-center gap-2.5">
+          <Ban className="w-5 h-5 text-destructive shrink-0" />
+          <p className="text-[11px] font-black uppercase tracking-widest text-destructive leading-tight">Cancelled</p>
+        </div>
+        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight mt-2 pl-7 opacity-60">
+          No further cancellation detail was recorded for this appointment.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-[1.75rem] bg-destructive/5 border-2 border-destructive/20 overflow-hidden">
       <div className="p-5 space-y-2.5">
         <div className="flex items-center gap-2.5">
-          <Ban className="w-5 h-5 text-destructive shrink-0" />
+          {isNoShow ? <UserX className="w-5 h-5 text-destructive shrink-0" /> : <Ban className="w-5 h-5 text-destructive shrink-0" />}
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-widest text-destructive leading-tight">
-              Cancelled by {actorLabel}
+              {isNoShow ? 'No-Show' : `Cancelled by ${actorLabel}`}
             </p>
             {audit?.timestamp && (
               <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">
@@ -165,6 +249,13 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
         {reasonText && (
           <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed pl-7">
             {reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}
+          </p>
+        )}
+        {isNoShow && safeNumber(appointment.lateTimeMinutes) > 0 && (
+          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight pl-7 opacity-70">
+            {appointment.noShowConfirmedBy
+              ? `Confirmed by ${staffName(appointment.noShowConfirmedBy, staff)}`
+              : `Automatically flagged after ${appointment.lateTimeMinutes}m past start`}
           </p>
         )}
       </div>
@@ -179,12 +270,53 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
           ))}
         </div>
 
+        {showWaiverRow && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-green-50 border-2 border-green-200">
+            <HeartHandshake className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
+            <p className="text-[9px] font-black uppercase tracking-wide text-green-700 leading-relaxed">
+              Fee waived by {staffName(waiverStaffId, staff)}
+              {appointment.waivedReason ? ` — "${appointment.waivedReason}"` : ''}
+            </p>
+          </div>
+        )}
+
+        {chargeOutcomeKnown && cancellationEvent.errorMessage && (
+          <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border-2 border-red-200">
+            <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+            <p className="text-[9px] font-black uppercase tracking-wide text-destructive leading-relaxed">
+              Stripe error: {cancellationEvent.errorMessage}
+            </p>
+          </div>
+        )}
+
         {feeMarkedButMissing && (
           <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
             <p className="text-[9px] font-black uppercase tracking-wide text-amber-700 leading-relaxed">
               A ${feeCharged.toFixed(2)} fee was marked but no matching charge is in the ledger — verify the card was actually run.
             </p>
+          </div>
+        )}
+
+        {refundPending && (
+          <div className="p-3.5 rounded-xl bg-blue-50 border-2 border-blue-200 space-y-2.5">
+            <p className="text-[9px] font-black uppercase tracking-wide text-blue-800 leading-relaxed flex items-center gap-1.5">
+              <Wallet className="w-3.5 h-3.5" /> Deposit refund pending — ${safeNumber(depositDecision.amountDollars).toFixed(2)}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm" onClick={onProcessRefund} disabled={isProcessingRefund}
+                className="h-8 flex-1 rounded-lg text-[8px] font-black uppercase tracking-widest"
+              >
+                {isProcessingRefund ? <Loader className="w-3 h-3 animate-spin" /> : 'Refund to Card'}
+              </Button>
+              <Button
+                size="sm" variant="outline" onClick={onKeepAsCredit} disabled={isProcessingRefund}
+                className="h-8 flex-1 rounded-lg text-[8px] font-black uppercase tracking-widest border-2"
+              >
+                Keep as Credit
+              </Button>
+            </div>
           </div>
         )}
 
@@ -216,6 +348,80 @@ const CancellationRecord = ({ appointment, transactions }: { appointment: any; t
     </div>
   );
 };
+
+// ─── Completion Receipt ───────────────────────────────────────────────────────
+// Replaces the (irrelevant, nothing's gating anymore) ReadinessBanner for a
+// completed appointment with an actual checkout-style summary: what was
+// collected, tip, discount, payment method — pulled from this appointment's
+// own ledger transactions rather than re-deriving it.
+const CompletionReceipt = ({ appointment, transactions, staff }: { appointment: any; transactions: any[]; staff: any[] }) => {
+  const aptTxns = (transactions || []).filter((t: any) => t.appointmentId === appointment.id);
+  const serviceRevenue = aptTxns.filter((t: any) => t.category === 'Service Revenue').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+  const tips = aptTxns.filter((t: any) => t.category === 'Tips').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+  const discounts = aptTxns.filter((t: any) => t.category === 'Discounts').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+  const adjustments = aptTxns.filter((t: any) =>
+    ['Protocol Recovery', 'Strategic Adjustment', 'Adjustment Fee'].includes(t.category)
+  ).reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
+  const paymentMethod = aptTxns.find((t: any) => t.category === 'Service Revenue')?.paymentMethod || aptTxns[0]?.paymentMethod || '—';
+  const total = serviceRevenue + tips + adjustments - discounts;
+  const completedByName = staffName(appointment.staffId, staff, 'Unassigned');
+
+  return (
+    <div className="rounded-[1.75rem] bg-green-50 border-2 border-green-200 overflow-hidden">
+      <div className="p-5 flex items-center gap-2.5">
+        <Receipt className="w-5 h-5 text-green-600 shrink-0" />
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-widest text-green-700 leading-tight">Session Completed</p>
+          {appointment.actualEndTime && (
+            <p className="text-[9px] font-bold text-green-700/60 uppercase tracking-wide">
+              {format(safeDate(appointment.actualEndTime), 'MMM d, yyyy · h:mm a')}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="px-5 pb-5">
+        <div className="rounded-2xl bg-white border-2 border-green-100 divide-y divide-dashed divide-muted/30">
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Service Revenue</span>
+            <span className="text-[11px] font-black font-mono">${serviceRevenue.toFixed(2)}</span>
+          </div>
+          {adjustments > 0 && (
+            <div className="flex items-center justify-between px-4 py-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Adjustments</span>
+              <span className="text-[11px] font-black font-mono text-amber-600">${adjustments.toFixed(2)}</span>
+            </div>
+          )}
+          {discounts > 0 && (
+            <div className="flex items-center justify-between px-4 py-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Discount</span>
+              <span className="text-[11px] font-black font-mono text-amber-600">-${discounts.toFixed(2)}</span>
+            </div>
+          )}
+          {tips > 0 && (
+            <div className="flex items-center justify-between px-4 py-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Gratuity</span>
+              <span className="text-[11px] font-black font-mono text-green-600">${tips.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Payment Method</span>
+            <span className="text-[11px] font-black font-mono">{paymentMethod}</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Performed By</span>
+            <span className="text-[11px] font-black font-mono">{completedByName}</span>
+          </div>
+          <div className="flex items-center justify-between px-4 py-3 bg-green-50/50">
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-700">Total Collected</span>
+            <span className="text-[13px] font-black font-mono text-primary">${total.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Readiness Banner ─────────────────────────────────────────────────────────
 const ReadinessBanner = ({
   appointment, client, complianceInfo, hasDeposit, isLoadingDeposit, cardSecured,
 }: {
@@ -321,6 +527,8 @@ const ReadinessBanner = ({
     </div>
   );
 };
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export const AppointmentDetailsSheet: React.FC<any> = ({
   open, onOpenChange, appointment: initialAppointment, client, service, tmhr,
   transactions, onStartService, onFinishService, onEdit, onDelete, onCancel,
@@ -352,6 +560,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);
   const [isCollectingDeposit, setIsCollectingDeposit] = useState(false);
+  const [isProcessingRefund, setIsProcessingRefund] = useState(false);
 
   const appointment = useMemo(() => {
     if (!initialAppointment || !allAppointments) return initialAppointment;
@@ -362,6 +571,37 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     if (!appointment?.addOnIds || !allServices) return [];
     return appointment.addOnIds.map((id: string) => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
   }, [appointment?.addOnIds, allServices]);
+
+  // ── Cancellation charge outcome (Tier 2) — the cancellationEvents doc has
+  // the precise Stripe result (chargeStatus, errorMessage); the appointment
+  // doc alone only lets us infer success from ledger presence.
+  const cancellationEventQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !appointment?.cancellationEventId) return null;
+    return query(
+      collection(firestore, `tenants/${tenantId}/cancellationEvents`),
+      where('id', '==', appointment.cancellationEventId),
+    );
+  }, [firestore, tenantId, appointment?.cancellationEventId]);
+  const { data: cancellationEventDocs } = useCollection<any>(cancellationEventQuery);
+  const cancellationEvent = cancellationEventDocs?.[0] || null;
+
+  // ── Pending deposit refund (Tier 2) — surfaces the exact gap where a
+  // self-cancel outside the window flagged a refund as owed but nothing
+  // ever auto-executed it.
+  const depositDecisionsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !appointment?.id || appointment.status !== 'cancelled') return null;
+    return query(
+      collection(firestore, `tenants/${tenantId}/depositDecisions`),
+      where('appointmentId', '==', appointment.id),
+    );
+  }, [firestore, tenantId, appointment?.id, appointment?.status]);
+  const { data: depositDecisionDocs } = useCollection<any>(depositDecisionsQuery);
+  const latestDepositDecision = useMemo(() => {
+    if (!depositDecisionDocs || depositDecisionDocs.length === 0) return null;
+    return [...depositDecisionDocs].sort((a: any, b: any) =>
+      safeDate(b.decidedAt || 0).getTime() - safeDate(a.decidedAt || 0).getTime()
+    )[0];
+  }, [depositDecisionDocs]);
 
   const handleEscalate = async () => {
     if (!firestore || !tenantId || !appointment?.id) return;
@@ -682,6 +922,58 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
   };
 
+  // ── Process or skip a pending deposit refund (Tier 2) ──────────────────────
+  // Mirrors the exact choice already used at POS checkout (refund vs. keep as
+  // credit) — surfaced here so a cancelled appointment with a pending refund
+  // decision doesn't just sit unresolved until someone happens to look at the
+  // notification.
+  const handleProcessPendingRefund = async () => {
+    if (!latestDepositDecision || !tenantId || !firestore) return;
+    setIsProcessingRefund(true);
+    try {
+      const res = await fetch('/api/stripe/deposit-refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, creditId: latestDepositDecision.creditId }),
+      });
+      const out = await res.json().catch(() => null);
+      if (!res.ok || !out?.ok) {
+        toast({ variant: 'destructive', title: 'Refund failed', description: out?.error || 'Could not refund the deposit.' });
+        return;
+      }
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), {
+        depositDisposition: 'refunded',
+        depositRefunded: true,
+        depositRefundedAt: new Date().toISOString(),
+        depositRefundedAmountCents: Math.round(safeNumber(latestDepositDecision.amountDollars) * 100),
+      });
+      batch.update(doc(firestore, `tenants/${tenantId}/depositDecisions`, latestDepositDecision.id), {
+        outcome: 'refunded', resolvedAt: new Date().toISOString(), resolvedBy: currentUser?.uid || 'staff',
+      });
+      await batch.commit();
+      toast({ title: 'Deposit refunded', description: `$${safeNumber(latestDepositDecision.amountDollars).toFixed(2)} returned to ${client?.name || 'the client'}.` });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Refund failed', description: e?.message || 'Unknown error' });
+    } finally {
+      setIsProcessingRefund(false);
+    }
+  };
+
+  const handleKeepAsCredit = async () => {
+    if (!latestDepositDecision || !tenantId || !firestore) return;
+    setIsProcessingRefund(true);
+    try {
+      await updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/depositDecisions`, latestDepositDecision.id), {
+        outcome: 'kept_as_credit', resolvedAt: new Date().toISOString(), resolvedBy: currentUser?.uid || 'staff',
+      });
+      toast({ title: 'Kept as store credit', description: 'The deposit remains available toward a future visit.' });
+    } finally {
+      setIsProcessingRefund(false);
+    }
+  };
+
+  // ── All hooks done — safe to early-return now ──────────────────────────────
   if (!mounted || !open || !appointment || !client || !service) return null;
 
   const isOwnerOrAdminUser = role === 'owner' || role === 'admin';
@@ -690,6 +982,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const mainStaffMember    = (staff || []).find((s: Staff) => s.id === mainStaffId);
   const reqFiles           = appointment.requirementFiles || [];
   const isCancelled        = appointment.status === 'cancelled';
+  const isCompleted        = appointment.status === 'completed';
   const outstandingBalance = safeNumber(client.outstandingBalance);
   const adjustmentCharge   = financialData?.adjustmentCharge ?? 0;
 
@@ -700,6 +993,15 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     complianceInfo.otherPendingForms.length > 0 ||
     depositActuallyMissing
   );
+
+  // Source / booking-channel badge — was previously invisible anywhere in the sheet.
+  const SourceIcon = appointment.source === 'online' ? Globe : appointment.isWalkIn || appointment.source === 'walk-in' ? MapPin : Edit;
+  const sourceLabel = appointment.source === 'online' ? 'Online Booking' : appointment.isWalkIn || appointment.source === 'walk-in' ? 'Walk-In' : 'Manual Entry';
+
+  const statusLabel: Record<string, string> = {
+    confirmed: 'Confirmed', deposit_pending: 'Awaiting Deposit', ready_for_checkout: 'Ready for Checkout',
+    servicing: 'In Session', completed: 'Completed', cancelled: 'Cancelled',
+  };
 
   const IdentityHeader = (
     <div className="flex items-center gap-3.5">
@@ -728,6 +1030,15 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </p>
         </div>
       </div>
+      <Badge variant="outline" className={cn(
+        'h-6 px-2.5 rounded-full font-black uppercase text-[8px] tracking-widest border-2 shrink-0',
+        isCancelled ? 'border-destructive/30 text-destructive bg-destructive/5'
+        : isCompleted ? 'border-green-300 text-green-700 bg-green-50'
+        : canFinish ? 'border-primary/30 text-primary bg-primary/5'
+        : 'border-muted text-muted-foreground'
+      )}>
+        {statusLabel[appointment.status] || appointment.status}
+      </Badge>
     </div>
   );
 
@@ -736,11 +1047,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       <div className="space-y-6 p-5 md:p-8 pb-6">
 
         {isCancelled
-          ? <CancellationRecord appointment={appointment} transactions={transactions} />
-          : <ReadinessBanner
-              appointment={appointment} client={client} complianceInfo={complianceInfo}
-              hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured}
-            />}
+          ? <CancellationRecord
+              appointment={appointment} transactions={transactions} staff={staff || []}
+              cancellationEvent={cancellationEvent} depositDecision={latestDepositDecision}
+              onProcessRefund={handleProcessPendingRefund} onKeepAsCredit={handleKeepAsCredit}
+              isProcessingRefund={isProcessingRefund}
+            />
+          : isCompleted
+            ? <CompletionReceipt appointment={appointment} transactions={transactions} staff={staff || []} />
+            : <ReadinessBanner
+                appointment={appointment} client={client} complianceInfo={complianceInfo}
+                hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured}
+              />}
 
         {appointment.status === 'servicing' && elapsedTime && (
           <div className={cn('rounded-2xl border-4 text-center p-4 transition-all', isRunningOver ? 'bg-destructive/5 border-destructive animate-pulse' : 'bg-primary/5 border-primary/20')}>
@@ -749,8 +1067,33 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        {safeNumber(appointment.rescheduleCount) > 0 && (
+          <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-50 border-2 border-blue-200 text-[9px] font-bold uppercase text-blue-700">
+            <RefreshCw className="w-3 h-3 shrink-0" />
+            <span>
+              Rescheduled {appointment.rescheduleCount}×
+              {appointment.lastRescheduledAt && ` · moved ${format(safeDate(appointment.lastRescheduledAt), 'MMM d, h:mm a')}`}
+              {appointment.lastRescheduledBy && ` by ${staffName(appointment.lastRescheduledBy, staff)}`}
+            </span>
+          </div>
+        )}
+
         <Card className="rounded-[1.5rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
           <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-700 tracking-tight">
+                <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                {format(safeDate(appointment.startTime), 'EEE, MMM d · h:mm a')}
+                {appointment.rescheduledFromTime && (
+                  <span className="text-[9px] font-bold text-muted-foreground line-through opacity-50">
+                    {format(safeDate(appointment.rescheduledFromTime), 'MMM d, h:mm a')}
+                  </span>
+                )}
+              </div>
+              <span className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 shrink-0">
+                <SourceIcon className="w-3 h-3" /> {sourceLabel}
+              </span>
+            </div>
             <div className="flex justify-between items-start gap-4">
               <div className="space-y-1 min-w-0 flex-1">
                 <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
@@ -792,7 +1135,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </CardContent>
         </Card>
 
-        {!isCancelled && (
+        {!isCancelled && !isCompleted && (
           <div className="space-y-3">
             <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
               <DollarSign className="w-3 h-3" /> Financial Summary
@@ -979,6 +1322,53 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        {/* ── Incident Report (Tier 3) — previously invisible anywhere in the sheet ── */}
+        {appointment.incident && (
+          <div className="space-y-3">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Incident Report</h3>
+            <div className={cn(
+              'rounded-2xl border-2 p-4 space-y-2.5',
+              appointment.incident.severity === 'Severe' ? 'bg-red-50 border-red-300'
+              : appointment.incident.severity === 'Moderate' ? 'bg-amber-50 border-amber-300'
+              : 'bg-slate-50 border-slate-200'
+            )}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-black uppercase tracking-wide flex items-center gap-2 text-slate-800">
+                  <AlertCircle className="w-3.5 h-3.5" /> {appointment.incident.type}
+                </span>
+                <Badge className={cn(
+                  'text-[8px] font-black uppercase border-none text-white shrink-0',
+                  appointment.incident.severity === 'Severe' ? 'bg-red-600'
+                  : appointment.incident.severity === 'Moderate' ? 'bg-amber-600'
+                  : 'bg-slate-500'
+                )}>
+                  {appointment.incident.severity}
+                </Badge>
+              </div>
+              {appointment.incident.date && (
+                <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-60">
+                  {format(safeDate(appointment.incident.date), 'MMM d, yyyy · h:mm a')}
+                </p>
+              )}
+              <p className="text-[10px] font-medium text-slate-700 leading-relaxed">{appointment.incident.description}</p>
+              {appointment.incident.actionsTaken && (
+                <p className="text-[9px] font-bold uppercase text-muted-foreground">
+                  <span className="opacity-60">Action taken: </span>{appointment.incident.actionsTaken}
+                </p>
+              )}
+              {appointment.incident.photoUrls && appointment.incident.photoUrls.length > 0 && (
+                <div className="grid grid-cols-4 gap-2 pt-1">
+                  {appointment.incident.photoUrls.map((url: string, i: number) => (
+                    <button key={i} onClick={() => setExpandedImage(url)} className="relative aspect-square rounded-lg overflow-hidden border bg-white cursor-zoom-in">
+                      <img src={url} alt="Incident documentation" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-3">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Dossier Intelligence</h3>
           <Accordion type="single" collapsible className="w-full">
@@ -1071,16 +1461,31 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               )}
             </div>
           ) : (
-            <button
-              onClick={handleEscalate}
-              disabled={isEscalating}
-              className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border-2 border-destructive/15 bg-destructive/[0.02] hover:bg-destructive/5 transition-all text-left"
-            >
-              <span className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-widest text-destructive/70">
-                <ShieldAlert className="w-3.5 h-3.5" /> Report an issue / escalate to manager
-              </span>
-              {isEscalating ? <Loader className="w-3.5 h-3.5 animate-spin text-destructive/50" /> : <ArrowRight className="w-3.5 h-3.5 text-destructive/30" />}
-            </button>
+            <>
+              {/* Resolved-escalation trace (Tier 3) — previously vanished entirely
+                  once isEscalated flipped back to false; the resolution note and
+                  who handled it are worth keeping visible, not discarding. */}
+              {appointment.resolutionNotes && (
+                <div className="rounded-xl border-2 border-muted/30 bg-muted/5 p-3.5 space-y-1">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3 h-3 text-green-500" /> Escalation resolved
+                    {appointment.resolvedAt && ` · ${format(safeDate(appointment.resolvedAt), 'MMM d, h:mm a')}`}
+                    {appointment.resolvedBy && ` · ${staffName(appointment.resolvedBy, staff)}`}
+                  </p>
+                  <p className="text-[10px] font-medium text-slate-600 leading-relaxed">{appointment.resolutionNotes}</p>
+                </div>
+              )}
+              <button
+                onClick={handleEscalate}
+                disabled={isEscalating}
+                className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border-2 border-destructive/15 bg-destructive/[0.02] hover:bg-destructive/5 transition-all text-left"
+              >
+                <span className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-widest text-destructive/70">
+                  <ShieldAlert className="w-3.5 h-3.5" /> Report an issue / escalate to manager
+                </span>
+                {isEscalating ? <Loader className="w-3.5 h-3.5 animate-spin text-destructive/50" /> : <ArrowRight className="w-3.5 h-3.5 text-destructive/30" />}
+              </button>
+            </>
           )}
         </div>
 
