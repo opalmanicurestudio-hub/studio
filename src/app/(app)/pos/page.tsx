@@ -46,6 +46,8 @@ import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
 
+export const dynamic = 'force-dynamic';
+
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
   if (obj._methodName !== undefined || (obj.constructor && obj.constructor.name === 'FieldValue')) return obj;
