@@ -904,7 +904,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       const end   = safeDate(appointment.actualEndTime   || appointment.endTime);
       const actualDuration = appointment.actualEndTime && !isNaN(start.getTime()) && !isNaN(end.getTime())
   ? differenceInMinutes(end, start)
-  : allServicesInApt.reduce((acc, s) => acc + (s?.durati
+  : allServicesInApt.reduce((acc, s) => acc + (s?.duration ?? 0), 0);
       const timeCost    = ((actualDuration + (service.padBefore || 0) + (service.padAfter || 0)) / 60) * (tmhr || 0);
       const breakEven   = timeCost + productCost;
       const baseRevenue = allServicesInApt.reduce((acc, s) => {
