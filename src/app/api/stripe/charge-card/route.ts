@@ -51,6 +51,22 @@ function getStripe() {
 // fee passed to the client visible as its own number for tax reporting,
 // distinct from the actual Stripe processing fee expense (which the
 // connect-webhook's charge.succeeded handler records separately).
+//
+// ── FIX: ledger ↔ webhook linkage ────────────────────────────────────────────
+// The connect-webhook's `charge.succeeded` handler attaches the Stripe
+// processing fee onto the matching revenue transaction by looking it up two
+// ways, in order:
+//   1. transactions.checkoutSessionId === charge.metadata.checkoutSessionId
+//   2. transactions.stripeChargeId    === charge.id
+// This route previously satisfied NEITHER: the PaymentIntent metadata never
+// carried `checkoutSessionId`, and writeLedger only stored
+// `stripePaymentIntentId` (a `pi_...` id) — never `stripeChargeId` (the
+// `ch_...` id the webhook event actually matches on). Every fee silently
+// failed to attach. Fixed by (a) accepting an optional `checkoutSessionId`
+// from the caller and forwarding it into the PaymentIntent metadata, and
+// (b) resolving the actual charge id off `intent.latest_charge` and writing
+// it as `stripeChargeId` on the ledger row, so the webhook's fallback match
+// also works even when no checkoutSessionId is supplied.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   let parsed: any = {};
@@ -70,6 +86,7 @@ export async function POST(req: NextRequest) {
     appointmentId = null,
     reason       = 'Studio Services',
     mode         = 'pos',           // 'pos' | 'auto'
+    checkoutSessionId = null,       // FIX: optional, forwarded into Stripe metadata + ledger
   } = parsed;
 
   if (!tenantId || !clientId || !amountCents || amountCents <= 0) {
@@ -88,7 +105,16 @@ export async function POST(req: NextRequest) {
   // ── Helper: write the ledger record(s) for a successful charge ────────────
   // Splits into a base line + a separate Card Processing Fee line when a
   // surcharge was included in the charge.
-  const writeLedger = async (txnIdPrefix: string, paymentIntentId: string, clientData: any) => {
+  // FIX: now takes stripeChargeId explicitly (the `ch_...` id, resolved from
+  // intent.latest_charge by the caller) in addition to the PaymentIntent id,
+  // and writes both onto the transaction. stripeChargeId is what the
+  // connect-webhook's charge.succeeded handler matches on.
+  const writeLedger = async (
+    txnIdPrefix: string,
+    paymentIntentId: string,
+    stripeChargeId: string | null,
+    clientData: any
+  ) => {
     const batch = db.batch();
     const baseTxnRef = db.doc(`tenants/${tenantId}/transactions/${txnIdPrefix}`);
     batch.set(baseTxnRef, {
@@ -100,10 +126,13 @@ export async function POST(req: NextRequest) {
       type:                  'income',
       context:               'Business',
       category,
+      taxBucket:             'revenue',
       amount:                baseDollars,
       paymentMethod:         'Card on file (Stripe)',
       appointmentId:         appointmentId || null,
       stripePaymentIntentId: paymentIntentId,
+      stripeChargeId:        stripeChargeId,
+      checkoutSessionId:     checkoutSessionId || null,
       hasReceipt:            true,
       tenantId,
     }, { merge: true });
@@ -124,6 +153,8 @@ export async function POST(req: NextRequest) {
         paymentMethod:         'Card on file (Stripe)',
         appointmentId:         appointmentId || null,
         stripePaymentIntentId: paymentIntentId,
+        stripeChargeId:        stripeChargeId,
+        checkoutSessionId:     checkoutSessionId || null,
         hasReceipt:            false,
         tenantId,
       }, { merge: true });
@@ -155,6 +186,15 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.error('[charge-card] flagAndPark failed', e);
     }
+  };
+
+  // FIX: resolve the actual charge id (`ch_...`) off a confirmed/succeeded
+  // PaymentIntent. `latest_charge` is a string id unless expanded; this works
+  // either way without needing to add `expand` to the create() calls below.
+  const resolveChargeId = (intent: Stripe.PaymentIntent): string | null => {
+    const lc: any = intent.latest_charge;
+    if (!lc) return null;
+    return typeof lc === 'string' ? lc : lc.id || null;
   };
 
   try {
@@ -225,6 +265,12 @@ export async function POST(req: NextRequest) {
               category,
               kind: 'pos_cof',
               surchargeCents: String(Math.round(surchargeDollars * 100)),
+              // FIX: this is the field the connect-webhook's charge.succeeded
+              // handler checks FIRST to find the matching revenue transaction.
+              // Without it, the webhook fell through to a stripeChargeId
+              // match that the ledger write below never satisfied either —
+              // so the processing fee silently never attached.
+              checkoutSessionId: checkoutSessionId || '',
             },
           },
           {
@@ -261,7 +307,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      await writeLedger(`pos_cof__${intent.id}`, intent.id, clientData);
+      await writeLedger(`pos_cof__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
       return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
     }
@@ -289,6 +335,7 @@ export async function POST(req: NextRequest) {
             category,
             kind: 'auto_fee',
             surchargeCents: String(Math.round(surchargeDollars * 100)),
+            checkoutSessionId: checkoutSessionId || '', // FIX: same linkage as pos mode
           },
         },
         { stripeAccount: stripeAccountId, idempotencyKey }
@@ -316,7 +363,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    await writeLedger(`card_charge__${intent.id}`, intent.id, clientData);
+    await writeLedger(`card_charge__${intent.id}`, intent.id, resolveChargeId(intent), clientData);
 
     return NextResponse.json({ ok: true, paymentIntentId: intent.id, amount: amountDollars });
 
