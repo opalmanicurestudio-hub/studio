@@ -1,5 +1,8 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 import React, { useState, useEffect, useMemo, useCallback, Suspense, useRef } from 'react';
 import { useInventory } from '@/context/InventoryContext';
 import { type Appointment, type Service, type Client, type WalkIn, type Staff, getServicePrice, type AppointmentCheckoutState, type Redemption, type TillSession, type Membership, type Package } from '@/lib/data';
@@ -46,7 +49,6 @@ import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
 
-export const dynamic = 'force-dynamic';
 
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
