@@ -92,7 +92,7 @@
 import React from 'react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
-import { format, addMinutes, differenceInMonths, formatDistanceToNow } from 'date-fns';
+import { format, addMinutes, addDays, addWeeks, addMonths, differenceInMonths, formatDistanceToNow } from 'date-fns';
 import {
   doc, writeBatch, collection, runTransaction, query,
   where, getDocs, onSnapshot, deleteDoc, setDoc,
@@ -112,7 +112,7 @@ import {
   FileText, Minus, Plus, CalendarOff, PhoneIncoming, Save,
   History, Star, CalendarCheck, StickyNote, ChevronDown,
   ChevronUp, Trash2, Phone, Mail, Pencil, Printer, Send,
-  MapPin, Lock,
+  MapPin, Lock, CalendarDays, Repeat, Gift, Award, QrCode,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -251,6 +251,11 @@ type Props = {
   // dedicated `forms` collection passed down differently), wire that source
   // into buildFormNameLookup below.
   forms?: any[];
+  // v5 — optional. If provided, Quick Book can nudge a package or
+  // membership purchase based on the client's visit pattern. Omitted
+  // entirely if your app doesn't pass these down — nudges just never show.
+  packages?: any[];
+  memberships?: any[];
   onSuccess: () => void;
   onCancel: () => void;
 };
@@ -263,6 +268,7 @@ type ChargeOutcome =
 type BookingSuccess = {
   appointmentId: string;
   tenantId: string;
+  checkInToken: string;
   clientName: string;
   clientEmail: string;
   clientPhone: string;
@@ -903,8 +909,28 @@ function SuccessScreen({
 
   const firstName = result.clientName.split(' ')[0];
 
+  // v5 — printable check-in ticket. The old Print button just called
+  // window.print() on the live app with no print stylesheet, which is why
+  // it "didn't work" — there was nothing telling the browser what to
+  // actually print, so it either printed the whole app chrome or did
+  // nothing depending on the browser/PWA context. This wraps the rest of
+  // the screen in print:hidden and renders a dedicated, print-only ticket
+  // as a sibling — Tailwind's print: variant means only the ticket survives
+  // when the browser print dialog fires. Note this only controls what THIS
+  // component renders; if Quick Book is embedded inside POS page chrome
+  // (nav bars, sidebar), that surrounding chrome isn't scoped by this
+  // change and would need its own print:hidden, or the ticket should open
+  // in its own window/tab for a guaranteed-clean printout.
+  const checkInUrl = typeof window !== 'undefined' && result.checkInToken
+    ? `${window.location.origin}/check-in/${result.checkInToken}`
+    : '';
+  const qrSrc = checkInUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(checkInUrl)}`
+    : '';
+
   return (
-    <div className="space-y-5">
+    <>
+    <div className="print:hidden space-y-5">
       <div className="text-center space-y-3 pt-2">
         <div className="w-14 h-14 rounded-full bg-green-50 border-2 border-green-100 flex items-center justify-center mx-auto">
           <CheckCircle2 className="w-7 h-7 text-green-500" />
@@ -1018,13 +1044,41 @@ function SuccessScreen({
         <Button onClick={onDone} className="h-11">Done</Button>
       </div>
     </div>
+
+    {/* Print-only ticket — invisible on screen, the only thing the browser
+        prints. Same data already in hand from the booking, plus a QR code
+        encoding the existing check-in token/link so it can be scanned at
+        the door with no new backend route needed. */}
+    <div className="hidden print:block p-6">
+      <div className="text-center space-y-1 mb-4">
+        <p className="text-lg font-semibold">{result.clientName}</p>
+        <p className="text-sm text-slate-600">{result.serviceName}</p>
+        <p className="text-sm text-slate-600">
+          {format(new Date(`${result.aptDate}T${result.aptTime}`), 'EEEE, MMM d · h:mm a')}
+        </p>
+        <p className="text-xs text-slate-500">{result.locationName}</p>
+      </div>
+      {qrSrc && (
+        <div className="flex flex-col items-center gap-2">
+          <img src={qrSrc} alt="Check-in QR code" width={200} height={200} />
+          <p className="text-xs text-slate-500">Show this code at check-in</p>
+        </div>
+      )}
+      {result.depositPaidDollars > 0 && (
+        <p className="text-center text-xs text-slate-500 mt-3">
+          Deposit paid: ${result.depositPaidDollars.toFixed(2)} · Balance due: ${Math.max(0, result.remainingBalanceDollars).toFixed(2)}
+        </p>
+      )}
+    </div>
+    </>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 export function QuickBookForm({
   clients, services, staff, tenantId, tenant, firestore,
-  appointments = [], forms = [], currentStaffId, onSuccess, onCancel,
+  appointments = [], forms = [], packages = [], memberships = [],
+  currentStaffId, onSuccess, onCancel,
 }: Props) {
   const { toast } = useToast();
 
@@ -1055,6 +1109,19 @@ export function QuickBookForm({
   const [isMultiProvider, setIsMultiProvider] = React.useState(false);
   const [providerLegs, setProviderLegs] = React.useState<ProviderLeg[]>([]);
   const [waitlistMode, setWaitlistMode] = React.useState(false);
+  // v5 — per-add-on provider assignment. Keyed by add-on serviceId; absence
+  // of a key means "same as primary provider" (the old, only behavior).
+  // Written into appointment.checkoutState.serviceStaffOverrides at booking
+  // time — the exact field AddAndConfigurePartsDialog / AppointmentDetailsSheet
+  // already read for post-booking add-on reassignment, so this is additive,
+  // not a new schema.
+  const [addOnStaffOverrides, setAddOnStaffOverrides] = React.useState<Record<string, string>>({});
+  // v5 — recurring booking. Writes a shared recurrenceId across the primary
+  // appointment and however many future occurrences are requested — the
+  // Appointment type already has an (until now unused) recurrenceId field.
+  const [isRecurring, setIsRecurring] = React.useState(false);
+  const [recurrenceInterval, setRecurrenceInterval] = React.useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
+  const [recurrenceCount, setRecurrenceCount] = React.useState(4); // total occurrences, including the first
 
   // Step 3 — confirm
   const [sendLink, setSendLink] = React.useState(true);
@@ -1136,6 +1203,20 @@ export function QuickBookForm({
         new Date(lastVisitByClientId[b.id]).getTime() - new Date(lastVisitByClientId[a.id]).getTime())
       .slice(0, 6),
   [clients, lastVisitByClientId]);
+
+  // v5 — fills the otherwise-blank step 1 with something a receptionist can
+  // actually act on between calls: how much of today is left, derived from
+  // the same `appointments` prop already in hand, no new data source.
+  const todaysRemainingCount = React.useMemo(() => {
+    const todayStr2 = format(new Date(), 'yyyy-MM-dd');
+    const nowMs2 = Date.now();
+    return appointments.filter((a: any) =>
+      typeof a.startTime === 'string' &&
+      a.startTime.startsWith(todayStr2) &&
+      new Date(a.startTime).getTime() >= nowMs2 &&
+      a.status !== 'cancelled',
+    ).length;
+  }, [appointments]);
 
   const filteredClients = React.useMemo(() => {
     if (!clientSearch.trim()) return [];
@@ -1234,6 +1315,40 @@ export function QuickBookForm({
     (p: any) => p.sessionsRemaining > 0 &&
       (!selectedService || p.serviceIds?.includes(selectedService) || p.packageId === selectedService),
   );
+
+  // v5 — package/membership nudges (Quick Book redesign #4). Both are
+  // entirely optional — if `packages`/`memberships` aren't passed in from
+  // the parent, these simply never trigger, no errors.
+  const pastVisitsForSelectedService = React.useMemo(() => {
+    if (!selectedClient?.id || !selectedService) return 0;
+    return appointments.filter((a: any) =>
+      a.clientId === selectedClient.id &&
+      a.serviceId === selectedService &&
+      a.status !== 'cancelled' &&
+      !a.redeemedPackageId,
+    ).length;
+  }, [appointments, selectedClient?.id, selectedService]);
+
+  const matchingPackage = React.useMemo(
+    () => (packages || []).find((p: any) => p.serviceId === selectedService) || null,
+    [packages, selectedService],
+  );
+  const clientHasMatchingPackage = !!activePackages.find((p: any) => p.packageId === matchingPackage?.id);
+  // Threshold of 3 full-price visits before nudging — tune freely.
+  const showPackageNudge = !!matchingPackage && !clientHasMatchingPackage && pastVisitsForSelectedService >= 3;
+
+  const cheapestMembership = React.useMemo(
+    () => (memberships || []).length
+      ? [...memberships].sort((a: any, b: any) => safeNumber(a.price) - safeNumber(b.price))[0]
+      : null,
+    [memberships],
+  );
+  // Light heuristic: client has no membership and has spent enough that one
+  // would likely have paid for itself by now. Tune the $250 threshold per
+  // your actual membership pricing.
+  const showMembershipNudge = !!cheapestMembership &&
+    !selectedClient?.activeMembershipId &&
+    safeNumber(selectedClient?.lifetimeValue) > 250;
 
   // Patch test status
   const patchTestDate: Date | null = selectedClient?.lastPatchTest
@@ -1723,6 +1838,7 @@ export function QuickBookForm({
     setIsMultiProvider(false);
     setProviderLegs([]);
     setRedeemPackageId(null);
+    setAddOnStaffOverrides({});
 
     if (c.lastServiceId) setSelectedService(c.lastServiceId);
 
@@ -1767,6 +1883,18 @@ export function QuickBookForm({
     setAddOnIds(prev =>
       prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId],
     );
+    // Clear any provider override for an add-on the moment it's turned off
+    // — an override lingering for a removed add-on is harmless on its own
+    // (it's keyed by serviceId, so it just sits unused), but leaving it
+    // around risks resurrecting a stale assignment if the same add-on gets
+    // re-added later in the same booking without the receptionist noticing.
+    setAddOnStaffOverrides(prev => {
+      if (!(serviceId in prev)) return prev;
+      if (!addOnIds.includes(serviceId)) return prev; // being turned ON, nothing to clear
+      const next = { ...prev };
+      delete next[serviceId];
+      return next;
+    });
   };
 
   const applyPromoCode = async () => {
@@ -1949,6 +2077,9 @@ export function QuickBookForm({
       if (selectedStaff === 'any' && resolvedStaffId) anyAssignedStaffIds.push(resolvedStaffId);
       const aptId = _nanoid();
       const checkInToken = _nanoid();
+      // v5 — shared across the primary appointment and every future
+      // recurring occurrence created after the main batch commits below.
+      const recurrenceId = isRecurring && recurrenceCount > 1 ? _nanoid() : null;
 
       // ── Slot concurrency guard ───────────────────────────────────────────
       // Use a Firestore transaction to atomically check + reserve the slot
@@ -2109,8 +2240,15 @@ export function QuickBookForm({
         groupBookingId: groupBookingId || undefined,
         multiProviderGroupId: multiProviderGroupId || undefined,
         sequenceIndex: multiProviderGroupId ? 0 : undefined,
+        recurrenceId: recurrenceId || undefined,
         promoCode: promoDiscount ? promoCode.trim() : undefined,
         promoDiscountCents: discountCents > 0 ? discountCents : undefined,
+        // v5 — per-add-on provider assignment, written into the same
+        // checkoutState.serviceStaffOverrides shape AddAndConfigurePartsDialog
+        // / AppointmentDetailsSheet already read post-booking.
+        ...(Object.keys(addOnStaffOverrides).length > 0 ? {
+          checkoutState: { serviceStaffOverrides: addOnStaffOverrides, concurrentServiceIds: [] },
+        } : {}),
         ...(effectiveSendLink ? {
           completionStatus: 'pending',
           depositAmountCents: effectiveDepositCents,
@@ -2279,6 +2417,78 @@ export function QuickBookForm({
 
       await batch.commit();
 
+      // ── Recurring occurrences (v5) ──────────────────────────────────────────
+      // Best-effort: unlike the primary booking, these don't run the
+      // slot-lock transaction or a per-slot availability check (same
+      // documented gap as multi-provider legs above) — far-future dates
+      // make a strict check impractical here, and a double-booked
+      // recurring slot is something staff can catch on the calendar same
+      // as any manually-created conflict. "Any available" occurrences each
+      // re-resolve independently per date via resolveAnyStaffId, including
+      // shift data for that date if it exists yet.
+      if (recurrenceId && isRecurring && recurrenceCount > 1) {
+        try {
+          const recurBatch = writeBatch(firestore);
+          const addDateOffset = (d: Date, occurrenceIndex: number) => {
+            if (recurrenceInterval === 'weekly') return addWeeks(d, occurrenceIndex);
+            if (recurrenceInterval === 'biweekly') return addDays(d, occurrenceIndex * 14);
+            return addMonths(d, occurrenceIndex);
+          };
+          for (let i = 1; i < recurrenceCount; i++) {
+            const occStart = addDateOffset(startTime, i);
+            const occEnd = addMinutes(occStart, totalDuration);
+            const occDateStr = format(occStart, 'yyyy-MM-dd');
+            const occStaffId = selectedStaff === 'any'
+              ? resolveAnyStaffId(occDateStr, [], undefined)
+              : selectedStaff;
+            const occId = _nanoid();
+            const occToken = _nanoid();
+            recurBatch.set(doc(firestore, `tenants/${tenantId}/appointments`, occId), sanitizeForFirestore({
+              id: occId,
+              tenantId,
+              clientId,
+              clientName,
+              serviceId: selectedService,
+              addOnIds: addOnIds.length > 0 ? addOnIds : undefined,
+              staffId: occStaffId,
+              checkInToken: occToken,
+              status: 'confirmed',
+              source: 'pos_quick_book',
+              startTime: occStart.toISOString(),
+              endTime: occEnd.toISOString(),
+              createdAt: now,
+              reminderSent: false,
+              reminderHours: parseInt(reminderHours, 10),
+              autoCancelledNoShow: false,
+              recurrenceId,
+              sequenceIndex: i,
+              internalNotes: internalNotes.trim() || undefined,
+              ...(Object.keys(addOnStaffOverrides).length > 0 ? {
+                checkoutState: { serviceStaffOverrides: addOnStaffOverrides, concurrentServiceIds: [] },
+              } : {}),
+            }));
+            recurBatch.set(doc(firestore, 'appointmentCheckIns', occToken), sanitizeForFirestore({
+              id: occId, tenantId, clientId, clientName,
+              serviceId: selectedService,
+              staffId: occStaffId,
+              checkInToken: occToken,
+              status: 'confirmed',
+              startTime: occStart.toISOString(),
+              endTime: occEnd.toISOString(),
+              recurrenceId,
+              sequenceIndex: i,
+            }));
+          }
+          await recurBatch.commit();
+        } catch {
+          toast({
+            variant: 'destructive',
+            title: 'Some recurring visits may not have been created',
+            description: 'The first appointment is booked — check the calendar for the rest of the series.',
+          });
+        }
+      }
+
       // ── Per-leg ledger entries ─────────────────────────────────────────────
       let ledgerFailed = false;
       if (chargeResultForLedger && multiProviderGroupId && scheduledLegs.length > 0) {
@@ -2366,6 +2576,7 @@ export function QuickBookForm({
       setSuccessResult({
         appointmentId: aptId,
         tenantId,
+        checkInToken,
         clientName,
         clientEmail: clientEmail.trim(),
         clientPhone: selectedClient?.phone || newClientPhone || '',
@@ -2399,6 +2610,10 @@ export function QuickBookForm({
     setSelectedClient(null);
     setSelectedService('');
     setAddOnIds([]);
+    setAddOnStaffOverrides({});
+    setIsRecurring(false);
+    setRecurrenceInterval('weekly');
+    setRecurrenceCount(4);
     setDurationOffset(0);
     setAptTime(format(addMinutes(new Date(), 15), 'HH:mm'));
     setAptDate(format(new Date(), 'yyyy-MM-dd'));
@@ -2535,6 +2750,19 @@ export function QuickBookForm({
       <div className="space-y-5">
         {saveDraftModal}
         <CommandBar step={1} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
+
+        {/* v5 — fills the blank space between the search bar and recent
+            clients with something real, not decorative. */}
+        {!clientSearch && !isNewClient && (
+          <div className="rounded-xl border bg-white px-3.5 py-2.5 flex items-center gap-2.5">
+            <CalendarCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <p className="text-xs text-slate-600">
+              {todaysRemainingCount > 0
+                ? <><span className="font-medium text-slate-900">{todaysRemainingCount}</span> appointment{todaysRemainingCount !== 1 ? 's' : ''} left today</>
+                : 'Nothing else on the books for today'}
+            </p>
+          </div>
+        )}
 
         {/* Pending call-backs — visible to every staff member, resumable from here */}
         {callBackDrafts.length > 0 && (
@@ -2803,10 +3031,38 @@ export function QuickBookForm({
             if (insight.actionData?.serviceId) {
               setSelectedService(insight.actionData.serviceId as string);
               setAddOnIds([]);
+              setAddOnStaffOverrides({});
               setDurationOffset(0);
             }
           }}
         />
+
+        {/* v5 — package/membership nudges, dismissible by simply not acting
+            on them — non-blocking, never required to proceed. */}
+        {showPackageNudge && matchingPackage && (
+          <div className="rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-3 flex items-start gap-2.5">
+            <Gift className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-purple-800">
+                {selectedClient?.name?.split(' ')[0]} has booked this {pastVisitsForSelectedService}× — a package could save them money
+              </p>
+              <p className="text-[11px] text-purple-700/80 mt-0.5">
+                {matchingPackage.name} · ${matchingPackage.price} for {matchingPackage.sessions} visits
+              </p>
+            </div>
+          </div>
+        )}
+        {showMembershipNudge && cheapestMembership && (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-3 flex items-start gap-2.5">
+            <Award className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-indigo-800">Worth mentioning {cheapestMembership.name}</p>
+              <p className="text-[11px] text-indigo-700/80 mt-0.5">
+                ${cheapestMembership.price}/{cheapestMembership.interval} · based on their spend, this could pay for itself
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Rebook shortcut */}
         {lastService && (
@@ -2846,6 +3102,7 @@ export function QuickBookForm({
                   onClick={() => {
                     setSelectedService(s.id);
                     setAddOnIds([]);
+                    setAddOnStaffOverrides({});
                     setDurationOffset(0);
                   }}
                   className={cn(
@@ -2926,6 +3183,41 @@ export function QuickBookForm({
           </div>
         )}
 
+        {/* v5 — direct date jump (Quick Book redesign: "schedule weeks or
+            months outward"). Previously the only way to move aptDate was
+            one day at a time via the no-slots "Try tomorrow" button or
+            whatever date-nav exists inside SmartAvailabilityGrid — there
+            was no way to jump straight to, say, six weeks from now. This is
+            always visible regardless of slot availability. */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider">Date</p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-10 rounded-lg border bg-white px-3 flex items-center gap-2">
+              <CalendarDays className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <input
+                type="date"
+                value={aptDate}
+                onChange={(e) => e.target.value && setAptDate(e.target.value)}
+                className="flex-1 text-xs outline-none bg-transparent min-w-0"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setAptDate(format(addWeeks(new Date(`${aptDate}T00:00`), 1), 'yyyy-MM-dd'))}
+              className="h-10 px-3 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors shrink-0"
+            >
+              +1 wk
+            </button>
+            <button
+              type="button"
+              onClick={() => setAptDate(format(addMonths(new Date(`${aptDate}T00:00`), 1), 'yyyy-MM-dd'))}
+              className="h-10 px-3 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors shrink-0"
+            >
+              +1 mo
+            </button>
+          </div>
+        </div>
+
         {/* Provider chips */}
         <div className="space-y-2">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider">Provider</p>
@@ -2995,8 +3287,61 @@ export function QuickBookForm({
           />
         )}
 
-        {/* v4 — Any-available transparency: real reasons, a rough match
-            score, and a way to lock the pick instead of just observing it. */}
+        {/* v5 — per-add-on provider assignment (Quick Book redesign #3).
+            Previously every add-on silently rode along with whichever
+            provider was selected for the primary service — there was no way
+            to say "color with Jessica, blowout add-on with Kylie" inside
+            Quick Book itself; that only existed post-booking via
+            AddAndConfigurePartsDialog. This writes into the same
+            checkoutState.serviceStaffOverrides shape that dialog already
+            reads, so nothing downstream needs to change. */}
+        {addOnIds.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider">Add-on providers</p>
+            {addOnIds.map(id => {
+              const addOnSvc = services.find((s: any) => s.id === id);
+              if (!addOnSvc) return null;
+              const overrideStaffId = addOnStaffOverrides[id];
+              return (
+                <div key={id} className="rounded-xl border bg-white p-3 space-y-2">
+                  <p className="text-xs font-medium text-slate-900">{addOnSvc.name}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAddOnStaffOverrides(prev => {
+                        const next = { ...prev };
+                        delete next[id];
+                        return next;
+                      })}
+                      className={cn(
+                        'px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors',
+                        !overrideStaffId ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                      )}
+                    >
+                      Same as primary
+                    </button>
+                    {activeStaff.map((s: any) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setAddOnStaffOverrides(prev => ({ ...prev, [id]: s.id }))}
+                        className={cn(
+                          'px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors',
+                          overrideStaffId === s.id ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                        )}
+                      >
+                        {s.name.split(' ')[0]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Any-available transparency note — the receptionist picks a time,
+            not a person; this is who the fair rotation currently resolves to. */}
         {selectedStaff === 'any' && aptTime && !hasNoSlots && (
           <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3.5 py-3 space-y-2.5">
             <div className="flex items-center justify-between gap-3">
@@ -3100,6 +3445,7 @@ export function QuickBookForm({
             staff={staff}
             guests={groupGuests}
             onChange={setGroupGuests}
+            clients={clients}
           />
         )}
 
@@ -3426,6 +3772,74 @@ export function QuickBookForm({
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-100">
           <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
           <p className="text-xs text-green-700">{selectedClient.email}</p>
+        </div>
+      )}
+
+      {/* v5 — recurring booking (Quick Book redesign #4). Writes a shared
+          recurrenceId across the primary appointment and N-1 future
+          occurrences in handleBook. Future legs are booked best-effort —
+          they don't run the slot-lock transaction or a full per-slot
+          availability check the way the primary booking does (same
+          documented gap as multi-provider legs elsewhere in this file). */}
+      <button
+        type="button"
+        onClick={() => setIsRecurring(v => !v)}
+        className={cn(
+          'w-full rounded-xl border p-4 text-left transition-all',
+          isRecurring ? 'border-blue-200 bg-blue-50' : 'border-slate-200',
+        )}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-slate-900 flex items-center gap-2">
+              <Repeat className="w-3.5 h-3.5 text-slate-400" /> Make this recurring
+            </p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Books future visits on the same schedule automatically</p>
+          </div>
+          <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', isRecurring ? 'bg-blue-500' : 'bg-slate-200')}>
+            <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', isRecurring ? 'left-[22px]' : 'left-0.5')} />
+          </div>
+        </div>
+      </button>
+
+      {isRecurring && (
+        <div className="rounded-xl border p-3.5 space-y-3 bg-white">
+          <div className="flex gap-2">
+            {(['weekly', 'biweekly', 'monthly'] as const).map(opt => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setRecurrenceInterval(opt)}
+                className={cn(
+                  'flex-1 h-9 rounded-lg border text-xs font-medium capitalize transition-colors',
+                  recurrenceInterval === opt ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500',
+                )}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-slate-500 flex-1">Repeat {recurrenceCount} times total</p>
+            <button
+              type="button"
+              onClick={() => setRecurrenceCount(c => Math.max(2, c - 1))}
+              className="w-7 h-7 rounded-lg border flex items-center justify-center text-slate-400 hover:text-slate-700 hover:border-slate-300 transition-colors"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+            <span className="text-xs text-slate-700 w-8 text-center">{recurrenceCount}</span>
+            <button
+              type="button"
+              onClick={() => setRecurrenceCount(c => Math.min(52, c + 1))}
+              className="w-7 h-7 rounded-lg border flex items-center justify-center text-slate-400 hover:text-slate-700 hover:border-slate-300 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Deposits/charges only apply to this first visit — future occurrences are booked without collecting payment.
+          </p>
         </div>
       )}
 
