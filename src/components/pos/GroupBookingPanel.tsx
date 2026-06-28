@@ -239,23 +239,28 @@ function GuestRow({
           )}
 
           <div className="grid grid-cols-2 gap-2">
-            <div className="relative">
-              <Cake className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            {/* min-w-0 is required here — grid items default to min-width:
+                auto, and a native date input's intrinsic width on iOS Safari
+                is wide enough to blow out a 2-col grid otherwise, squeezing
+                this field down to its icon and pushing Relationship past the
+                card edge. */}
+            <div className="relative min-w-0">
+              <Cake className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground z-10" />
               <Input
                 placeholder="Birthday (optional)"
                 value={guest.birthday || ''}
                 onChange={(e) => onChange({ ...guest, birthday: e.target.value })}
-                className="h-10 rounded-xl border-2 text-sm pl-9"
+                className="h-10 rounded-xl border-2 text-sm pl-9 w-full"
                 type="date"
               />
             </div>
-            <div className="relative">
-              <Heart className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <div className="relative min-w-0">
+              <Heart className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground z-10" />
               <Input
-                placeholder="Relationship (optional)"
+                placeholder="Relationship"
                 value={guest.relationship || ''}
                 onChange={(e) => onChange({ ...guest, relationship: e.target.value })}
-                className="h-10 rounded-xl border-2 text-sm pl-9"
+                className="h-10 rounded-xl border-2 text-sm pl-9 w-full"
               />
             </div>
           </div>
