@@ -123,6 +123,36 @@ const safeRelativeTime = (iso?: string): string => {
   }
 };
 
+// requiredFormIds only stores form codes/ids, not display names — this builds
+// an id → name lookup from whatever source actually has the names. Checks,
+// in order: tenant.consentForms, tenant.forms, the optional `forms` prop.
+// Falls back to the raw id if nothing matches, so it degrades safely rather
+// than breaking if the names live somewhere else — point it at the right
+// source if this guess is wrong for your data model.
+const buildFormNameLookup = (tenant: any, formsProp: any[] = []): Record<string, string> => {
+  const lookup: Record<string, string> = {};
+  const sources: any[] = [
+    ...(Array.isArray(tenant?.consentForms) ? tenant.consentForms : []),
+    ...(Array.isArray(tenant?.forms) ? tenant.forms : []),
+    ...(Array.isArray(formsProp) ? formsProp : []),
+  ];
+  sources.forEach((f: any) => {
+    const id = f?.id || f?.formId;
+    const name = f?.name || f?.label || f?.title;
+    if (id && name) lookup[id] = name;
+  });
+  return lookup;
+};
+
+// "phone · email" with whichever pieces actually exist. Several spots
+// previously used `c.phone || c.email`, which silently hid the email any
+// time a phone number was also present.
+const contactLine = (c: { phone?: string; email?: string } | null | undefined): string => {
+  if (!c) return '—';
+  const parts = [c?.phone, c?.email].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : '—';
+};
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ARREARS_OVERRIDE_REASONS = [
   { value: 'will_collect_in_person', label: 'Will collect in person' },
@@ -153,6 +183,12 @@ type Props = {
   firestore: any;
   appointments?: any[];
   currentStaffId?: string;
+  // Optional list of consent form definitions ({ id, name } or { id, label }).
+  // Used to resolve a human-readable form name instead of showing the raw
+  // form id/code. If your form definitions live somewhere else (e.g. a
+  // dedicated `forms` collection passed down differently), wire that source
+  // into buildFormNameLookup below.
+  forms?: any[];
   onSuccess: () => void;
   onCancel: () => void;
 };
@@ -194,43 +230,50 @@ type CallBackDraft = {
   status: 'pending' | 'resolved';
 };
 
-// ── Step indicator ────────────────────────────────────────────────────────────
-function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
-  const steps = [
-    { n: 1, label: 'Client' },
-    { n: 2, label: 'Service' },
-    { n: 3, label: 'Confirm' },
-  ] as const;
-
+// ── Command bar ───────────────────────────────────────────────────────────────
+// Replaces the old separate step-dots + live-call-bar with a single header:
+// who's on the phone, what's being booked, where they are in the flow (1/2/3),
+// and the call-back action — all in one place instead of two stacked elements
+// competing for attention.
+function CommandBar({
+  step,
+  callerName,
+  serviceLabel,
+  onSaveDraft,
+}: {
+  step: 1 | 2 | 3;
+  callerName: string;
+  serviceLabel: string;
+  onSaveDraft: () => void;
+}) {
   return (
-    <div className="flex items-center mb-6">
-      {steps.map((s, i) => (
-        <React.Fragment key={s.n}>
-          <div className="flex flex-col items-center gap-1">
-            <div className={cn(
-              'w-7 h-7 rounded-full border flex items-center justify-center text-xs font-medium transition-colors',
-              s.n < step
-                ? 'bg-green-50 border-green-300 text-green-700'
-                : s.n === step
-                  ? 'bg-blue-50 border-blue-300 text-blue-700'
-                  : 'bg-white border-slate-200 text-slate-400',
-            )}>
-              {s.n < step ? <CheckCircle2 className="w-3.5 h-3.5" /> : s.n}
-            </div>
-            <span className={cn(
-              'text-[10px]',
-              s.n < step ? 'text-green-600 font-medium' :
-              s.n === step ? 'text-blue-600 font-medium' : 'text-slate-400',
-            )}>{s.label}</span>
-          </div>
-          {i < 2 && (
-            <div className={cn(
-              'flex-1 h-px mx-1 mb-4 transition-colors',
-              s.n < step ? 'bg-green-200' : 'bg-slate-100',
-            )} />
-          )}
-        </React.Fragment>
-      ))}
+    <div className="rounded-xl bg-slate-900 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-sm">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+          <PhoneIncoming className="w-4 h-4 text-white/80" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">{callerName}</p>
+          <p className="text-[11px] text-white/60 truncate">{serviceLabel}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-1" aria-label={`Step ${step} of 3`}>
+          {[1, 2, 3].map(n => (
+            <span
+              key={n}
+              className={cn('w-1.5 h-1.5 rounded-full transition-colors', n <= step ? 'bg-white' : 'bg-white/25')}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onSaveDraft}
+          className="flex items-center gap-1.5 text-[11px] font-medium bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg transition-colors"
+        >
+          <Save className="w-3 h-3" /> Call back later
+        </button>
+      </div>
     </div>
   );
 }
@@ -368,6 +411,7 @@ function ClientDetailPanel({
   selectedSvcRequiresPatchTest,
   formStatuses,
   activePackages,
+  getFormName,
   onChangeClient,
 }: {
   client: any;
@@ -380,6 +424,7 @@ function ClientDetailPanel({
   selectedSvcRequiresPatchTest: boolean;
   formStatuses: { id: string; signed: boolean; expiredSig: boolean; signedAt: Date | null }[];
   activePackages: any[];
+  getFormName: (id: string) => string;
   onChangeClient: () => void;
 }) {
   const [historyExpanded, setHistoryExpanded] = React.useState(false);
@@ -433,9 +478,7 @@ function ClientDetailPanel({
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900 truncate">{client.name}</p>
-            <p className="text-xs text-slate-400 truncate">
-              {client.phone || '—'}{client.email ? ` · ${client.email}` : ''}
-            </p>
+            <p className="text-xs text-slate-400 truncate">{contactLine(client)}</p>
           </div>
         </div>
         <button onClick={onChangeClient} className="text-xs text-blue-600 hover:text-blue-800 shrink-0 mt-1">
@@ -556,7 +599,7 @@ function ClientDetailPanel({
                         : 'bg-red-50 text-red-600 border border-red-200',
                   )}
                 >
-                  {fs.id} {fs.signed ? '✓' : fs.expiredSig ? '· expired' : '· unsigned'}
+                  {getFormName(fs.id)} {fs.signed ? '✓' : fs.expiredSig ? '· expired' : '· unsigned'}
                 </span>
               ))}
             </div>
@@ -724,7 +767,7 @@ function SuccessScreen({
 // ── Main component ────────────────────────────────────────────────────────────
 export function QuickBookForm({
   clients, services, staff, tenantId, tenant, firestore,
-  appointments = [], currentStaffId, onSuccess, onCancel,
+  appointments = [], forms = [], currentStaffId, onSuccess, onCancel,
 }: Props) {
   const { toast } = useToast();
 
@@ -876,6 +919,15 @@ export function QuickBookForm({
 
   const grandTotal = svcPrice + addOnTotal + legsTotal;
 
+  const liveCallerName = selectedClient?.name || newClientName.trim() || 'New caller';
+  const liveServiceLabel = selectedSvc?.name
+    ? `${selectedSvc.name}${grandTotal > 0 ? ` · $${grandTotal.toFixed(0)}` : ''}`
+    : 'No service selected yet';
+  const openSaveDraftModal = () => {
+    setDraftCallerPhone(selectedClient?.phone || newClientPhone || '');
+    setShowSaveDraftModal(true);
+  };
+
   const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
   const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
   const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
@@ -911,6 +963,10 @@ export function QuickBookForm({
     return { id: fid, signed: !!signed && !expired, expiredSig: !!signed && expired, signedAt };
   });
   const formsNeedingSignature = formStatuses.filter(f => !f.signed);
+
+  // Human-readable form names — see buildFormNameLookup for which sources it checks.
+  const formNameLookup = React.useMemo(() => buildFormNameLookup(tenant, forms), [tenant, forms]);
+  const getFormName = React.useCallback((id: string) => formNameLookup[id] || id, [formNameLookup]);
 
   // Smart availability
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -1103,36 +1159,6 @@ export function QuickBookForm({
       setDiscardingDraftId(null);
     }
   };
-
-  // Persistent "who's on the phone" bar shown above every step of the wizard.
-  const renderLiveCallBar = () => (
-    <div className="rounded-xl bg-slate-900 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-sm">
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-          <PhoneIncoming className="w-4 h-4 text-white/80" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">
-            {selectedClient?.name || newClientName.trim() || 'New caller'}
-          </p>
-          <p className="text-[11px] text-white/60 truncate">
-            {selectedSvc?.name ? selectedSvc.name : 'No service selected yet'}
-            {selectedSvc && grandTotal > 0 && ` · $${grandTotal.toFixed(0)}`}
-          </p>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          setDraftCallerPhone(selectedClient?.phone || newClientPhone || '');
-          setShowSaveDraftModal(true);
-        }}
-        className="flex items-center gap-1.5 text-[11px] font-medium bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg shrink-0 transition-colors"
-      >
-        <Save className="w-3 h-3" /> Call back later
-      </button>
-    </div>
-  );
 
   const saveDraftModal = showSaveDraftModal ? (
     <div
@@ -1883,15 +1909,14 @@ export function QuickBookForm({
       return (
         <div className="space-y-5">
           {saveDraftModal}
-          {renderLiveCallBar()}
-          <StepIndicator step={1} />
+          <CommandBar step={1} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
           <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border">
             <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-sm font-medium text-slate-600 shrink-0">
               {selectedClient.name?.charAt(0)?.toUpperCase()}
             </div>
             <div>
               <p className="text-sm font-medium text-slate-900">{selectedClient.name}</p>
-              <p className="text-xs text-slate-400">{selectedClient.phone || selectedClient.email || '—'}</p>
+              <p className="text-xs text-slate-400">{contactLine(selectedClient)}</p>
             </div>
           </div>
 
@@ -1934,8 +1959,7 @@ export function QuickBookForm({
       return (
         <div className="space-y-5">
           {saveDraftModal}
-          {renderLiveCallBar()}
-          <StepIndicator step={1} />
+          <CommandBar step={1} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
             <div className="flex items-start gap-2.5">
               <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -1955,7 +1979,7 @@ export function QuickBookForm({
                 >
                   <div>
                     <p className="text-sm font-medium text-slate-900">{c.name}</p>
-                    <p className="text-xs text-slate-400">{c.phone || c.email}</p>
+                    <p className="text-xs text-slate-400">{contactLine(c)}</p>
                   </div>
                   <span className="text-xs text-amber-700 font-medium">Use this client →</span>
                 </button>
@@ -1972,8 +1996,7 @@ export function QuickBookForm({
     return (
       <div className="space-y-5">
         {saveDraftModal}
-        {renderLiveCallBar()}
-        <StepIndicator step={1} />
+        <CommandBar step={1} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
 
         {/* Pending call-backs — visible to every staff member, resumable from here */}
         {callBackDrafts.length > 0 && (
@@ -2096,7 +2119,7 @@ export function QuickBookForm({
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-900">{c.name}</p>
-                        <p className="text-xs text-slate-400">{c.phone || c.email || '—'}</p>
+                        <p className="text-xs text-slate-400">{contactLine(c)}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2183,8 +2206,7 @@ export function QuickBookForm({
     return (
       <div className="space-y-5">
         {saveDraftModal}
-        {renderLiveCallBar()}
-        <StepIndicator step={2} />
+        <CommandBar step={2} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
 
         {/* Client profile — comprehensive, always expanded */}
         {selectedClient ? (
@@ -2199,6 +2221,7 @@ export function QuickBookForm({
             selectedSvcRequiresPatchTest={selectedSvcRequiresPatchTest}
             formStatuses={formStatuses}
             activePackages={activePackages}
+            getFormName={getFormName}
             onChangeClient={() => { setStep(1); setSelectedService(''); }}
           />
         ) : (
@@ -2552,8 +2575,7 @@ export function QuickBookForm({
   return (
     <div className="space-y-5">
       {saveDraftModal}
-      {renderLiveCallBar()}
-      <StepIndicator step={3} />
+      <CommandBar step={3} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
 
       {/* Arrears banner (fallback for step 3) */}
       {hasUnresolvedArrears && (
@@ -2623,12 +2645,12 @@ export function QuickBookForm({
             </div>
           )}
         </div>
-        <div className="px-4 py-3 border-t bg-slate-50/60 flex justify-between items-baseline">
+        <div className="px-4 py-4 border-t bg-slate-50/60 flex items-center justify-between">
           <span className="text-xs text-slate-400">Total</span>
           <div className="text-right">
-            <p className="text-base font-medium text-slate-900">${grandTotal.toFixed(2)}</p>
+            <p className="text-3xl font-semibold text-slate-900 tracking-tight">${grandTotal.toFixed(2)}</p>
             {effectiveDepositCents > 0 && (
-              <p className="text-[11px] text-slate-400">${(effectiveDepositCents / 100).toFixed(2)} deposit</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">${(effectiveDepositCents / 100).toFixed(2)} deposit due now</p>
             )}
           </div>
         </div>
@@ -2643,7 +2665,7 @@ export function QuickBookForm({
           <div className="rounded-xl border divide-y overflow-hidden">
             {formStatuses.map(fs => (
               <div key={fs.id} className="flex items-center justify-between px-3.5 py-2.5">
-                <p className="text-xs text-slate-700">{fs.id}</p>
+                <p className="text-xs text-slate-700">{getFormName(fs.id)}</p>
                 {fs.signed ? (
                   <span className="text-[10px] text-green-600 font-medium flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
