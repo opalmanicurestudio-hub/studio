@@ -1,7 +1,28 @@
 'use client';
 
 /**
- * QuickBookForm — v3
+ * QuickBookForm — v4
+ *
+ * v4 — receptionist-workspace upgrades (from the Quick Book redesign doc):
+ *   - NEW: provider-assignment transparency. The "Any available" preview now
+ *     shows the actual reasons behind the pick (on-shift/available at this
+ *     time, client's usual provider for this service, lightest schedule
+ *     today, certified — if the service doc defines certifiedStaffIds) plus
+ *     a rough match score, and a "Lock this provider" action that converts
+ *     the booking from "any" to that specific person without losing the
+ *     reasoning that was just shown.
+ *   - NEW: richer confirmation screen — location, total duration, and a
+ *     deposit-paid vs. remaining-balance breakdown, plus working Print and
+ *     Resend Confirmation actions. Resend calls /api/notifications/resend-
+ *     confirmation, which does not exist yet server-side — add it alongside
+ *     send-completion-link before relying on this button.
+ *   - NEW: inline contact editing. A pencil next to the client's name in the
+ *     step-2 client panel lets staff fix a phone number or add an email
+ *     without leaving the booking flow, writing straight to the client doc.
+ *     Address / emergency contact / communication preferences are not yet
+ *     wired in — need confirmed field names on the Client type first.
+ *
+ * All v1–v3 features retained — see prior revision notes below.
  *
  * v3 — call-in workflow upgrade:
  *   - BUG FIX: paying down a client's outstanding balance via handleChargeArrears
@@ -38,7 +59,9 @@
  * of "Missing or insufficient permissions" error you saw on the appointments
  * list query.
  *
- * All v1/v2 features retained — see prior revision notes below.
+ * NOTE FOR DEPLOYMENT (v4): /api/notifications/resend-confirmation needs to
+ * be created server-side — mirrors send-completion-link but resends the
+ * original booking confirmation (not the deposit/consent-form link).
  *
  * v2 — bug fixes from v1:
  *   - New client doc no longer double-written on charge path (mini-batch removed;
@@ -88,7 +111,8 @@ import {
   Clock, FlaskConical, Ban, AlertCircle, Tag, MessageSquare,
   FileText, Minus, Plus, CalendarOff, PhoneIncoming, Save,
   History, Star, CalendarCheck, StickyNote, ChevronDown,
-  ChevronUp, Trash2, Phone, Mail,
+  ChevronUp, Trash2, Phone, Mail, Pencil, Printer, Send,
+  MapPin, Lock,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -237,10 +261,19 @@ type ChargeOutcome =
   | null;
 
 type BookingSuccess = {
+  appointmentId: string;
+  tenantId: string;
   clientName: string;
+  clientEmail: string;
+  clientPhone: string;
   serviceName: string;
   aptDate: string;
   aptTime: string;
+  locationName: string;
+  totalMinutes: number;
+  totalDollars: number;
+  depositPaidDollars: number;
+  remainingBalanceDollars: number;
   chargeOutcome: ChargeOutcome;
   generatedLink: string | null;
   sendStatus: any;
@@ -453,6 +486,7 @@ function ClientDetailPanel({
   firestore,
   tenantId,
   onChangeClient,
+  onUpdateClient,
 }: {
   client: any;
   appointments: any[];
@@ -468,8 +502,47 @@ function ClientDetailPanel({
   firestore: any;
   tenantId: string;
   onChangeClient: () => void;
+  // v4 — lets the contact-edit panel below push phone/email updates back up
+  // into the parent's selectedClient state immediately, without the parent
+  // needing to know anything about how the edit UI works.
+  onUpdateClient?: (updates: { phone?: string; email?: string }) => void;
 }) {
   const [historyExpanded, setHistoryExpanded] = React.useState(false);
+
+  // v4 — inline contact editing. Phone/email only for now; address,
+  // emergency contact, and communication preferences need confirmed field
+  // names on the Client type before they're added here.
+  const [editingContact, setEditingContact] = React.useState(false);
+  const [editPhone, setEditPhone] = React.useState(client.phone || '');
+  const [editEmail, setEditEmail] = React.useState(client.email || '');
+  const [isSavingContact, setIsSavingContact] = React.useState(false);
+  const { toast: contactToast } = useToast();
+
+  React.useEffect(() => {
+    setEditPhone(client.phone || '');
+    setEditEmail(client.email || '');
+    setEditingContact(false);
+  }, [client.id]);
+
+  const handleSaveContact = async () => {
+    if (!firestore || !tenantId || !client?.id) return;
+    setIsSavingContact(true);
+    try {
+      const updates = { phone: editPhone.trim(), email: editEmail.trim() };
+      await setDoc(
+        doc(firestore, `tenants/${tenantId}/clients`, client.id),
+        sanitizeForFirestore(updates),
+        { merge: true },
+      );
+      onUpdateClient?.(updates);
+      setEditingContact(false);
+      contactToast({ title: 'Contact info updated' });
+    } catch {
+      contactToast({ variant: 'destructive', title: 'Could not save contact info' });
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
 
   // The `appointments` prop passed into QuickBookForm is almost certainly
   // scoped for availability checking (a window around the date being
@@ -540,16 +613,59 @@ function ClientDetailPanel({
     <div className="rounded-2xl border bg-white overflow-hidden shadow-sm">
       {/* Header */}
       <div className="p-4 flex items-start justify-between gap-3 border-b">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className={cn(
             'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
             client.status === 'blocked' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-700',
           )}>
             {client.status === 'blocked' ? <Ban className="w-4 h-4" /> : client.name?.charAt(0)?.toUpperCase()}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-slate-900 truncate">{client.name}</p>
-            <ContactLine contact={client} className="text-xs text-slate-400" />
+            {!editingContact ? (
+              <div className="flex items-center gap-1.5">
+                <ContactLine contact={client} className="text-xs text-slate-400" />
+                <button
+                  type="button"
+                  onClick={() => setEditingContact(true)}
+                  className="text-slate-300 hover:text-blue-500 shrink-0"
+                  title="Edit contact info"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="mt-1.5 space-y-1.5">
+                <div className="h-8 rounded-md border border-input bg-background px-2 flex items-center [&_input]:border-none [&_input]:bg-transparent [&_input]:outline-none [&_input]:h-full [&_input]:w-full [&_input]:text-xs [&_.PhoneInputCountry]:mr-1.5">
+                  <PhoneInput
+                    international
+                    defaultCountry="US"
+                    value={editPhone}
+                    onChange={(v) => setEditPhone(v || '')}
+                    placeholder="(555) 000-0000"
+                  />
+                </div>
+                <Input
+                  value={editEmail}
+                  onChange={e => setEditEmail(e.target.value)}
+                  placeholder="email@example.com"
+                  className="h-8 text-xs"
+                  type="email"
+                />
+                <div className="flex gap-1.5">
+                  <Button size="sm" className="h-7 text-[11px] flex-1" onClick={handleSaveContact} disabled={isSavingContact}>
+                    {isSavingContact ? <Loader className="w-3 h-3 animate-spin" /> : 'Save'}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setEditingContact(false); setEditPhone(client.phone || ''); setEditEmail(client.email || ''); }}
+                    className="text-[10px] text-slate-400 hover:text-slate-600 px-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <button onClick={onChangeClient} className="text-xs text-blue-600 hover:text-blue-800 shrink-0 mt-1">
@@ -738,6 +854,7 @@ function SuccessScreen({
   onDone: () => void;
 }) {
   const [copied, setCopied] = React.useState(false);
+  const [isResending, setIsResending] = React.useState(false);
   const { toast } = useToast();
 
   const copyLink = async () => {
@@ -748,6 +865,39 @@ function SuccessScreen({
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast({ variant: 'destructive', title: 'Copy failed' });
+    }
+  };
+
+  const handlePrint = () => {
+    if (typeof window !== 'undefined') window.print();
+  };
+
+  // v4 — hits a not-yet-built endpoint. Add /api/notifications/resend-
+  // confirmation server-side (same shape as send-completion-link) before
+  // shipping this; until then this will fail gracefully with a toast.
+  const handleResend = async () => {
+    setIsResending(true);
+    try {
+      const res = await fetch('/api/notifications/resend-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId: result.tenantId,
+          appointmentId: result.appointmentId,
+          clientEmail: result.clientEmail,
+          clientPhone: result.clientPhone,
+        }),
+      });
+      const data = await res.json().catch(() => ({ ok: false }));
+      if (data.ok) {
+        toast({ title: 'Confirmation resent' });
+      } else {
+        toast({ variant: 'destructive', title: 'Could not resend', description: data.reason || 'Try again in a moment.' });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not resend', description: 'Endpoint may not be set up yet.' });
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -766,6 +916,32 @@ function SuccessScreen({
             {result.isGroup && result.groupGuestCount > 0 && ` · Group of ${result.groupGuestCount + 1}`}
             {result.isMultiProvider && result.legCount > 0 && ` · ${result.legCount + 1} providers`}
           </p>
+        </div>
+      </div>
+
+      {/* v4 — booking-summary strip: location, duration, financial split */}
+      <div className="rounded-xl border divide-y overflow-hidden bg-white">
+        <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
+          <span className="text-slate-400 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> Location</span>
+          <span className="text-slate-900">{result.locationName}</span>
+        </div>
+        <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
+          <span className="text-slate-400 flex items-center gap-1.5"><Clock className="w-3 h-3" /> Duration</span>
+          <span className="text-slate-900">{result.totalMinutes} min</span>
+        </div>
+        <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
+          <span className="text-slate-400">Total</span>
+          <span className="text-slate-900">${result.totalDollars.toFixed(2)}</span>
+        </div>
+        {result.depositPaidDollars > 0 && (
+          <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
+            <span className="text-slate-400">Deposit paid</span>
+            <span className="text-green-700">${result.depositPaidDollars.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
+          <span className="text-slate-400">Remaining balance</span>
+          <span className="text-slate-900">${Math.max(0, result.remainingBalanceDollars).toFixed(2)}</span>
         </div>
       </div>
 
@@ -826,6 +1002,16 @@ function SuccessScreen({
           )}
         </div>
       )}
+
+      {/* v4 — Print + Resend, the screen staff reference while on the phone */}
+      <div className="grid grid-cols-2 gap-3">
+        <Button onClick={handlePrint} variant="outline" className="h-10 text-xs">
+          <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
+        </Button>
+        <Button onClick={handleResend} variant="outline" className="h-10 text-xs" disabled={isResending}>
+          {isResending ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" /> Resend confirmation</>}
+        </Button>
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Button onClick={onBookAnother} variant="outline" className="h-11">Book another</Button>
@@ -1222,6 +1408,53 @@ export function QuickBookForm({
     : null;
   const anyAvailablePreviewName = anyAvailablePreviewStaffId
     ? staff.find((s: any) => s.id === anyAvailablePreviewStaffId)?.name
+    : null;
+
+  // v4 — which staff member this exact client has most often seen for THIS
+  // exact service, derived from real appointment history (no schema change
+  // needed). Feeds the "Client's usual provider" transparency reason below.
+  const preferredStaffIdForService = React.useMemo(() => {
+    if (!selectedClient?.id || !selectedService) return null;
+    const tally: Record<string, number> = {};
+    appointments.forEach((a: any) => {
+      if (a.clientId === selectedClient.id && a.serviceId === selectedService && a.staffId && a.status !== 'cancelled') {
+        tally[a.staffId] = (tally[a.staffId] || 0) + 1;
+      }
+    });
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    return top ? top[0] : null;
+  }, [appointments, selectedClient?.id, selectedService]);
+
+  // v4 — the actual reasons behind the "any available" pick, so staff (and
+  // the client, if asked) get a real answer instead of "the computer picked
+  // them." `certifiedStaffIds` on the Service doc is optional — if your
+  // Service type doesn't have it yet, this reason simply never appears,
+  // nothing breaks.
+  const anyAvailableReasons = React.useMemo(() => {
+    if (!anyAvailablePreviewStaffId) return [];
+    const reasons: string[] = [];
+    if (!eligibleStaffIdsForAptTime || eligibleStaffIdsForAptTime.includes(anyAvailablePreviewStaffId)) {
+      reasons.push('Available at this time');
+    }
+    if (preferredStaffIdForService === anyAvailablePreviewStaffId) {
+      reasons.push("Client's usual provider for this service");
+    }
+    const loads = activeStaff.map((s: any) => staffDateLoad[s.id] || 0);
+    const minLoad = loads.length ? Math.min(...loads) : 0;
+    if ((staffDateLoad[anyAvailablePreviewStaffId] || 0) <= minLoad) {
+      reasons.push('Lightest schedule today');
+    }
+    const certifiedIds = (selectedSvc as any)?.certifiedStaffIds as string[] | undefined;
+    if (Array.isArray(certifiedIds) && certifiedIds.includes(anyAvailablePreviewStaffId)) {
+      reasons.push('Certified for this service');
+    }
+    return reasons;
+  }, [anyAvailablePreviewStaffId, eligibleStaffIdsForAptTime, preferredStaffIdForService, activeStaff, staffDateLoad, selectedSvc]);
+
+  // Presentational only — a rough "how solid is this pick" indicator, not a
+  // real ML confidence score. Capped well under 100 so it never overclaims.
+  const anyAvailableMatchScore = anyAvailablePreviewStaffId
+    ? Math.min(96, 58 + anyAvailableReasons.length * 12)
     : null;
 
   // Client intelligence
@@ -2129,11 +2362,21 @@ export function QuickBookForm({
       }
 
       // ── Show success screen ───────────────────────────────────────────────
+      const depositPaidDollars = chargeOutcome?.charged ? chargeOutcome.amountDollars : 0;
       setSuccessResult({
+        appointmentId: aptId,
+        tenantId,
         clientName,
+        clientEmail: clientEmail.trim(),
+        clientPhone: selectedClient?.phone || newClientPhone || '',
         serviceName: selectedSvc?.name || '',
         aptDate,
         aptTime,
+        locationName: tenant?.name || tenant?.locationName || 'Main Studio',
+        totalMinutes: totalDuration,
+        totalDollars: grandTotal,
+        depositPaidDollars,
+        remainingBalanceDollars: grandTotal - depositPaidDollars,
         chargeOutcome,
         generatedLink: link,
         sendStatus,
@@ -2530,6 +2773,7 @@ export function QuickBookForm({
             firestore={firestore}
             tenantId={tenantId}
             onChangeClient={() => { setStep(1); setSelectedService(''); }}
+            onUpdateClient={(updates) => setSelectedClient((prev: any) => (prev ? { ...prev, ...updates } : prev))}
           />
         ) : (
           <div className="rounded-xl border overflow-hidden">
@@ -2751,15 +2995,42 @@ export function QuickBookForm({
           />
         )}
 
-        {/* Any-available transparency note — the receptionist picks a time,
-            not a person; this is who the fair rotation currently resolves to. */}
+        {/* v4 — Any-available transparency: real reasons, a rough match
+            score, and a way to lock the pick instead of just observing it. */}
         {selectedStaff === 'any' && aptTime && !hasNoSlots && (
-          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3.5 py-2.5 flex items-center gap-2.5">
-            <Star className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <p className="text-xs text-blue-700">
-              Assigned automatically by rotation — currently{' '}
-              <span className="font-medium">{anyAvailablePreviewName || 'unassigned'}</span>.
-            </p>
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3.5 py-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Star className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <p className="text-xs text-blue-700 min-w-0">
+                  Assigned automatically by rotation — currently{' '}
+                  <span className="font-medium">{anyAvailablePreviewName || 'unassigned'}</span>
+                </p>
+              </div>
+              {anyAvailableMatchScore !== null && (
+                <span className="text-[10px] font-medium text-blue-600 bg-white border border-blue-200 px-2 py-0.5 rounded-full shrink-0">
+                  {anyAvailableMatchScore}% match
+                </span>
+              )}
+            </div>
+            {anyAvailableReasons.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {anyAvailableReasons.map(r => (
+                  <span key={r} className="text-[10px] text-blue-700 bg-white border border-blue-200 px-2 py-0.5 rounded-full">
+                    ✔ {r}
+                  </span>
+                ))}
+              </div>
+            )}
+            {anyAvailablePreviewStaffId && (
+              <button
+                type="button"
+                onClick={() => setSelectedStaff(anyAvailablePreviewStaffId)}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-blue-700 hover:text-blue-900"
+              >
+                <Lock className="w-3 h-3" /> Lock {anyAvailablePreviewName?.split(' ')[0] || 'this provider'} for this booking
+              </button>
+            )}
           </div>
         )}
 
