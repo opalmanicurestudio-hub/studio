@@ -915,6 +915,19 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
   }, [appointment, service, tmhr, inventory, transactions, allServices, staff, client]);
 
+  // ── Derived flags used by the keyboard-shortcut effect below ───────────────
+  // NOTE: these must be declared BEFORE the keyboard-shortcut useEffect (and
+  // before the early-return guard), since that effect's dependency array
+  // reads them on every render — including the very first one during SSR /
+  // static generation. Declaring them further down with `const` caused a
+  // ReferenceError ("Cannot access 'canStart' before initialization") because
+  // `const` bindings are in the temporal dead zone until their own
+  // declaration line runs, and that effect's deps array was evaluated before
+  // this line was ever reached.
+  const canStart = !!appointment && !['servicing', 'completed', 'cancelled'].includes(appointment.status);
+  const canFinish = !!appointment && appointment.status === 'servicing';
+  const startDisabled = !!(complianceInfo.healthPendingForms.length > 0 || complianceInfo.otherPendingForms.length > 0 || depositActuallyMissing);
+
   // ── Live session timer ──────────────────────────────────────────────────────
   useEffect(() => {
     let timer: NodeJS.Timeout | undefined;
@@ -1143,11 +1156,6 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const isCompleted = appointment.status === 'completed';
   const outstandingBalance = safeNumber(client.outstandingBalance);
   const adjustmentCharge = financialData?.adjustmentCharge ?? 0;
-
-  // ← BUG FIX: start button shows for all non-terminal statuses, not just 'confirmed'
-  const canStart = !['servicing', 'completed', 'cancelled'].includes(appointment.status);
-  const canFinish = appointment.status === 'servicing';
-  const startDisabled = !!(complianceInfo.healthPendingForms.length > 0 || complianceInfo.otherPendingForms.length > 0 || depositActuallyMissing);
 
   const SourceIcon = appointment.source === 'online' ? Globe : appointment.isWalkIn || appointment.source === 'walk-in' ? MapPin : Edit;
   const sourceLabel = appointment.source === 'online' ? 'Online' : appointment.isWalkIn || appointment.source === 'walk-in' ? 'Walk-in' : 'Manual';
