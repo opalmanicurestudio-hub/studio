@@ -11,6 +11,16 @@
  * remaining gap before the next appointment.
  *
  * No extra Firestore reads — uses appointments already in InventoryContext.
+ *
+ * FIX: the slot dedup step below previously keyed by `slot.time` alone.
+ * That's harmless when staffId is a single specific provider (there's only
+ * ever one slot per time, so nothing collides) but breaks "Any available":
+ * with multiple providers open at the same time, only the one with the
+ * largest gapMinutesAfter survived — every other provider's slot at that
+ * exact time was silently overwritten and discarded. Keying by
+ * `${staffId}-${time}` instead means providers no longer collide with each
+ * other, so SmartAvailabilityGrid (which already keys its buttons by
+ * staffId+time) actually receives every provider's slots, not just one.
  */
 
 import { useMemo } from 'react';
@@ -154,9 +164,10 @@ export function useSmartAvailability(params: {
       }
     }
 
+    // FIX: key by staff + time, not time alone — see file header comment.
     const slotMap = new Map<string, AvailableSlot>();
     for (const slot of slots) {
-      const key = slot.time;
+      const key = `${slot.staffId}-${slot.time}`;
       if (!slot.available) continue;
       const existing = slotMap.get(key);
       if (!existing || slot.gapMinutesAfter > existing.gapMinutesAfter) {
