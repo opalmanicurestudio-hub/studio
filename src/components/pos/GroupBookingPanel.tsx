@@ -445,5 +445,4 @@ export function GroupBookingPanel({
 /** Returns true if all guests in the group have required fields filled */
 export function isGroupValid(guests: GroupGuest[]): boolean {
   return guests.every((g) => g.name.trim().length > 0 && g.serviceId.length > 0);
-}0);
 }
