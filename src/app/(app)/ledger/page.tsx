@@ -9,6 +9,7 @@ import {
   BookOpen, CreditCard, Printer, Filter, X, Loader, Search, ShieldCheck,
   Landmark, ShoppingCart, CalendarCheck, FileX, Undo2, Lock, FileWarning,
   Banknote, DollarSign, Scale, Clock, Package, Users, CheckCircle2, Receipt,
+  ArrowUpRight, ArrowDownRight, Minus, BarChart3, AlertCircle,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -23,7 +24,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { type Transaction } from '@/lib/financial-data';
 import { type Staff, type Incident, type Service, type Appointment } from '@/lib/data';
 import { Badge } from '@/components/ui/badge';
-import { format, startOfDay, endOfDay, parseISO, subDays, startOfMonth, endOfMonth, subMonths, differenceInMinutes, differenceInDays } from 'date-fns';
+import {
+  format, startOfDay, endOfDay, parseISO, subDays,
+  startOfMonth, endOfMonth, subMonths, differenceInMinutes,
+  differenceInDays, eachDayOfInterval, isSameDay,
+} from 'date-fns';
 import { Input } from '@/components/ui/input';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -33,6 +38,7 @@ import { DateRange } from 'react-day-picker';
 import { cn, safeNumber } from '@/lib/utils';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
+import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
@@ -48,6 +54,7 @@ import { nanoid } from 'nanoid';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
   if (val instanceof Date) return val;
@@ -59,7 +66,11 @@ const safeDate = (val: any): Date => {
 
 const fmt = (d: any, str: string) => { try { return format(safeDate(d), str); } catch { return '—'; } };
 
+const fmtCurrency = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+
 // ─── TransactionIcon ──────────────────────────────────────────────────────────
+
 const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   switch (type) {
     case 'income':  return <TrendingUp className="h-5 w-5 text-green-500" />;
@@ -70,13 +81,80 @@ const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
   }
 };
 
-// ─── Fast Print ───────────────────────────────────────────────────────────────
-// Opens a new window and writes pre-built HTML — no React re-render, no delay.
+// ─── Sparkline ────────────────────────────────────────────────────────────────
+// Minimal inline SVG bar chart showing daily revenue over the period.
 
-// ── 6-bucket color system ─────────────────────────────────────────────────────
-// Color is driven by taxBucket field, not raw category name.
-// This ensures consistent color even for custom categories.
-// Fallback: infer taxBucket from category name if field is missing (old transactions).
+const Sparkline = ({ data, color = '#22c55e' }: { data: number[]; color?: string }) => {
+  if (!data.length) return null;
+  const max = Math.max(...data, 1);
+  const W = 120;
+  const H = 32;
+  const barW = Math.max(2, Math.floor((W - data.length) / data.length));
+  const gap = Math.floor((W - barW * data.length) / Math.max(data.length - 1, 1));
+
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 opacity-70">
+      {data.map((v, i) => {
+        const barH = Math.max(2, Math.round((v / max) * H));
+        const x = i * (barW + gap);
+        return (
+          <rect
+            key={i}
+            x={x} y={H - barH}
+            width={barW} height={barH}
+            rx={1}
+            fill={v === 0 ? '#e5e7eb' : color}
+          />
+        );
+      })}
+    </svg>
+  );
+};
+
+// ─── KPI Stat Card ────────────────────────────────────────────────────────────
+
+const StatCard = ({
+  label, value, sub, trend, trendLabel, icon: Icon, accent, sparkData,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  trend?: 'up' | 'down' | 'flat';
+  trendLabel?: string;
+  icon: React.ElementType;
+  accent: string;
+  sparkData?: number[];
+}) => {
+  const TrendIcon = trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus;
+  const trendColor = trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-500' : 'text-slate-400';
+
+  return (
+    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-white">
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className={cn('p-2.5 rounded-2xl', accent)}>
+            <Icon className="w-4 h-4" />
+          </div>
+          {sparkData && sparkData.length > 1 && (
+            <Sparkline data={sparkData} color={trend === 'down' ? '#ef4444' : '#22c55e'} />
+          )}
+        </div>
+        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 mb-1">{label}</p>
+        <p className="text-2xl font-black font-mono tracking-tighter text-slate-900 leading-none">{value}</p>
+        {(sub || trendLabel) && (
+          <div className="flex items-center gap-1.5 mt-2">
+            {trend && <TrendIcon className={cn('w-3 h-3', trendColor)} />}
+            <p className={cn('text-[10px] font-bold uppercase tracking-widest', trendLabel ? trendColor : 'text-muted-foreground opacity-60')}>
+              {trendLabel || sub}
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// ─── Color system (unchanged from original) ───────────────────────────────────
 
 const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: string }> = {
   'revenue':        { bg: '#dcfce7', text: '#166534', label: 'Revenue' },
@@ -88,7 +166,6 @@ const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: strin
   'operating_cost': { bg: '#fff7ed', text: '#92400e', label: 'Operating Cost' },
 };
 
-// Category-to-bucket fallback for transactions without taxBucket field
 const CATEGORY_TO_BUCKET: Record<string, string> = {
   'Service Revenue': 'revenue', 'Retail': 'revenue', 'Retail Product': 'revenue',
   'Membership Sales': 'revenue', 'Package Sales': 'revenue', 'Hospitality Revenue': 'revenue',
@@ -103,11 +180,8 @@ const CATEGORY_TO_BUCKET: Record<string, string> = {
   'Supplies': 'operating_cost', 'Cost of Goods Sold': 'operating_cost', 'Spoilage': 'operating_cost',
 };
 
-// Legacy map kept for any residual lookups
 const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = TAX_BUCKET_COLORS;
 
-// Auto-generate a consistent color for unknown/custom categories
-// Uses a simple hash of the category name to pick from a palette
 const AUTO_PALETTE = [
   { bg: '#fef3c7', text: '#92400e' }, { bg: '#d1fae5', text: '#065f46' },
   { bg: '#e0e7ff', text: '#3730a3' }, { bg: '#fce7f3', text: '#9d174d' },
@@ -115,19 +189,19 @@ const AUTO_PALETTE = [
   { bg: '#f0fdf4', text: '#14532d' }, { bg: '#fdf4ff', text: '#701a75' },
 ];
 const hashStr = (s: string) => s.split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
-const getCatStyle = (cat: string) => {
+const getCatStyle = (cat: string, taxBucket?: string) => {
+  const bucket = taxBucket || CATEGORY_TO_BUCKET[cat];
+  if (bucket && PRINT_CATEGORY_COLORS[bucket]) return PRINT_CATEGORY_COLORS[bucket];
   if (PRINT_CATEGORY_COLORS[cat]) return PRINT_CATEGORY_COLORS[cat];
   const palette = AUTO_PALETTE[Math.abs(hashStr(cat)) % AUTO_PALETTE.length];
   return { ...palette, label: cat };
 };
+
 const sessionRefNum = (sid: string) => `REF-${sid.slice(-6).toUpperCase()}`;
 const txnRefNum     = (id: string)  => `TXN-${id.slice(-6).toUpperCase()}`;
-
-// Categories that represent the studio's own cost of accepting a card
-// payment — these should never reduce a CLIENT-FACING session total
-// (the client paid the gross amount; the fee is an internal cost), and
-// should also never count as "Discounts" in a session's totals row.
 const FEE_CATEGORIES = new Set(['Processing Fee']);
+
+// ─── buildPrintHtml (unchanged from original) ─────────────────────────────────
 
 function buildPrintHtml(
   transactions: Transaction[],
@@ -135,6 +209,7 @@ function buildPrintHtml(
   summary: {
     revenue: number; cogs: number; grossProfit: number; operatingExpenses: number; net: number;
     processingFeesPaid: number; processingFeesCollected: number; netFeeImpact: number;
+    taxLiability: number;
   },
   dateRange: DateRange | undefined,
 ) {
@@ -143,22 +218,20 @@ function buildPrintHtml(
     return { name: s?.name || '—', avatar: (s as any)?.avatarUrl || '', initials: (s?.name || '?').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() };
   };
   const staffName = (id?: string) => staffInfo(id).name;
-  // Renders a small inline staff chip with avatar for print HTML
   const staffChip = (id?: string) => {
     const { name, avatar, initials } = staffInfo(id);
     if (name === '—') return '—';
     const firstName = name.split(' ')[0];
     const imgTag = avatar
-      ? '<img src="' + avatar + '" style="width:18px;height:18px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:4px;" />'
-      : '<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:7px;font-weight:900;vertical-align:middle;margin-right:4px;">' + initials + '</span>';
-    return imgTag + '<span style="vertical-align:middle;font-size:10px;color:#374151;">' + firstName + '</span>';
+      ? `<img src="${avatar}" style="width:18px;height:18px;border-radius:4px;object-fit:cover;vertical-align:middle;margin-right:4px;" />`
+      : `<span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:4px;background:#e0e7ff;color:#3730a3;font-size:7px;font-weight:900;vertical-align:middle;margin-right:4px;">${initials}</span>`;
+    return `${imgTag}<span style="vertical-align:middle;font-size:10px;color:#374151;">${firstName}</span>`;
   };
   const fmtD = (d: any, s: string) => { try { return format(new Date(d), s); } catch { return '—'; } };
   const periodLabel = dateRange?.from && dateRange?.to
     ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}`
     : 'All Dates';
 
-  // ── Group by checkoutSessionId ──────────────────────────────────────────────
   const sessionMap = new Map<string, Transaction[]>();
   const ungrouped: Transaction[] = [];
   transactions.forEach(t => {
@@ -171,9 +244,6 @@ function buildPrintHtml(
     const first    = txns[0];
     const income   = txns.filter(t => t.type === 'income');
     const expense  = txns.filter(t => t.type === 'expense');
-    // Fees are tracked separately and shown as an informational note — they
-    // never reduce what the client paid, so they're excluded from the
-    // client-facing totals math below.
     const feeTxns       = expense.filter(t => FEE_CATEGORIES.has(t.category));
     const realExpense    = expense.filter(t => !FEE_CATEGORIES.has(t.category));
     const stripeFeeTotal = feeTxns.reduce((s, t) => s + t.amount, 0);
@@ -186,24 +256,19 @@ function buildPrintHtml(
     return { sid, refNum: sessionRefNum(sid), first, txns, subtotal, tax, tips, cardFeeCollected, discounts, total, stripeFeeTotal };
   }).sort((a, b) => new Date(b.first.date).getTime() - new Date(a.first.date).getTime());
 
-  // ── Category totals for revenue breakdown ───────────────────────────────────
   const catMap = new Map<string, number>();
   transactions.filter(t => t.type === 'income').forEach(t => catMap.set(t.category, (catMap.get(t.category) || 0) + t.amount));
   const catTotals = Array.from(catMap.entries()).sort((a, b) => b[1] - a[1]);
 
-  // ── Category totals for expense breakdown (mirrors revenue breakdown) ───────
   const expCatMap = new Map<string, number>();
   transactions.filter(t => t.type === 'expense').forEach(t => expCatMap.set(t.category, (expCatMap.get(t.category) || 0) + t.amount));
   const expCatTotals = Array.from(expCatMap.entries()).sort((a, b) => b[1] - a[1]);
 
-  // ── Appendix items with sequential IMG numbers ──────────────────────────────
   type AppendixItem = { refNum: string; imgNum: number; desc: string; date: string; client: string; url?: string };
   const appendix: AppendixItem[] = [];
-  // Build a map: txnId -> imgNum so we can reference it inline in session rows
   const imgNumMap = new Map<string, number>();
   let imgCounter = 1;
 
-  // First pass: collect all receipt items to assign numbers sequentially
   sessions.forEach(s => {
     s.txns.filter(t => (t as any).receiptUrl).forEach(t => {
       imgNumMap.set(t.id, imgCounter);
@@ -217,16 +282,14 @@ function buildPrintHtml(
     imgCounter++;
   });
 
-  // ── Legend HTML — deduplicated by label ──────────────────────────────────────
   const legendHtml = (() => {
     const seen = new Set<string>();
     return Object.entries(PRINT_CATEGORY_COLORS)
       .filter(([, cs]) => { if (seen.has(cs.label)) return false; seen.add(cs.label); return true; })
-      .map(([, cs]) => '<span style="background:' + cs.bg + ';color:' + cs.text + ';padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">' + cs.label + '</span>')
+      .map(([, cs]) => `<span style="background:${cs.bg};color:${cs.text};padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">${cs.label}</span>`)
       .join(' ');
   })();
 
-  // ── Session rows ────────────────────────────────────────────────────────────
   const sessionRows = sessions.map(s => {
     const lineItems = s.txns.map(t => {
       const cs = getCatStyle(t.category, (t as any).taxBucket);
@@ -244,7 +307,6 @@ function buildPrintHtml(
         <td style="padding:5px 8px;font-size:8px;color:#d1d5db;font-family:monospace;">${s.refNum}</td>
       </tr>`;
     }).join('');
-
     const totals = [
       s.subtotal > 0 ? `Services <strong style="font-family:monospace">$${s.subtotal.toFixed(2)}</strong>` : '',
       s.tax > 0 ? `Tax <strong style="font-family:monospace;color:#374151">$${s.tax.toFixed(2)}</strong>` : '',
@@ -253,11 +315,9 @@ function buildPrintHtml(
       s.discounts > 0 ? `Discount <strong style="font-family:monospace;color:#9d174d">-$${s.discounts.toFixed(2)}</strong>` : '',
       `<strong>Total <span style="font-family:monospace">$${s.total.toFixed(2)}</span></strong>`,
     ].filter(Boolean).join(' &nbsp;·&nbsp; ');
-
     const feeNote = s.stripeFeeTotal > 0
       ? `<div style="padding:4px 14px 8px;font-size:9px;color:#9ca3af;font-style:italic;">Stripe processing fee on this sale: $${s.stripeFeeTotal.toFixed(2)} (studio cost — not part of guest total)</div>`
       : '';
-
     return `<div style="margin-bottom:14px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
       <div style="background:#f8fafc;padding:10px 14px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;">
         <div>
@@ -275,7 +335,6 @@ function buildPrintHtml(
     </div>`;
   }).join('');
 
-  // ── Ungrouped rows ──────────────────────────────────────────────────────────
   const ungroupedRows = ungrouped.map((t, i) => {
     const cs = getCatStyle(t.category, (t as any).taxBucket);
     const amtColor = t.type === 'income' ? '#166534' : '#991b1b';
@@ -292,17 +351,16 @@ function buildPrintHtml(
     </tr>`;
   }).join('');
 
-  // ── Appendix ─────────────────────────────────────────────────────────────────
   const appendixHtml = appendix.length > 0 ? `
     <div style="page-break-before:always;margin-top:40px;">
       <h2>Appendix A — Receipt Documentation (${appendix.length} attachments)</h2>
-      <p style="font-size:10px;color:#6b7280;margin-bottom:16px;">Images numbered IMG-1 through IMG-${appendix.length}. Each number appears on the corresponding transaction row above for easy cross-referencing.</p>
+      <p style="font-size:10px;color:#6b7280;margin-bottom:16px;">Images numbered IMG-1 through IMG-${appendix.length}.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         ${appendix.map(item => `
           <div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;page-break-inside:avoid;">
             <div style="background:#111;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
               <div>
-                <div style="color:#fff;font-size:14px;font-weight:900;font-family:monospace;letter-spacing:0.05em;">IMG-${item.imgNum}</div>
+                <div style="color:#fff;font-size:14px;font-weight:900;font-family:monospace;">IMG-${item.imgNum}</div>
                 <div style="color:#9ca3af;font-size:9px;font-family:monospace;">${item.refNum}</div>
               </div>
               <div style="text-align:right;">
@@ -312,7 +370,7 @@ function buildPrintHtml(
             </div>
             ${item.url
               ? `<div style="padding:8px;background:#fff;"><img src="${item.url}" alt="Receipt IMG-${item.imgNum}" style="width:100%;max-height:280px;object-fit:contain;display:block;" /></div>`
-              : `<div style="padding:24px;text-align:center;color:#d1d5db;font-size:10px;font-weight:700;text-transform:uppercase;">POS receipt — view in ClarityFlow</div>`}
+              : `<div style="padding:24px;text-align:center;color:#d1d5db;font-size:10px;font-weight:700;">POS receipt — view in ClarityFlow</div>`}
           </div>`).join('')}
       </div>
     </div>` : '';
@@ -334,36 +392,33 @@ function buildPrintHtml(
       <div style="font-size:10px;color:#9ca3af;margin-top:2px;">Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div>
     </div>
     <div style="text-align:right;font-size:10px;color:#9ca3af;">
-      <div style="font-weight:700;">ClarityFlow</div>
-      <div>Studio Management</div>
-      <div style="margin-top:4px;">Confidential</div>
+      <div style="font-weight:700;">ClarityFlow</div><div>Studio Management</div><div style="margin-top:4px;">Confidential</div>
     </div>
   </div>
-
   <div style="margin-bottom:20px;padding:12px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-    <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;color:#374151;">Color Key — Category Classification</div>
+    <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;color:#374151;">Color Key</div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;">${legendHtml}</div>
   </div>
-
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
     <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
       <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Financial Summary</div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Total Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.revenue.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Gross Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${(summary.revenue + summary.taxLiability).toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#94a3b8;">Tax Liability (held)</span><span style="font-family:monospace;color:#64748b;">-$${summary.taxLiability.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Net Revenue</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.revenue.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">COGS</span><span style="font-family:monospace;color:#991b1b;">-$${summary.cogs.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:6px 0 3px;font-size:12px;font-weight:700;border-bottom:1px solid #f3f4f6;"><span>Gross Profit</span><span style="font-family:monospace;">$${summary.grossProfit.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#7c3aed;">Card Processing Fees Paid</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#7c3aed;">Card Fees Paid</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Other Op. Expenses</span><span style="font-family:monospace;color:#991b1b;">-$${summary.operatingExpenses.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Income</span><span style="font-family:monospace;color:${summary.net >= 0 ? '#166534' : '#991b1b'};">$${summary.net.toFixed(2)}</span></div>
     </div>
     <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
-      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Card Processing Fees — Write-Off Summary</div>
+      <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Card Processing — Write-Off Summary</div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Collected from Clients</span><span style="font-family:monospace;color:#166534;font-weight:700;">$${summary.processingFeesCollected.toFixed(2)}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;border-bottom:1px solid #f3f4f6;"><span style="color:#555;">Paid to Stripe</span><span style="font-family:monospace;color:#991b1b;">-$${summary.processingFeesPaid.toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Fee Cost / Recovery</span><span style="font-family:monospace;color:${summary.netFeeImpact >= 0 ? '#166534' : '#991b1b'};">${summary.netFeeImpact >= 0 ? '+' : ''}$${summary.netFeeImpact.toFixed(2)}</span></div>
-      <p style="font-size:9px;color:#9ca3af;margin-top:10px;line-height:1.5;">"Paid to Stripe" is fully deductible as a processing/merchant fee expense. This is separate from sales tax and does not net against revenue for tax purposes — both figures should be reported to your accountant individually.</p>
+      <div style="display:flex;justify-content:space-between;padding:8px 0 0;font-size:14px;font-weight:900;border-top:2px solid #111;margin-top:4px;"><span>Net Fee Cost</span><span style="font-family:monospace;color:${summary.netFeeImpact >= 0 ? '#166534' : '#991b1b'};">${summary.netFeeImpact >= 0 ? '+' : ''}$${summary.netFeeImpact.toFixed(2)}</span></div>
+      <p style="font-size:9px;color:#9ca3af;margin-top:10px;line-height:1.5;">Both figures should be reported to your accountant individually.</p>
     </div>
   </div>
-
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;">
     <div style="padding:16px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;">
       <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Revenue by Category</div>
@@ -373,29 +428,24 @@ function buildPrintHtml(
       <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;color:#374151;">Expenses by Category</div>
       ${expCatTotals.length > 0
         ? expCatTotals.map(([cat, amt]) => { const cs = getCatStyle(cat); return `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px;border-bottom:1px solid #f9fafb;"><span><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;">${cs.label}</span></span><span style="font-family:monospace;color:#991b1b;font-weight:600;">$${amt.toFixed(2)}</span></div>`; }).join('')
-        : `<p style="font-size:10px;color:#9ca3af;">No expenses recorded this period.</p>`}
+        : `<p style="font-size:10px;color:#9ca3af;">No expenses this period.</p>`}
     </div>
   </div>
-
   ${sessions.length > 0 ? `<h2>Checkout Sessions (${sessions.length})</h2>${sessionRows}` : ''}
-
   ${ungrouped.length > 0 ? `
   <h2>Manual & Other Entries (${ungrouped.length})</h2>
-  <table>
-    <thead><tr><th>Ref #</th><th>Date</th><th>Description</th><th>Category</th><th>Staff</th><th>Method</th><th style="text-align:right;">Amount</th></tr></thead>
-    <tbody>${ungroupedRows}</tbody>
-  </table>` : ''}
-
+  <table><thead><tr><th>Ref #</th><th>Date</th><th>Description</th><th>Category</th><th>Staff</th><th>Method</th><th style="text-align:right;">Amount</th></tr></thead>
+  <tbody>${ungroupedRows}</tbody></table>` : ''}
   ${appendixHtml}
-
   <div style="margin-top:40px;border-top:2px solid #111;padding-top:16px;display:flex;justify-content:space-between;font-size:9px;color:#9ca3af;">
-    <div><div style="font-weight:700;">ClarityFlow Studio Management</div><div>Confidential Financial Document — Not for Distribution</div></div>
+    <div><div style="font-weight:700;">ClarityFlow Studio Management</div><div>Confidential — Not for Distribution</div></div>
     <div style="text-align:right;"><div>${periodLabel}</div><div>Generated ${format(new Date(), 'MMMM d, yyyy · h:mm a')}</div><div>${transactions.length} records · ${sessions.length} sessions</div></div>
   </div>
   </body></html>`;
 }
 
-// ─── ReceiptPreviewDialog ─────────────────────────────────────────────────────
+// ─── ReceiptPreviewDialog (unchanged) ─────────────────────────────────────────
+
 type ReceiptLineItem = { label: string; amount: number; type?: string; staff?: string };
 type ReceiptDoc = {
   id: string; checkoutSessionId: string; clientName: string; cashierName?: string;
@@ -431,30 +481,13 @@ const ReceiptPreviewDialog = ({
       `<div class="row"><span>${l.label}${l.staff ? ` · ${l.staff}` : ''}</span><span>$${l.amount.toFixed(2)}</span></div>`
     ).join('');
     win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
-    <style>
-      * { box-sizing:border-box; margin:0; padding:0; }
-      body { font-family:'Courier New',monospace; font-size:13px; padding:20px 16px; max-width:300px; margin:0 auto; }
-      h1 { font-size:16px; text-align:center; font-weight:bold; margin-bottom:2px; }
-      .sub { text-align:center; color:#666; font-size:11px; margin-bottom:14px; }
-      hr { border:none; border-top:1px dashed #bbb; margin:10px 0; }
-      .row { display:flex; justify-content:space-between; margin:4px 0; }
-      .muted { color:#555; } .bold { font-weight:bold; }
-      .total { font-size:15px; font-weight:bold; border-top:1px solid #000; padding-top:8px; margin-top:6px; }
-      .green { color:#2d6a0f; }
-      .footer { text-align:center; margin-top:20px; color:#666; font-size:11px; line-height:2; }
-      @media print { body { padding:0; } }
-    </style></head><body>
+    <style>* { box-sizing:border-box; margin:0; padding:0; } body { font-family:'Courier New',monospace; font-size:13px; padding:20px 16px; max-width:300px; margin:0 auto; } h1 { font-size:16px; text-align:center; font-weight:bold; margin-bottom:2px; } .sub { text-align:center; color:#666; font-size:11px; margin-bottom:14px; } hr { border:none; border-top:1px dashed #bbb; margin:10px 0; } .row { display:flex; justify-content:space-between; margin:4px 0; } .muted { color:#555; } .bold { font-weight:bold; } .total { font-size:15px; font-weight:bold; border-top:1px solid #000; padding-top:8px; margin-top:6px; } .green { color:#2d6a0f; } .footer { text-align:center; margin-top:20px; color:#666; font-size:11px; line-height:2; } @media print { body { padding:0; } }</style></head><body>
     <h1>${receipt.studioName || 'Studio'}</h1>
-    <div class="sub">${receipt.date ? format(new Date(receipt.date), 'MMM d, yyyy · h:mm a') : ''}
-      <br>Guest: ${receipt.clientName || 'Guest'}
-      ${receipt.cashierName ? `<br>Served by: ${receipt.cashierName}` : ''}
-    </div>
-    <hr>
-    ${lines}
-    <hr>
+    <div class="sub">${receipt.date ? format(new Date(receipt.date), 'MMM d, yyyy · h:mm a') : ''}<br>Guest: ${receipt.clientName || 'Guest'}${receipt.cashierName ? `<br>Served by: ${receipt.cashierName}` : ''}</div>
+    <hr>${lines}<hr>
     <div class="row muted"><span>Subtotal</span><span>$${(receipt.subtotal || 0).toFixed(2)}</span></div>
     ${(receipt.discount || 0) > 0 ? `<div class="row muted"><span>Discount</span><span>-$${receipt.discount.toFixed(2)}</span></div>` : ''}
-    <div class="row muted"><span>Tax (7%)</span><span>$${(receipt.tax || 0).toFixed(2)}</span></div>
+    <div class="row muted"><span>Tax</span><span>$${(receipt.tax || 0).toFixed(2)}</span></div>
     ${(receipt.tip || 0) > 0 ? `<div class="row muted"><span>Gratuity</span><span>$${receipt.tip.toFixed(2)}</span></div>` : ''}
     <div class="row total"><span>TOTAL</span><span>$${(receipt.total || 0).toFixed(2)}</span></div>
     <hr>
@@ -475,25 +508,11 @@ const ReceiptPreviewDialog = ({
             <Receipt className="w-5 h-5 text-primary" />
             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Digital Receipt</span>
           </div>
-          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 truncate">
-            {transaction.description}
-          </DialogTitle>
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900 truncate">{transaction.description}</DialogTitle>
         </DialogHeader>
         <div className="p-6 max-h-[60vh] overflow-y-auto">
-          {loading && (
-            <div className="flex flex-col items-center gap-3 py-12">
-              <Loader className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading receipt...</p>
-            </div>
-          )}
-          {!loading && notFound && (
-            <div className="flex flex-col items-center gap-3 py-12 opacity-30">
-              <FileX className="w-12 h-12" />
-              <p className="text-[10px] font-black uppercase tracking-widest text-center">
-                Receipt not on file.<br />Receipts are generated from checkout v2+
-              </p>
-            </div>
-          )}
+          {loading && <div className="flex flex-col items-center gap-3 py-12"><Loader className="w-8 h-8 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading receipt...</p></div>}
+          {!loading && notFound && <div className="flex flex-col items-center gap-3 py-12 opacity-30"><FileX className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center">Receipt not on file.<br />Receipts are generated from checkout v2+</p></div>}
           {!loading && receipt && (
             <div className="space-y-4 font-mono text-sm">
               <div className="text-center space-y-1 pb-3 border-b border-dashed">
@@ -505,10 +524,7 @@ const ReceiptPreviewDialog = ({
               <div className="space-y-1.5">
                 {(receipt.lineItems || []).map((item, i) => (
                   <div key={i} className="flex justify-between items-start gap-3">
-                    <div className="flex-1 min-w-0">
-                      <span className="font-bold text-[12px] text-slate-900 block truncate">{item.label}</span>
-                      {item.staff && <span className="text-[10px] text-muted-foreground">· {item.staff}</span>}
-                    </div>
+                    <div className="flex-1 min-w-0"><span className="font-bold text-[12px] text-slate-900 block truncate">{item.label}</span>{item.staff && <span className="text-[10px] text-muted-foreground">· {item.staff}</span>}</div>
                     <span className="font-black text-slate-900 shrink-0">${item.amount.toFixed(2)}</span>
                   </div>
                 ))}
@@ -516,45 +532,32 @@ const ReceiptPreviewDialog = ({
               <div className="pt-3 border-t border-dashed space-y-1.5">
                 <div className="flex justify-between text-[12px] text-muted-foreground"><span>Subtotal</span><span>${(receipt.subtotal || 0).toFixed(2)}</span></div>
                 {(receipt.discount || 0) > 0 && <div className="flex justify-between text-[12px] text-primary"><span>Discount</span><span>-${receipt.discount.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-[12px] text-muted-foreground"><span>Tax (7%)</span><span>${(receipt.tax || 0).toFixed(2)}</span></div>
+                <div className="flex justify-between text-[12px] text-muted-foreground"><span>Tax</span><span>${(receipt.tax || 0).toFixed(2)}</span></div>
                 {(receipt.tip || 0) > 0 && <div className="flex justify-between text-[12px] text-muted-foreground"><span>Gratuity</span><span>${receipt.tip.toFixed(2)}</span></div>}
                 <div className="flex justify-between text-[14px] font-black pt-2 border-t border-slate-900"><span>TOTAL</span><span>${(receipt.total || 0).toFixed(2)}</span></div>
               </div>
               <div className="pt-3 border-t border-dashed space-y-1.5">
                 <div className="flex justify-between text-[12px] items-center">
-                  <span className="flex items-center gap-1.5 font-bold">
-                    {receipt.paymentMethod?.toLowerCase().includes('cash') ? <Banknote className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}
-                    {receipt.paymentMethod}
-                  </span>
+                  <span className="flex items-center gap-1.5 font-bold">{receipt.paymentMethod?.toLowerCase().includes('cash') ? <Banknote className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}{receipt.paymentMethod}</span>
                   <span className="font-black">${(receipt.tendered || receipt.total || 0).toFixed(2)}</span>
                 </div>
-                {(receipt.change || 0) > 0.005 && (
-                  <div className="flex justify-between text-[12px] text-green-700 font-black">
-                    <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" /> Change</span>
-                    <span>${receipt.change.toFixed(2)}</span>
-                  </div>
-                )}
+                {(receipt.change || 0) > 0.005 && <div className="flex justify-between text-[12px] text-green-700 font-black"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" /> Change</span><span>${receipt.change.toFixed(2)}</span></div>}
               </div>
               <div className="text-center pt-2 text-[10px] text-muted-foreground opacity-50 border-t border-dashed">Thank you for your visit!</div>
             </div>
           )}
         </div>
         <DialogFooter className="p-6 pt-4 border-t bg-muted/5 flex flex-col gap-2">
-          {receipt && (
-            <Button onClick={handlePrint} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-              <Printer className="w-4 h-4 mr-2" /> Reprint Receipt
-            </Button>
-          )}
-          <Button variant="outline" className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => onOpenChange(false)}>
-            Close
-          </Button>
+          {receipt && <Button onClick={handlePrint} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"><Printer className="w-4 h-4 mr-2" /> Reprint Receipt</Button>}
+          <Button variant="outline" className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 };
 
-// ─── RefundProtocolDialog ─────────────────────────────────────────────────────
+// ─── RefundProtocolDialog (unchanged) ────────────────────────────────────────
+
 const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appointments, inventory, tenant, open, onOpenChange, onConfirm }: any) => {
   const [pin, setPin] = useState('');
   const [refundAmount, setRefundAmount] = useState(transaction?.amount || 0);
@@ -680,7 +683,8 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
   );
 };
 
-// ─── TransactionDossierSheet ──────────────────────────────────────────────────
+// ─── TransactionDossierSheet (unchanged) ─────────────────────────────────────
+
 const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRevert }: { transaction: Transaction | null; staff: Staff[]; open: boolean; onOpenChange: (o: boolean) => void; onRevert: (t: Transaction) => void }) => {
   if (!transaction) return null;
   const staffMember = staff.find(s => s.id === transaction.staffId);
@@ -723,10 +727,7 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
                 <div className="pt-4 border-t border-dashed space-y-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Authorized By</p>
                   <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-white shadow-sm">
-                    <Avatar className="h-10 w-10 border shadow-sm rounded-xl">
-                      <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-                      <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
-                    </Avatar>
+                    <Avatar className="h-10 w-10 border shadow-sm rounded-xl"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback></Avatar>
                     <div><p className="font-black text-sm uppercase tracking-tight">{staffMember.name}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{staffMember.role}</p></div>
                   </div>
                 </div>
@@ -756,11 +757,15 @@ const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRev
 };
 
 // ─── TransactionFilters ───────────────────────────────────────────────────────
+
 const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeriodPreset, searchTerm, setSearchTerm, contextFilter, setContextFilter, categoryFilter, setCategoryFilter, financialSummary }: any) => {
   const categories = useMemo(() => [...new Set((transactions || []).map((t: Transaction) => t.category))], [transactions]);
   return (
     <Card className="h-fit border-2 shadow-sm rounded-3xl overflow-hidden">
-      <CardHeader className="hidden md:block border-b bg-muted/5"><CardTitle className="text-sm font-black uppercase tracking-widest">Ledger Filters</CardTitle><CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Filter studio cash flow.</CardDescription></CardHeader>
+      <CardHeader className="hidden md:block border-b bg-muted/5">
+        <CardTitle className="text-sm font-black uppercase tracking-widest">Ledger Filters</CardTitle>
+        <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Filter studio cash flow.</CardDescription>
+      </CardHeader>
       <CardContent className="space-y-6 pt-6">
         <div className="space-y-2">
           <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Analyze Period</Label>
@@ -807,15 +812,33 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
           </Select>
         </div>
         <Separator />
+
+        {/* ── Period Performance panel — now includes tax liability ── */}
         <div className="p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-3">
           <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
           <div className="space-y-2 text-xs">
-            {[['Total Revenue', financialSummary.revenue, 'text-green-600'],['COGS', -financialSummary.cogs, 'text-destructive'],['Gross Profit', financialSummary.grossProfit, 'text-slate-900'],['Card Fees Paid', -financialSummary.processingFeesPaid, 'text-purple-700'],['Op. Expenses', -financialSummary.operatingExpenses, 'text-destructive']].map(([label, val, cls]) => (
-              <div key={label as string} className="flex justify-between font-bold"><span>{label as string}</span><span className={cn('font-mono', cls as string)}>{(val as number) < 0 ? '-' : ''}${Math.abs(val as number).toFixed(2)}</span></div>
+            {[
+              ['Gross Revenue', financialSummary.revenue + financialSummary.taxLiability, 'text-green-600'],
+              ['Tax Liability', -financialSummary.taxLiability, 'text-slate-400'],
+              ['Net Revenue', financialSummary.revenue, 'text-green-600'],
+              ['COGS', -financialSummary.cogs, 'text-destructive'],
+              ['Gross Profit', financialSummary.grossProfit, 'text-slate-900'],
+              ['Card Fees Paid', -financialSummary.processingFeesPaid, 'text-purple-700'],
+              ['Op. Expenses', -financialSummary.operatingExpenses, 'text-destructive'],
+            ].map(([label, val, cls]) => (
+              <div key={label as string} className="flex justify-between font-bold">
+                <span className={label === 'Tax Liability' ? 'text-slate-400 italic text-[10px]' : ''}>{label as string}</span>
+                <span className={cn('font-mono', cls as string)}>
+                  {(val as number) < 0 ? '-' : ''}${Math.abs(val as number).toFixed(2)}
+                  {label === 'Tax Liability' && <span className="text-[8px] ml-1 opacity-50">(held)</span>}
+                </span>
+              </div>
             ))}
             <div className="flex justify-between border-t-4 border-primary/20 pt-3 mt-3">
               <span className="font-black uppercase text-[11px] text-primary">Net Income</span>
-              <span className={cn('font-black text-xl tracking-tighter font-mono', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>${financialSummary.net.toFixed(2)}</span>
+              <span className={cn('font-black text-xl tracking-tighter font-mono', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>
+                ${financialSummary.net.toFixed(2)}
+              </span>
             </div>
           </div>
         </div>
@@ -825,6 +848,7 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
 };
 
 // ─── TransactionRow / TransactionCard ─────────────────────────────────────────
+
 const TxnActions = ({ transaction, onRevertClick, onPreviewReceipt, onRefundClick, stopProp }: any) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
@@ -922,6 +946,7 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
 );
 
 // ─── LedgerPage ───────────────────────────────────────────────────────────────
+
 const LedgerPage = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -967,59 +992,73 @@ const LedgerPage = () => {
     }).sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
   }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
 
-  // Bad debt aging is a SNAPSHOT of currently unpaid fees as of today — it
-  // intentionally ignores the selected date-range filter (unlike everything
-  // else on this page), since "how old is this unpaid balance right now" is
-  // a different question than "what happened in this period."
-  const badDebtAging = useMemo(() => {
-    const now = new Date();
-    const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-    const items: { clientId: string; clientName: string; amount: number; reason: string; days: number }[] = [];
-    (clients || []).forEach((c: any) => {
-      (c.unpaidFees || []).forEach((fee: any) => {
-        const amt = safeNumber(fee.feeAmount);
-        if (amt <= 0) return;
-        const days = differenceInDays(now, safeDate(fee.appointmentDate || fee.createdAt));
-        if (days <= 30) buckets['0-30'] += amt;
-        else if (days <= 60) buckets['31-60'] += amt;
-        else if (days <= 90) buckets['61-90'] += amt;
-        else buckets['90+'] += amt;
-        items.push({ clientId: c.id, clientName: c.name || 'Client', amount: amt, reason: fee.reason || 'Unpaid fee', days });
-      });
-    });
-    const total = Object.values(buckets).reduce((a, b) => a + b, 0);
-    items.sort((a, b) => b.days - a.days);
-    return { buckets, total, items };
-  }, [clients]);
-
+  // ── Financial summary — Tax Collected is now a liability, not revenue ──────
   const financialSummary = useMemo(() => {
-    const cogs_cats = ['spoilage', 'supplies', 'cost of goods', 'spoilage', 'comp'];
-    const revenue = filteredTransactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-    const cogs = filteredTransactions.filter(t => t.type === 'expense' && cogs_cats.some(c => t.category.toLowerCase().includes(c))).reduce((s, t) => s + t.amount, 0);
-    // Card processing fees get their own line — both what Stripe actually
-    // charged (expense) and what was passed through to clients via the
-    // surcharge feature (income) — instead of being buried inside a generic
-    // "Op. Expenses" bucket where they're invisible at a glance.
-    const processingFeesPaid = filteredTransactions.filter(t => t.type === 'expense' && t.category === 'Processing Fee').reduce((s, t) => s + t.amount, 0);
-    const processingFeesCollected = filteredTransactions.filter(t => t.type === 'income' && t.category === 'Card Processing Fee').reduce((s, t) => s + t.amount, 0);
-    const operatingExpenses = filteredTransactions.filter(t => t.type === 'expense' && !cogs_cats.some(c => t.category.toLowerCase().includes(c)) && t.category !== 'Processing Fee').reduce((s, t) => s + t.amount, 0);
+    const cogs_cats = ['spoilage', 'supplies', 'cost of goods', 'comp'];
+
+    // Tax collected is held on behalf of the government — not studio income
+    const taxLiability = filteredTransactions
+      .filter(t => t.type === 'income' && t.category === 'Tax Collected')
+      .reduce((s, t) => s + t.amount, 0);
+
+    const revenue = filteredTransactions
+      .filter(t => t.type === 'income' && t.category !== 'Tax Collected')
+      .reduce((s, t) => s + t.amount, 0);
+
+    const cogs = filteredTransactions
+      .filter(t => t.type === 'expense' && cogs_cats.some(c => t.category.toLowerCase().includes(c)))
+      .reduce((s, t) => s + t.amount, 0);
+
+    const processingFeesPaid = filteredTransactions
+      .filter(t => t.type === 'expense' && t.category === 'Processing Fee')
+      .reduce((s, t) => s + t.amount, 0);
+
+    const processingFeesCollected = filteredTransactions
+      .filter(t => t.type === 'income' && t.category === 'Card Processing Fee')
+      .reduce((s, t) => s + t.amount, 0);
+
+    const operatingExpenses = filteredTransactions
+      .filter(t => t.type === 'expense' && !cogs_cats.some(c => t.category.toLowerCase().includes(c)) && t.category !== 'Processing Fee')
+      .reduce((s, t) => s + t.amount, 0);
+
     const grossProfit = revenue - cogs;
     const net = grossProfit - processingFeesPaid - operatingExpenses;
+
     return {
-      revenue, cogs, grossProfit, operatingExpenses, net,
+      revenue, cogs, grossProfit, operatingExpenses, net, taxLiability,
       processingFeesPaid, processingFeesCollected,
       netFeeImpact: processingFeesCollected - processingFeesPaid,
     };
   }, [filteredTransactions]);
 
-  // ── Fast print: build HTML in memory, open new window, print instantly ──────
+  // ── Daily revenue sparkline data ──────────────────────────────────────────
+  const dailyRevenueData = useMemo(() => {
+    if (!date?.from || !date?.to) return [];
+    const days = eachDayOfInterval({ start: date.from, end: date.to });
+    if (days.length > 60) return []; // too many days — skip sparkline
+    return days.map(day =>
+      filteredTransactions
+        .filter(t => t.type === 'income' && t.category !== 'Tax Collected' && isSameDay(safeDate(t.date), day))
+        .reduce((s, t) => s + t.amount, 0)
+    );
+  }, [filteredTransactions, date]);
+
+  // ── KPI stats ─────────────────────────────────────────────────────────────
+  const kpiStats = useMemo(() => {
+    const txnCount = filteredTransactions.filter(t => t.type === 'income').length;
+    const avgTicket = txnCount > 0 ? financialSummary.revenue / txnCount : 0;
+    const totalTips = filteredTransactions.filter(t => t.category === 'Tips').reduce((s, t) => s + t.amount, 0);
+    const refundTotal = filteredTransactions.filter(t => t.type === 'reversal' || t.category === 'Refunds').reduce((s, t) => s + t.amount, 0);
+    const margin = financialSummary.revenue > 0 ? (financialSummary.net / financialSummary.revenue) * 100 : 0;
+    return { txnCount, avgTicket, totalTips, refundTotal, margin };
+  }, [filteredTransactions, financialSummary]);
+
   const handlePrint = useCallback(() => {
     const html = buildPrintHtml(filteredTransactions, staff || [], financialSummary, date);
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) { toast({ variant: 'destructive', title: 'Pop-up blocked', description: 'Allow pop-ups for this site to print.' }); return; }
     win.document.write(html);
     win.document.close();
-    // Small delay lets the browser finish layout before print dialog
     setTimeout(() => { win.focus(); win.print(); }, 400);
   }, [filteredTransactions, staff, financialSummary, date, toast]);
 
@@ -1078,7 +1117,9 @@ const LedgerPage = () => {
     <div className="flex min-h-screen w-full flex-col overflow-x-hidden bg-background">
       <AppHeader title="Studio Ledger" />
       <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10">
+
+        {/* ── Page header ─────────────────────────────────────────────────── */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8">
           <div>
             <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Ledger</h1>
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Official financial audit trail</p>
@@ -1093,7 +1134,45 @@ const LedgerPage = () => {
           </div>
         </div>
 
+        {/* ── KPI stat bar — 4 cards across, with sparkline in revenue card ── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <StatCard
+            label="Net Revenue"
+            value={fmtCurrency(financialSummary.revenue)}
+            icon={TrendingUp}
+            accent="bg-green-100 text-green-700"
+            sparkData={dailyRevenueData}
+            trend={financialSummary.net >= 0 ? 'up' : 'down'}
+            trendLabel={`${kpiStats.margin.toFixed(1)}% margin`}
+          />
+          <StatCard
+            label="Net Income"
+            value={fmtCurrency(financialSummary.net)}
+            icon={DollarSign}
+            accent={financialSummary.net >= 0 ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}
+            trend={financialSummary.net >= 0 ? 'up' : 'down'}
+            trendLabel={financialSummary.net >= 0 ? 'Profitable' : 'Net loss'}
+          />
+          <StatCard
+            label="Avg. Ticket"
+            value={fmtCurrency(kpiStats.avgTicket)}
+            icon={Receipt}
+            accent="bg-indigo-100 text-indigo-700"
+            sub={`${kpiStats.txnCount} income entries`}
+          />
+          <StatCard
+            label="Tax Liability"
+            value={fmtCurrency(financialSummary.taxLiability)}
+            icon={AlertCircle}
+            accent="bg-slate-100 text-slate-500"
+            sub="Held — not your income"
+          />
+        </div>
+
+        {/* ── Main grid ───────────────────────────────────────────────────── */}
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
+
+          {/* Sidebar filters */}
           <div className="md:col-span-1">
             {isMobile ? (
               <Accordion type="single" collapsible className="w-full mb-6">
@@ -1107,49 +1186,35 @@ const LedgerPage = () => {
             ) : <TransactionFilters {...filterProps} />}
           </div>
 
-          <div className="md:col-span-2 lg:col-span-3 space-y-6 min-w-0">
-            {badDebtAging.total > 0 && (
-              <Card className="border-2 border-amber-200 shadow-sm rounded-3xl overflow-hidden bg-amber-50/40">
-                <CardHeader className="border-b border-amber-200 bg-amber-50/60 py-4">
-                  <CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2 text-amber-800">
-                    <FileWarning className="w-4 h-4" /> Bad Debt Aging
-                  </CardTitle>
-                  <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">
-                    Unpaid fees as of today — not filtered by the period above
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-5 space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {(['0-30', '31-60', '61-90', '90+'] as const).map(bucket => (
-                      <div key={bucket} className={cn('p-3 rounded-2xl border-2 text-center', bucket === '90+' && badDebtAging.buckets[bucket] > 0 ? 'border-destructive/30 bg-destructive/5' : 'border-amber-200 bg-white')}>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{bucket === '90+' ? '90+ days' : `${bucket} days`}</p>
-                        <p className={cn('text-lg font-black font-mono tracking-tighter', bucket === '90+' && badDebtAging.buckets[bucket] > 0 ? 'text-destructive' : 'text-slate-900')}>${badDebtAging.buckets[bucket].toFixed(2)}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between px-2 pt-2 border-t border-dashed border-amber-200">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">Total Outstanding</span>
-                    <span className="text-xl font-black font-mono tracking-tighter text-amber-800">${badDebtAging.total.toFixed(2)}</span>
-                  </div>
-                  {badDebtAging.items.length > 0 && (
-                    <div className="space-y-1.5 pt-2">
-                      {badDebtAging.items.slice(0, 6).map((item, i) => (
-                        <div key={i} className="flex items-center justify-between text-[11px] px-2 py-1.5 rounded-lg bg-white/60">
-                          <span className="font-bold text-slate-700 truncate">{item.clientName} <span className="text-muted-foreground font-medium">· {item.reason}</span></span>
-                          <span className="flex items-center gap-2 shrink-0 ml-2">
-                            <span className="text-[9px] font-black uppercase text-muted-foreground opacity-50">{item.days}d</span>
-                            <span className="font-mono font-black text-amber-800">${item.amount.toFixed(2)}</span>
-                          </span>
-                        </div>
-                      ))}
-                      {badDebtAging.items.length > 6 && (
-                        <p className="text-[9px] font-bold uppercase text-muted-foreground opacity-50 text-center pt-1">+{badDebtAging.items.length - 6} more</p>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+          {/* Main content column */}
+          <div className="md:col-span-2 lg:col-span-3 space-y-5 min-w-0">
+
+            {/* ── Bad debt aging — now uses BadDebtAgingCard ───────────────── */}
+            <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} />
+
+            {/* ── Tips summary strip — mobile-friendly ─────────────────────── */}
+            {kpiStats.totalTips > 0 && (
+              <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-amber-50 border-2 border-amber-200">
+                <div className="flex items-center gap-2 text-amber-800">
+                  <DollarSign className="w-4 h-4" />
+                  <span className="text-xs font-black uppercase tracking-widest">Tips this period</span>
+                </div>
+                <span className="font-mono font-black text-lg text-amber-800">{fmtCurrency(kpiStats.totalTips)}</span>
+              </div>
             )}
+
+            {/* ── Refund alert strip ────────────────────────────────────────── */}
+            {kpiStats.refundTotal > 0 && (
+              <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-red-50 border-2 border-red-200">
+                <div className="flex items-center gap-2 text-red-700">
+                  <Undo2 className="w-4 h-4" />
+                  <span className="text-xs font-black uppercase tracking-widest">Refunds & reversals</span>
+                </div>
+                <span className="font-mono font-black text-lg text-red-700">-{fmtCurrency(kpiStats.refundTotal)}</span>
+              </div>
+            )}
+
+            {/* ── Desktop table ─────────────────────────────────────────────── */}
             <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white">
               <CardContent className="p-0 overflow-x-auto">
                 <Table>
@@ -1163,22 +1228,53 @@ const LedgerPage = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {isLoading && <TableRow><TableCell colSpan={8} className="h-64 text-center"><div className="flex flex-col items-center gap-4"><Loader className="w-10 h-10 animate-spin text-primary" /><p className="font-black uppercase text-[10px] tracking-widest text-primary opacity-60">Synchronizing Ledger...</p></div></TableCell></TableRow>}
+                    {isLoading && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="h-64 text-center">
+                          <div className="flex flex-col items-center gap-4">
+                            <Loader className="w-10 h-10 animate-spin text-primary" />
+                            <p className="font-black uppercase text-[10px] tracking-widest text-primary opacity-60">Synchronizing Ledger...</p>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
                     {!isLoading && filteredTransactions.map(t => <TransactionRow key={t.id} {...sharedRowProps(t)} />)}
-                    {!isLoading && filteredTransactions.length === 0 && <TableRow><TableCell colSpan={8} className="h-64 text-center"><div className="space-y-2 opacity-30"><BookOpen className="w-12 h-12 mx-auto" /><p className="uppercase font-black tracking-widest text-xs">No records found</p></div></TableCell></TableRow>}
+                    {!isLoading && filteredTransactions.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="h-64 text-center">
+                          <div className="space-y-2 opacity-30"><BookOpen className="w-12 h-12 mx-auto" /><p className="uppercase font-black tracking-widest text-xs">No records found</p></div>
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
 
+            {/* ── Mobile cards ──────────────────────────────────────────────── */}
             <div className="md:hidden space-y-4">
-              {isLoading && <div className="flex flex-col items-center justify-center py-24"><Loader className="w-10 h-10 animate-spin text-primary mb-4" /><p className="text-[10px] font-black uppercase tracking-widest text-primary">Syncing...</p></div>}
-              {!isLoading && filteredTransactions.length > 0 && <div className="grid gap-4">{filteredTransactions.map(t => <TransactionCard key={t.id} {...sharedRowProps(t)} />)}</div>}
-              {!isLoading && filteredTransactions.length === 0 && <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4"><BookOpen className="w-16 h-16" /><p className="text-sm font-black uppercase tracking-widest">No entries found</p></div>}
+              {isLoading && (
+                <div className="flex flex-col items-center justify-center py-24">
+                  <Loader className="w-10 h-10 animate-spin text-primary mb-4" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">Syncing...</p>
+                </div>
+              )}
+              {!isLoading && filteredTransactions.length > 0 && (
+                <div className="grid gap-4">{filteredTransactions.map(t => <TransactionCard key={t.id} {...sharedRowProps(t)} />)}</div>
+              )}
+              {!isLoading && filteredTransactions.length === 0 && (
+                <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+                  <BookOpen className="w-16 h-16" />
+                  <p className="text-sm font-black uppercase tracking-widest">No entries found</p>
+                </div>
+              )}
             </div>
+
           </div>
         </div>
       </main>
+
+      {/* ── Dialogs ────────────────────────────────────────────────────────── */}
 
       <AddTransactionDialog open={isAddTxnOpen} onOpenChange={setIsAddTxnOpen} staff={staff || []} onConfirm={handleAddTransaction} />
 
@@ -1204,9 +1300,25 @@ const LedgerPage = () => {
         onOpenChange={o => { if (!o) setPreviewTransaction(null); }}
       />
 
-      <TransactionDossierSheet open={!!selectedDossier} onOpenChange={o => { if (!o) setSelectedDossier(null); }} transaction={selectedDossier} staff={staff || []} onRevert={handleRevertTransaction} />
+      <TransactionDossierSheet
+        open={!!selectedDossier}
+        onOpenChange={o => { if (!o) setSelectedDossier(null); }}
+        transaction={selectedDossier}
+        staff={staff || []}
+        onRevert={handleRevertTransaction}
+      />
 
-      <RefundProtocolDialog open={!!transactionToRefund} onOpenChange={(v: boolean) => { if (!v) setTransactionToRefund(null); }} transaction={transactionToRefund} staff={staff || []} services={services || []} appointments={appointments || []} inventory={inventory || []} tenant={selectedTenant} onConfirm={handleRefundConfirm} />
+      <RefundProtocolDialog
+        open={!!transactionToRefund}
+        onOpenChange={(v: boolean) => { if (!v) setTransactionToRefund(null); }}
+        transaction={transactionToRefund}
+        staff={staff || []}
+        services={services || []}
+        appointments={appointments || []}
+        inventory={inventory || []}
+        tenant={selectedTenant}
+        onConfirm={handleRefundConfirm}
+      />
     </div>
   );
 };
