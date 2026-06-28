@@ -1,34 +1,38 @@
 'use client';
 
 /**
- * GroupBookingPanel
+ * GroupBookingPanel — v2
  *
- * Multi-guest group booking builder. Renders inside QuickBookForm step 2
- * when "Group booking" is toggled on.
+ * v2 — guest data + duplicate-client detection (Quick Book redesign #6):
+ *   - Each guest now captures phone (proper international format via
+ *     PhoneInput, matching the rest of the app instead of a plain tel
+ *     input), email, birthday, relationship to the booking owner, and a
+ *     marketing-consent toggle — closer to "every guest treated as their
+ *     own client" instead of name + service only.
+ *   - NEW: optional `clients` prop. If a guest's phone or email matches an
+ *     existing client record, a "Matches an existing client" suggestion
+ *     appears with a one-tap "Use this client" action that fills the
+ *     guest's name/contact info from the match and tags the guest with
+ *     `linkedClientId` — so QuickBookForm's handleBook can link to the real
+ *     client doc instead of creating a duplicate. (handleBook needs a small
+ *     update to honor `linkedClientId` when present — see note below.)
  *
- * Each guest gets their own service + staff selection. On commit, creates
- * one appointment per guest in a single Firestore batch, linked by a shared
- * groupBookingId.
+ * v1 — multi-guest group booking builder. Renders inside QuickBookForm step 2
+ * when "Group booking" is toggled on. Each guest gets their own service +
+ * staff selection. On commit, creates one appointment per guest in a single
+ * Firestore batch, linked by a shared groupBookingId.
  *
- * Usage in QuickBookForm step 2:
- *
- *   const [isGroup, setIsGroup] = useState(false);
- *   const [groupGuests, setGroupGuests] = useState<GroupGuest[]>([]);
- *
- *   {isGroup && (
- *     <GroupBookingPanel
- *       primaryClient={selectedClient}
- *       services={services}
- *       staff={staff}
- *       guests={groupGuests}
- *       onChange={setGroupGuests}
- *     />
- *   )}
+ * NOTE FOR QuickBookForm: pass `clients={clients}` into this panel, and in
+ * the group-guest creation loop inside handleBook, check
+ * `guest.linkedClientId` first — if set, reuse that client id (and skip
+ * creating a new client doc) instead of always minting a fresh `gClientId`.
  */
 
 import React, { useState } from 'react';
+import PhoneInput from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 import { cn } from '@/lib/utils';
-import { UserPlus, Trash2, ChevronDown, CheckCircle2, Users } from 'lucide-react';
+import { UserPlus, Trash2, ChevronDown, CheckCircle2, Users, Link2, Mail, Cake, Heart, Megaphone } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { getServicePrice } from '@/lib/data';
 
@@ -36,8 +40,16 @@ export type GroupGuest = {
   id: string;
   name: string;
   phone?: string;
+  email?: string;
+  birthday?: string; // ISO date string, optional
+  relationship?: string; // e.g. "Friend", "Sister" — optional, free text
+  marketingConsent?: boolean;
   serviceId: string;
   staffId: string; // 'any' is valid
+  // v2 — set when the guest's contact info matched an existing client and
+  // staff confirmed the link. When present, QuickBookForm should reuse this
+  // client id instead of minting a new one.
+  linkedClientId?: string | null;
 };
 
 type Props = {
@@ -49,6 +61,8 @@ type Props = {
   guests: GroupGuest[];
   onChange: (guests: GroupGuest[]) => void;
   maxGuests?: number;
+  // v2 — optional, enables duplicate-client detection by phone/email.
+  clients?: any[];
 };
 
 const GUEST_COLORS = [
@@ -59,11 +73,26 @@ const GUEST_COLORS = [
   'bg-rose-100 text-rose-700',
 ];
 
+function findClientMatch(guest: GroupGuest, clients: any[]): any | null {
+  if (!clients?.length) return null;
+  const phone = guest.phone?.trim();
+  const email = guest.email?.trim().toLowerCase();
+  if (!phone && !email) return null;
+  return (
+    clients.find(
+      (c: any) =>
+        (phone && c.phone === phone) ||
+        (email && c.email?.toLowerCase() === email),
+    ) || null
+  );
+}
+
 function GuestRow({
   guest,
   index,
   services,
   staff,
+  clients,
   onChange,
   onRemove,
 }: {
@@ -71,6 +100,7 @@ function GuestRow({
   index: number;
   services: any[];
   staff: any[];
+  clients?: any[];
   onChange: (updated: GroupGuest) => void;
   onRemove: () => void;
 }) {
@@ -83,6 +113,28 @@ function GuestRow({
 
   const colorClass = GUEST_COLORS[index % GUEST_COLORS.length];
   const activeStaff = staff.filter((s: any) => s.active);
+
+  // Only worth checking once there's something to match on, and only
+  // surfaced if not already linked (or if contact info changed since the
+  // last link, which clears linkedClientId — see the phone/email onChange).
+  const match = !guest.linkedClientId ? findClientMatch(guest, clients || []) : null;
+
+  const linkToMatch = () => {
+    if (!match) return;
+    onChange({
+      ...guest,
+      name: match.name || guest.name,
+      phone: match.phone || guest.phone,
+      email: match.email || guest.email,
+      linkedClientId: match.id,
+    });
+  };
+
+  // Editing contact info after a link was made should re-open the
+  // possibility of a different match, not silently keep the stale link.
+  const updateAndUnlink = (patch: Partial<GroupGuest>) => {
+    onChange({ ...guest, ...patch, linkedClientId: null });
+  };
 
   return (
     <div className="rounded-2xl border-2 overflow-hidden">
@@ -100,8 +152,11 @@ function GuestRow({
           {guest.name ? guest.name.charAt(0).toUpperCase() : (index + 1)}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-[12px] font-black text-slate-900 truncate">
+          <p className="text-[12px] font-black text-slate-900 truncate flex items-center gap-1.5">
             {guest.name || `Guest ${index + 1}`}
+            {guest.linkedClientId && (
+              <Link2 className="w-3 h-3 text-blue-500 shrink-0" />
+            )}
           </p>
           <p className="text-[10px] text-muted-foreground truncate">
             {selectedSvc?.name || 'No service'}{price > 0 ? ` · $${price.toFixed(0)}` : ''}
@@ -133,16 +188,93 @@ function GuestRow({
           <Input
             placeholder="Guest name *"
             value={guest.name}
-            onChange={(e) => onChange({ ...guest, name: e.target.value })}
+            onChange={(e) => updateAndUnlink({ name: e.target.value })}
             className="h-10 rounded-xl border-2 text-sm"
           />
-          <Input
-            placeholder="Phone (optional)"
-            value={guest.phone || ''}
-            onChange={(e) => onChange({ ...guest, phone: e.target.value })}
-            className="h-10 rounded-xl border-2 text-sm"
-            type="tel"
-          />
+
+          <div className="h-10 rounded-xl border-2 bg-white px-3 flex items-center [&_input]:border-none [&_input]:bg-transparent [&_input]:outline-none [&_input]:h-full [&_input]:w-full [&_input]:text-sm [&_.PhoneInputCountry]:mr-2">
+            <PhoneInput
+              international
+              defaultCountry="US"
+              placeholder="Phone (optional)"
+              value={guest.phone || ''}
+              onChange={(v) => updateAndUnlink({ phone: v || '' })}
+            />
+          </div>
+
+          <div className="relative">
+            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Email (optional)"
+              value={guest.email || ''}
+              onChange={(e) => updateAndUnlink({ email: e.target.value })}
+              className="h-10 rounded-xl border-2 text-sm pl-9"
+              type="email"
+            />
+          </div>
+
+          {/* v2 — duplicate-client suggestion */}
+          {match && (
+            <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-blue-50 border-2 border-blue-200">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase text-blue-700 flex items-center gap-1">
+                  <Link2 className="w-3 h-3" /> Matches an existing client
+                </p>
+                <p className="text-[10px] text-blue-700/70 truncate">{match.name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={linkToMatch}
+                className="text-[10px] font-black uppercase text-blue-700 bg-white border-2 border-blue-300 px-2.5 py-1.5 rounded-lg shrink-0 hover:bg-blue-100 transition-colors"
+              >
+                Use this client
+              </button>
+            </div>
+          )}
+          {guest.linkedClientId && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 border border-green-200">
+              <CheckCircle2 className="w-3 h-3 text-green-600 shrink-0" />
+              <p className="text-[10px] font-bold text-green-700">Linked to existing client record</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="relative">
+              <Cake className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Birthday (optional)"
+                value={guest.birthday || ''}
+                onChange={(e) => onChange({ ...guest, birthday: e.target.value })}
+                className="h-10 rounded-xl border-2 text-sm pl-9"
+                type="date"
+              />
+            </div>
+            <div className="relative">
+              <Heart className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Relationship (optional)"
+                value={guest.relationship || ''}
+                onChange={(e) => onChange({ ...guest, relationship: e.target.value })}
+                className="h-10 rounded-xl border-2 text-sm pl-9"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onChange({ ...guest, marketingConsent: !guest.marketingConsent })}
+            className={cn(
+              'w-full flex items-center justify-between p-2.5 rounded-xl border-2 text-left transition-all',
+              guest.marketingConsent ? 'border-primary bg-primary/5' : 'border-muted',
+            )}
+          >
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+              <Megaphone className="w-3.5 h-3.5" /> OK to send marketing texts/emails
+            </span>
+            <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', guest.marketingConsent ? 'bg-primary' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', guest.marketingConsent ? 'left-[18px]' : 'left-0.5')} />
+            </div>
+          </button>
 
           {/* Service */}
           <div className="space-y-1.5">
@@ -219,6 +351,7 @@ export function GroupBookingPanel({
   guests,
   onChange,
   maxGuests = 6,
+  clients,
 }: Props) {
   const addGuest = () => {
     if (guests.length >= maxGuests) return;
@@ -229,6 +362,7 @@ export function GroupBookingPanel({
         name: '',
         serviceId: primaryServiceId || '',
         staffId: 'any',
+        linkedClientId: null,
       },
     ]);
   };
@@ -276,6 +410,7 @@ export function GroupBookingPanel({
             index={i}
             services={services}
             staff={staff}
+            clients={clients}
             onChange={(updated) => updateGuest(i, updated)}
             onRemove={() => removeGuest(i)}
           />
@@ -310,4 +445,5 @@ export function GroupBookingPanel({
 /** Returns true if all guests in the group have required fields filled */
 export function isGroupValid(guests: GroupGuest[]): boolean {
   return guests.every((g) => g.name.trim().length > 0 && g.serviceId.length > 0);
+}0);
 }
