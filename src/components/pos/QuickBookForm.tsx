@@ -39,6 +39,13 @@
  *   - ClientIntelligencePanel, SmartAvailabilityGrid, GroupBookingPanel,
  *     MultiProviderPanel, package redemption, charge card on file, arrears banner,
  *     multi-provider legs, add-on upsell
+ *
+ * v2.1 — bugfix:
+ *   - staffDateLoad useMemo crashed with "a.startsWith is not a function" when any
+ *     appointment in the `appointments` prop had a non-string `startTime` (e.g. an
+ *     un-normalized Firestore Timestamp). Optional chaining (`a.startTime?.startsWith`)
+ *     only guards against null/undefined, not wrong-type values. Now explicitly checks
+ *     `typeof a.startTime === 'string'` before calling .startsWith().
  */
 
 import React from 'react';
@@ -602,10 +609,17 @@ export function QuickBookForm({
   const hasNoSlots = selectedService && slots.length === 0;
 
   // Staff date availability — how many appointments each provider already has on aptDate
+  //
+  // FIX: previously used `a.startTime?.startsWith(aptDate)`. Optional chaining only
+  // guards against startTime being null/undefined — it does NOT guard against
+  // startTime being a non-string value (e.g. a Firestore Timestamp object or a Date
+  // that slipped through un-normalized). If even one appointment had a non-string
+  // startTime, this threw "startsWith is not a function" and crashed the whole form.
+  // Now we explicitly check the type before calling the string method.
   const staffDateLoad = React.useMemo(() => {
     const load: Record<string, number> = {};
     appointments.forEach((a: any) => {
-      if (a.startTime?.startsWith(aptDate) && a.staffId) {
+      if (typeof a.startTime === 'string' && a.startTime.startsWith(aptDate) && a.staffId) {
         load[a.staffId] = (load[a.staffId] || 0) + 1;
       }
     });
