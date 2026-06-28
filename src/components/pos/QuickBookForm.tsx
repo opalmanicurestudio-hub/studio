@@ -67,6 +67,8 @@
  */
 
 import React from 'react';
+import PhoneInput from 'react-phone-number-input';
+import 'react-phone-number-input/style.css';
 import { format, addMinutes, differenceInMonths, formatDistanceToNow } from 'date-fns';
 import {
   doc, writeBatch, collection, runTransaction, query,
@@ -86,7 +88,7 @@ import {
   Clock, FlaskConical, Ban, AlertCircle, Tag, MessageSquare,
   FileText, Minus, Plus, CalendarOff, PhoneIncoming, Save,
   History, Star, CalendarCheck, StickyNote, ChevronDown,
-  ChevronUp, Trash2,
+  ChevronUp, Trash2, Phone, Mail,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -124,34 +126,56 @@ const safeRelativeTime = (iso?: string): string => {
 };
 
 // requiredFormIds only stores form codes/ids, not display names — this builds
-// an id → name lookup from whatever source actually has the names. Checks,
-// in order: tenant.consentForms, tenant.forms, the optional `forms` prop.
-// Falls back to the raw id if nothing matches, so it degrades safely rather
-// than breaking if the names live somewhere else — point it at the right
-// source if this guess is wrong for your data model.
-const buildFormNameLookup = (tenant: any, formsProp: any[] = []): Record<string, string> => {
+// an id → name lookup from whatever source actually has the names. Checks, in
+// order: live-fetched consent form docs (tenants/{tenantId}/consentForms,
+// field `title`), tenant.consentForms, tenant.forms, the optional `forms`
+// prop. Falls back to the raw id if nothing matches.
+const buildFormNameLookup = (tenant: any, formsProp: any[] = [], liveForms: any[] = []): Record<string, string> => {
   const lookup: Record<string, string> = {};
   const sources: any[] = [
+    ...(Array.isArray(liveForms) ? liveForms : []),
     ...(Array.isArray(tenant?.consentForms) ? tenant.consentForms : []),
     ...(Array.isArray(tenant?.forms) ? tenant.forms : []),
     ...(Array.isArray(formsProp) ? formsProp : []),
   ];
   sources.forEach((f: any) => {
     const id = f?.id || f?.formId;
-    const name = f?.name || f?.label || f?.title;
-    if (id && name) lookup[id] = name;
+    const name = f?.title || f?.name || f?.label;
+    if (id && name && !lookup[id]) lookup[id] = name;
   });
   return lookup;
 };
 
-// "phone · email" with whichever pieces actually exist. Several spots
-// previously used `c.phone || c.email`, which silently hid the email any
-// time a phone number was also present.
-const contactLine = (c: { phone?: string; email?: string } | null | undefined): string => {
-  if (!c) return '—';
-  const parts = [c?.phone, c?.email].filter(Boolean);
-  return parts.length > 0 ? parts.join(' · ') : '—';
-};
+// Shows phone and email side by side with icons — replaces the old
+// `c.phone || c.email` pattern that silently hid the email any time a phone
+// number was also present.
+function ContactLine({
+  contact,
+  className,
+}: {
+  contact: { phone?: string; email?: string } | null | undefined;
+  className?: string;
+}) {
+  if (!contact?.phone && !contact?.email) {
+    return <span className={cn('text-slate-400', className)}>—</span>;
+  }
+  return (
+    <span className={cn('inline-flex items-center gap-2.5 flex-wrap', className)}>
+      {contact.phone && (
+        <span className="inline-flex items-center gap-1">
+          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+          {contact.phone}
+        </span>
+      )}
+      {contact.email && (
+        <span className="inline-flex items-center gap-1 truncate">
+          <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+          {contact.email}
+        </span>
+      )}
+    </span>
+  );
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const ARREARS_OVERRIDE_REASONS = [
@@ -478,7 +502,7 @@ function ClientDetailPanel({
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-900 truncate">{client.name}</p>
-            <p className="text-xs text-slate-400 truncate">{contactLine(client)}</p>
+            <ContactLine contact={client} className="text-xs text-slate-400" />
           </div>
         </div>
         <button onClick={onChangeClient} className="text-xs text-blue-600 hover:text-blue-800 shrink-0 mt-1">
@@ -834,6 +858,19 @@ export function QuickBookForm({
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
   const [discardingDraftId, setDiscardingDraftId] = React.useState<string | null>(null);
 
+  // Live consent form definitions (tenants/{tenantId}/consentForms) — the
+  // actual source of form names, fetched directly rather than relying solely
+  // on a prop that may never get passed.
+  const [consentFormDefs, setConsentFormDefs] = React.useState<any[]>([]);
+  const [namingFormId, setNamingFormId] = React.useState<string | null>(null);
+  const [newFormTitle, setNewFormTitle] = React.useState('');
+  const [isSavingFormName, setIsSavingFormName] = React.useState(false);
+
+  // Shift schedule (tenants/{tenantId}/shifts) — used for the call-in booking
+  // turn order so "Any available" only rotates among staff actually scheduled
+  // to work on the appointment's date.
+  const [shifts, setShifts] = React.useState<any[]>([]);
+
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -965,8 +1002,34 @@ export function QuickBookForm({
   const formsNeedingSignature = formStatuses.filter(f => !f.signed);
 
   // Human-readable form names — see buildFormNameLookup for which sources it checks.
-  const formNameLookup = React.useMemo(() => buildFormNameLookup(tenant, forms), [tenant, forms]);
+  const formNameLookup = React.useMemo(
+    () => buildFormNameLookup(tenant, forms, consentFormDefs),
+    [tenant, forms, consentFormDefs],
+  );
   const getFormName = React.useCallback((id: string) => formNameLookup[id] || id, [formNameLookup]);
+
+  // Lets staff give an existing form id a real name on the spot, rather than
+  // needing to go set this up elsewhere first. Writes directly to the id the
+  // service already references, so nothing about the service's
+  // requiredFormIds needs to change.
+  const handleSaveFormName = async (id: string) => {
+    if (!newFormTitle.trim() || !firestore || !tenantId) return;
+    setIsSavingFormName(true);
+    try {
+      await setDoc(
+        doc(firestore, `tenants/${tenantId}/consentForms`, id),
+        sanitizeForFirestore({ id, title: newFormTitle.trim() }),
+        { merge: true },
+      );
+      toast({ title: 'Form named', description: `"${newFormTitle.trim()}" saved.` });
+      setNamingFormId(null);
+      setNewFormTitle('');
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save form name' });
+    } finally {
+      setIsSavingFormName(false);
+    }
+  };
 
   // Smart availability
   const todayStr = format(new Date(), 'yyyy-MM-dd');
@@ -996,6 +1059,36 @@ export function QuickBookForm({
   }, [appointments, aptDate]);
 
   const activeStaff = staff.filter((s: any) => s.active);
+
+  // ── "Any available" turn order for call-in bookings ───────────────────────
+  // Mirrors the fair-play rotation already used for walk-ins (AssignStaffDialog
+  // / WalkInLeaderboard, sorted by lastWalkInCompletedAt) — but kept as a
+  // separate counter (lastBookingAssignedAt) since a phone booking is a future
+  // reservation, not "who's free right now"; mixing the two would let every
+  // call-in booking skew who gets the next walk-in and vice versa.
+  //
+  // `exclude` lets a single booking with multiple "any" slots (e.g. a
+  // multi-provider booking) spread across different staff instead of handing
+  // every slot to the same person, since lastBookingAssignedAt won't reflect
+  // earlier picks in the same booking until it's written after commit.
+  const resolveAnyStaffId = React.useCallback((dateStr: string, exclude: string[] = []): string | null => {
+    const onShiftIds = new Set(
+      shifts
+        .filter((s: any) => s.date === dateStr && s.status !== 'cancelled' && s.status !== 'draft')
+        .map((s: any) => s.staffId),
+    );
+    let pool = staff.filter((s: any) => s.active && onShiftIds.has(s.id));
+    if (pool.length === 0) pool = staff.filter((s: any) => s.active); // no shift data for that date — fall back to all active staff
+    const excluding = pool.filter((s: any) => !exclude.includes(s.id));
+    const finalPool = excluding.length > 0 ? excluding : pool; // everyone already used this booking — allow a repeat
+    if (finalPool.length === 0) return null;
+    const sorted = [...finalPool].sort((a: any, b: any) => {
+      const aLast = a.lastBookingAssignedAt ? new Date(a.lastBookingAssignedAt).getTime() : 0;
+      const bLast = b.lastBookingAssignedAt ? new Date(b.lastBookingAssignedAt).getTime() : 0;
+      return aLast - bLast;
+    });
+    return sorted[0]?.id || null;
+  }, [staff, shifts]);
 
   // Client intelligence
   const intel = useClientIntelligence(selectedClient, appointments, services);
@@ -1048,7 +1141,43 @@ export function QuickBookForm({
     return () => unsubscribe();
   }, [firestore, tenantId]);
 
-  // ── Call-back draft snapshot helpers ──────────────────────────────────────
+  // Live consent form definitions — the actual names behind requiredFormIds.
+  React.useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const formsQuery = collection(firestore, `tenants/${tenantId}/consentForms`);
+    const unsubscribe = onSnapshot(
+      formsQuery,
+      (snap) => {
+        const list: any[] = [];
+        snap.forEach(d => list.push({ id: d.id, ...(d.data() as any) }));
+        setConsentFormDefs(list);
+      },
+      () => { /* non-fatal — falls back to showing the raw form id */ },
+    );
+    return () => unsubscribe();
+  }, [firestore, tenantId]);
+
+  // Shift schedule, today onward — used to keep "Any available" rotation
+  // scoped to staff actually working on the appointment's date. Filtered by
+  // date >= today rather than loading the whole history, and filtered
+  // further client-side by exact date to avoid needing a composite index.
+  React.useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const shiftsQuery = query(
+      collection(firestore, `tenants/${tenantId}/shifts`),
+      where('date', '>=', format(new Date(), 'yyyy-MM-dd')),
+    );
+    const unsubscribe = onSnapshot(
+      shiftsQuery,
+      (snap) => {
+        const list: any[] = [];
+        snap.forEach(d => list.push({ id: d.id, ...(d.data() as any) }));
+        setShifts(list);
+      },
+      () => { /* non-fatal — falls back to all active staff if shifts can't be read */ },
+    );
+    return () => unsubscribe();
+  }, [firestore, tenantId]);
   const buildSnapshot = React.useCallback(() => ({
     clientSearch, selectedService, addOnIds, durationOffset, selectedStaff,
     aptDate, aptTime, isGroup, groupGuests, isMultiProvider, providerLegs,
@@ -1173,13 +1302,15 @@ export function QuickBookForm({
             and pick up exactly where you left off.
           </p>
         </div>
-        <Input
-          placeholder="Caller's phone number"
-          value={draftCallerPhone}
-          onChange={e => setDraftCallerPhone(e.target.value)}
-          className="h-10 text-sm"
-          type="tel"
-        />
+        <div className="h-10 rounded-md border border-input bg-background px-3 flex items-center text-sm [&_input]:border-none [&_input]:bg-transparent [&_input]:outline-none [&_input]:h-full [&_input]:w-full [&_input]:text-sm [&_.PhoneInputCountry]:mr-2">
+          <PhoneInput
+            international
+            defaultCountry="US"
+            value={draftCallerPhone}
+            onChange={(v) => setDraftCallerPhone(v || '')}
+            placeholder="(555) 000-0000"
+          />
+        </div>
         <textarea
           value={draftNote}
           onChange={e => setDraftNote(e.target.value)}
@@ -1439,10 +1570,16 @@ export function QuickBookForm({
         durationOffset +
         addOnIds.reduce((acc, id) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
       const endTime = addMinutes(startTime, totalDuration);
+      // Tracks staff resolved via "Any available" in this booking, so the
+      // turn-order counter only advances for actual any-available picks (not
+      // explicit by-name requests) and so multiple any-available slots in one
+      // booking don't all land on the same person.
+      const anyAssignedStaffIds: string[] = [];
       const resolvedStaffId =
         selectedStaff === 'any'
-          ? (staff.find((s: any) => s.active)?.id || null)
+          ? resolveAnyStaffId(aptDate, anyAssignedStaffIds)
           : selectedStaff;
+      if (selectedStaff === 'any' && resolvedStaffId) anyAssignedStaffIds.push(resolvedStaffId);
       const aptId = _nanoid();
       const checkInToken = _nanoid();
 
@@ -1656,7 +1793,8 @@ export function QuickBookForm({
       if (multiProviderGroupId && scheduledLegs.length > 0) {
         scheduledLegs.forEach((leg, idx) => {
           const legSvc = services.find((s: any) => s.id === leg.serviceId);
-          const legStaffId = leg.staffId === 'any' ? (staff.find((s: any) => s.active)?.id || null) : leg.staffId;
+          const legStaffId = leg.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : leg.staffId;
+          if (leg.staffId === 'any' && legStaffId) anyAssignedStaffIds.push(legStaffId);
           const legId = _nanoid();
           const legToken = _nanoid();
           batch.set(doc(firestore, `tenants/${tenantId}/appointments`, legId), sanitizeForFirestore({
@@ -1697,7 +1835,8 @@ export function QuickBookForm({
           const gAptId = _nanoid();
           const gToken = _nanoid();
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
-          const gStaffId = guest.staffId === 'any' ? (staff.find((s: any) => s.active)?.id || null) : guest.staffId;
+          const gStaffId = guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId;
+          if (guest.staffId === 'any' && gStaffId) anyAssignedStaffIds.push(gStaffId);
           const gEnd = addMinutes(startTime, gSvc?.duration || 60);
 
           // Create a minimal client record for the guest
@@ -1825,6 +1964,23 @@ export function QuickBookForm({
         } catch { /* non-fatal */ }
       }
 
+      // Advance the call-in turn order for anyone assigned via "Any available" —
+      // explicit by-name requests don't consume rotation position.
+      if (anyAssignedStaffIds.length > 0) {
+        try {
+          const turnBatch = writeBatch(firestore);
+          const nowIso = new Date().toISOString();
+          Array.from(new Set(anyAssignedStaffIds)).forEach(sid => {
+            turnBatch.set(
+              doc(firestore, `tenants/${tenantId}/staff`, sid),
+              { lastBookingAssignedAt: nowIso },
+              { merge: true },
+            );
+          });
+          await turnBatch.commit();
+        } catch { /* non-fatal — fairness ledger update, doesn't block the booking */ }
+      }
+
       // Resolve (delete) any pending call-back draft this booking originated from
       if (currentDraftId) {
         try {
@@ -1916,7 +2072,7 @@ export function QuickBookForm({
             </div>
             <div>
               <p className="text-sm font-medium text-slate-900">{selectedClient.name}</p>
-              <p className="text-xs text-slate-400">{contactLine(selectedClient)}</p>
+              <ContactLine contact={selectedClient} className="text-xs text-slate-400" />
             </div>
           </div>
 
@@ -1979,7 +2135,7 @@ export function QuickBookForm({
                 >
                   <div>
                     <p className="text-sm font-medium text-slate-900">{c.name}</p>
-                    <p className="text-xs text-slate-400">{contactLine(c)}</p>
+                    <ContactLine contact={c} className="text-xs text-slate-400" />
                   </div>
                   <span className="text-xs text-amber-700 font-medium">Use this client →</span>
                 </button>
@@ -2053,13 +2209,15 @@ export function QuickBookForm({
               onChange={e => setNewClientName(e.target.value)}
               className="h-11"
             />
-            <Input
-              placeholder="Phone number"
-              value={newClientPhone}
-              onChange={e => setNewClientPhone(e.target.value)}
-              className="h-11"
-              type="tel"
-            />
+            <div className="h-11 rounded-md border border-input bg-background px-3 flex items-center [&_input]:border-none [&_input]:bg-transparent [&_input]:outline-none [&_input]:h-full [&_input]:w-full [&_input]:text-sm [&_.PhoneInputCountry]:mr-2">
+              <PhoneInput
+                international
+                defaultCountry="US"
+                value={newClientPhone}
+                onChange={(v) => setNewClientPhone(v || '')}
+                placeholder="(555) 000-0000"
+              />
+            </div>
             <Input
               placeholder="Email (for link & receipt)"
               value={newClientEmail}
@@ -2119,7 +2277,7 @@ export function QuickBookForm({
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-900">{c.name}</p>
-                        <p className="text-xs text-slate-400">{contactLine(c)}</p>
+                        <ContactLine contact={c} className="text-xs text-slate-400" />
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2174,6 +2332,7 @@ export function QuickBookForm({
                       </div>
                       <div className="min-w-0">
                         <p className="text-xs font-medium text-slate-900 truncate">{c.name}</p>
+                        <ContactLine contact={c} className="text-[10px] text-slate-400 flex-nowrap overflow-hidden" />
                         {c.lastAppointment && (
                           <p className="text-[10px] text-slate-400">{format(new Date(c.lastAppointment), 'MMM d')}</p>
                         )}
@@ -2663,23 +2822,66 @@ export function QuickBookForm({
             <FileText className="w-3 h-3" /> Consent forms
           </p>
           <div className="rounded-xl border divide-y overflow-hidden">
-            {formStatuses.map(fs => (
-              <div key={fs.id} className="flex items-center justify-between px-3.5 py-2.5">
-                <p className="text-xs text-slate-700">{getFormName(fs.id)}</p>
-                {fs.signed ? (
-                  <span className="text-[10px] text-green-600 font-medium flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />
-                    Signed {fs.signedAt ? format(fs.signedAt, 'MMM d yyyy') : ''}
-                  </span>
-                ) : fs.expiredSig ? (
-                  <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" /> Expired — needs re-sign
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-red-500 font-medium">Not signed</span>
-                )}
-              </div>
-            ))}
+            {formStatuses.map(fs => {
+              const hasName = getFormName(fs.id) !== fs.id;
+              return (
+                <div key={fs.id} className="flex items-center justify-between px-3.5 py-2.5 gap-2">
+                  {namingFormId === fs.id ? (
+                    <div className="flex items-center gap-2 flex-1">
+                      <Input
+                        autoFocus
+                        value={newFormTitle}
+                        onChange={e => setNewFormTitle(e.target.value)}
+                        placeholder="Form name"
+                        className="h-8 text-xs flex-1"
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs shrink-0"
+                        onClick={() => handleSaveFormName(fs.id)}
+                        disabled={isSavingFormName || !newFormTitle.trim()}
+                      >
+                        {isSavingFormName ? <Loader className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => { setNamingFormId(null); setNewFormTitle(''); }}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <p className="text-xs text-slate-700 truncate">{getFormName(fs.id)}</p>
+                        {!hasName && (
+                          <button
+                            type="button"
+                            onClick={() => { setNamingFormId(fs.id); setNewFormTitle(''); }}
+                            className="text-[10px] text-blue-600 hover:text-blue-800 shrink-0"
+                          >
+                            Name this form
+                          </button>
+                        )}
+                      </div>
+                      {fs.signed ? (
+                        <span className="text-[10px] text-green-600 font-medium flex items-center gap-1 shrink-0">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Signed {fs.signedAt ? format(fs.signedAt, 'MMM d yyyy') : ''}
+                        </span>
+                      ) : fs.expiredSig ? (
+                        <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1 shrink-0">
+                          <AlertCircle className="w-3 h-3" /> Expired — needs re-sign
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-red-500 font-medium shrink-0">Not signed</span>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
