@@ -310,6 +310,16 @@ const buildTimelineEvents = (opts: {
   // Session notes added inline
   if (appointment.sessionNote?.addedAt) push(appointment.sessionNote.addedAt, StickyNote, 'Session note added', appointment.sessionNote.addedBy ? `by ${staffName(appointment.sessionNote.addedBy, staff)}` : undefined);
 
+  // v2 — visit outcome recorded (clinical/record-keeping data: what
+  // happened, satisfaction rating, retail sold, adverse reaction flag).
+  if (appointment.visitOutcome?.recordedAt) push(
+    appointment.visitOutcome.recordedAt,
+    HeartPulse,
+    'Visit outcome recorded',
+    appointment.visitOutcome.satisfactionRating ? `${appointment.visitOutcome.satisfactionRating}/5 satisfaction` : undefined,
+    appointment.visitOutcome.adverseReaction ? 'warn' : 'good',
+  );
+
   (transactions || []).forEach((t: any) => {
     if (t.appointmentId !== appointment.id) return;
     if (t === depositTxn) return;
@@ -461,6 +471,149 @@ const SessionNotePanel = ({
         </button>
       )}
     </div>
+  );
+};
+
+// ─── Visit outcome panel (v2 — clinical / record-keeping) ─────────────────────
+// Captures the "what actually happened" story for a completed visit — repairs
+// made, retail sold, an adverse-reaction flag, and a 1-5 satisfaction rating
+// — so the client's visit history tells the real story instead of just "✔
+// Service name." Stored on appointment.visitOutcome; surfaced in the timeline
+// (see buildTimelineEvents above) and in the Recent Visits list below.
+type VisitOutcome = {
+  text: string;
+  satisfactionRating: number | null;
+  retailPurchased: string;
+  adverseReaction: boolean;
+  recordedAt: string;
+  recordedBy: string | null;
+};
+
+const VisitOutcomePanel = ({
+  appointment, tenantId, firestore, currentUser, onSaved,
+}: { appointment: any; tenantId: string; firestore: any; currentUser: any; onSaved?: () => void }) => {
+  const existing: VisitOutcome | undefined = appointment?.visitOutcome;
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(existing?.text || '');
+  const [rating, setRating] = useState<number | null>(existing?.satisfactionRating ?? null);
+  const [retail, setRetail] = useState(existing?.retailPurchased || '');
+  const [adverse, setAdverse] = useState(!!existing?.adverseReaction);
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  const handleSave = async () => {
+    if (!firestore || !tenantId || !appointment?.id) return;
+    setSaving(true);
+    try {
+      const outcome: VisitOutcome = {
+        text: text.trim(),
+        satisfactionRating: rating,
+        retailPurchased: retail.trim(),
+        adverseReaction: adverse,
+        recordedAt: new Date().toISOString(),
+        recordedBy: currentUser?.uid || null,
+      };
+      await updateDocumentNonBlocking(
+        doc(firestore, 'tenants', tenantId, 'appointments', appointment.id),
+        { visitOutcome: outcome },
+      );
+      toast({ title: 'Visit outcome saved' });
+      setEditing(false);
+      onSaved?.();
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save outcome' });
+    } finally { setSaving(false); }
+  };
+
+  if (existing && !editing) {
+    return (
+      <div className="rounded-2xl border-2 border-primary/10 bg-primary/[0.02] p-4 space-y-2.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <HeartPulse className="w-3.5 h-3.5 text-primary/50 shrink-0" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+              Visit outcome
+              {existing.recordedAt && ` · ${format(safeDate(existing.recordedAt), 'MMM d')}`}
+            </span>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => { setText(existing.text); setRating(existing.satisfactionRating); setRetail(existing.retailPurchased); setAdverse(existing.adverseReaction); setEditing(true); }}
+            className="h-6 px-2 text-[8px] font-black uppercase tracking-widest rounded-lg">
+            <Edit className="w-2.5 h-2.5 mr-1" /> Edit
+          </Button>
+        </div>
+        {existing.text && <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5">{existing.text}</p>}
+        <div className="flex flex-wrap items-center gap-3 pl-5">
+          {existing.satisfactionRating != null && (
+            <span className="flex items-center gap-0.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Star key={i} className={cn('w-3 h-3', i < (existing.satisfactionRating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground opacity-20')} />
+              ))}
+            </span>
+          )}
+          {existing.retailPurchased && (
+            <span className="text-[9px] font-bold text-green-700 uppercase flex items-center gap-1"><Gift className="w-2.5 h-2.5" /> {existing.retailPurchased}</span>
+          )}
+          {existing.adverseReaction && (
+            <span className="text-[9px] font-black text-destructive uppercase flex items-center gap-1"><AlertTriangle className="w-2.5 h-2.5" /> Adverse reaction noted</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-2.5 p-4 rounded-2xl border-2 border-primary/20 bg-primary/[0.02]">
+        <Textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          placeholder="What happened this visit — repairs made, length/shape change, product switch…"
+          className="min-h-[70px] rounded-xl text-[11px] resize-none"
+          autoFocus
+        />
+        <Input
+          value={retail}
+          onChange={e => setRetail(e.target.value)}
+          placeholder="Retail purchased (optional) — e.g. Cuticle Oil"
+          className="h-9 rounded-xl text-[11px]"
+        />
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-1">
+            <span className="text-[9px] font-black uppercase text-muted-foreground mr-1">Satisfaction</span>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <button key={i} type="button" onClick={() => setRating(i + 1)}>
+                <Star className={cn('w-4 h-4', i < (rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-muted-foreground opacity-20')} />
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setAdverse(v => !v)}
+            className={cn('flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border-2 text-[8px] font-black uppercase tracking-widest transition-all', adverse ? 'border-destructive bg-destructive/5 text-destructive' : 'border-muted text-muted-foreground')}
+          >
+            <AlertTriangle className="w-3 h-3" /> Adverse reaction
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={handleSave} disabled={saving}
+            className="h-8 flex-1 rounded-lg text-[9px] font-black uppercase tracking-widest">
+            {saving ? <Loader className="w-3 h-3 animate-spin" /> : 'Save Outcome'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setEditing(false)}
+            className="h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border-2">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={() => setEditing(true)}
+      className="w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
+      <HeartPulse className="w-3.5 h-3.5 text-primary/40" />
+      <span className="text-[10px] font-black uppercase tracking-widest text-primary/40">Record visit outcome</span>
+    </button>
   );
 };
 
@@ -1812,6 +1965,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
+        {/* ── Visit outcome (v2 — completed only) ─────────────────────────── */}
+        {isCompleted && (
+          <div className="space-y-2">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+              <HeartPulse className="w-3 h-3" /> Visit Outcome
+            </h3>
+            <VisitOutcomePanel
+              appointment={appointment} tenantId={tenantId!} firestore={firestore} currentUser={currentUser}
+            />
+          </div>
+        )}
+
         {/* ── Requirements & intake ───────────────────────────────────────── */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -2056,7 +2221,20 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                           {staffMember && ` · ${staffMember.name}`}
                         </p>
                       </div>
-                      <Badge className={cn('text-[7px] font-black uppercase border-none text-white shrink-0', a.status === 'cancelled' ? 'bg-destructive' : a.status === 'completed' ? 'bg-green-500' : 'bg-slate-400')}>{a.status}</Badge>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {/* v2 — quick satisfaction glance from visitOutcome, if recorded */}
+                        {a.visitOutcome?.satisfactionRating && (
+                          <span className="flex items-center gap-0.5" title="Satisfaction rating">
+                            {Array.from({ length: a.visitOutcome.satisfactionRating }).map((_, i) => (
+                              <Star key={i} className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+                            ))}
+                          </span>
+                        )}
+                        {a.visitOutcome?.adverseReaction && (
+                          <AlertTriangle className="w-2.5 h-2.5 text-destructive" title="Adverse reaction noted" />
+                        )}
+                        <Badge className={cn('text-[7px] font-black uppercase border-none text-white shrink-0', a.status === 'cancelled' ? 'bg-destructive' : a.status === 'completed' ? 'bg-green-500' : 'bg-slate-400')}>{a.status}</Badge>
+                      </div>
                     </div>
                   );
                 }) : isLoadingClientHistory ? (
