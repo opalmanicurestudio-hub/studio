@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  webpack: (config) => {
+    config.optimization.minimize = false;
+    return config;
+  },
   images: {
     remotePatterns: [
       {
@@ -30,11 +34,3 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'https',
-        hostname: 'api.qrserver.com',
-        port: '',
-        pathname: '/**',
-      },
-    ],
-  },
-};
-export default nextConfig;
