@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode, useCa
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useDoc } from '@/firebase/firestore/use-doc';
-import { collection, query, where, doc } from 'firebase/firestore';
+import { collection, query, where, doc, updateDoc } from 'firebase/firestore';
 import { type Tenant } from '@/lib/data';
 import type { User } from 'firebase/auth';
 
@@ -64,10 +64,9 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
       const activeTenant = tenants.find(t => t.id === storedTenantId) || tenants[0];
       setSelectedTenant(activeTenant);
       localStorage.setItem('selectedTenantId', activeTenant.id);
-      return; // ← owner resolved; never touch staff path
+      return;
     }
 
-    // Not an owner — wait for staff directory check to settle
     if (isStaffDirectoryLoading) return;
 
     if (staffTenant && staffDirectoryEntry) {
@@ -80,16 +79,22 @@ export const TenantProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [user, tenants, tenantsLoading, isOwner, isStaffDirectoryLoading, staffTenant, staffDirectoryEntry, isUserLoading]);
 
+  // ── Self-heal: ensure tenant doc has userId set ────────────────────────────
+  useEffect(() => {
+    if (!user || !firestore || !tenants || tenants.length === 0) return;
+    tenants.forEach(tenant => {
+      if (!tenant.userId) {
+        updateDoc(doc(firestore, 'tenants', tenant.id), { userId: user.uid })
+          .catch(() => {}); // silent — next render will pick it up
+      }
+    });
+  }, [user, firestore, tenants]);
+
   // ── isLoading ──────────────────────────────────────────────────────────────
-  // Fix: the old fourth condition `!!(isStaffDirectoryLoading && staffTenantLoading)`
-  // fired permanently for owners because useDoc(null) can return isLoading:true.
-  // Now we only count staff-tenant loading when we actually have a staffTenantId to fetch.
   const isLoading =
     isUserLoading ||
     tenantsLoading ||
-    // Non-owner waiting for staff directory lookup
     !!(user && !isOwner && isStaffDirectoryLoading) ||
-    // Staff user waiting for their tenant doc (only meaningful when we have an ID)
     !!(staffTenantId && staffTenantLoading);
 
   // ── Tenant switching (owners only) ─────────────────────────────────────────
