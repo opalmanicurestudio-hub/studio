@@ -4,27 +4,34 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
+    function tenantDoc(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId));
+    }
+    function staffDoc(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
+    }
+    function hasStaffDoc(tenantId) {
+      return exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid));
+    }
     function isOwner(tenantId) {
       return isSignedIn() && (
-        request.auth.uid == get(/databases/$(database)/documents/tenants/$(tenantId)).data.userId ||
-        exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid)).data.role == 'owner'
+        request.auth.uid == tenantDoc(tenantId).data.userId ||
+        (hasStaffDoc(tenantId) && staffDoc(tenantId).data.role == 'owner')
       );
     }
     function isStaff(tenantId) {
       return isSignedIn() && (
-        isOwner(tenantId) ||
-        exists(/databases/$(database)/documents/tenants/$(tenantId)/staff/$(request.auth.uid))
+        request.auth.uid == tenantDoc(tenantId).data.userId ||
+        hasStaffDoc(tenantId)
       );
     }
-    // --- Tenant Root ---
+
     match /tenants/{tenantId} {
       allow get: if true;
-      allow list: if isSignedIn();
-      allow create: if isSignedIn(); // ← ADDED: allows new users to create their tenant on signup
+      allow list: if false;
+      allow create: if isSignedIn();
       allow update: if isOwner(tenantId);
     }
-    // --- Public Whitelist for Portal/Check-in ---
     match /tenants/{tenantId}/services/{serviceId} {
       allow get, list: if true;
     }
@@ -39,25 +46,19 @@ service cloud.firestore {
       allow get, list: if true;
     }
     match /tenants/{tenantId}/inventory/{itemId} {
-      allow get, list: if true;
+      allow get, list: if isStaff(tenantId);
       allow write: if isStaff(tenantId);
     }
-    // --- Concierge Logic ---
-    match /tenants/{tenantId}/refreshmentRequests/{requestId} {
-      allow create: if true; 
-      allow get: if true;
-      allow list: if true;
-      allow update: if isStaff(tenantId);
+    match /tenants/{tenantId}/appointments/{appointmentId} {
+      allow read, write: if isStaff(tenantId);
     }
-    // --- Check-in & Public Tokens ---
-    match /appointmentCheckIns/{token} {
-      allow read, write: if true;
+    match /tenants/{tenantId}/clients/{clientId} {
+      allow create: if true;
+      allow read, write: if isStaff(tenantId);
+      match /signedConsents/{consentId} {
+        allow read, write: if isStaff(tenantId);
+      }
     }
-    // --- Booking completion link (PUBLIC) ---
-    // The completion page is unauthenticated: the client reads their token doc
-    // and creates a submission. Everything else stays staff-only. The appointment
-    // itself is NOT opened to the public — the Stripe webhook (Admin) copies the
-    // submitted forms/files onto the appointment server-side.
     match /tenants/{tenantId}/bookingCompletions/{token} {
       allow get: if true;
       allow list, write: if isStaff(tenantId);
@@ -66,32 +67,23 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isStaff(tenantId);
     }
-    // --- Public booking page (PUBLIC) ---
-    // A guest booking online via /book/{tenantId} is never signed in. They need
-    // to create a pending bookingRequest while they pay their deposit via Stripe
-    // Embedded Checkout. The connect-webhook (Admin SDK, bypasses these rules)
-    // converts the bookingRequest into a real appointment once payment succeeds.
-    // Guests never need to read, list, or modify bookingRequests — only staff do.
     match /tenants/{tenantId}/bookingRequests/{requestId} {
       allow create: if true;
-      allow get, list, update, delete: if isStaff(tenantId);
+      allow read, update, delete: if isStaff(tenantId);
+    }
+    match /tenants/{tenantId}/refreshmentRequests/{requestId} {
+      allow read, create: if true;
+      allow update: if isStaff(tenantId);
     }
     match /tenants/{tenantId}/notifications/{notificationId} {
-      allow create: if true; 
-      allow get, list, update, delete: if isStaff(tenantId);
-    }
-    match /tenants/{tenantId}/appointments/{appointmentId} {
-      allow get: if true;
-      allow list, write: if isStaff(tenantId);
-    }
-    match /tenants/{tenantId}/clients/{clientId} {
-      allow get: if true;
       allow create: if true;
-      allow list, write: if isStaff(tenantId);
+      allow read, update, delete: if isStaff(tenantId);
     }
-    // --- Master Admin Access ---
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId);
+    }
+    match /appointmentCheckIns/{token} {
+      allow read, write: if true;
     }
     match /users/{userId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
