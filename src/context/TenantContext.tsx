@@ -10,121 +10,142 @@ import type { User } from 'firebase/auth';
 type UserRole = 'owner' | 'admin' | 'staff' | null;
 
 interface TenantContextType {
-  tenants: Tenant[];
-  selectedTenant: Tenant | null;
-  setSelectedTenant: (tenant: Tenant) => void;
-  isLoading: boolean;
-  role: UserRole;
-  user: User | null;
+ tenants: Tenant[];
+ selectedTenant: Tenant | null;
+ setSelectedTenant: (tenant: Tenant) => void;
+ isLoading: boolean;
+ role: UserRole;
+ user: User | null;
 }
 
 const TenantContext = createContext<TenantContextType | undefined>(undefined);
 
 export const TenantProvider = ({ children }: { children: ReactNode }) => {
-  const { user, isUserLoading } = useFirebase();
-  const firestore = useFirebase().firestore;
-  const [role, setRole] = useState<UserRole>(null);
+ const { user, isUserLoading } = useFirebase();
+ const firestore = useFirebase().firestore;
+ const [role, setRole] = useState<UserRole>(null);
 
-  // ── Owner path ─────────────────────────────────────────────────────────────
-  const ownerTenantQuery = useMemoFirebase(() => {
-    if (!user || !firestore) return null;
-    return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
-  }, [user, firestore]);
+ // ── Owner path ─────────────────────────────────────────────────────────────
+ const ownerTenantQuery = useMemoFirebase(() => {
+   if (!user || !firestore) return null;
+   return query(collection(firestore, 'tenants'), where('userId', '==', user.uid));
+ }, [user, firestore]);
 
-  const { data: tenants, isLoading: tenantsLoading } = useCollection<Tenant>(ownerTenantQuery);
+ const { data: tenants, isLoading: tenantsLoading } = useCollection<Tenant>(ownerTenantQuery);
 
-  const isOwner = !!(tenants && tenants.length > 0);
+ // ── Fallback: find tenant by stored ID if userId query returns empty ────────
+ const storedTenantId = typeof window !== 'undefined'
+   ? localStorage.getItem('selectedTenantId')
+   : null;
 
-  // ── Staff path — only runs when user has no owned tenants ──────────────────
-  const staffDirectoryEntryRef = useMemoFirebase(() => {
-    if (!user || !firestore || isOwner) return null;
-    return doc(firestore, 'staffDirectory', user.uid);
-  }, [user, firestore, isOwner]);
+ const fallbackTenantRef = useMemoFirebase(() => {
+   if (!firestore || !storedTenantId || (tenants && tenants.length > 0)) return null;
+   return doc(firestore, 'tenants', storedTenantId);
+ }, [firestore, storedTenantId, tenants]);
 
-  const { data: staffDirectoryEntry, isLoading: isStaffDirectoryLoading } = useDoc(staffDirectoryEntryRef);
+ const { data: fallbackTenant, isLoading: fallbackLoading } = useDoc<Tenant>(fallbackTenantRef);
 
-  const staffTenantId = staffDirectoryEntry?.tenantId as string | undefined;
+ // Merge: prefer userId-matched tenants, fall back to stored ID match
+ const allTenants = (tenants && tenants.length > 0)
+   ? tenants
+   : fallbackTenant ? [fallbackTenant] : [];
 
-  const staffTenantRef = useMemoFirebase(() => {
-    if (!firestore || !staffTenantId) return null;
-    return doc(firestore, 'tenants', staffTenantId);
-  }, [firestore, staffTenantId]);
+ const isOwner = allTenants.length > 0;
 
-  const { data: staffTenant, isLoading: staffTenantLoading } = useDoc<Tenant>(staffTenantRef);
+ // ── Staff path — only runs when user has no owned tenants ──────────────────
+ const staffDirectoryEntryRef = useMemoFirebase(() => {
+   if (!user || !firestore || isOwner) return null;
+   return doc(firestore, 'staffDirectory', user.uid);
+ }, [user, firestore, isOwner]);
 
-  // ── Selected tenant ────────────────────────────────────────────────────────
-  const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
+ const { data: staffDirectoryEntry, isLoading: isStaffDirectoryLoading } = useDoc(staffDirectoryEntryRef);
 
-  useEffect(() => {
-    if (isUserLoading || tenantsLoading) return;
+ const staffTenantId = staffDirectoryEntry?.tenantId as string | undefined;
 
-    if (isOwner && tenants) {
-      setRole('owner');
-      const storedTenantId = localStorage.getItem('selectedTenantId');
-      const activeTenant = tenants.find(t => t.id === storedTenantId) || tenants[0];
-      setSelectedTenant(activeTenant);
-      localStorage.setItem('selectedTenantId', activeTenant.id);
-      return;
-    }
+ const staffTenantRef = useMemoFirebase(() => {
+   if (!firestore || !staffTenantId) return null;
+   return doc(firestore, 'tenants', staffTenantId);
+ }, [firestore, staffTenantId]);
 
-    if (isStaffDirectoryLoading) return;
+ const { data: staffTenant, isLoading: staffTenantLoading } = useDoc<Tenant>(staffTenantRef);
 
-    if (staffTenant && staffDirectoryEntry) {
-      setRole((staffDirectoryEntry as any).role || 'staff');
-      setSelectedTenant(staffTenant);
-      localStorage.setItem('selectedTenantId', staffTenant.id);
-    } else {
-      setRole(null);
-      setSelectedTenant(null);
-    }
-  }, [user, tenants, tenantsLoading, isOwner, isStaffDirectoryLoading, staffTenant, staffDirectoryEntry, isUserLoading]);
+ // ── Selected tenant ────────────────────────────────────────────────────────
+ const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
 
-  // ── Self-heal: ensure tenant doc has userId set ────────────────────────────
-  useEffect(() => {
-    if (!user || !firestore || !tenants || tenants.length === 0) return;
-    tenants.forEach(tenant => {
-      if (!tenant.userId) {
-        updateDoc(doc(firestore, 'tenants', tenant.id), { userId: user.uid })
-          .catch(() => {}); // silent — next render will pick it up
-      }
-    });
-  }, [user, firestore, tenants]);
+ useEffect(() => {
+   if (isUserLoading || tenantsLoading || fallbackLoading) return;
 
-  // ── isLoading ──────────────────────────────────────────────────────────────
-  const isLoading =
-    isUserLoading ||
-    tenantsLoading ||
-    !!(user && !isOwner && isStaffDirectoryLoading) ||
-    !!(staffTenantId && staffTenantLoading);
+   if (isOwner && allTenants.length > 0) {
+     setRole('owner');
+     const stored = localStorage.getItem('selectedTenantId');
+     const activeTenant = allTenants.find(t => t.id === stored) || allTenants[0];
+     setSelectedTenant(activeTenant);
+     localStorage.setItem('selectedTenantId', activeTenant.id);
+     return;
+   }
 
-  // ── Tenant switching (owners only) ─────────────────────────────────────────
-  const handleSetSelectedTenant = useCallback((tenant: Tenant) => {
-    if (role === 'owner') {
-      setSelectedTenant(tenant);
-      localStorage.setItem('selectedTenantId', tenant.id);
-    }
-  }, [role]);
+   if (isStaffDirectoryLoading) return;
 
-  const value: TenantContextType = {
-    tenants: tenants || [],
-    selectedTenant,
-    setSelectedTenant: handleSetSelectedTenant,
-    isLoading,
-    role,
-    user,
-  };
+   if (staffTenant && staffDirectoryEntry) {
+     setRole((staffDirectoryEntry as any).role || 'staff');
+     setSelectedTenant(staffTenant);
+     localStorage.setItem('selectedTenantId', staffTenant.id);
+   } else {
+     setRole(null);
+     setSelectedTenant(null);
+   }
+ }, [
+   user, allTenants, tenantsLoading, fallbackLoading, isOwner,
+   isStaffDirectoryLoading, staffTenant, staffDirectoryEntry, isUserLoading,
+ ]);
 
-  return (
-    <TenantContext.Provider value={value}>
-      {children}
-    </TenantContext.Provider>
-  );
+ // ── Self-heal: ensure tenant doc has userId set ────────────────────────────
+ useEffect(() => {
+   if (!user || !firestore || !allTenants.length) return;
+   allTenants.forEach(tenant => {
+     if (!tenant.userId) {
+       updateDoc(doc(firestore, 'tenants', tenant.id), { userId: user.uid })
+         .catch(() => {});
+     }
+   });
+ }, [user, firestore, allTenants]);
+
+ // ── isLoading ──────────────────────────────────────────────────────────────
+ const isLoading =
+   isUserLoading ||
+   tenantsLoading ||
+   fallbackLoading ||
+   !!(user && !isOwner && isStaffDirectoryLoading) ||
+   !!(staffTenantId && staffTenantLoading);
+
+ // ── Tenant switching (owners only) ─────────────────────────────────────────
+ const handleSetSelectedTenant = useCallback((tenant: Tenant) => {
+   if (role === 'owner') {
+     setSelectedTenant(tenant);
+     localStorage.setItem('selectedTenantId', tenant.id);
+   }
+ }, [role]);
+
+ const value: TenantContextType = {
+   tenants: allTenants,
+   selectedTenant,
+   setSelectedTenant: handleSetSelectedTenant,
+   isLoading,
+   role,
+   user,
+ };
+
+ return (
+   <TenantContext.Provider value={value}>
+     {children}
+   </TenantContext.Provider>
+ );
 };
 
 export const useTenant = () => {
-  const context = useContext(TenantContext);
-  if (context === undefined) {
-    throw new Error('useTenant must be used within a TenantProvider');
-  }
-  return context;
+ const context = useContext(TenantContext);
+ if (context === undefined) {
+   throw new Error('useTenant must be used within a TenantProvider');
+ }
+ return context;
 };
