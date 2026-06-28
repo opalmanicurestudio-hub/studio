@@ -45,8 +45,9 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
 
   const expiredItems = useMemo(() => {
     const items: SpoilageItem[] = [];
-    inventory.forEach(product => {
-      product.batches.forEach(batch => {
+    // FIX: guard both inventory and product.batches
+    (inventory ?? []).forEach(product => {
+      (product.batches ?? []).forEach(batch => {
         if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
           items.push({ productId: product.id, productName: product.name, batchId: batch.id, stock: batch.stock, costPerUnit: batch.costPerUnit, expirationDate: batch.expirationDate });
         }
@@ -94,7 +95,7 @@ export const ManageSpoilageDialog: React.FC<ManageSpoilageDialogProps> = ({
         <div className="p-6 md:p-8 space-y-3 pb-10">
           {expiredItems.length > 0 ? expiredItems.map(item => {
             const isSelected = selectedSpoilage.has(item.batchId);
-            const productImage = inventory.find(p => p.id === item.productId)?.imageUrl;
+            const productImage = (inventory ?? []).find(p => p.id === item.productId)?.imageUrl;
             return (
               <div
                 key={item.batchId}
