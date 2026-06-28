@@ -102,8 +102,9 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: {
   order: Order; onSelect: (o: Order) => void;
   onTrack: (e: React.MouseEvent, url?: string) => void; onReceive: (o: Order) => void;
 }) => {
-  const totalCost  = order.items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
-  const totalItems = order.items.reduce((a, i) => a + i.quantity, 0);
+  const items = order.items ?? [];
+  const totalCost  = items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
+  const totalItems = items.reduce((a, i) => a + i.quantity, 0);
   const canReceive = order.status === 'Placed' || order.status === 'Shipped' || order.status === 'Partially Received';
   return (
     <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white cursor-pointer hover:shadow-md hover:border-primary/20 transition-all group" onClick={() => onSelect(order)}>
@@ -116,8 +117,8 @@ const OrderCard = ({ order, onSelect, onTrack, onReceive }: {
           <Badge variant="outline" className={cn('h-6 px-3 font-black text-[9px] uppercase tracking-widest border-2 shrink-0', ORDER_STATUS_STYLES[order.status] ?? ORDER_STATUS_STYLES['Draft'])}>{order.status}</Badge>
         </div>
         <div className="space-y-1 text-left">
-          {order.items.slice(0, 2).map((item, i) => (<p key={i} className="text-[10px] font-bold text-muted-foreground truncate">· {item.productName} x{item.quantity}</p>))}
-          {order.items.length > 2 && <p className="text-[10px] font-black text-primary">+{order.items.length - 2} more items</p>}
+          {items.slice(0, 2).map((item, i) => (<p key={i} className="text-[10px] font-bold text-muted-foreground truncate">· {item.productName} x{item.quantity}</p>))}
+          {items.length > 2 && <p className="text-[10px] font-black text-primary">+{items.length - 2} more items</p>}
         </div>
         <div className="flex items-center justify-between pt-3 border-t border-dashed">
           <div className="text-left space-y-0.5">
@@ -156,7 +157,8 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
     if (order) { setNotes(order.notes || ''); setTrackingNumber(order.trackingNumber || ''); setTrackingUrl(order.trackingUrl || ''); setExpectedDate(order.expectedArrivalDate || ''); setIsEditing(false); }
   }, [order]);
   if (!order) return null;
-  const totalCost = order.items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
+  const items = order.items ?? [];
+  const totalCost = items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
   const canCancel = order.status !== 'Cancelled' && order.status !== 'Received';
   const handleSave = () => { onSave({ ...order, notes, trackingNumber, trackingUrl, expectedArrivalDate: expectedDate }); setIsEditing(false); };
   return (
@@ -184,7 +186,7 @@ const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrde
                     <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right pr-4">Cost</TableHead>
                   </TableRow></TableHeader>
                   <TableBody>
-                    {order.items.map((item, i) => (
+                    {items.map((item, i) => (
                       <TableRow key={i}>
                         <TableCell className="p-4 font-bold text-sm text-slate-900">{item.productName}</TableCell>
                         <TableCell className="text-right font-black font-mono">{item.quantity}</TableCell>
@@ -296,7 +298,8 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     if (!firestore || !tenantId) return;
     const orderId = nanoid();
     const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
-    newOrderData.items.forEach(item => {
+    // Guard: ensure items exists before iterating
+    (newOrderData.items ?? []).forEach(item => {
       if (item.productId.startsWith('custom-')) {
         const newProductId = nanoid();
         const shell: InventoryItem = { id: newProductId, name: item.productName, type: 'professional', category: 'Uncategorized', totalStock: 0, supplier: newOrderData.supplier, costPerUnit: item.costPerUnit, batches: [] };
@@ -328,7 +331,8 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     if (!firestore || !orderToCancel || !tenantId) return;
     const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${orderToCancel.notes || ''}`;
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id), { status: 'Cancelled', notes: newNotes });
-    const totalCost = orderToCancel.items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
+    // Guard: ensure items exists before reducing
+    const totalCost = (orderToCancel.items ?? []).reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
     if (totalCost > 0) {
       addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'transactions'), { description: `Reversal for Order: ${orderToCancel.supplier}`, clientOrVendor: orderToCancel.supplier, type: 'reversal', context: orderToCancel.paymentContext || 'Business', category: 'Supplies', amount: totalCost, paymentMethod: 'On Account', hasReceipt: !!orderToCancel.invoiceUrl, receiptUrl: orderToCancel.invoiceUrl, relatedOrderId: orderToCancel.id, date: new Date().toISOString() });
     }
@@ -340,7 +344,9 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
     if (!orders) return [];
     return orders.filter(order => {
       const sl = searchTerm.toLowerCase();
-      const m = searchTerm === '' || order.supplier.toLowerCase().includes(sl) || order.id.toLowerCase().includes(sl) || order.items.some(i => i.productName.toLowerCase().includes(sl));
+      // Guard: ensure items exists before calling .some()
+      const orderItems = order.items ?? [];
+      const m = searchTerm === '' || order.supplier.toLowerCase().includes(sl) || order.id.toLowerCase().includes(sl) || orderItems.some(i => i.productName.toLowerCase().includes(sl));
       return m && (statusFilter === 'all' || order.status === statusFilter);
     }).sort((a, b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
   }, [orders, searchTerm, statusFilter]);
@@ -354,14 +360,16 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
   const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
     if (!firestore || !orderToReceive || !tenantId) return;
     const batch = writeBatch(firestore);
-    receivedItems.forEach(item => {
+    // Guard: ensure receivedItems is an array
+    (receivedItems ?? []).forEach(item => {
       const existing = inventory.find(p => p.id === item.productId);
       if (existing) {
         const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
         if (item.quantityReceived > 0) {
           const nb: any = { id: `batch-${nanoid()}`, stock: item.quantityReceived, costPerUnit: item.costPerUnit, receivedDate: new Date().toISOString() };
           if (item.expirationDate) nb.expirationDate = item.expirationDate.toISOString();
-          const ub = [...existing.batches, nb];
+          // Guard: ensure existing.batches is an array
+          const ub = [...(existing.batches ?? []), nb];
           batch.update(productRef, JSON.parse(JSON.stringify({ batches: ub, totalStock: ub.reduce((a, b) => a + b.stock, 0), costPerUnit: item.costPerUnit })));
           batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.productId, date: new Date().toISOString(), change: item.quantityReceived, unit: existing.unit || 'units', reason: `Shipment from ${orderToReceive.supplier}` });
         }
@@ -370,8 +378,10 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         }
       }
     });
-    const allReceived = receivedItems.every(i => i.quantityReceived + i.quantityDamaged >= i.quantityOrdered);
-    const someReceived = receivedItems.some(i => i.quantityReceived > 0 || i.quantityDamaged > 0);
+    // Guard: ensure receivedItems is an array for every/some checks
+    const safeReceivedItems = receivedItems ?? [];
+    const allReceived = safeReceivedItems.every(i => i.quantityReceived + i.quantityDamaged >= i.quantityOrdered);
+    const someReceived = safeReceivedItems.some(i => i.quantityReceived > 0 || i.quantityDamaged > 0);
     const newStatus = allReceived ? 'Received' : someReceived ? 'Partially Received' : orderToReceive.status;
     if (newStatus !== orderToReceive.status) batch.update(doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id), JSON.parse(JSON.stringify({ status: newStatus })));
     batch.commit().then(() => { toast({ title: "Stock Updated!" }); setOrderToReceive(null); }).catch(e => { console.error(e); toast({ variant: "destructive", title: "Error", description: "Failed to update stock." }); });
@@ -453,12 +463,28 @@ export default function InventoryPage() {
   const ITEMS_PER_PAGE = 8;
   const [productCategories, setProductCategories] = useState<string[]>([]);
 
-  useEffect(() => { if (inventory) { const c = inventory.map(p => p.category).filter((c): c is string => !!c); setProductCategories([...new Set(c)]); } }, [inventory]);
+  useEffect(() => {
+    if (inventory) {
+      // Guard: filter out undefined categories safely
+      const c = inventory.map(p => p.category).filter((c): c is string => !!c);
+      setProductCategories([...new Set(c)]);
+    }
+  }, [inventory]);
+
   const onNewCategory = useCallback((n: string) => { if (!productCategories.includes(n)) setProductCategories(prev => [...prev, n].sort()); }, [productCategories]);
 
   const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
   const { data: orders } = useCollection<Order>(ordersQuery);
-  const orderedProductIds = useMemo(() => { if (!orders) return new Set(); const ids = new Set<string>(); orders.filter(o => o.status === 'Placed' || o.status === 'Shipped').forEach(o => o.items.forEach(i => ids.add(i.productId))); return ids; }, [orders]);
+
+  // KEY FIX: guard o.items with ?? [] so malformed/partial Firestore docs don't crash the memo
+  const orderedProductIds = useMemo(() => {
+    if (!orders) return new Set<string>();
+    const ids = new Set<string>();
+    orders
+      .filter(o => o.status === 'Placed' || o.status === 'Shipped')
+      .forEach(o => (o.items ?? []).forEach(i => ids.add(i.productId)));
+    return ids;
+  }, [orders]);
 
   const handleEditItem = (item: InventoryItem) => { setEditingItem(item); setIsEditDialogOpen(true); };
   const handleUpdateItem = (updatedItem: InventoryItem) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id), updatedItem); toast({ title: "Item Updated", description: `${updatedItem.name} has been successfully updated.` }); setIsEditDialogOpen(false); };
@@ -485,12 +511,14 @@ export default function InventoryPage() {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
-    const batchIdx = product.batches.findIndex(b => b.id === batchId);
+    // Guard: ensure batches is an array
+    const batches = product.batches ?? [];
+    const batchIdx = batches.findIndex(b => b.id === batchId);
     if (batchIdx === -1) return { success: false, message: 'Batch not found.' };
-    const b = product.batches[batchIdx];
+    const b = batches[batchIdx];
     if (b.stock < quantity) return { success: false, message: `Cannot write off more than available stock (${b.stock}).` };
     const lossAmount = quantity * b.costPerUnit;
-    const updatedBatches = [...product.batches]; updatedBatches[batchIdx] = { ...b, stock: b.stock - quantity };
+    const updatedBatches = [...batches]; updatedBatches[batchIdx] = { ...b, stock: b.stock - quantity };
     const newTotalStock = updatedBatches.reduce((a, b) => a + b.stock, 0);
     const updatedData: Partial<InventoryItem> = { batches: updatedBatches, totalStock: newTotalStock };
     if (newTotalStock === 0) { updatedData.partialContainerUses = 0; updatedData.partialContainerSize = 0; }
@@ -535,7 +563,8 @@ export default function InventoryPage() {
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
     if (product.totalStock < quantity) return { success: false, message: `Not enough stock. Only ${product.totalStock} available.` };
-    const sorted = [...product.batches].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+    // Guard: ensure batches is an array before spreading/sorting
+    const sorted = [...(product.batches ?? [])].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
     let rem = quantity;
     for (const batch of sorted) { if (rem <= 0) break; const d = Math.min(batch.stock, rem); batch.stock -= d; rem -= d; }
     const newStock = sorted.reduce((a, b) => a + b.stock, 0);
@@ -550,10 +579,12 @@ export default function InventoryPage() {
   const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
     if (!firestore || !tenantId || !inventory) return;
     const batch = writeBatch(firestore); let totalLoss = 0;
-    items.forEach(item => {
+    // Guard: ensure items is an array
+    (items ?? []).forEach(item => {
       const product = inventory.find(p => p.id === item.productId);
       if (product) {
-        const ub = product.batches.map(b => { if (b.id === item.batchId) { totalLoss += item.stock * item.costPerUnit; return { ...b, stock: 0 }; } return b; });
+        // Guard: ensure product.batches is an array
+        const ub = (product.batches ?? []).map(b => { if (b.id === item.batchId) { totalLoss += item.stock * item.costPerUnit; return { ...b, stock: 0 }; } return b; });
         const newStock = ub.reduce((a, b) => a + b.stock, 0);
         const up: Partial<InventoryItem> = { batches: ub, totalStock: newStock };
         if (newStock === 0) { up.partialContainerUses = 0; up.partialContainerSize = 0; }
@@ -561,8 +592,8 @@ export default function InventoryPage() {
         batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.productId, date: new Date().toISOString(), change: -item.stock, unit: product.unit || 'units', reason: 'Spoilage - Expired' });
       }
     });
-    if (totalLoss > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), JSON.parse(JSON.stringify({ date: new Date().toISOString(), description: `Spoilage Write-off: ${items.length} batch(es)`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Spoilage', amount: totalLoss, paymentMethod: 'Internal', hasReceipt: !!imageUrl, receiptUrl: imageUrl, notes })));
-    batch.commit().then(() => toast({ title: "Spoilage Written Off", description: `${items.length} item(s) written off. Total loss: $${totalLoss.toFixed(2)}.` })).catch(e => { console.error(e); toast({ variant: "destructive", title: "Error", description: "Failed to write off spoilage." }); });
+    if (totalLoss > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), JSON.parse(JSON.stringify({ date: new Date().toISOString(), description: `Spoilage Write-off: ${(items ?? []).length} batch(es)`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Spoilage', amount: totalLoss, paymentMethod: 'Internal', hasReceipt: !!imageUrl, receiptUrl: imageUrl, notes })));
+    batch.commit().then(() => toast({ title: "Spoilage Written Off", description: `${(items ?? []).length} item(s) written off. Total loss: $${totalLoss.toFixed(2)}.` })).catch(e => { console.error(e); toast({ variant: "destructive", title: "Error", description: "Failed to write off spoilage." }); });
   };
 
   const handleToggleExperiment = (item: InventoryItem) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { isExperimentActive: true, experimentUses: 0 }); toast({ title: "Experiment Started!", description: `You are now tracking the cost-per-use for ${item.name}.` }); };
@@ -573,7 +604,16 @@ export default function InventoryPage() {
     if (!inventory) return [];
     let items = inventory.filter(item => showArchived ? item.status === 'archived' : item.status !== 'archived');
     if (activeFilter !== 'all') items = items.filter(item => item.type === activeFilter);
-    if (searchTerm) { const lc = searchTerm.toLowerCase(); items = items.filter(item => item.name.toLowerCase().includes(lc) || item.id.toLowerCase().includes(lc) || item.id.toUpperCase().endsWith(searchTerm.toUpperCase()) || item.sku?.toLowerCase().includes(lc)); }
+    if (searchTerm) {
+      const lc = searchTerm.toLowerCase();
+      items = items.filter(item =>
+        item.name.toLowerCase().includes(lc) ||
+        item.id.toLowerCase().includes(lc) ||
+        item.id.toUpperCase().endsWith(searchTerm.toUpperCase()) ||
+        // Guard: sku may be undefined
+        (item.sku?.toLowerCase().includes(lc) ?? false)
+      );
+    }
     return items;
   }, [inventory, activeFilter, searchTerm, showArchived]);
 
@@ -621,7 +661,6 @@ export default function InventoryPage() {
             <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
               <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
             </Button>
-
           </div>
         </div>
 
@@ -702,8 +741,6 @@ export default function InventoryPage() {
           </div>
         </div>
       </main>
-
-
 
       <AddProductDialog open={isAddProductDialogOpen} onOpenChange={setIsAddProductDialogOpen} initialType={addProductDialogType} categories={productCategories} onNewCategory={onNewCategory} onProductAdded={handleProductAdded} locations={locations || []} onAddLocationClick={handleOpenAddLocation} />
       <AddEquipmentDialog open={isAddEquipmentDialogOpen} onOpenChange={setIsAddEquipmentDialogOpen} onEquipmentAdded={handleEquipmentAdded} equipmentCategories={productCategories} onNewCategory={onNewCategory} locations={locations || []} />
