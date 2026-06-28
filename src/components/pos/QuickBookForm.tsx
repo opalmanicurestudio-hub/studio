@@ -1,9 +1,46 @@
 'use client';
 
 /**
- * QuickBookForm — v2
+ * QuickBookForm — v3
  *
- * Bug fixes from v1:
+ * v3 — call-in workflow upgrade:
+ *   - BUG FIX: paying down a client's outstanding balance via handleChargeArrears
+ *     previously only set local state (`arrearsResolved`). The client's
+ *     `outstandingBalance` field in Firestore was never updated, so the balance
+ *     kept showing as owed on every subsequent call or visit. Now writes
+ *     outstandingBalance: 0 back to the client doc (merge) the moment the
+ *     charge succeeds, and updates local `selectedClient` state to match.
+ *   - NEW: comprehensive, always-expanded ClientDetailPanel shown the instant a
+ *     client is selected in step 2 — total visits, last visit, avg spend,
+ *     lifetime value, preferred provider/service, upcoming appointments,
+ *     packages, patch test + consent form status, notes, and full visit
+ *     history. Designed so front desk can answer almost any caller question
+ *     without leaving the booking flow or clicking to "open" anything.
+ *   - NEW: "Pending call-backs" workflow. If a call-in booking gets
+ *     interrupted, staff can tap "Call back later" at any step to save the
+ *     entire in-progress booking (client, service, time, notes, everything)
+ *     as a draft in `tenants/{tenantId}/callBackDrafts`. Any staff member can
+ *     see the pending list at step 1 and resume exactly where the call left
+ *     off. The draft is automatically cleared once that booking completes.
+ *   - NEW: persistent "live call" bar across all steps showing who's on the
+ *     phone, what's being booked, and the running total, plus the call-back
+ *     button — so nothing gets lost mid-call.
+ *
+ * Earlier (v2) fix carried forward:
+ *   - staffDateLoad useMemo crashed with "a.startsWith is not a function" when
+ *     any appointment had a non-string `startTime`. Now guards with
+ *     `typeof a.startTime === 'string'` before calling .startsWith().
+ *
+ * NOTE FOR DEPLOYMENT: the new callBackDrafts collection needs Firestore
+ * security rules added — staff need read/write on
+ * `tenants/{tenantId}/callBackDrafts/{draftId}` the same way they already
+ * have it for `appointments` and `clients`, or this will throw the same kind
+ * of "Missing or insufficient permissions" error you saw on the appointments
+ * list query.
+ *
+ * All v1/v2 features retained — see prior revision notes below.
+ *
+ * v2 — bug fixes from v1:
  *   - New client doc no longer double-written on charge path (mini-batch removed;
  *     client is committed inside a single pre-charge batch, appointment follows)
  *   - Group guest clientId now uses a real generated id, not the appointment id
@@ -15,44 +52,25 @@
  *   - Add-on pricing resolves staff correctly when selectedStaff === 'any'
  *   - Changing client now clears all step-2 state (addOnIds, aptTime, groupGuests, etc.)
  *
- * New features in v2:
- *   - Blocked client gate: clients with status === 'blocked' cannot be booked
- *   - Duplicate client detection: phone/email match warning when creating new client
- *   - Outstanding balance surfaced at step 1 as an interstitial before step 2
- *   - Patch test / allergy alert shown when selecting a client
- *   - Service eligibility filtering: services flagged as requiring patch test are
- *     hidden or warned against if the client's patch test is missing/expired
- *   - Duration override: +15/+30/+45 stepper on the selected service
- *   - Staff chips show date-level availability (booked-out vs. available)
- *   - Waitlist path when no slots are available
- *   - Add-on compatibility: incompatibleWith array on service definition respected
- *   - Promo / discount code entry in step 3, adjusts deposit in real time
- *   - Charge confirmation guard: two-tap confirm before Stripe charge fires
- *   - Reminder timing override per booking (same-day = 1h, default = 48h)
- *   - Notes split: client-visible vs. internal staff-only notes
- *   - Consent form status: shows which forms are signed / expired vs. pending
- *   - Success screen parity: charge-only path shows a full summary screen
- *   - Completion link expiry reads from tenant.completionLinkExpiryDays
- *   - Concurrency guard: Firestore transaction on slot commit
+ * v2 — features:
+ *   - Blocked client gate, duplicate client detection, outstanding balance
+ *     interstitial, patch test / allergy alert, service eligibility filtering,
+ *     duration override stepper, staff date-load chips, waitlist path,
+ *     add-on compatibility, promo codes, charge confirmation guard, reminder
+ *     timing override, client-visible vs internal notes, consent form status,
+ *     success screen parity, completion link expiry, slot concurrency guard.
  *
  * All existing features retained:
  *   - ClientIntelligencePanel, SmartAvailabilityGrid, GroupBookingPanel,
  *     MultiProviderPanel, package redemption, charge card on file, arrears banner,
  *     multi-provider legs, add-on upsell
- *
- * v2.1 — bugfix:
- *   - staffDateLoad useMemo crashed with "a.startsWith is not a function" when any
- *     appointment in the `appointments` prop had a non-string `startTime` (e.g. an
- *     un-normalized Firestore Timestamp). Optional chaining (`a.startTime?.startsWith`)
- *     only guards against null/undefined, not wrong-type values. Now explicitly checks
- *     `typeof a.startTime === 'string'` before calling .startsWith().
  */
 
 import React from 'react';
-import { format, addMinutes, differenceInMonths } from 'date-fns';
+import { format, addMinutes, differenceInMonths, formatDistanceToNow } from 'date-fns';
 import {
   doc, writeBatch, collection, runTransaction, query,
-  where, getDocs,
+  where, getDocs, onSnapshot, deleteDoc, setDoc,
 } from 'firebase/firestore';
 import { getServicePrice } from '@/lib/data';
 import { computeDepositCents } from '@/lib/deposit-policy';
@@ -66,7 +84,9 @@ import {
   CheckCircle2, ShieldCheck, Sparkles, Loader, Copy, Link2,
   Users, Package, CreditCard, AlertTriangle, Wallet, UserCog,
   Clock, FlaskConical, Ban, AlertCircle, Tag, MessageSquare,
-  FileText, Minus, Plus, CalendarOff,
+  FileText, Minus, Plus, CalendarOff, PhoneIncoming, Save,
+  History, Star, CalendarCheck, StickyNote, ChevronDown,
+  ChevronUp, Trash2,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -90,6 +110,17 @@ const sanitizeForFirestore = (obj: any): any => {
       .filter(([_, v]) => v !== undefined)
       .map(([k, v]) => [k, sanitizeForFirestore(v)]),
   );
+};
+
+// Defensive relative-time formatter — never let a malformed date string crash
+// the pending call-backs list the way the startsWith bug crashed the form.
+const safeRelativeTime = (iso?: string): string => {
+  if (!iso) return '';
+  try {
+    return formatDistanceToNow(new Date(iso), { addSuffix: true });
+  } catch {
+    return '';
+  }
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -144,6 +175,23 @@ type BookingSuccess = {
   isMultiProvider: boolean;
   legCount: number;
   ledgerError: boolean;
+};
+
+// A saved, in-progress call-in booking that can be resumed by any staff member.
+type CallBackDraft = {
+  id: string;
+  tenantId: string;
+  createdAt: string;
+  updatedAt: string;
+  createdByStaffId: string | null;
+  callerName: string;
+  callerPhone: string;
+  clientId: string | null;
+  clientName: string;
+  note: string;
+  step: 1 | 2 | 3;
+  snapshot: any;
+  status: 'pending' | 'resolved';
 };
 
 // ── Step indicator ────────────────────────────────────────────────────────────
@@ -300,6 +348,267 @@ function ArrearsBanner({
           No usable card on file — use "Book anyway" or collect by another method first.
         </p>
       )}
+    </div>
+  );
+}
+
+// ── Client detail panel ────────────────────────────────────────────────────────
+// Always-expanded, comprehensive client profile shown the instant a client is
+// selected. Built so a staff member on the phone can answer almost any caller
+// question (when was I last in? do I have sessions left? who do I usually see?
+// do I owe anything?) without clicking to open or expand anything.
+function ClientDetailPanel({
+  client,
+  appointments,
+  services,
+  staff,
+  outstandingBalance,
+  patchTestDate,
+  patchTestExpired,
+  selectedSvcRequiresPatchTest,
+  formStatuses,
+  activePackages,
+  onChangeClient,
+}: {
+  client: any;
+  appointments: any[];
+  services: any[];
+  staff: any[];
+  outstandingBalance: number;
+  patchTestDate: Date | null;
+  patchTestExpired: boolean;
+  selectedSvcRequiresPatchTest: boolean;
+  formStatuses: { id: string; signed: boolean; expiredSig: boolean; signedAt: Date | null }[];
+  activePackages: any[];
+  onChangeClient: () => void;
+}) {
+  const [historyExpanded, setHistoryExpanded] = React.useState(false);
+
+  // Defensive: only trust startTime values that are actually strings, same
+  // guard as staffDateLoad — a non-string startTime should never crash this
+  // panel either.
+  const clientAppointments = React.useMemo(
+    () => (appointments || [])
+      .filter((a: any) => a.clientId === client.id && typeof a.startTime === 'string')
+      .sort((a: any, b: any) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()),
+    [appointments, client.id],
+  );
+
+  const nowMs = Date.now();
+  const pastVisits = clientAppointments.filter((a: any) => new Date(a.startTime).getTime() < nowMs && a.status !== 'cancelled');
+  const upcomingVisits = clientAppointments.filter((a: any) => new Date(a.startTime).getTime() >= nowMs && a.status !== 'cancelled');
+
+  const visitValue = (a: any) => {
+    const svc = services.find((s: any) => s.id === a.serviceId);
+    const staffMember = staff.find((s: any) => s.id === a.staffId);
+    return svc ? getServicePrice(svc, staffMember) : 0;
+  };
+
+  const totalSpent = pastVisits.reduce((acc, a) => acc + visitValue(a), 0);
+  const avgPerVisit = pastVisits.length > 0 ? totalSpent / pastVisits.length : 0;
+
+  const serviceTally: Record<string, number> = {};
+  const staffTally: Record<string, number> = {};
+  pastVisits.forEach((a: any) => {
+    if (a.serviceId) serviceTally[a.serviceId] = (serviceTally[a.serviceId] || 0) + 1;
+    if (a.staffId) staffTally[a.staffId] = (staffTally[a.staffId] || 0) + 1;
+  });
+  const topServiceId = Object.entries(serviceTally).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topStaffId = Object.entries(staffTally).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const topService = services.find((s: any) => s.id === topServiceId);
+  const topStaff = staff.find((s: any) => s.id === topStaffId);
+
+  const visibleHistory = historyExpanded ? pastVisits : pastVisits.slice(0, 4);
+
+  return (
+    <div className="rounded-2xl border bg-white overflow-hidden shadow-sm">
+      {/* Header */}
+      <div className="p-4 flex items-start justify-between gap-3 border-b">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={cn(
+            'w-11 h-11 rounded-full flex items-center justify-center text-sm font-semibold shrink-0',
+            client.status === 'blocked' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-700',
+          )}>
+            {client.status === 'blocked' ? <Ban className="w-4 h-4" /> : client.name?.charAt(0)?.toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900 truncate">{client.name}</p>
+            <p className="text-xs text-slate-400 truncate">
+              {client.phone || '—'}{client.email ? ` · ${client.email}` : ''}
+            </p>
+          </div>
+        </div>
+        <button onClick={onChangeClient} className="text-xs text-blue-600 hover:text-blue-800 shrink-0 mt-1">
+          Change
+        </button>
+      </div>
+
+      {/* Stat grid — answers the most common phone questions at a glance */}
+      <div className="grid grid-cols-4 divide-x border-b bg-slate-50/60">
+        <div className="px-2 py-2.5 text-center">
+          <p className="text-sm font-semibold text-slate-900">{pastVisits.length}</p>
+          <p className="text-[10px] text-slate-400">Visits</p>
+        </div>
+        <div className="px-2 py-2.5 text-center">
+          <p className="text-sm font-semibold text-slate-900">
+            {pastVisits[0] ? format(new Date(pastVisits[0].startTime), 'MMM d') : '—'}
+          </p>
+          <p className="text-[10px] text-slate-400">Last visit</p>
+        </div>
+        <div className="px-2 py-2.5 text-center">
+          <p className="text-sm font-semibold text-slate-900">
+            {avgPerVisit > 0 ? `$${avgPerVisit.toFixed(0)}` : '—'}
+          </p>
+          <p className="text-[10px] text-slate-400">Avg/visit</p>
+        </div>
+        <div className="px-2 py-2.5 text-center">
+          <p className="text-sm font-semibold text-slate-900">
+            ${Math.round(client.lifetimeValue || 0).toLocaleString()}
+          </p>
+          <p className="text-[10px] text-slate-400">Lifetime</p>
+        </div>
+      </div>
+
+      <div className="p-4 space-y-3">
+        {/* Status badges row — things staff need to say out loud immediately */}
+        <div className="flex flex-wrap gap-1.5">
+          {outstandingBalance > 0 && (
+            <span className="text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+              Owes ${outstandingBalance.toFixed(2)}
+            </span>
+          )}
+          {client.status === 'blocked' && (
+            <span className="text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
+              Blocked
+            </span>
+          )}
+          {(selectedSvcRequiresPatchTest ? patchTestExpired : !!patchTestDate && patchTestExpired) && (
+            <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <FlaskConical className="w-2.5 h-2.5" />
+              {patchTestDate ? 'Patch test expired' : 'No patch test on file'}
+            </span>
+          )}
+          {client.cardOnFile?.paymentMethodId && (
+            <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <CreditCard className="w-2.5 h-2.5" /> Card on file
+            </span>
+          )}
+          {topStaff && (
+            <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Star className="w-2.5 h-2.5" /> Usually sees {topStaff.name?.split(' ')[0]}
+            </span>
+          )}
+          {topService && (
+            <span className="text-[10px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full">
+              Usually books {topService.name}
+            </span>
+          )}
+        </div>
+
+        {/* Upcoming appointments */}
+        {upcomingVisits.length > 0 && (
+          <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+            <p className="text-[10px] font-medium text-blue-700 uppercase tracking-wide flex items-center gap-1 mb-1">
+              <CalendarCheck className="w-3 h-3" /> Upcoming
+            </p>
+            {upcomingVisits.slice(0, 3).map((a: any) => (
+              <p key={a.id} className="text-xs text-blue-800">
+                {format(new Date(a.startTime), 'EEE MMM d · h:mm a')} —{' '}
+                {services.find((s: any) => s.id === a.serviceId)?.name || 'Service'}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* Packages */}
+        {activePackages.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <Package className="w-3 h-3" /> Packages
+            </p>
+            {activePackages.map((pkg: any) => {
+              const pkgSvc = services.find((s: any) => s.id === pkg.packageId);
+              return (
+                <p key={pkg.packageId} className="text-xs text-slate-700">
+                  {pkgSvc?.name || pkg.packageId} — {pkg.sessionsRemaining} session{pkg.sessionsRemaining !== 1 ? 's' : ''} left
+                </p>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Consent forms — compact */}
+        {formStatuses.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <FileText className="w-3 h-3" /> Forms
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {formStatuses.map(fs => (
+                <span
+                  key={fs.id}
+                  className={cn(
+                    'text-[10px] px-2 py-0.5 rounded-full font-medium',
+                    fs.signed
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : fs.expiredSig
+                        ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                        : 'bg-red-50 text-red-600 border border-red-200',
+                  )}
+                >
+                  {fs.id} {fs.signed ? '✓' : fs.expiredSig ? '· expired' : '· unsigned'}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Notes on the client record, if present */}
+        {client.notes && (
+          <div className="rounded-lg bg-slate-50 border px-3 py-2 flex items-start gap-2">
+            <StickyNote className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-slate-600">{client.notes}</p>
+          </div>
+        )}
+
+        {/* Visit history */}
+        {pastVisits.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
+                <History className="w-3 h-3" /> Visit history
+              </p>
+              {pastVisits.length > 4 && (
+                <button
+                  type="button"
+                  onClick={() => setHistoryExpanded(v => !v)}
+                  className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                >
+                  {historyExpanded ? 'Show less' : `Show all ${pastVisits.length}`}
+                  {historyExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
+              )}
+            </div>
+            <div className="rounded-lg border divide-y overflow-hidden">
+              {visibleHistory.map((a: any) => {
+                const svc = services.find((s: any) => s.id === a.serviceId);
+                const staffMember = staff.find((s: any) => s.id === a.staffId);
+                return (
+                  <div key={a.id} className="px-3 py-2 flex items-center justify-between text-xs">
+                    <div>
+                      <p className="text-slate-900">{svc?.name || 'Service'}</p>
+                      <p className="text-[10px] text-slate-400">
+                        {format(new Date(a.startTime), 'MMM d yyyy')} · {staffMember?.name?.split(' ')[0] || 'Staff'}
+                      </p>
+                    </div>
+                    <p className="text-slate-500">${visitValue(a).toFixed(0)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -473,6 +782,15 @@ export function QuickBookForm({
   const [ledgerError, setLedgerError] = React.useState(false);
   const [slotConflict, setSlotConflict] = React.useState(false);
 
+  // ── Pending call-backs (interrupted call-in bookings) ────────────────────────
+  const [callBackDrafts, setCallBackDrafts] = React.useState<CallBackDraft[]>([]);
+  const [currentDraftId, setCurrentDraftId] = React.useState<string | null>(null);
+  const [showSaveDraftModal, setShowSaveDraftModal] = React.useState(false);
+  const [draftCallerPhone, setDraftCallerPhone] = React.useState('');
+  const [draftNote, setDraftNote] = React.useState('');
+  const [isSavingDraft, setIsSavingDraft] = React.useState(false);
+  const [discardingDraftId, setDiscardingDraftId] = React.useState<string | null>(null);
+
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
@@ -608,14 +926,9 @@ export function QuickBookForm({
   });
   const hasNoSlots = selectedService && slots.length === 0;
 
-  // Staff date availability — how many appointments each provider already has on aptDate
-  //
-  // FIX: previously used `a.startTime?.startsWith(aptDate)`. Optional chaining only
-  // guards against startTime being null/undefined — it does NOT guard against
-  // startTime being a non-string value (e.g. a Firestore Timestamp object or a Date
-  // that slipped through un-normalized). If even one appointment had a non-string
-  // startTime, this threw "startsWith is not a function" and crashed the whole form.
-  // Now we explicitly check the type before calling the string method.
+  // Staff date availability — how many appointments each provider already has on aptDate.
+  // Guard against non-string startTime values (e.g. un-normalized Firestore
+  // Timestamps) before calling .startsWith() on them.
   const staffDateLoad = React.useMemo(() => {
     const load: Record<string, number> = {};
     appointments.forEach((a: any) => {
@@ -654,6 +967,211 @@ export function QuickBookForm({
     if (aptDate === todayStr) setReminderHours('1');
     else setReminderHours('48');
   }, [aptDate, todayStr]);
+
+  // Live subscription to pending call-back drafts — any staff member sees the
+  // same list in real time. Filtered client-side by createdAt rather than
+  // using orderBy in the query, so this doesn't need a composite Firestore
+  // index (the same kind of missing-index trap that broke the client stats
+  // bar elsewhere).
+  React.useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const draftsQuery = query(
+      collection(firestore, `tenants/${tenantId}/callBackDrafts`),
+      where('status', '==', 'pending'),
+    );
+    const unsubscribe = onSnapshot(
+      draftsQuery,
+      (snap) => {
+        const drafts: CallBackDraft[] = [];
+        snap.forEach(d => drafts.push({ id: d.id, ...(d.data() as any) } as CallBackDraft));
+        drafts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setCallBackDrafts(drafts);
+      },
+      () => { /* non-fatal — pending call-backs are a convenience, not core booking */ },
+    );
+    return () => unsubscribe();
+  }, [firestore, tenantId]);
+
+  // ── Call-back draft snapshot helpers ──────────────────────────────────────
+  const buildSnapshot = React.useCallback(() => ({
+    clientSearch, selectedService, addOnIds, durationOffset, selectedStaff,
+    aptDate, aptTime, isGroup, groupGuests, isMultiProvider, providerLegs,
+    sendLink, requestFiles, clientNotes, internalNotes, redeemPackageId,
+    chargeNow, promoCode, promoDiscount, reminderHours,
+    isNewClient, newClientName, newClientPhone, newClientEmail,
+  }), [
+    clientSearch, selectedService, addOnIds, durationOffset, selectedStaff,
+    aptDate, aptTime, isGroup, groupGuests, isMultiProvider, providerLegs,
+    sendLink, requestFiles, clientNotes, internalNotes, redeemPackageId,
+    chargeNow, promoCode, promoDiscount, reminderHours,
+    isNewClient, newClientName, newClientPhone, newClientEmail,
+  ]);
+
+  const applySnapshot = (snap: any) => {
+    if (!snap) return;
+    setClientSearch(snap.clientSearch || '');
+    setSelectedService(snap.selectedService || '');
+    setAddOnIds(snap.addOnIds || []);
+    setDurationOffset(snap.durationOffset || 0);
+    setSelectedStaff(snap.selectedStaff || 'any');
+    setAptDate(snap.aptDate || format(new Date(), 'yyyy-MM-dd'));
+    setAptTime(snap.aptTime || format(addMinutes(new Date(), 30), 'HH:mm'));
+    setIsGroup(!!snap.isGroup);
+    setGroupGuests(snap.groupGuests || []);
+    setIsMultiProvider(!!snap.isMultiProvider);
+    setProviderLegs(snap.providerLegs || []);
+    setSendLink(snap.sendLink !== false);
+    setRequestFiles(!!snap.requestFiles);
+    setClientNotes(snap.clientNotes || '');
+    setInternalNotes(snap.internalNotes || '');
+    setRedeemPackageId(snap.redeemPackageId || null);
+    setChargeNow(snap.chargeNow !== false);
+    setPromoCode(snap.promoCode || '');
+    setPromoDiscount(snap.promoDiscount || null);
+    setReminderHours(snap.reminderHours || '48');
+    setIsNewClient(!!snap.isNewClient);
+    setNewClientName(snap.newClientName || '');
+    setNewClientPhone(snap.newClientPhone || '');
+    setNewClientEmail(snap.newClientEmail || '');
+  };
+
+  const handleSaveDraft = async () => {
+    if (!firestore || !tenantId) return;
+    setIsSavingDraft(true);
+    try {
+      const { nanoid: _nanoid } = await import('nanoid');
+      const now = new Date().toISOString();
+      const draftId = currentDraftId || _nanoid();
+      const existing = callBackDrafts.find(d => d.id === draftId);
+      const callerName = selectedClient?.name || newClientName.trim() || 'Unknown caller';
+      const callerPhone = draftCallerPhone.trim() || selectedClient?.phone || newClientPhone.trim() || '';
+
+      await setDoc(
+        doc(firestore, `tenants/${tenantId}/callBackDrafts`, draftId),
+        sanitizeForFirestore({
+          id: draftId,
+          tenantId,
+          createdAt: existing?.createdAt || now,
+          updatedAt: now,
+          createdByStaffId: currentStaffId || null,
+          callerName,
+          callerPhone,
+          clientId: selectedClient?.id || null,
+          clientName: selectedClient?.name || newClientName.trim() || '',
+          note: draftNote.trim(),
+          step,
+          snapshot: buildSnapshot(),
+          status: 'pending',
+        }),
+      );
+
+      toast({ title: 'Saved for call-back', description: `${callerName} will appear in the pending call-backs list.` });
+      setShowSaveDraftModal(false);
+      setDraftNote('');
+      setDraftCallerPhone('');
+      onCancel();
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save', description: 'Please try again before ending the call.' });
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
+
+  const handleResumeDraft = (draft: CallBackDraft) => {
+    const matchedClient = draft.clientId ? (clients || []).find((c: any) => c.id === draft.clientId) : null;
+    applySnapshot(draft.snapshot);
+    if (matchedClient) {
+      setSelectedClient(matchedClient);
+      setIsNewClient(false);
+    } else {
+      setSelectedClient(null);
+    }
+    setCurrentDraftId(draft.id);
+    setStep(draft.step || 1);
+    toast({ title: 'Resumed', description: `Picking back up with ${draft.callerName}.` });
+  };
+
+  const handleDiscardDraft = async (id: string) => {
+    if (!firestore || !tenantId) return;
+    setDiscardingDraftId(id);
+    try {
+      await deleteDoc(doc(firestore, `tenants/${tenantId}/callBackDrafts`, id));
+      if (currentDraftId === id) setCurrentDraftId(null);
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not remove' });
+    } finally {
+      setDiscardingDraftId(null);
+    }
+  };
+
+  // Persistent "who's on the phone" bar shown above every step of the wizard.
+  const renderLiveCallBar = () => (
+    <div className="rounded-xl bg-slate-900 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-sm">
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center shrink-0">
+          <PhoneIncoming className="w-4 h-4 text-white/80" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">
+            {selectedClient?.name || newClientName.trim() || 'New caller'}
+          </p>
+          <p className="text-[11px] text-white/60 truncate">
+            {selectedSvc?.name ? selectedSvc.name : 'No service selected yet'}
+            {selectedSvc && grandTotal > 0 && ` · $${grandTotal.toFixed(0)}`}
+          </p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setDraftCallerPhone(selectedClient?.phone || newClientPhone || '');
+          setShowSaveDraftModal(true);
+        }}
+        className="flex items-center gap-1.5 text-[11px] font-medium bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg shrink-0 transition-colors"
+      >
+        <Save className="w-3 h-3" /> Call back later
+      </button>
+    </div>
+  );
+
+  const saveDraftModal = showSaveDraftModal ? (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={() => setShowSaveDraftModal(false)}
+    >
+      <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Save & call back later</p>
+          <p className="text-xs text-slate-400 mt-1">
+            Everything entered so far is saved. Any staff member can pull this up from "Pending call-backs"
+            and pick up exactly where you left off.
+          </p>
+        </div>
+        <Input
+          placeholder="Caller's phone number"
+          value={draftCallerPhone}
+          onChange={e => setDraftCallerPhone(e.target.value)}
+          className="h-10 text-sm"
+          type="tel"
+        />
+        <textarea
+          value={draftNote}
+          onChange={e => setDraftNote(e.target.value)}
+          placeholder="Quick note — e.g. checking with husband, will call back after 5pm"
+          rows={2}
+          className="w-full rounded-lg border px-3 py-2 text-xs resize-none outline-none focus:border-blue-300 bg-white"
+        />
+        <div className="flex gap-2">
+          <Button variant="outline" className="flex-1 h-10" onClick={() => setShowSaveDraftModal(false)}>
+            Cancel
+          </Button>
+          <Button className="flex-1 h-10" onClick={handleSaveDraft} disabled={isSavingDraft}>
+            {isSavingDraft ? <Loader className="w-4 h-4 animate-spin" /> : 'Save & close'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const selectClient = (c: any) => {
@@ -773,6 +1291,31 @@ export function QuickBookForm({
       const data = await res.json().catch(() => ({ ok: false }));
       if (data.ok) {
         setArrearsResolved(true);
+
+        // BUG FIX: the charge succeeding previously only updated local state.
+        // The client's outstandingBalance field in Firestore was never
+        // cleared, so the balance kept showing as owed on every later call or
+        // visit. Persist it now, and update the in-memory client object so
+        // this session reflects it immediately too.
+        try {
+          await setDoc(
+            doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id),
+            sanitizeForFirestore({
+              outstandingBalance: 0,
+              arrearsClearedAt: new Date().toISOString(),
+              arrearsClearedBy: currentStaffId || null,
+            }),
+            { merge: true },
+          );
+          setSelectedClient((prev: any) => (prev ? { ...prev, outstandingBalance: 0 } : prev));
+        } catch {
+          toast({
+            variant: 'destructive',
+            title: 'Charge succeeded, but balance field failed to clear',
+            description: 'Check the client record — the outstanding balance may still show incorrectly.',
+          });
+        }
+
         toast({ title: 'Balance collected', description: `$${outstandingBalance.toFixed(2)} charged to card on file.` });
         if (showArrearsInterstitial) {
           setShowArrearsInterstitial(false);
@@ -1256,6 +1799,14 @@ export function QuickBookForm({
         } catch { /* non-fatal */ }
       }
 
+      // Resolve (delete) any pending call-back draft this booking originated from
+      if (currentDraftId) {
+        try {
+          await deleteDoc(doc(firestore, `tenants/${tenantId}/callBackDrafts`, currentDraftId));
+        } catch { /* non-fatal */ }
+        setCurrentDraftId(null);
+      }
+
       // ── Show success screen ───────────────────────────────────────────────
       setSuccessResult({
         clientName,
@@ -1311,6 +1862,7 @@ export function QuickBookForm({
     setLedgerError(false);
     setSlotConflict(false);
     setWaitlistMode(false);
+    setCurrentDraftId(null);
   };
 
   // ── Success screen ────────────────────────────────────────────────────────
@@ -1330,6 +1882,8 @@ export function QuickBookForm({
     if (showArrearsInterstitial && selectedClient) {
       return (
         <div className="space-y-5">
+          {saveDraftModal}
+          {renderLiveCallBar()}
           <StepIndicator step={1} />
           <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border">
             <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-sm font-medium text-slate-600 shrink-0">
@@ -1379,6 +1933,8 @@ export function QuickBookForm({
     if (showDuplicateWarning && duplicateSuggestions.length > 0) {
       return (
         <div className="space-y-5">
+          {saveDraftModal}
+          {renderLiveCallBar()}
           <StepIndicator step={1} />
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
             <div className="flex items-start gap-2.5">
@@ -1415,7 +1971,48 @@ export function QuickBookForm({
 
     return (
       <div className="space-y-5">
+        {saveDraftModal}
+        {renderLiveCallBar()}
         <StepIndicator step={1} />
+
+        {/* Pending call-backs — visible to every staff member, resumable from here */}
+        {callBackDrafts.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 overflow-hidden">
+            <div className="px-3.5 py-2 flex items-center gap-2 border-b border-amber-200/60">
+              <PhoneIncoming className="w-3.5 h-3.5 text-amber-600" />
+              <p className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide">
+                Pending call-backs · {callBackDrafts.length}
+              </p>
+            </div>
+            <div className="divide-y divide-amber-200/60">
+              {callBackDrafts.map(d => (
+                <div key={d.id} className="px-3.5 py-2.5 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-slate-900 truncate">{d.callerName || 'Unknown caller'}</p>
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {d.callerPhone || '—'}{d.note ? ` · ${d.note}` : ''}
+                    </p>
+                    <p className="text-[10px] text-amber-600 mt-0.5">{safeRelativeTime(d.createdAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Button size="sm" className="h-8 text-xs" onClick={() => handleResumeDraft(d)}>
+                      Resume
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => handleDiscardDraft(d.id)}
+                      disabled={discardingDraftId === d.id}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-40"
+                      title="Remove"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {isNewClient ? (
           <div className="space-y-4">
@@ -1585,50 +2182,44 @@ export function QuickBookForm({
   if (step === 2) {
     return (
       <div className="space-y-5">
+        {saveDraftModal}
+        {renderLiveCallBar()}
         <StepIndicator step={2} />
 
-        {/* Client pill */}
-        <div className="rounded-xl border overflow-hidden">
-          <div className="flex items-center gap-3 px-3.5 py-2.5 bg-white">
-            <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sm font-medium text-slate-500 shrink-0">
-              {(selectedClient?.name || newClientName).charAt(0).toUpperCase()}
+        {/* Client profile — comprehensive, always expanded */}
+        {selectedClient ? (
+          <ClientDetailPanel
+            client={selectedClient}
+            appointments={appointments}
+            services={services}
+            staff={staff}
+            outstandingBalance={outstandingBalance}
+            patchTestDate={patchTestDate}
+            patchTestExpired={patchTestExpired}
+            selectedSvcRequiresPatchTest={selectedSvcRequiresPatchTest}
+            formStatuses={formStatuses}
+            activePackages={activePackages}
+            onChangeClient={() => { setStep(1); setSelectedService(''); }}
+          />
+        ) : (
+          <div className="rounded-xl border overflow-hidden">
+            <div className="flex items-center gap-3 px-3.5 py-2.5 bg-white">
+              <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sm font-medium text-slate-500 shrink-0">
+                {newClientName.charAt(0).toUpperCase() || '?'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-900 truncate">{newClientName || 'New client'}</p>
+                <p className="text-[11px] text-slate-400">New client · no history yet</p>
+              </div>
+              <button
+                onClick={() => { setStep(1); setSelectedService(''); }}
+                className="text-xs text-blue-600 hover:text-blue-800 shrink-0"
+              >
+                Change
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-900 truncate">{selectedClient?.name || newClientName}</p>
-              {selectedClient?.lastAppointment && (
-                <p className="text-[11px] text-slate-400">
-                  Last visit {format(new Date(selectedClient.lastAppointment), 'MMM d')}
-                  {selectedClient.lastServiceId && ` · ${services.find((s: any) => s.id === selectedClient.lastServiceId)?.name || ''}`}
-                </p>
-              )}
-            </div>
-            <button
-              onClick={() => { setStep(1); setSelectedService(''); }}
-              className="text-xs text-blue-600 hover:text-blue-800 shrink-0"
-            >
-              Change
-            </button>
           </div>
-          {(selectedClient?.cardOnFile || selectedClient?.lifetimeValue > 0) && (
-            <div className="flex border-t divide-x bg-slate-50/60">
-              {selectedClient?.cardOnFile?.paymentMethodId && (
-                <div className="flex-1 px-3 py-1.5 text-center">
-                  <p className="text-[11px] font-medium text-green-700 flex items-center justify-center gap-1">
-                    <CreditCard className="w-3 h-3" />
-                    {selectedClient.cardOnFile.brand?.toUpperCase() || 'Card'} ••{selectedClient.cardOnFile.last4}
-                  </p>
-                  <p className="text-[10px] text-slate-400">Card on file</p>
-                </div>
-              )}
-              {selectedClient?.lifetimeValue > 0 && (
-                <div className="flex-1 px-3 py-1.5 text-center">
-                  <p className="text-[11px] font-medium text-slate-700">${Math.round(selectedClient.lifetimeValue).toLocaleString()}</p>
-                  <p className="text-[10px] text-slate-400">Lifetime</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        )}
 
         {/* Intelligence panel */}
         <ClientIntelligencePanel
@@ -1960,6 +2551,8 @@ export function QuickBookForm({
 
   return (
     <div className="space-y-5">
+      {saveDraftModal}
+      {renderLiveCallBar()}
       <StepIndicator step={3} />
 
       {/* Arrears banner (fallback for step 3) */}
