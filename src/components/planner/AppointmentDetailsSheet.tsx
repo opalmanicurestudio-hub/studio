@@ -92,6 +92,15 @@ const staffName = (staffId: any, staffList: any[], fallback = 'Staff'): string =
 
 const isValidDate = (d: Date) => d instanceof Date && !isNaN(d.getTime());
 
+// Single source of truth for "was this visit a no-show" — checks the modern
+// audit trail first, falls back to the legacy flat fields for older records.
+const isNoShowVisit = (a: any): boolean => {
+  if (a?.cancellationAudit?.actorType === 'no_show') return true;
+  if (a?.status === 'cancelled' && a?.cancellationReason === 'no-show') return true;
+  if (a?.noShowConfirmedAt) return true;
+  return false;
+};
+
 // ─── Copy-to-clipboard hook ────────────────────────────────────────────────────
 const useCopyToClipboard = (timeout = 2000) => {
   const [copied, setCopied] = useState(false);
@@ -132,6 +141,49 @@ const VisitSparkline = ({ visits }: { visits: any[] }) => {
   );
 };
 
+// ─── Multi-provider resolution ────────────────────────────────────────────────
+// Resolves the full set of staff involved in an appointment right now —
+// the lead provider plus anyone assigned to add-ons via serviceStaffOverrides.
+// Because lead handoffs write straight to appointment.staffId, this always
+// reflects the *current* lead without needing to know handoff history.
+type ProviderInfo = {
+  staffId: string;
+  staffMember: any;
+  services: { id: string; name: string; isConcurrent: boolean }[];
+  isMain: boolean;
+};
+
+const resolveProviders = (appointment: any, service: any, addOns: Service[], staffList: any[]): ProviderInfo[] => {
+  if (!appointment || !service) return [];
+  const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
+  const concurrentIds: string[] = appointment.checkoutState?.concurrentServiceIds || [];
+  const map = new Map<string, ProviderInfo>();
+
+  const addService = (svcId: string, svcName: string, staffId: string) => {
+    if (!staffId) return;
+    const isConcurrent = concurrentIds.includes(svcId);
+    const entry = map.get(staffId) || {
+      staffId,
+      staffMember: (staffList || []).find((s: any) => s.id === staffId),
+      services: [],
+      isMain: false,
+    };
+    entry.services.push({ id: svcId, name: svcName, isConcurrent });
+    map.set(staffId, entry);
+  };
+
+  addService(service.id, service.name, appointment.staffId);
+  const mainEntry = map.get(appointment.staffId);
+  if (mainEntry) mainEntry.isMain = true;
+
+  (addOns || []).forEach((s) => {
+    const assignedStaffId = overrides[s.id] || appointment.staffId;
+    addService(s.id, s.name, assignedStaffId);
+  });
+
+  return Array.from(map.values());
+};
+
 // ─── Timeline builder ─────────────────────────────────────────────────────────
 type TimelineEvent = {
   id: string; timestamp: string; icon: any;
@@ -158,6 +210,16 @@ const buildTimelineEvents = (opts: {
     events.push({ id: `${label}-${iso}-${events.length}`, timestamp: iso, icon, label, detail, tone });
   };
 
+  // Resolve whether this appointment involves more than one staff member at
+  // all, so we can annotate session start/finish with who the lead was —
+  // useful once a mid-session handoff has happened and "the staff member"
+  // is no longer a single unambiguous answer.
+  const allStaffIdsInvolved = new Set<string>([
+    appointment.staffId,
+    ...Object.values(appointment.checkoutState?.serviceStaffOverrides || {}),
+  ].filter(Boolean) as string[]);
+  const isMultiProvider = allStaffIdsInvolved.size > 1;
+
   if (appointment.createdAt) push(appointment.createdAt, Calendar, 'Appointment booked',
     appointment.source === 'online' ? 'Online booking' : (appointment.isWalkIn || appointment.source === 'walk-in') ? 'Walk-in' : 'Manual entry');
 
@@ -169,6 +231,30 @@ const buildTimelineEvents = (opts: {
   if (auto.balanceNotifiedAt) push(auto.balanceNotifiedAt, Bell, 'Outstanding balance notice sent');
   if (appointment.healthDisclosedAt) push(appointment.healthDisclosedAt, HeartPulse, 'Health disclosure completed');
 
+  // Provider assignments — both booking-time add-on assignments and
+  // mid-session handoffs, each carrying its own real timestamp so the
+  // timeline can reconstruct who actually worked the session and when,
+  // rather than only reflecting whatever the current-state overrides say.
+  (appointment.providerAssignments || []).forEach((pa: any) => {
+    if (pa.isMidServiceHandoff) {
+      push(
+        pa.assignedAt,
+        Repeat2,
+        `Mid-session handoff — ${pa.serviceName || 'Service'} to ${staffName(pa.staffId, staff)}`,
+        [pa.previousStaffId ? `From ${staffName(pa.previousStaffId, staff)}` : null, pa.reason ? `"${pa.reason}"` : null]
+          .filter(Boolean).join(' · ') || undefined,
+        'warn',
+      );
+    } else {
+      push(
+        pa.assignedAt,
+        Users,
+        `${pa.serviceName || 'Add-on'} assigned to ${staffName(pa.staffId, staff)}`,
+        pa.isConcurrent ? 'Running concurrently with lead service' : undefined,
+      );
+    }
+  });
+
   const depositTxn = (transactions || []).find((t: any) =>
     t.appointmentId === appointment.id && (t.category === 'Retainers' || /deposit/i.test(String(t.description || ''))));
   if (depositTxn) push(depositTxn.date || depositTxn.createdAt, Wallet, 'Deposit collected', `$${safeNumber(depositTxn.amount).toFixed(2)}`, 'good');
@@ -178,8 +264,12 @@ const buildTimelineEvents = (opts: {
   if (appointment.noShowEscalatedAt) push(appointment.noShowEscalatedAt, ShieldAlert, 'No-show escalated to manager', undefined, 'warn');
   if (appointment.suspectedNoShowClearedAt) push(appointment.suspectedNoShowClearedAt, CheckCircle2, 'No-show flag cleared', appointment.suspectedNoShowClearedBy ? `by ${staffName(appointment.suspectedNoShowClearedBy, staff)}` : undefined, 'good');
   if (appointment.noShowConfirmedAt) push(appointment.noShowConfirmedAt, UserX, 'No-show confirmed', appointment.noShowConfirmedBy ? `by ${staffName(appointment.noShowConfirmedBy, staff)}` : undefined, 'bad');
-  if (appointment.actualStartTime) push(appointment.actualStartTime, Play, 'Session started');
-  if (appointment.actualEndTime) push(appointment.actualEndTime, Square, 'Session finished', undefined, 'good');
+
+  if (appointment.actualStartTime) push(appointment.actualStartTime, Play, 'Session started',
+    isMultiProvider ? `Lead: ${staffName(appointment.staffId, staff)}` : undefined);
+  if (appointment.actualEndTime) push(appointment.actualEndTime, Square, 'Session finished',
+    isMultiProvider ? `Lead: ${staffName(appointment.staffId, staff)}` : undefined, 'good');
+
   if (appointment.lastRescheduledAt) push(appointment.lastRescheduledAt, RefreshCw,
     `Rescheduled${appointment.rescheduleCount ? ` (×${appointment.rescheduleCount})` : ''}`,
     appointment.lastRescheduledBy ? `by ${staffName(appointment.lastRescheduledBy, staff)}` : undefined);
@@ -255,23 +345,18 @@ const RequirementRow = ({ icon, label, value, status, action }: {
 
 // ─── Client stats bar ─────────────────────────────────────────────────────────
 const ClientStatsBar = ({ client, recentVisits, allVisits }: { client: any; recentVisits: any[]; allVisits: any[] }) => {
+  const visits = allVisits || [];
   const lifetimeSpend = safeNumber(client?.lifetimeValue || client?.lifetimeSpend);
-  const visitCount = safeNumber(client?.totalVisits || allVisits.length);
-  const noShowCount = (allVisits || []).filter((a: any) => a.status === 'cancelled' && a.cancellationReason === 'no-show').length;
-  const cancelCount = (allVisits || []).filter((a: any) => a.status === 'cancelled').length;
+  const visitCount = safeNumber(client?.totalVisits || visits.length);
+  const noShowCount = visits.filter(isNoShowVisit).length;
   const avgSpend = visitCount > 0 && lifetimeSpend > 0 ? lifetimeSpend / visitCount : 0;
-
-  // Preferred staff: most frequent staffId across all visits
-  const staffFreq: Record<string, number> = {};
-  (allVisits || []).forEach((a: any) => { if (a.staffId) staffFreq[a.staffId] = (staffFreq[a.staffId] || 0) + 1; });
-  const topStaffId = Object.entries(staffFreq).sort((a, b) => b[1] - a[1])[0]?.[0];
 
   const stats = [
     { label: 'Total visits', value: visitCount || '—', icon: <Calendar className="w-3 h-3" /> },
     { label: 'Lifetime spend', value: lifetimeSpend > 0 ? `$${lifetimeSpend.toLocaleString()}` : '—', icon: <TrendingUp className="w-3 h-3" /> },
     { label: 'Avg per visit', value: avgSpend > 0 ? `$${avgSpend.toFixed(0)}` : '—', icon: <BarChart2 className="w-3 h-3" /> },
     { label: 'No-shows', value: noShowCount > 0 ? noShowCount : '0', icon: <UserX className="w-3 h-3" />, warn: noShowCount > 1 },
-  ].filter(Boolean);
+  ];
 
   return (
     <div className="grid grid-cols-4 gap-2">
@@ -584,7 +669,7 @@ const CancellationRecord = ({
 };
 
 // ─── Completion receipt ────────────────────────────────────────────────────────
-const CompletionReceipt = ({ appointment, transactions, staff }: { appointment: any; transactions: any[]; staff: any[] }) => {
+const CompletionReceipt = ({ appointment, transactions, staff, providers }: { appointment: any; transactions: any[]; staff: any[]; providers?: ProviderInfo[] }) => {
   const aptTxns = (transactions || []).filter((t: any) => t.appointmentId === appointment.id);
   const serviceRevenue = aptTxns.filter((t: any) => t.category === 'Service Revenue').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
   const tips = aptTxns.filter((t: any) => t.category === 'Tips').reduce((s: number, t: any) => s + safeNumber(t.amount), 0);
@@ -605,6 +690,7 @@ const CompletionReceipt = ({ appointment, transactions, staff }: { appointment: 
 
   const total = serviceRevenue + tips + adjustments - discounts;
   const completedByName = staffName(appointment.staffId, staff, 'Unassigned');
+  const otherProviders = (providers || []).filter(p => !p.isMain);
   const duration = appointment.actualStartTime && appointment.actualEndTime
     ? differenceInMinutes(safeDate(appointment.actualEndTime), safeDate(appointment.actualStartTime))
     : null;
@@ -679,6 +765,14 @@ const CompletionReceipt = ({ appointment, transactions, staff }: { appointment: 
             <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Performed By</span>
             <span className="text-[11px] font-black font-mono">{completedByName}</span>
           </div>
+          {otherProviders.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-3">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Also Worked By</span>
+              <span className="text-[10px] font-black font-mono text-right">
+                {otherProviders.map(p => p.staffMember?.name || 'Staff').join(', ')}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between px-4 py-3 bg-green-50/50">
             <span className="text-[9px] font-black uppercase tracking-widest text-slate-700">Total Collected</span>
             <span className="text-[13px] font-black font-mono text-primary">${total.toFixed(2)}</span>
@@ -755,6 +849,171 @@ const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposit, isLo
   );
 };
 
+// ─── Mid-session handoff dialog ────────────────────────────────────────────────
+// Lets staff reassign the lead service or a specific add-on to a different
+// provider while the session is already underway — e.g. the client asks for
+// a different artist halfway through. Writes a providerAssignments entry
+// tagged isMidServiceHandoff so the timeline renders it distinctly from
+// booking-time add-on assignments, and (for lead handoffs) updates
+// appointment.staffId directly so the rest of the app picks up the new lead.
+const MidServiceHandoffDialog = ({
+  open, onOpenChange, appointment, service, currentAddOns, staff,
+  tenantId, firestore, currentUser,
+}: {
+  open: boolean; onOpenChange: (v: boolean) => void; appointment: any; service: Service;
+  currentAddOns: Service[]; staff: any[]; tenantId: string; firestore: any; currentUser: any;
+}) => {
+  const { toast } = useToast();
+  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [selectedStaffId, setSelectedStaffId] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setSelectedServiceId(service?.id || '');
+      setSelectedStaffId('');
+      setReason('');
+    }
+  }, [open, service?.id]);
+
+  const assignableServices = useMemo(() => {
+    if (!appointment || !service) return [];
+    const overrides = appointment.checkoutState?.serviceStaffOverrides || {};
+    return [
+      { id: service.id, name: service.name, currentStaffId: appointment.staffId, isLead: true },
+      ...(currentAddOns || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+        currentStaffId: overrides[s.id] || appointment.staffId,
+        isLead: false,
+      })),
+    ];
+  }, [appointment, service, currentAddOns]);
+
+  const selectedTarget = assignableServices.find((s) => s.id === selectedServiceId);
+  const eligibleStaff = (staff || []).filter((s: any) => s.id !== selectedTarget?.currentStaffId);
+
+  const handleSubmit = async () => {
+    if (!selectedServiceId || !selectedStaffId || !firestore || !tenantId || !appointment?.id || !selectedTarget) return;
+    setSubmitting(true);
+    try {
+      const now = new Date().toISOString();
+      const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', appointment.id);
+      const logEntry: any = {
+        serviceId: selectedServiceId,
+        serviceName: selectedTarget.name,
+        staffId: selectedStaffId,
+        previousStaffId: selectedTarget.currentStaffId,
+        isConcurrent: (appointment.checkoutState?.concurrentServiceIds || []).includes(selectedServiceId),
+        isMidServiceHandoff: true,
+        assignedAt: now,
+        assignedBy: currentUser?.uid || 'staff',
+      };
+      if (reason.trim()) logEntry.reason = reason.trim();
+
+      const updates: any = { providerAssignments: arrayUnion(logEntry) };
+      if (selectedTarget.isLead) {
+        updates.staffId = selectedStaffId;
+      } else {
+        const newOverrides = { ...(appointment.checkoutState?.serviceStaffOverrides || {}) };
+        newOverrides[selectedServiceId] = selectedStaffId;
+        updates.checkoutState = { ...(appointment.checkoutState || {}), serviceStaffOverrides: newOverrides };
+      }
+      await updateDocumentNonBlocking(appointmentRef, updates);
+      toast({ title: 'Handoff recorded', description: `${selectedTarget.name} reassigned to ${staffName(selectedStaffId, staff)}` });
+      onOpenChange(false);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not record handoff', description: e?.message || 'Unknown error' });
+    } finally { setSubmitting(false); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="rounded-3xl border-2 max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+            <Repeat2 className="w-4 h-4 text-primary" /> Mid-Session Handoff
+          </DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground leading-relaxed">
+            Reassign a provider while the session is already underway. This is logged with its own timestamp on the activity timeline.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label className="text-[9px] font-black uppercase text-muted-foreground">Which part of the service?</Label>
+            <div className="grid gap-2">
+              {assignableServices.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => { setSelectedServiceId(s.id); setSelectedStaffId(''); }}
+                  className={cn(
+                    'flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all',
+                    selectedServiceId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-white'
+                  )}
+                >
+                  <span className="text-[10px] font-black uppercase tracking-tight flex items-center gap-2 min-w-0">
+                    {s.isLead && <Badge className="h-4 px-1.5 text-[7px] bg-primary text-white border-none shrink-0">LEAD</Badge>}
+                    <span className="truncate">{s.name}</span>
+                  </span>
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase shrink-0 ml-2">
+                    Now: {staffName(s.currentStaffId, staff)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-[9px] font-black uppercase text-muted-foreground">Hand off to</Label>
+            <div className="grid gap-2 max-h-40 overflow-y-auto">
+              {eligibleStaff.map((s: any) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSelectedStaffId(s.id)}
+                  className={cn(
+                    'flex items-center gap-2.5 p-2.5 rounded-xl border-2 text-left transition-all',
+                    selectedStaffId === s.id ? 'border-primary bg-primary/5' : 'border-border bg-white'
+                  )}
+                >
+                  <Avatar className="h-6 w-6 border shrink-0">
+                    <AvatarImage src={s.avatarUrl} className="object-cover" />
+                    <AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(s.name || 'S')[0]}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-[10px] font-black uppercase tracking-tight truncate">{s.name}</span>
+                </button>
+              ))}
+              {eligibleStaff.length === 0 && (
+                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-50 text-center py-2">No other staff available</p>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-[9px] font-black uppercase text-muted-foreground">Reason (optional)</Label>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. client requested a different artist for nail art"
+              className="min-h-[60px] rounded-xl text-[11px] resize-none"
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={!selectedServiceId || !selectedStaffId || submitting} className="rounded-xl font-black uppercase text-[9px] tracking-widest">
+            {submitting ? <Loader className="w-3.5 h-3.5 animate-spin" /> : 'Confirm Handoff'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Main component ────────────────────────────────────────────────────────────
 export const AppointmentDetailsSheet: React.FC<any> = ({
   open, onOpenChange, appointment: initialAppointment, client, service, tmhr,
@@ -775,6 +1034,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const [isAddAndConfigureOpen, setIsAddAndConfigureOpen] = useState(false);
   const [isRescheduleOpen, setIsRescheduleOpen] = useState(false);
+  const [isHandoffOpen, setIsHandoffOpen] = useState(false);
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
@@ -802,6 +1062,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     if (!appointment?.addOnIds || !allServices) return [];
     return appointment.addOnIds.map((id: string) => allServices.find(s => s.id === id)).filter((s): s is Service => !!s);
   }, [appointment?.addOnIds, allServices]);
+
+  // Resolved set of every staff member currently involved in this appointment
+  // (lead + any add-on overrides), kept in sync automatically whenever a
+  // booking-time assignment or a mid-session handoff updates the appointment.
+  const providers = useMemo(
+    () => resolveProviders(appointment, service, currentAddOns, staff || []),
+    [appointment, service, currentAddOns, staff]
+  );
 
   // Cancellation event (only fetch when cancelled)
   const cancellationEventQuery = useMemoFirebase(() => {
@@ -967,16 +1235,49 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const currentCheckoutState = appointment.checkoutState || {};
     const newStaffOverrides = { ...(currentCheckoutState.serviceStaffOverrides || {}) };
     const newConcurrentIds = [...(currentCheckoutState.concurrentServiceIds || [])];
+    const existingAssignments: any[] = appointment.providerAssignments || [];
+    const newAssignmentLogEntries: any[] = [];
+    const now = new Date().toISOString();
+
     selectedAddOns.forEach((s) => {
       const config = configs[s.id];
       if (config) {
+        const previousStaffId = newStaffOverrides[s.id];
         newStaffOverrides[s.id] = config.staffId;
         if (config.isConcurrent) newConcurrentIds.push(s.id);
+
+        // Only log genuine cross-provider assignments that are new or
+        // changed — this is the only place a booking-time staff handoff gets
+        // a real timestamp, so the timeline can later reconstruct who
+        // actually worked a multi-provider session and when, instead of
+        // just reflecting current-state overrides.
+        const isCrossProvider = !!config.staffId && config.staffId !== appointment.staffId;
+        const alreadyLogged = existingAssignments.some(
+          (a) => a.serviceId === s.id && a.staffId === config.staffId
+        );
+        if (isCrossProvider && config.staffId !== previousStaffId && !alreadyLogged) {
+          newAssignmentLogEntries.push({
+            serviceId: s.id,
+            serviceName: s.name,
+            staffId: config.staffId,
+            isConcurrent: !!config.isConcurrent,
+            assignedAt: now,
+            assignedBy: currentUser?.uid || 'staff',
+          });
+        }
       }
     });
+
     updateDocumentNonBlocking(appointmentRef, {
       addOnIds: selectedAddOns.map(s => s.id),
-      checkoutState: { ...currentCheckoutState, serviceStaffOverrides: newStaffOverrides, concurrentServiceIds: Array.from(new Set(newConcurrentIds)) },
+      checkoutState: {
+        ...currentCheckoutState,
+        serviceStaffOverrides: newStaffOverrides,
+        concurrentServiceIds: Array.from(new Set(newConcurrentIds)),
+      },
+      ...(newAssignmentLogEntries.length > 0 && {
+        providerAssignments: arrayUnion(...newAssignmentLogEntries),
+      }),
     });
     setIsAddAndConfigureOpen(false);
   };
@@ -1239,7 +1540,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {isCancelled
           ? <CancellationRecord appointment={appointment} transactions={transactions} staff={staff || []} cancellationEvent={cancellationEvent} depositDecision={latestDepositDecision} onProcessRefund={handleProcessPendingRefund} onKeepAsCredit={handleKeepAsCredit} isProcessingRefund={isProcessingRefund} />
           : isCompleted
-            ? <CompletionReceipt appointment={appointment} transactions={transactions} staff={staff || []} />
+            ? <CompletionReceipt appointment={appointment} transactions={transactions} staff={staff || []} providers={providers} />
             : <ReadinessBanner appointment={appointment} client={client} complianceInfo={complianceInfo} hasDeposit={hasLiveDeposit} isLoadingDeposit={isLoadingLiveDeposit} cardSecured={cardSecured} />}
 
         {/* ── Live timer ─────────────────────────────────────────────────── */}
@@ -1248,6 +1549,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <p className="text-[9px] font-black uppercase tracking-[0.2em] text-primary mb-1">Live Session Time</p>
             <p className={cn('font-black font-mono tracking-tighter text-4xl', isRunningOver ? 'text-destructive' : 'text-primary')}>{elapsedTime}</p>
             {isRunningOver && <p className="text-[8px] font-black uppercase tracking-widest text-destructive/60 mt-1">Running over by {Math.floor(differenceInSeconds(new Date(), safeDate(appointment.actualStartTime)) / 60) - (service?.duration || 0)}m</p>}
+            <button
+              onClick={() => setIsHandoffOpen(true)}
+              className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border-2 border-dashed border-primary/20 bg-white/60 hover:bg-white hover:border-primary/40 transition-all"
+            >
+              <Repeat2 className="w-3 h-3 text-primary/60" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-primary/60">Client wants a different artist? Hand off now</span>
+            </button>
           </div>
         )}
 
@@ -1298,6 +1606,31 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <SourceIcon className="w-3 h-3" /> {sourceLabel}
               </span>
             </div>
+
+            {/* Multi-provider strip — shows everyone currently involved */}
+            {providers.length > 1 && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-50 border-2 border-indigo-200">
+                <Users className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                  <span className="text-[8px] font-black uppercase tracking-widest text-indigo-700 shrink-0">Multi-Provider:</span>
+                  {providers.map((p) => (
+                    <span key={p.staffId} className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white border border-indigo-200">
+                      <Avatar className="h-3.5 w-3.5">
+                        <AvatarImage src={p.staffMember?.avatarUrl} className="object-cover" />
+                        <AvatarFallback className="text-[6px] font-black bg-primary/10 text-primary">
+                          {(p.staffMember?.name || 'S')[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-[8px] font-black uppercase text-indigo-700">
+                        {p.staffMember?.name || 'Staff'}
+                        {p.isMain ? ' (Lead)' : p.services.some(sv => sv.isConcurrent) ? ' (Concurrent)' : ''}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-between items-start gap-4">
               <div className="space-y-1 min-w-0 flex-1">
                 <p className="font-black text-base uppercase tracking-tight text-slate-900 truncate leading-tight">{service.name}</p>
@@ -1327,9 +1660,28 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 {(appointment.addOnIds || []).map((id: string) => {
                   const s = (allServices || []).find((svc) => svc.id === id);
                   if (!s) return null;
+                  const assignedStaffId = appointment.checkoutState?.serviceStaffOverrides?.[id];
+                  const isDifferentProvider = !!assignedStaffId && assignedStaffId !== appointment.staffId;
+                  const isConcurrent = (appointment.checkoutState?.concurrentServiceIds || []).includes(id);
+                  const assignedStaffMember = isDifferentProvider ? (staff || []).find((st: any) => st.id === assignedStaffId) : null;
                   return (
                     <div key={id} className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground bg-white p-2 rounded-lg border border-muted/20">
-                      <span className="truncate flex items-center gap-2"><Sparkles className="w-3 h-3" /> {s.name}</span>
+                      <span className="truncate flex items-center gap-2 min-w-0">
+                        <Sparkles className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{s.name}</span>
+                        {isDifferentProvider && (
+                          <span className="flex items-center gap-1 shrink-0 text-primary/70 normal-case">
+                            <Avatar className="h-3.5 w-3.5 border shrink-0">
+                              <AvatarImage src={assignedStaffMember?.avatarUrl} className="object-cover" />
+                              <AvatarFallback className="text-[6px] font-black bg-primary/10 text-primary">
+                                {(assignedStaffMember?.name || 'S')[0]}
+                              </AvatarFallback>
+                            </Avatar>
+                            {assignedStaffMember?.name || 'Staff'}
+                            {isConcurrent && <span className="text-[7px] font-black px-1 rounded bg-indigo-100 text-indigo-700 shrink-0">CONCURRENT</span>}
+                          </span>
+                        )}
+                      </span>
                       <span className="shrink-0 text-primary font-mono">${(s.price ?? 0).toFixed(2)}</span>
                     </div>
                   );
@@ -1805,6 +2157,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               <CalendarClock className="mr-2 h-3.5 w-3.5" /> Reschedule
             </DropdownMenuItem>
           )}
+          {appointment.status === 'servicing' && (
+            <DropdownMenuItem onClick={() => setIsHandoffOpen(true)} className="font-bold uppercase text-[10px] tracking-wide text-indigo-700 focus:text-indigo-700">
+              <Repeat2 className="mr-2 h-3.5 w-3.5" /> Mid-Session Handoff
+            </DropdownMenuItem>
+          )}
           {isCompleted && onBookNewForClient && (
             <DropdownMenuItem onClick={() => onBookNewForClient(client)} className="font-bold uppercase text-[10px] tracking-wide">
               <Calendar className="mr-2 h-3.5 w-3.5" /> Book Next Appointment
@@ -1873,6 +2230,18 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         actorId={currentUser?.uid || 'system'}
         isMobile={isMobile}
         onRescheduled={() => onOpenChange(false)}
+      />
+
+      <MidServiceHandoffDialog
+        open={isHandoffOpen}
+        onOpenChange={setIsHandoffOpen}
+        appointment={appointment}
+        service={service}
+        currentAddOns={currentAddOns}
+        staff={staff || []}
+        tenantId={tenantId!}
+        firestore={firestore}
+        currentUser={currentUser}
       />
 
       {appointment.inspirationPhotoUrl && isMarkupOpen && (
