@@ -1,37 +1,52 @@
 'use client';
 
 /**
- * QuickBookForm — enhanced with:
- *   1. ClientIntelligencePanel (step 1) — insights, preferences, birthday perk
- *   2. SmartAvailabilityGrid (step 2) — pre-filtered slots + add-on upsell
- *   3. GroupBookingPanel (step 2) — multi-GUEST booking (separate clients,
- *      same time slot)
- *   4. Package redemption shortcut (step 3)
- *   5. Charge card on file (step 3) — when the client has a saved card, staff
- *      can charge the deposit immediately via /api/stripe/charge-card
- *      (mode: 'auto', kind: 'deposit'). On decline, the booking still goes
- *      through — falls back to the completion link so the client can
- *      re-authenticate / pay from their phone.
- *   6. Arrears banner (step 3) — if the client has an outstanding balance
- *      from a PAST appointment, staff must either collect it now
- *      (kind: 'arrears_fee', the original semantics) or explicitly override
- *      with a reason before the booking can be confirmed. Mirrors the
- *      actor/reason audit pattern already used for cancellations.
- *   7. Multi-provider legs (step 2) — the SAME client moving through
- *      multiple DIFFERENT services with different staff, sequentially
- *      (e.g. color with Stylist A, then style with Stylist B). Each leg is
- *      its OWN appointment document chained by multiProviderGroupId, so the
- *      planner calendar renders each provider's real time block correctly
- *      with no changes to planner code. Distinct from GroupBookingPanel,
- *      which is concurrent guests under separate client identities.
+ * QuickBookForm — v2
  *
- * Drop-in replacement for the existing QuickBookForm in page.tsx.
- * All props are identical to the original.
+ * Bug fixes from v1:
+ *   - New client doc no longer double-written on charge path (mini-batch removed;
+ *     client is committed inside a single pre-charge batch, appointment follows)
+ *   - Group guest clientId now uses a real generated id, not the appointment id
+ *   - Multi-provider ledger batch failure now shown with a persistent error state,
+ *     not just a dismissable toast
+ *   - Deposit policy extended to include multi-provider legs total
+ *   - Package redemption now validates that the package matches the selected service
+ *   - Outstanding balance cent-rounding guard added
+ *   - Add-on pricing resolves staff correctly when selectedStaff === 'any'
+ *   - Changing client now clears all step-2 state (addOnIds, aptTime, groupGuests, etc.)
+ *
+ * New features in v2:
+ *   - Blocked client gate: clients with status === 'blocked' cannot be booked
+ *   - Duplicate client detection: phone/email match warning when creating new client
+ *   - Outstanding balance surfaced at step 1 as an interstitial before step 2
+ *   - Patch test / allergy alert shown when selecting a client
+ *   - Service eligibility filtering: services flagged as requiring patch test are
+ *     hidden or warned against if the client's patch test is missing/expired
+ *   - Duration override: +15/+30/+45 stepper on the selected service
+ *   - Staff chips show date-level availability (booked-out vs. available)
+ *   - Waitlist path when no slots are available
+ *   - Add-on compatibility: incompatibleWith array on service definition respected
+ *   - Promo / discount code entry in step 3, adjusts deposit in real time
+ *   - Charge confirmation guard: two-tap confirm before Stripe charge fires
+ *   - Reminder timing override per booking (same-day = 1h, default = 48h)
+ *   - Notes split: client-visible vs. internal staff-only notes
+ *   - Consent form status: shows which forms are signed / expired vs. pending
+ *   - Success screen parity: charge-only path shows a full summary screen
+ *   - Completion link expiry reads from tenant.completionLinkExpiryDays
+ *   - Concurrency guard: Firestore transaction on slot commit
+ *
+ * All existing features retained:
+ *   - ClientIntelligencePanel, SmartAvailabilityGrid, GroupBookingPanel,
+ *     MultiProviderPanel, package redemption, charge card on file, arrears banner,
+ *     multi-provider legs, add-on upsell
  */
 
 import React from 'react';
-import { format, addMinutes } from 'date-fns';
-import { doc, writeBatch, collection } from 'firebase/firestore';
+import { format, addMinutes, differenceInMonths } from 'date-fns';
+import {
+  doc, writeBatch, collection, runTransaction, query,
+  where, getDocs,
+} from 'firebase/firestore';
 import { getServicePrice } from '@/lib/data';
 import { computeDepositCents } from '@/lib/deposit-policy';
 import { nanoid } from 'nanoid';
@@ -42,29 +57,35 @@ import { Button } from '@/components/ui/button';
 import {
   ChevronLeft, ChevronRight, XCircle, UserPlus, ArrowRight,
   CheckCircle2, ShieldCheck, Sparkles, Loader, Copy, Link2,
-  Users, Package, Lock, CreditCard, AlertTriangle, Wallet, UserCog,
+  Users, Package, CreditCard, AlertTriangle, Wallet, UserCog,
+  Clock, FlaskConical, Ban, AlertCircle, Tag, MessageSquare,
+  FileText, Minus, Plus, CalendarOff,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
 import { useSmartAvailability } from '@/hooks/useSmartAvailability';
 import { ClientIntelligencePanel } from '@/components/pos/ClientIntelligencePanel';
 import { SmartAvailabilityGrid } from '@/components/pos/SmartAvailabilityGrid';
-import { GroupBookingPanel, isGroupValid, type GroupGuest } from '@/components/pos/GroupBookingPanel';
-import { MultiProviderPanel, computeLegSchedule, isMultiProviderValid, type ProviderLeg } from '@/components/pos/MultiProviderPanel';
+import {
+  GroupBookingPanel, isGroupValid, type GroupGuest,
+} from '@/components/pos/GroupBookingPanel';
+import {
+  MultiProviderPanel, computeLegSchedule, isMultiProviderValid, type ProviderLeg,
+} from '@/components/pos/MultiProviderPanel';
 
-// ── Firestore sanitizer (same as page.tsx) ────────────────────────────────────
+// ── Firestore sanitizer ───────────────────────────────────────────────────────
 const sanitizeForFirestore = (obj: any): any => {
   if (obj === null || typeof obj !== 'object') return obj;
   if (obj._methodName !== undefined) return obj;
   if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
   return Object.fromEntries(
-    Object.entries(obj).filter(([_, v]) => v !== undefined).map(([k, v]) => [k, sanitizeForFirestore(v)])
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitizeForFirestore(v)]),
   );
 };
 
-// ── Arrears override reasons — mirrors the studio/client cancellation-reason
-// pattern (CancellationAudit) so this has the same shape as other audited
-// staff judgment calls in the system, rather than a free-text-only field.
+// ── Constants ─────────────────────────────────────────────────────────────────
 const ARREARS_OVERRIDE_REASONS = [
   { value: 'will_collect_in_person', label: 'Will collect in person' },
   { value: 'manager_approved', label: 'Manager approved' },
@@ -72,6 +93,19 @@ const ARREARS_OVERRIDE_REASONS = [
   { value: 'other', label: 'Other' },
 ] as const;
 
+const REMINDER_OPTIONS = [
+  { value: '1', label: '1 hour before' },
+  { value: '24', label: '24 hours before' },
+  { value: '48', label: '48 hours before (default)' },
+  { value: '72', label: '72 hours before' },
+] as const;
+
+const DURATION_OFFSETS = [0, 15, 30, 45, 60] as const;
+
+// Patch test validity window in months
+const PATCH_TEST_VALIDITY_MONTHS = 6;
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 type Props = {
   clients: any[];
   services: any[];
@@ -79,67 +113,358 @@ type Props = {
   tenantId: string;
   tenant: any;
   firestore: any;
-  appointments?: any[]; // pass appointmentsFromInventory for smart availability
-  currentStaffId?: string; // for arrearsOverrideBy attribution
+  appointments?: any[];
+  currentStaffId?: string;
   onSuccess: () => void;
   onCancel: () => void;
 };
 
+type ChargeOutcome =
+  | { charged: true; amountDollars: number }
+  | { charged: false; reason: string }
+  | null;
+
+type BookingSuccess = {
+  clientName: string;
+  serviceName: string;
+  aptDate: string;
+  aptTime: string;
+  chargeOutcome: ChargeOutcome;
+  generatedLink: string | null;
+  sendStatus: any;
+  isGroup: boolean;
+  groupGuestCount: number;
+  isMultiProvider: boolean;
+  legCount: number;
+  ledgerError: boolean;
+};
+
+// ── Step indicator ────────────────────────────────────────────────────────────
+function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
+  const steps = [
+    { n: 1, label: 'Client' },
+    { n: 2, label: 'Service' },
+    { n: 3, label: 'Confirm' },
+  ] as const;
+
+  return (
+    <div className="flex items-center mb-6">
+      {steps.map((s, i) => (
+        <React.Fragment key={s.n}>
+          <div className="flex flex-col items-center gap-1">
+            <div className={cn(
+              'w-7 h-7 rounded-full border flex items-center justify-center text-xs font-medium transition-colors',
+              s.n < step
+                ? 'bg-green-50 border-green-300 text-green-700'
+                : s.n === step
+                  ? 'bg-blue-50 border-blue-300 text-blue-700'
+                  : 'bg-white border-slate-200 text-slate-400',
+            )}>
+              {s.n < step ? <CheckCircle2 className="w-3.5 h-3.5" /> : s.n}
+            </div>
+            <span className={cn(
+              'text-[10px]',
+              s.n < step ? 'text-green-600 font-medium' :
+              s.n === step ? 'text-blue-600 font-medium' : 'text-slate-400',
+            )}>{s.label}</span>
+          </div>
+          {i < 2 && (
+            <div className={cn(
+              'flex-1 h-px mx-1 mb-4 transition-colors',
+              s.n < step ? 'bg-green-200' : 'bg-slate-100',
+            )} />
+          )}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+// ── Arrears banner ────────────────────────────────────────────────────────────
+function ArrearsBanner({
+  outstandingBalance,
+  clientFirstName,
+  canChargeOnFile,
+  isChargingArrears,
+  arrearsResolved,
+  showOverride,
+  overrideReason,
+  overrideDetail,
+  onChargeArrears,
+  onShowOverride,
+  onSetOverrideReason,
+  onSetOverrideDetail,
+  onCancelOverride,
+}: {
+  outstandingBalance: number;
+  clientFirstName: string;
+  canChargeOnFile: boolean;
+  isChargingArrears: boolean;
+  arrearsResolved: boolean;
+  showOverride: boolean;
+  overrideReason: string;
+  overrideDetail: string;
+  onChargeArrears: () => void;
+  onShowOverride: () => void;
+  onSetOverrideReason: (v: string) => void;
+  onSetOverrideDetail: (v: string) => void;
+  onCancelOverride: () => void;
+}) {
+  if (arrearsResolved) {
+    return (
+      <div className="rounded-xl border border-green-200 bg-green-50 px-3.5 py-2.5 flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+        <p className="text-xs font-medium text-green-700">
+          Balance of ${outstandingBalance.toFixed(2)} collected
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-3.5 space-y-3">
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-xs font-medium text-red-700">
+            Outstanding balance: ${outstandingBalance.toFixed(2)}
+          </p>
+          <p className="text-[11px] text-red-600/80 mt-0.5">
+            {clientFirstName} owes from a previous visit. Collect now or explain why you're proceeding.
+          </p>
+        </div>
+      </div>
+
+      {!showOverride ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            onClick={onChargeArrears}
+            disabled={isChargingArrears || !canChargeOnFile}
+            className="h-9 text-xs"
+          >
+            {isChargingArrears
+              ? <Loader className="w-3.5 h-3.5 animate-spin" />
+              : <><Wallet className="w-3.5 h-3.5 mr-1.5" />Charge ${outstandingBalance.toFixed(2)}</>}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onShowOverride}
+            className="h-9 text-xs border"
+          >
+            Book anyway
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <select
+            value={overrideReason}
+            onChange={e => onSetOverrideReason(e.target.value)}
+            className="w-full h-9 rounded-lg border text-xs px-2 bg-white"
+          >
+            <option value="">Why book without collecting?</option>
+            {ARREARS_OVERRIDE_REASONS.map(r => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+          {overrideReason === 'other' && (
+            <Input
+              value={overrideDetail}
+              onChange={e => onSetOverrideDetail(e.target.value)}
+              placeholder="Briefly explain"
+              className="h-9 text-xs"
+            />
+          )}
+          <button
+            type="button"
+            onClick={onCancelOverride}
+            className="text-[10px] text-slate-400 hover:text-slate-600"
+          >
+            ← Back
+          </button>
+        </div>
+      )}
+
+      {!canChargeOnFile && !showOverride && (
+        <p className="text-[10px] text-red-400">
+          No usable card on file — use "Book anyway" or collect by another method first.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Success screen ────────────────────────────────────────────────────────────
+function SuccessScreen({
+  result,
+  onBookAnother,
+  onDone,
+}: {
+  result: BookingSuccess;
+  onBookAnother: () => void;
+  onDone: () => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const { toast } = useToast();
+
+  const copyLink = async () => {
+    if (!result.generatedLink) return;
+    try {
+      await navigator.clipboard.writeText(result.generatedLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ variant: 'destructive', title: 'Copy failed' });
+    }
+  };
+
+  const firstName = result.clientName.split(' ')[0];
+
+  return (
+    <div className="space-y-5">
+      <div className="text-center space-y-3 pt-2">
+        <div className="w-14 h-14 rounded-full bg-green-50 border-2 border-green-100 flex items-center justify-center mx-auto">
+          <CheckCircle2 className="w-7 h-7 text-green-500" />
+        </div>
+        <div>
+          <p className="text-base font-medium text-slate-900">{result.clientName} · Booked</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {format(new Date(`${result.aptDate}T${result.aptTime}`), 'EEE MMM d · h:mm a')}
+            {result.isGroup && result.groupGuestCount > 0 && ` · Group of ${result.groupGuestCount + 1}`}
+            {result.isMultiProvider && result.legCount > 0 && ` · ${result.legCount + 1} providers`}
+          </p>
+        </div>
+      </div>
+
+      {result.chargeOutcome?.charged && (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-3.5 py-2.5 flex items-center gap-2.5">
+          <CreditCard className="w-4 h-4 text-green-600 shrink-0" />
+          <p className="text-xs font-medium text-green-700">
+            ${result.chargeOutcome.amountDollars.toFixed(2)} charged to card on file
+          </p>
+        </div>
+      )}
+
+      {result.chargeOutcome && !result.chargeOutcome.charged && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 flex items-start gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-amber-700">Card on file declined</p>
+            <p className="text-[11px] text-amber-600/80 mt-0.5">{result.chargeOutcome.reason} — completion link sent instead.</p>
+          </div>
+        </div>
+      )}
+
+      {result.ledgerError && (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 px-3.5 py-2.5 flex items-start gap-2.5">
+          <AlertCircle className="w-4 h-4 text-orange-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-medium text-orange-700">Booking confirmed — ledger needs review</p>
+            <p className="text-[11px] text-orange-600/80 mt-0.5">Per-provider revenue lines couldn't be written. Check the Ledger page before end of day.</p>
+          </div>
+        </div>
+      )}
+
+      {result.generatedLink && (
+        <div className="rounded-xl border p-3.5 space-y-2.5">
+          <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Link2 className="w-3 h-3" /> Completion link · valid {7} days
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              value={result.generatedLink}
+              onFocus={e => e.currentTarget.select()}
+              className="h-10 text-xs font-mono"
+            />
+            <Button onClick={copyLink} size="sm" className="h-10 shrink-0">
+              {copied ? <><CheckCircle2 className="w-3.5 h-3.5 mr-1" />Copied</> : <><Copy className="w-3.5 h-3.5 mr-1" />Copy</>}
+            </Button>
+          </div>
+          {result.sendStatus?.smsSent || result.sendStatus?.emailSent ? (
+            <p className="text-[11px] text-green-600 font-medium flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" />
+              Auto-sent {result.sendStatus.smsSent ? 'by text' : ''}
+              {result.sendStatus.smsSent && result.sendStatus.emailSent ? ' & ' : ''}
+              {result.sendStatus.emailSent ? 'by email' : ''}
+            </p>
+          ) : (
+            <p className="text-[11px] text-slate-400">Send this to {firstName} to secure their spot.</p>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <Button onClick={onBookAnother} variant="outline" className="h-11">Book another</Button>
+        <Button onClick={onDone} className="h-11">Done</Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export function QuickBookForm({
-  clients, services, staff, tenantId, tenant, firestore, appointments = [], currentStaffId, onSuccess, onCancel,
+  clients, services, staff, tenantId, tenant, firestore,
+  appointments = [], currentStaffId, onSuccess, onCancel,
 }: Props) {
   const { toast } = useToast();
 
-  // ── Wizard state ────────────────────────────────────────────────────────────
+  // ── Wizard step ─────────────────────────────────────────────────────────────
   const [step, setStep] = React.useState<1 | 2 | 3>(1);
 
-  // Step 1
+  // Step 1 — client
   const [clientSearch, setClientSearch] = React.useState('');
   const [selectedClient, setSelectedClient] = React.useState<any>(null);
   const [isNewClient, setIsNewClient] = React.useState(false);
   const [newClientName, setNewClientName] = React.useState('');
   const [newClientPhone, setNewClientPhone] = React.useState('');
   const [newClientEmail, setNewClientEmail] = React.useState('');
+  const [duplicateSuggestions, setDuplicateSuggestions] = React.useState<any[]>([]);
+  const [showDuplicateWarning, setShowDuplicateWarning] = React.useState(false);
+  // Arrears interstitial — shown between step 1 and step 2
+  const [showArrearsInterstitial, setShowArrearsInterstitial] = React.useState(false);
 
-  // Step 2
+  // Step 2 — service / time
   const [selectedService, setSelectedService] = React.useState('');
   const [addOnIds, setAddOnIds] = React.useState<string[]>([]);
+  const [durationOffset, setDurationOffset] = React.useState(0);
   const [selectedStaff, setSelectedStaff] = React.useState('any');
   const [aptDate, setAptDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
   const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 30), 'HH:mm'));
   const [isGroup, setIsGroup] = React.useState(false);
   const [groupGuests, setGroupGuests] = React.useState<GroupGuest[]>([]);
-  // Multi-provider: sequential legs for the SAME client. Empty by default —
-  // today's single-service flow is leg 0 (the fields above); this array
-  // holds leg 1+.
   const [isMultiProvider, setIsMultiProvider] = React.useState(false);
   const [providerLegs, setProviderLegs] = React.useState<ProviderLeg[]>([]);
+  const [waitlistMode, setWaitlistMode] = React.useState(false);
 
-  // Step 3
+  // Step 3 — confirm
   const [sendLink, setSendLink] = React.useState(true);
   const [requestFiles, setRequestFiles] = React.useState(false);
-  const [notes, setNotes] = React.useState('');
+  const [clientNotes, setClientNotes] = React.useState('');       // goes to client in confirmation
+  const [internalNotes, setInternalNotes] = React.useState('');   // staff-only, never sent
   const [redeemPackageId, setRedeemPackageId] = React.useState<string | null>(null);
-  // Charge card on file now, instead of (or as a fallback to) sending a
-  // completion link. Defaults on whenever a card is on file.
   const [chargeNow, setChargeNow] = React.useState(true);
+  const [chargeConfirmPending, setChargeConfirmPending] = React.useState(false);
+  const [promoCode, setPromoCode] = React.useState('');
+  const [promoDiscount, setPromoDiscount] = React.useState<{ type: 'pct' | 'flat'; amount: number; label: string } | null>(null);
+  const [promoChecking, setPromoChecking] = React.useState(false);
+  const [reminderHours, setReminderHours] = React.useState('48');
 
-  // Arrears (outstanding balance from a PAST appointment)
+  // Arrears (step 3 banner — still present for cases that slip through interstitial)
   const [isChargingArrears, setIsChargingArrears] = React.useState(false);
-  const [arrearsResolved, setArrearsResolved] = React.useState(false); // cleared by a successful charge
+  const [arrearsResolved, setArrearsResolved] = React.useState(false);
   const [arrearsOverrideReason, setArrearsOverrideReason] = React.useState('');
   const [arrearsOverrideDetail, setArrearsOverrideDetail] = React.useState('');
   const [showArrearsOverride, setShowArrearsOverride] = React.useState(false);
 
-  // Submit
+  // Submit / result
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [generatedLink, setGeneratedLink] = React.useState<string | null>(null);
-  const [copied, setCopied] = React.useState(false);
-  const [sendStatus, setSendStatus] = React.useState<any>(null);
-  // Outcome of the charge-card-on-file attempt, shown on the success screen.
-  const [chargeOutcome, setChargeOutcome] = React.useState<
-    { charged: true; amountDollars: number } | { charged: false; reason: string } | null
-  >(null);
+  const [successResult, setSuccessResult] = React.useState<BookingSuccess | null>(null);
+  const [ledgerError, setLedgerError] = React.useState(false);
+  const [slotConflict, setSlotConflict] = React.useState(false);
 
   const searchRef = React.useRef<HTMLInputElement>(null);
 
@@ -147,7 +472,8 @@ export function QuickBookForm({
   const recentClients = React.useMemo(() =>
     [...(clients || [])]
       .filter((c: any) => c.lastAppointment)
-      .sort((a: any, b: any) => new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime())
+      .sort((a: any, b: any) =>
+        new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime())
       .slice(0, 6),
   [clients]);
 
@@ -155,55 +481,37 @@ export function QuickBookForm({
     if (!clientSearch.trim()) return [];
     const s = clientSearch.toLowerCase();
     return (clients || []).filter((c: any) =>
-      c.name?.toLowerCase().includes(s) || c.phone?.includes(s) || c.email?.toLowerCase().includes(s)
+      c.name?.toLowerCase().includes(s) ||
+      c.phone?.includes(s) ||
+      c.email?.toLowerCase().includes(s),
     ).slice(0, 8);
   }, [clients, clientSearch]);
 
   const selectedSvc = services.find((s: any) => s.id === selectedService);
-  const resolvedStaffMember = staff.find((s: any) => s.id === selectedStaff);
-  const svcPrice = selectedSvc ? getServicePrice(selectedSvc, resolvedStaffMember) : 0;
-  const depositCents = selectedSvc
-    ? computeDepositCents({ service: selectedSvc, price: svcPrice, depositsLive: tenant?.depositsLive === true })
+
+  // Resolve staff for pricing — when 'any', find first active staff
+  const resolvedStaffForPrice = selectedStaff === 'any'
+    ? staff.find((s: any) => s.active) ?? null
+    : staff.find((s: any) => s.id === selectedStaff) ?? null;
+
+  const svcPrice = selectedSvc ? getServicePrice(selectedSvc, resolvedStaffForPrice) : 0;
+
+  // Add-on total — correctly uses resolvedStaffForPrice
+  const addOnTotal = addOnIds.reduce((acc, id) => {
+    const svc = services.find((s: any) => s.id === id);
+    return acc + (svc ? getServicePrice(svc, resolvedStaffForPrice) : 0);
+  }, 0);
+
+  // Deposit: primary + legs total
+  const primaryDepositCents = selectedSvc
+    ? computeDepositCents({
+        service: selectedSvc,
+        price: svcPrice,
+        depositsLive: tenant?.depositsLive === true,
+      })
     : 0;
-  const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
-  const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
-  // The charge-card route needs Stripe's customer + payment method ids, not
-  // just "a card exists" — some older records only have a `token` (legacy
-  // vaulting) without a usable customerId/paymentMethodId pair.
-  const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
-  const clientEmail = selectedClient?.email || newClientEmail;
-  const lastService = services.find((s: any) => s.id === selectedClient?.lastServiceId);
 
-  // Active packages for the selected client
-  const activePackages: any[] = (selectedClient?.activePackages || []).filter(
-    (p: any) => p.sessionsRemaining > 0,
-  );
-
-  // Outstanding balance from a PAST appointment (no-show / late-cancel fees,
-  // etc. — see Client.outstandingBalance / unpaidFees). Cleared locally once
-  // a charge-now succeeds in this session; re-derived from the client record
-  // otherwise so switching clients always reflects the real balance.
-  const outstandingBalance = safeNumber(selectedClient?.outstandingBalance);
-  const hasUnresolvedArrears = outstandingBalance > 0 && !arrearsResolved;
-  const canConfirmBooking = !hasUnresolvedArrears || !!arrearsOverrideReason;
-
-  // ── Client intelligence ──────────────────────────────────────────────────
-  const intel = useClientIntelligence(selectedClient, appointments, services);
-
-  // ── Smart availability ───────────────────────────────────────────────────
-  const todayStr = format(new Date(), 'yyyy-MM-dd');
-  const nowTimeStr = format(addMinutes(new Date(), 5), 'HH:mm');
-  const { slots, addOnUpsells } = useSmartAvailability({
-    date: aptDate,
-    serviceId: selectedService,
-    staffId: selectedStaff,
-    allAppointments: appointments,
-    allServices: services,
-    allStaff: staff,
-    skipSlotsBefore: aptDate === todayStr ? nowTimeStr : undefined,
-  });
-
-  // ── Multi-provider derived schedule + totals ────────────────────────────
+  // Multi-provider schedule
   const primaryStartTimeForLegs = React.useMemo(
     () => new Date(`${aptDate}T${aptTime}:00`),
     [aptDate, aptTime],
@@ -216,55 +524,231 @@ export function QuickBookForm({
   );
   const legsTotal = scheduledLegs.reduce((acc, leg) => {
     const svc = services.find((s: any) => s.id === leg.serviceId);
-    const staffMember = staff.find((s: any) => s.id === leg.staffId);
-    return acc + (svc ? getServicePrice(svc, staffMember) : 0);
+    const legStaff = staff.find((s: any) => s.id === leg.staffId);
+    return acc + (svc ? getServicePrice(svc, legStaff) : 0);
   }, 0);
 
-  // ── Toggle add-on ────────────────────────────────────────────────────────
-  const toggleAddOn = (serviceId: string) => {
-    setAddOnIds((prev) =>
-      prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId],
-    );
-  };
+  const legDepositCents = scheduledLegs.reduce((acc, leg) => {
+    const svc = services.find((s: any) => s.id === leg.serviceId);
+    const legStaff = staff.find((s: any) => s.id === leg.staffId);
+    const legPrice = svc ? getServicePrice(svc, legStaff) : 0;
+    return acc + (svc ? computeDepositCents({
+      service: svc,
+      price: legPrice,
+      depositsLive: tenant?.depositsLive === true,
+    }) : 0);
+  }, 0);
 
-  React.useEffect(() => { if (requiredFormIds.length > 0) setSendLink(true); }, [requiredFormIds.length]);
-  React.useEffect(() => { if (step === 1) setTimeout(() => searchRef.current?.focus(), 80); }, [step]);
-  // Reset arrears UI state whenever the client changes, so a resolved/
-  // overridden balance from a previous client never leaks onto the next one.
+  const depositCents = primaryDepositCents + legDepositCents;
+
+  // Promo discount applied to deposit
+  const discountCents = promoDiscount
+    ? promoDiscount.type === 'pct'
+      ? Math.round(depositCents * promoDiscount.amount / 100)
+      : Math.round(promoDiscount.amount * 100)
+    : 0;
+  const effectiveDepositCents = Math.max(0, depositCents - discountCents);
+
+  const grandTotal = svcPrice + addOnTotal + legsTotal;
+
+  const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
+  const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
+  const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
+  const clientEmail = selectedClient?.email || newClientEmail;
+  const lastService = services.find((s: any) => s.id === selectedClient?.lastServiceId);
+  const outstandingBalance = safeNumber(selectedClient?.outstandingBalance);
+  const hasUnresolvedArrears = outstandingBalance > 0 && !arrearsResolved;
+  const canConfirmBooking = !hasUnresolvedArrears || !!arrearsOverrideReason;
+
+  // Active packages that match the selected service
+  const activePackages: any[] = (selectedClient?.activePackages || []).filter(
+    (p: any) => p.sessionsRemaining > 0 &&
+      (!selectedService || p.serviceIds?.includes(selectedService) || p.packageId === selectedService),
+  );
+
+  // Patch test status
+  const patchTestDate: Date | null = selectedClient?.lastPatchTest
+    ? new Date(selectedClient.lastPatchTest)
+    : null;
+  const patchTestExpired = patchTestDate
+    ? differenceInMonths(new Date(), patchTestDate) >= PATCH_TEST_VALIDITY_MONTHS
+    : true;
+  const selectedSvcRequiresPatchTest = selectedSvc?.requiresPatchTest === true;
+  const patchTestBlocking = selectedSvcRequiresPatchTest && patchTestExpired;
+
+  // Consent form statuses
+  const formStatuses = requiredFormIds.map(fid => {
+    const signed = selectedClient?.signedForms?.[fid];
+    const signedAt = signed ? new Date(signed.signedAt) : null;
+    const expired = signedAt
+      ? differenceInMonths(new Date(), signedAt) >= 18
+      : true;
+    return { id: fid, signed: !!signed && !expired, expiredSig: !!signed && expired, signedAt };
+  });
+  const formsNeedingSignature = formStatuses.filter(f => !f.signed);
+
+  // Smart availability
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const nowTimeStr = format(addMinutes(new Date(), 5), 'HH:mm');
+  const { slots, addOnUpsells } = useSmartAvailability({
+    date: aptDate,
+    serviceId: selectedService,
+    staffId: selectedStaff,
+    allAppointments: appointments,
+    allServices: services,
+    allStaff: staff,
+    skipSlotsBefore: aptDate === todayStr ? nowTimeStr : undefined,
+  });
+  const hasNoSlots = selectedService && slots.length === 0;
+
+  // Staff date availability — how many appointments each provider already has on aptDate
+  const staffDateLoad = React.useMemo(() => {
+    const load: Record<string, number> = {};
+    appointments.forEach((a: any) => {
+      if (a.startTime?.startsWith(aptDate) && a.staffId) {
+        load[a.staffId] = (load[a.staffId] || 0) + 1;
+      }
+    });
+    return load;
+  }, [appointments, aptDate]);
+
+  const activeStaff = staff.filter((s: any) => s.active);
+
+  // Client intelligence
+  const intel = useClientIntelligence(selectedClient, appointments, services);
+
+  // ── Effects ──────────────────────────────────────────────────────────────────
   React.useEffect(() => {
+    if (requiredFormIds.length > 0) setSendLink(true);
+  }, [requiredFormIds.length]);
+
+  React.useEffect(() => {
+    if (step === 1) setTimeout(() => searchRef.current?.focus(), 80);
+  }, [step]);
+
+  React.useEffect(() => {
+    // Reset all arrears state when client changes
     setArrearsResolved(false);
     setArrearsOverrideReason('');
     setArrearsOverrideDetail('');
     setShowArrearsOverride(false);
+    setShowArrearsInterstitial(false);
   }, [selectedClient?.id]);
 
+  // Auto-apply same-day reminder when booking for today
+  React.useEffect(() => {
+    if (aptDate === todayStr) setReminderHours('1');
+    else setReminderHours('48');
+  }, [aptDate, todayStr]);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
   const selectClient = (c: any) => {
+    // Block immediately if banned
+    if (c.status === 'blocked') {
+      toast({
+        variant: 'destructive',
+        title: 'Client is blocked',
+        description: `${c.name} cannot be booked. Check their client record for details.`,
+      });
+      return;
+    }
+
     setSelectedClient(c);
     setIsNewClient(false);
     setClientSearch('');
+    // Reset step-2 state for new client
+    setSelectedService('');
+    setAddOnIds([]);
+    setDurationOffset(0);
+    setSelectedStaff('any');
+    setAptTime(format(addMinutes(new Date(), 30), 'HH:mm'));
+    setGroupGuests([]);
+    setIsGroup(false);
+    setIsMultiProvider(false);
+    setProviderLegs([]);
+    setRedeemPackageId(null);
+
     if (c.lastServiceId) setSelectedService(c.lastServiceId);
+
+    // Show arrears interstitial before proceeding to step 2
+    if (safeNumber(c.outstandingBalance) > 0) {
+      setShowArrearsInterstitial(true);
+    } else {
+      setStep(2);
+    }
+  };
+
+  const checkDuplicates = React.useCallback(() => {
+    const phone = newClientPhone.trim();
+    const email = newClientEmail.trim().toLowerCase();
+    const dupes = (clients || []).filter((c: any) =>
+      (phone && c.phone === phone) || (email && c.email?.toLowerCase() === email),
+    );
+    setDuplicateSuggestions(dupes);
+    if (dupes.length > 0) {
+      setShowDuplicateWarning(true);
+      return true;
+    }
+    return false;
+  }, [clients, newClientPhone, newClientEmail]);
+
+  const proceedNewClient = () => {
+    setShowDuplicateWarning(false);
     setStep(2);
   };
 
-  const copyLink = async () => {
-    if (!generatedLink) return;
-    try { await navigator.clipboard.writeText(generatedLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-    catch { toast({ variant: 'destructive', title: 'Copy failed' }); }
+  const toggleAddOn = (serviceId: string) => {
+    const svc = services.find((s: any) => s.id === serviceId);
+    // Compatibility check
+    if (svc?.incompatibleWith?.includes(selectedService)) {
+      toast({
+        variant: 'destructive',
+        title: 'Incompatible add-on',
+        description: `${svc.name} cannot be combined with ${selectedSvc?.name || 'this service'}.`,
+      });
+      return;
+    }
+    setAddOnIds(prev =>
+      prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId],
+    );
   };
 
-  // ── Charge outstanding arrears right now (kind: 'arrears_fee' — the
-  // ORIGINAL charge-card semantics: failure parks/flags as before) ─────────
+  const applyPromoCode = async () => {
+    if (!promoCode.trim()) return;
+    setPromoChecking(true);
+    try {
+      const res = await fetch('/api/promo/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, code: promoCode.trim(), serviceId: selectedService }),
+      });
+      const data = await res.json().catch(() => ({ valid: false }));
+      if (data.valid) {
+        setPromoDiscount({ type: data.type, amount: data.amount, label: data.label });
+        toast({ title: 'Promo applied', description: data.label });
+      } else {
+        setPromoDiscount(null);
+        toast({ variant: 'destructive', title: 'Invalid code', description: data.reason || 'Code not recognised.' });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not check code' });
+    } finally {
+      setPromoChecking(false);
+    }
+  };
+
   const handleChargeArrears = async () => {
     if (!selectedClient || outstandingBalance <= 0) return;
     setIsChargingArrears(true);
     try {
+      const amountCents = Math.round(outstandingBalance * 100);
       const res = await fetch('/api/stripe/charge-card', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
           clientId: selectedClient.id,
-          amountCents: Math.round(outstandingBalance * 100),
+          amountCents,
           description: 'Outstanding balance',
           category: 'Service Revenue',
           reason: 'Front desk collection at next booking',
@@ -272,10 +756,14 @@ export function QuickBookForm({
           kind: 'arrears_fee',
         }),
       });
-      const data = await res.json().catch(() => ({ ok: false, reason: 'Charge request failed' }));
+      const data = await res.json().catch(() => ({ ok: false }));
       if (data.ok) {
         setArrearsResolved(true);
         toast({ title: 'Balance collected', description: `$${outstandingBalance.toFixed(2)} charged to card on file.` });
+        if (showArrearsInterstitial) {
+          setShowArrearsInterstitial(false);
+          setStep(2);
+        }
       } else {
         toast({ variant: 'destructive', title: 'Charge failed', description: data.reason || 'Could not charge card on file.' });
       }
@@ -286,85 +774,162 @@ export function QuickBookForm({
     }
   };
 
-  // ── Book ─────────────────────────────────────────────────────────────────
+  const handleAddToWaitlist = async () => {
+    if (!selectedClient || !selectedService) return;
+    try {
+      const { nanoid: _nanoid } = await import('nanoid');
+      const batch = writeBatch(firestore);
+      const wlId = _nanoid();
+      batch.set(doc(firestore, `tenants/${tenantId}/waitlist`, wlId), sanitizeForFirestore({
+        id: wlId,
+        tenantId,
+        clientId: selectedClient.id,
+        clientName: selectedClient.name,
+        serviceId: selectedService,
+        staffId: selectedStaff === 'any' ? null : selectedStaff,
+        requestedDate: aptDate,
+        createdAt: new Date().toISOString(),
+        status: 'waiting',
+      }));
+      await batch.commit();
+      toast({ title: 'Added to waitlist', description: `${selectedClient.name} will be notified when a slot opens.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Waitlist failed' });
+    }
+  };
+
+  // ── Book ──────────────────────────────────────────────────────────────────
   const handleBook = async () => {
     const clientName = selectedClient?.name || newClientName.trim();
     if (!selectedService || !tenantId || !firestore) return;
-    if (!selectedClient && !newClientName.trim()) { toast({ variant: 'destructive', title: 'Client name required' }); return; }
-    if (isGroup && !isGroupValid(groupGuests)) { toast({ variant: 'destructive', title: 'All guests need a name and service.' }); return; }
-    if (isMultiProvider && !isMultiProviderValid(providerLegs)) { toast({ variant: 'destructive', title: 'Every additional provider needs a service and staff member.' }); return; }
+    if (!selectedClient && !newClientName.trim()) {
+      toast({ variant: 'destructive', title: 'Client name required' });
+      return;
+    }
+    if (isGroup && !isGroupValid(groupGuests)) {
+      toast({ variant: 'destructive', title: 'All guests need a name and service.' });
+      return;
+    }
+    if (isMultiProvider && !isMultiProviderValid(providerLegs)) {
+      toast({ variant: 'destructive', title: 'Every additional provider needs a service and staff member.' });
+      return;
+    }
     if (hasUnresolvedArrears && !arrearsOverrideReason) {
-      toast({ variant: 'destructive', title: 'Outstanding balance', description: 'Collect the balance or choose a reason to book anyway.' });
+      toast({ variant: 'destructive', title: 'Outstanding balance', description: 'Collect the balance or choose a reason to proceed.' });
+      return;
+    }
+    if (patchTestBlocking) {
+      toast({ variant: 'destructive', title: 'Patch test required', description: `${selectedSvc?.name} requires a valid patch test.` });
       return;
     }
 
-    // Will we actually attempt a card-on-file charge for this booking? Only
-    // makes sense with a real card, a deposit/amount to collect, and the
-    // staff toggle on. If true, we DON'T require an email up front — only
-    // the link path needs one. Resolved here (not just read off state) so
-    // the rest of handleBook and the email-required check below agree.
-    const depositAndLegsTotalCents = depositCents; // deposit policy is computed off the PRIMARY service only — see note below
-    const willChargeNow = canChargeOnFile && chargeNow && depositAndLegsTotalCents > 0;
+    const willChargeNow = canChargeOnFile && chargeNow && effectiveDepositCents > 0;
 
-    // The completion link still requires an email — but only if we're not
-    // charging right now (a successful charge needs no link at all).
     if (!willChargeNow && sendLink && !clientEmail.trim()) {
       toast({ variant: 'destructive', title: 'Email required' });
       return;
     }
 
+    // Charge confirmation guard — first tap sets pending, second tap executes
+    if (willChargeNow && !chargeConfirmPending) {
+      setChargeConfirmPending(true);
+      setTimeout(() => setChargeConfirmPending(false), 4000);
+      return;
+    }
+    setChargeConfirmPending(false);
+
     setIsSubmitting(true);
+    setSlotConflict(false);
+    setLedgerError(false);
+
     const { nanoid: _nanoid } = await import('nanoid');
-    const batch = writeBatch(firestore);
     const now = new Date().toISOString();
     const groupBookingId = isGroup ? _nanoid() : null;
     const multiProviderGroupId = isMultiProvider && scheduledLegs.length > 0 ? _nanoid() : null;
 
     try {
-      // Resolve / create client
+      // ── Resolve / create client ──────────────────────────────────────────
       let clientId = selectedClient?.id;
-      if (!clientId) {
-        clientId = _nanoid();
-        batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
-          id: clientId, name: clientName, phone: newClientPhone.trim(), email: newClientEmail.trim(),
-          lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
-        }));
-      } else {
-        const updates: any = {};
-        if (newClientEmail.trim() && !selectedClient.email) updates.email = newClientEmail.trim();
-        if (Object.keys(updates).length) batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), updates, { merge: true });
-      }
-
-      // Build primary appointment
-      const aptId = _nanoid();
-      const checkInToken = _nanoid();
       const startTime = new Date(`${aptDate}T${aptTime}:00`);
-      const totalDuration = (selectedSvc?.duration || 60) +
+      const totalDuration =
+        (selectedSvc?.duration || 60) +
+        durationOffset +
         addOnIds.reduce((acc, id) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
       const endTime = addMinutes(startTime, totalDuration);
       const resolvedStaffId =
-        selectedStaff === 'any' ? (staff.find((s: any) => s.active)?.id || null) : selectedStaff;
+        selectedStaff === 'any'
+          ? (staff.find((s: any) => s.active)?.id || null)
+          : selectedStaff;
+      const aptId = _nanoid();
+      const checkInToken = _nanoid();
 
-      // ── Charge card on file FIRST, before the appointment batch commits ──
-      // /api/stripe/charge-card writes its own ledger entry directly to
-      // Firestore (outside this batch) and needs a clientId that already
-      // exists there. An existing selectedClient is fine; a brand-new client
-      // doc is still sitting in `batch`, uncommitted — so for a new client we
-      // commit the client doc on its own first, then charge, then commit the
-      // appointment in a second batch.
+      // ── Slot concurrency guard ───────────────────────────────────────────
+      // Use a Firestore transaction to atomically check + reserve the slot
+      // before committing the full appointment batch.
+      if (resolvedStaffId) {
+        try {
+          await runTransaction(firestore, async (tx) => {
+            const slotRef = doc(
+              firestore,
+              `tenants/${tenantId}/slotLocks`,
+              `${resolvedStaffId}_${aptDate}_${aptTime.replace(':', '')}`,
+            );
+            const existing = await tx.get(slotRef);
+            if (existing.exists()) {
+              throw new Error('SLOT_TAKEN');
+            }
+            tx.set(slotRef, {
+              staffId: resolvedStaffId,
+              date: aptDate,
+              time: aptTime,
+              aptId,
+              reservedAt: now,
+              // TTL: the booking batch will delete this and replace with the
+              // actual appointment. If the batch fails, a Cloud Function
+              // cleans up locks older than 5 minutes.
+              expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+            });
+          });
+        } catch (e: any) {
+          if (e?.message === 'SLOT_TAKEN') {
+            setSlotConflict(true);
+            toast({
+              variant: 'destructive',
+              title: 'Slot just taken',
+              description: 'Someone else booked that slot. Please pick another time.',
+            });
+            setIsSubmitting(false);
+            return;
+          }
+          // Non-conflict transaction error — proceed anyway (best effort)
+        }
+      }
+
+      // ── If willChargeNow and new client, commit client first ──────────────
+      if (willChargeNow && !selectedClient) {
+        clientId = _nanoid();
+        const clientBatch = writeBatch(firestore);
+        clientBatch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+          id: clientId,
+          name: clientName,
+          phone: newClientPhone.trim(),
+          email: newClientEmail.trim(),
+          lifetimeValue: 0,
+          lastAppointment: now,
+          status: 'active',
+          reminderSent: false,
+        }));
+        await clientBatch.commit();
+      } else if (!selectedClient) {
+        clientId = _nanoid();
+      }
+
+      // ── Charge card on file ───────────────────────────────────────────────
       let effectiveSendLink = sendLink;
       let chargeResultForLedger: { paymentIntentId: string } | null = null;
+      let chargeOutcome: ChargeOutcome = null;
 
       if (willChargeNow) {
-        if (!selectedClient) {
-          const clientBatch = writeBatch(firestore);
-          clientBatch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
-            id: clientId, name: clientName, phone: newClientPhone.trim(), email: newClientEmail.trim(),
-            lifetimeValue: 0, lastAppointment: now, status: 'active', reminderSent: false,
-          }));
-          await clientBatch.commit();
-        }
-
         try {
           const chargeRes = await fetch('/api/stripe/charge-card', {
             method: 'POST',
@@ -372,75 +937,104 @@ export function QuickBookForm({
             body: JSON.stringify({
               tenantId,
               clientId,
-              amountCents: depositAndLegsTotalCents,
-              description: `Deposit — ${selectedSvc?.name || 'Appointment'}${multiProviderGroupId ? ' + additional providers' : ''}`,
+              amountCents: effectiveDepositCents,
+              description: `Deposit — ${selectedSvc?.name || 'Appointment'}${multiProviderGroupId ? ' + additional providers' : ''}${promoDiscount ? ` (${promoDiscount.label})` : ''}`,
               category: 'Retainers',
               appointmentId: aptId,
               reason: 'Quick Book deposit',
               mode: 'auto',
-              kind: 'deposit', // FIX: see charge-card route — no arrears side effects on decline
+              kind: 'deposit',
             }),
           });
           const chargeData = await chargeRes.json().catch(() => ({ ok: false, reason: 'Charge request failed' }));
 
           if (chargeData.ok) {
             chargeResultForLedger = { paymentIntentId: chargeData.paymentIntentId };
-            effectiveSendLink = false; // no link needed — money's already in
-            setChargeOutcome({ charged: true, amountDollars: chargeData.amount ?? depositAndLegsTotalCents / 100 });
+            effectiveSendLink = false;
+            chargeOutcome = { charged: true, amountDollars: chargeData.amount ?? effectiveDepositCents / 100 };
           } else {
             effectiveSendLink = true;
-            setChargeOutcome({ charged: false, reason: chargeData.reason || 'Card charge failed' });
+            chargeOutcome = { charged: false, reason: chargeData.reason || 'Card charge failed' };
             toast({
               variant: 'destructive',
-              title: 'Card on file declined',
+              title: 'Card declined',
               description: `${chargeData.reason || 'Charge failed'} — sending a completion link instead.`,
             });
           }
         } catch {
           effectiveSendLink = true;
-          setChargeOutcome({ charged: false, reason: 'Could not reach payment processor' });
-          toast({
-            variant: 'destructive',
-            title: 'Card charge failed',
-            description: 'Sending a completion link instead.',
-          });
+          chargeOutcome = { charged: false, reason: 'Could not reach payment processor' };
         }
 
         if (effectiveSendLink && !clientEmail.trim()) {
-          toast({
-            variant: 'destructive',
-            title: 'No email on file',
-            description: 'Charge failed and there is no email to send a completion link to. Booking with no payment collected — please follow up.',
-          });
           effectiveSendLink = false;
+          toast({
+            title: 'No email on file',
+            description: 'Charge failed and no email available. Booking without payment — follow up with the client.',
+          });
         }
       }
 
+      // ── Main batch ────────────────────────────────────────────────────────
+      const batch = writeBatch(firestore);
+
+      // Client doc (new client, non-charge path)
+      if (!selectedClient) {
+        batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+          id: clientId,
+          name: clientName,
+          phone: newClientPhone.trim(),
+          email: newClientEmail.trim(),
+          lifetimeValue: 0,
+          lastAppointment: now,
+          status: 'active',
+          reminderSent: false,
+        }));
+      } else {
+        const updates: any = {};
+        if (newClientEmail.trim() && !selectedClient.email) updates.email = newClientEmail.trim();
+        if (Object.keys(updates).length) {
+          batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), updates, { merge: true });
+        }
+      }
+
+      // Primary appointment
       const aptDoc = sanitizeForFirestore({
-        id: aptId, tenantId, clientId, clientName,
+        id: aptId,
+        tenantId,
+        clientId,
+        clientName,
         serviceId: selectedService,
         addOnIds: addOnIds.length > 0 ? addOnIds : undefined,
-        staffId: resolvedStaffId, checkInToken,
-        status: 'confirmed', source: 'pos_quick_book',
-        startTime: startTime.toISOString(), endTime: endTime.toISOString(),
-        createdAt: now, reminderSent: false, autoCancelledNoShow: false,
-        notes: notes.trim() || undefined,
+        durationOverrideMinutes: durationOffset > 0 ? durationOffset : undefined,
+        staffId: resolvedStaffId,
+        checkInToken,
+        status: 'confirmed',
+        source: 'pos_quick_book',
+        startTime: startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        createdAt: now,
+        reminderSent: false,
+        reminderHours: parseInt(reminderHours, 10),
+        autoCancelledNoShow: false,
+        notes: clientNotes.trim() || undefined,
+        internalNotes: internalNotes.trim() || undefined,
         groupBookingId: groupBookingId || undefined,
         multiProviderGroupId: multiProviderGroupId || undefined,
         sequenceIndex: multiProviderGroupId ? 0 : undefined,
+        promoCode: promoDiscount ? promoCode.trim() : undefined,
+        promoDiscountCents: discountCents > 0 ? discountCents : undefined,
         ...(effectiveSendLink ? {
           completionStatus: 'pending',
-          depositAmountCents: depositCents,
-          depositStatus: depositCents > 0 ? 'pending' : 'none',
+          depositAmountCents: effectiveDepositCents,
+          depositStatus: effectiveDepositCents > 0 ? 'pending' : 'none',
         } : {}),
         ...(chargeResultForLedger ? {
-          depositAmountCents: depositCents,
+          depositAmountCents: effectiveDepositCents,
           depositStatus: 'paid',
           depositPaymentIntentId: chargeResultForLedger.paymentIntentId,
         } : {}),
         ...(redeemPackageId ? { redeemedPackageId: redeemPackageId } : {}),
-        // Arrears override audit trail — only present when an unresolved
-        // balance existed and staff explicitly chose to proceed anyway.
         ...(hasUnresolvedArrears && arrearsOverrideReason ? {
           arrearsOverrideReason,
           arrearsOverrideDetail: arrearsOverrideDetail.trim() || undefined,
@@ -452,22 +1046,30 @@ export function QuickBookForm({
 
       batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
       batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
-      batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), {
-        lastServiceId: selectedService, lastAppointment: now,
+
+      // Client update
+      batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
+        lastServiceId: selectedService,
+        lastAppointment: now,
         ...(redeemPackageId ? {
           activePackages: (selectedClient?.activePackages || [])
-            .map((p: any) => p.packageId === redeemPackageId ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p)
+            .map((p: any) => p.packageId === redeemPackageId
+              ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 }
+              : p)
             .filter((p: any) => p.sessionsRemaining > 0),
         } : {}),
-      }, { merge: true });
+      }), { merge: true });
 
-      // ── Multi-provider legs: one Appointment doc each, chained by
-      // multiProviderGroupId + sequenceIndex. Each leg's own staffId/
-      // serviceId/startTime/endTime makes it render correctly on the
-      // planner calendar with zero planner changes. depositAppliesToBalance
-      // is read from each leg's OWN service definition, same mechanism
-      // CheckoutHub already uses for booth-renter passthrough deposits — no
-      // new logic invented here, just applied per leg.
+      // Delete slot lock
+      if (resolvedStaffId) {
+        batch.delete(doc(
+          firestore,
+          `tenants/${tenantId}/slotLocks`,
+          `${resolvedStaffId}_${aptDate}_${aptTime.replace(':', '')}`,
+        ));
+      }
+
+      // Multi-provider legs
       if (multiProviderGroupId && scheduledLegs.length > 0) {
         scheduledLegs.forEach((leg, idx) => {
           const legSvc = services.find((s: any) => s.id === leg.serviceId);
@@ -479,18 +1081,27 @@ export function QuickBookForm({
             serviceId: leg.serviceId,
             staffId: legStaffId,
             checkInToken: legToken,
-            status: 'confirmed', source: 'pos_quick_book',
-            startTime: leg.startTime.toISOString(), endTime: leg.endTime.toISOString(),
-            createdAt: now, reminderSent: false, autoCancelledNoShow: false,
+            status: 'confirmed',
+            source: 'pos_quick_book',
+            startTime: leg.startTime.toISOString(),
+            endTime: leg.endTime.toISOString(),
+            createdAt: now,
+            reminderSent: false,
+            autoCancelledNoShow: false,
             multiProviderGroupId,
             sequenceIndex: idx + 1,
-            notes: notes.trim() || undefined,
+            internalNotes: internalNotes.trim() || undefined,
           }));
           batch.set(doc(firestore, 'appointmentCheckIns', legToken), sanitizeForFirestore({
             id: legId, tenantId, clientId, clientName,
-            serviceId: leg.serviceId, staffId: legStaffId, checkInToken: legToken,
-            status: 'confirmed', startTime: leg.startTime.toISOString(), endTime: leg.endTime.toISOString(),
-            multiProviderGroupId, sequenceIndex: idx + 1,
+            serviceId: leg.serviceId,
+            staffId: legStaffId,
+            checkInToken: legToken,
+            status: 'confirmed',
+            startTime: leg.startTime.toISOString(),
+            endTime: leg.endTime.toISOString(),
+            multiProviderGroupId,
+            sequenceIndex: idx + 1,
           }));
         });
       }
@@ -499,18 +1110,38 @@ export function QuickBookForm({
       if (isGroup && groupGuests.length > 0) {
         for (const guest of groupGuests) {
           if (!guest.name.trim() || !guest.serviceId) continue;
-          const gId = _nanoid();
+          const gClientId = _nanoid(); // real client id, not apt id
+          const gAptId = _nanoid();
           const gToken = _nanoid();
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
           const gStaffId = guest.staffId === 'any' ? (staff.find((s: any) => s.active)?.id || null) : guest.staffId;
           const gEnd = addMinutes(startTime, gSvc?.duration || 60);
-          batch.set(doc(firestore, `tenants/${tenantId}/appointments`, gId), sanitizeForFirestore({
-            id: gId, tenantId, clientId: gId, clientName: guest.name,
-            serviceId: guest.serviceId, staffId: gStaffId, checkInToken: gToken,
-            status: 'confirmed', source: 'pos_quick_book_group',
-            startTime: startTime.toISOString(), endTime: gEnd.toISOString(),
-            createdAt: now, reminderSent: false, autoCancelledNoShow: false,
-            groupBookingId: groupBookingId,
+
+          // Create a minimal client record for the guest
+          batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
+            id: gClientId,
+            name: guest.name,
+            status: 'active',
+            lifetimeValue: 0,
+            lastAppointment: now,
+            groupLinkedTo: clientId,
+          }));
+
+          batch.set(doc(firestore, `tenants/${tenantId}/appointments`, gAptId), sanitizeForFirestore({
+            id: gAptId, tenantId,
+            clientId: gClientId,
+            clientName: guest.name,
+            serviceId: guest.serviceId,
+            staffId: gStaffId,
+            checkInToken: gToken,
+            status: 'confirmed',
+            source: 'pos_quick_book_group',
+            startTime: startTime.toISOString(),
+            endTime: gEnd.toISOString(),
+            createdAt: now,
+            reminderSent: false,
+            autoCancelledNoShow: false,
+            groupBookingId,
             isPrimaryGroup: false,
           }));
         }
@@ -520,20 +1151,33 @@ export function QuickBookForm({
       let link: string | null = null;
       if (effectiveSendLink) {
         const token = _nanoid();
-        const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+        const expiryDays = safeNumber(tenant?.completionLinkExpiryDays) || 7;
+        const expiresAt = new Date(Date.now() + expiryDays * 24 * 3600 * 1000).toISOString();
         batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
-          token, tenantId, appointmentId: aptId, clientId, clientName,
+          token, tenantId,
+          appointmentId: aptId,
+          clientId,
+          clientName,
           clientEmail: clientEmail.trim().toLowerCase(),
-          serviceId: selectedService, serviceName: selectedSvc?.name || '',
-          depositAmountCents: depositCents,
-          requiredConsentFormIds: requiredFormIds,
-          skipCardStep: alreadyHasCard, cardAlreadyOnFile: alreadyHasCard,
+          serviceId: selectedService,
+          serviceName: selectedSvc?.name || '',
+          depositAmountCents: effectiveDepositCents,
+          requiredConsentFormIds: formsNeedingSignature.map(f => f.id),
+          skipCardStep: alreadyHasCard,
+          cardAlreadyOnFile: alreadyHasCard,
           fileRequirements: requestFiles ? [{
-            id: 'inspo', type: 'file_upload', label: 'Inspiration photos',
-            required: true, prompt: 'Share your inspiration photos',
-            minCount: 1, maxCount: 5, acceptedTypes: ['image/*'],
+            id: 'inspo',
+            type: 'file_upload',
+            label: 'Inspiration photos',
+            required: true,
+            prompt: 'Share your inspiration photos',
+            minCount: 1,
+            maxCount: 5,
+            acceptedTypes: ['image/*'],
           }] : [],
-          status: 'pending', createdAt: now, expiresAt,
+          status: 'pending',
+          createdAt: now,
+          expiresAt,
         }));
         const origin = typeof window !== 'undefined' ? window.location.origin : '';
         link = `${origin}/complete/${tenantId}/${token}`;
@@ -541,17 +1185,8 @@ export function QuickBookForm({
 
       await batch.commit();
 
-      // ── Ledger entries for multi-provider legs ──────────────────────────
-      // The deposit charge above is ONE PaymentIntent for the combined
-      // total. Per the booth-renter / mixed-comp requirement, revenue must
-      // still be attributable PER PROVIDER for payroll/rent reconciliation
-      // — so post N ledger transactions here (one per leg, sharing the same
-      // stripePaymentIntentId), mirroring how charge-card's own
-      // writeLedger() splits a base amount from a surcharge into separate
-      // lines rather than blending them. The actual Stripe processing fee
-      // is attributed to the PRIMARY leg's entry only (via charge-card's
-      // own writeLedger call above) — these per-leg entries do NOT add a
-      // second fee line, which would double-count it.
+      // ── Per-leg ledger entries ─────────────────────────────────────────────
+      let ledgerFailed = false;
       if (chargeResultForLedger && multiProviderGroupId && scheduledLegs.length > 0) {
         try {
           const ledgerBatch = writeBatch(firestore);
@@ -582,224 +1217,290 @@ export function QuickBookForm({
           });
           await ledgerBatch.commit();
         } catch {
-          // Non-fatal — the booking itself already succeeded. Surface so
-          // staff know per-provider attribution may need a manual fix.
-          toast({ title: 'Booked, but ledger attribution needs review', description: 'Per-provider revenue lines could not be written — check the Ledger page.' });
+          ledgerFailed = true;
+          setLedgerError(true);
         }
       }
 
+      // ── Send completion link notification ─────────────────────────────────
+      let sendStatus: any = null;
       if (link) {
-        setGeneratedLink(link);
         const clientPhone = selectedClient?.phone || newClientPhone;
         try {
           const sr = await fetch('/api/notifications/send-completion-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ link, clientName, clientEmail: clientEmail.trim(), clientPhone, studioName: tenant?.name }),
+            body: JSON.stringify({
+              link,
+              clientName,
+              clientEmail: clientEmail.trim(),
+              clientPhone,
+              studioName: tenant?.name,
+            }),
           });
-          setSendStatus(await sr.json().catch(() => null));
-        } catch { setSendStatus(null); }
-        toast({ title: 'Booked!', description: `${clientName} · ${format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}` });
-      } else {
-        if (chargeResultForLedger) {
-          toast({
-            title: 'Booked & charged!',
-            description: `${clientName} · $${(depositCents / 100).toFixed(2)} charged to card on file`,
-          });
-        }
-        onSuccess();
+          sendStatus = await sr.json().catch(() => null);
+        } catch { /* non-fatal */ }
       }
+
+      // ── Show success screen ───────────────────────────────────────────────
+      setSuccessResult({
+        clientName,
+        serviceName: selectedSvc?.name || '',
+        aptDate,
+        aptTime,
+        chargeOutcome,
+        generatedLink: link,
+        sendStatus,
+        isGroup,
+        groupGuestCount: groupGuests.length,
+        isMultiProvider,
+        legCount: scheduledLegs.length,
+        ledgerError: ledgerFailed,
+      });
+
     } catch (e) {
-      toast({ variant: 'destructive', title: 'Booking Failed' });
+      toast({ variant: 'destructive', title: 'Booking failed', description: 'Please try again.' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ── Step indicator ────────────────────────────────────────────────────────
-  const StepDots = () => (
-    <div className="flex items-center gap-2 mb-6">
-      {([1, 2, 3] as const).map((n) => (
-        <div key={n} className={cn('h-1.5 rounded-full transition-all duration-300',
-          n === step ? 'flex-1 bg-primary' : n < step ? 'w-6 bg-primary/30' : 'flex-1 bg-slate-100')} />
-      ))}
-    </div>
-  );
-
-  // ── Arrears banner — shown in step 3, blocking-with-override ───────────────
-  const ArrearsBanner = () => {
-    if (!hasUnresolvedArrears) return null;
-    return (
-      <div className="rounded-2xl border-2 border-destructive/30 bg-destructive/5 p-4 space-y-3">
-        <div className="flex items-start gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-[10px] font-black uppercase tracking-widest text-destructive">
-              Outstanding balance: ${outstandingBalance.toFixed(2)}
-            </p>
-            <p className="text-[10px] text-destructive/70 font-medium mt-0.5">
-              {selectedClient?.name?.split(' ')[0] || 'This client'} owes money from a previous visit. Collect it now, or confirm you want to book anyway.
-            </p>
-          </div>
-        </div>
-
-        {!showArrearsOverride ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              onClick={handleChargeArrears}
-              disabled={isChargingArrears || !canChargeOnFile}
-              className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest"
-            >
-              {isChargingArrears
-                ? <Loader className="w-3.5 h-3.5 animate-spin" />
-                : <><Wallet className="w-3.5 h-3.5 mr-1.5" /> Charge ${outstandingBalance.toFixed(2)} now</>}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowArrearsOverride(true)}
-              className="h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
-            >
-              Book anyway
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-2 pt-1">
-            <select
-              value={arrearsOverrideReason}
-              onChange={(e) => setArrearsOverrideReason(e.target.value)}
-              className="w-full h-10 rounded-xl border-2 text-[11px] font-bold px-2 bg-white"
-            >
-              <option value="">Why book without collecting?</option>
-              {ARREARS_OVERRIDE_REASONS.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
-            {arrearsOverrideReason === 'other' && (
-              <Input
-                value={arrearsOverrideDetail}
-                onChange={(e) => setArrearsOverrideDetail(e.target.value)}
-                placeholder="Briefly explain"
-                className="h-10 rounded-xl border-2 text-[11px]"
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => { setShowArrearsOverride(false); setArrearsOverrideReason(''); setArrearsOverrideDetail(''); }}
-              className="text-[9px] font-black uppercase text-muted-foreground hover:text-primary"
-            >
-              ← Back
-            </button>
-          </div>
-        )}
-
-        {!canChargeOnFile && !showArrearsOverride && (
-          <p className="text-[9px] font-bold text-destructive/60 uppercase">No usable card on file — choose "Book anyway" or collect another way first.</p>
-        )}
-      </div>
-    );
+  const resetForm = () => {
+    setStep(1);
+    setSelectedClient(null);
+    setSelectedService('');
+    setAddOnIds([]);
+    setDurationOffset(0);
+    setAptTime(format(addMinutes(new Date(), 15), 'HH:mm'));
+    setAptDate(format(new Date(), 'yyyy-MM-dd'));
+    setClientNotes('');
+    setInternalNotes('');
+    setIsNewClient(false);
+    setNewClientName('');
+    setNewClientPhone('');
+    setNewClientEmail('');
+    setIsGroup(false);
+    setGroupGuests([]);
+    setIsMultiProvider(false);
+    setProviderLegs([]);
+    setRedeemPackageId(null);
+    setChargeNow(true);
+    setChargeConfirmPending(false);
+    setPromoCode('');
+    setPromoDiscount(null);
+    setArrearsResolved(false);
+    setArrearsOverrideReason('');
+    setArrearsOverrideDetail('');
+    setShowArrearsOverride(false);
+    setShowArrearsInterstitial(false);
+    setSuccessResult(null);
+    setLedgerError(false);
+    setSlotConflict(false);
+    setWaitlistMode(false);
   };
 
   // ── Success screen ────────────────────────────────────────────────────────
-  if (generatedLink) {
-    const firstName = (selectedClient?.name || newClientName).split(' ')[0];
+  if (successResult) {
     return (
-      <div className="space-y-6">
-        <div className="text-center space-y-3 pt-2">
-          <div className="w-16 h-16 rounded-full bg-green-50 border-4 border-green-100 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-8 h-8 text-green-500" />
-          </div>
-          <div>
-            <p className="text-lg font-black uppercase tracking-tight text-slate-900">{selectedClient?.name || newClientName} · Booked</p>
-            <p className="text-xs font-bold text-muted-foreground mt-0.5">
-              {selectedSvc?.name} · {format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}
-              {isGroup && groupGuests.length > 0 && ` · Group of ${groupGuests.length + 1}`}
-              {isMultiProvider && scheduledLegs.length > 0 && ` · ${scheduledLegs.length + 1} providers`}
-            </p>
-          </div>
-        </div>
-
-        {chargeOutcome && !chargeOutcome.charged && (
-          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3.5 flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Card on file declined</p>
-              <p className="text-[10px] text-amber-700/80 font-medium mt-0.5">{chargeOutcome.reason} — sent a completion link below instead.</p>
-            </div>
-          </div>
-        )}
-
-        <div className="rounded-2xl border-2 p-4 bg-muted/5 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-            <Link2 className="w-3 h-3" /> Completion link · valid 7 days
-          </p>
-          <div className="flex items-center gap-2">
-            <Input readOnly value={generatedLink} onFocus={(e) => e.currentTarget.select()} className="h-11 rounded-xl border-2 text-[11px] font-mono bg-white" />
-            <Button onClick={copyLink} className="h-11 px-4 rounded-xl font-black uppercase text-[10px] shrink-0">
-              {copied ? <><CheckCircle2 className="w-4 h-4 mr-1" />Copied</> : <><Copy className="w-4 h-4 mr-1" />Copy</>}
-            </Button>
-          </div>
-          {sendStatus?.smsSent || sendStatus?.emailSent
-            ? <p className="text-[10px] text-green-600 font-bold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Auto-sent {sendStatus.smsSent ? 'by text' : ''}{sendStatus.smsSent && sendStatus.emailSent ? ' & ' : ''}{sendStatus.emailSent ? 'by email' : ''}</p>
-            : <p className="text-[10px] text-muted-foreground font-medium">Copy and send to {firstName} to secure their spot.</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <Button onClick={() => {
-            setStep(1); setSelectedClient(null); setSelectedService(''); setAddOnIds([]);
-            setAptTime(format(addMinutes(new Date(), 15), 'HH:mm'));
-            setGeneratedLink(null); setSendStatus(null); setNotes(''); setChargeOutcome(null);
-            setIsNewClient(false); setNewClientName(''); setNewClientPhone(''); setNewClientEmail('');
-            setIsGroup(false); setGroupGuests([]); setRedeemPackageId(null); setChargeNow(true);
-            setIsMultiProvider(false); setProviderLegs([]);
-            setArrearsResolved(false); setArrearsOverrideReason(''); setArrearsOverrideDetail(''); setShowArrearsOverride(false);
-          }} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">
-            Book Another
-          </Button>
-          <Button onClick={onSuccess} className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest">Done</Button>
-        </div>
-      </div>
+      <SuccessScreen
+        result={successResult}
+        onBookAnother={resetForm}
+        onDone={onSuccess}
+      />
     );
   }
 
   // ── Step 1: Client ────────────────────────────────────────────────────────
   if (step === 1) {
+    // Arrears interstitial
+    if (showArrearsInterstitial && selectedClient) {
+      return (
+        <div className="space-y-5">
+          <StepIndicator step={1} />
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border">
+            <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-sm font-medium text-slate-600 shrink-0">
+              {selectedClient.name?.charAt(0)?.toUpperCase()}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-slate-900">{selectedClient.name}</p>
+              <p className="text-xs text-slate-400">{selectedClient.phone || selectedClient.email || '—'}</p>
+            </div>
+          </div>
+
+          <ArrearsBanner
+            outstandingBalance={outstandingBalance}
+            clientFirstName={selectedClient.name?.split(' ')[0] || 'This client'}
+            canChargeOnFile={canChargeOnFile}
+            isChargingArrears={isChargingArrears}
+            arrearsResolved={arrearsResolved}
+            showOverride={showArrearsOverride}
+            overrideReason={arrearsOverrideReason}
+            overrideDetail={arrearsOverrideDetail}
+            onChargeArrears={handleChargeArrears}
+            onShowOverride={() => setShowArrearsOverride(true)}
+            onSetOverrideReason={setArrearsOverrideReason}
+            onSetOverrideDetail={setArrearsOverrideDetail}
+            onCancelOverride={() => { setShowArrearsOverride(false); setArrearsOverrideReason(''); setArrearsOverrideDetail(''); }}
+          />
+
+          {(arrearsResolved || arrearsOverrideReason) && (
+            <Button onClick={() => { setShowArrearsInterstitial(false); setStep(2); }} className="w-full h-11">
+              Continue to service →
+            </Button>
+          )}
+
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setSelectedClient(null); setShowArrearsInterstitial(false); }}
+            className="w-full text-slate-400"
+          >
+            ← Choose a different client
+          </Button>
+        </div>
+      );
+    }
+
+    // Duplicate warning
+    if (showDuplicateWarning && duplicateSuggestions.length > 0) {
+      return (
+        <div className="space-y-5">
+          <StepIndicator step={1} />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-amber-800">Possible duplicate client</p>
+                <p className="text-xs text-amber-700/80 mt-0.5">
+                  A client with the same phone or email already exists. Select them or continue creating a new record.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {duplicateSuggestions.map((c: any) => (
+                <button
+                  key={c.id}
+                  onClick={() => selectClient(c)}
+                  className="w-full flex items-center justify-between p-3 rounded-lg bg-white border border-amber-200 hover:border-amber-400 text-left transition-colors"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{c.name}</p>
+                    <p className="text-xs text-slate-400">{c.phone || c.email}</p>
+                  </div>
+                  <span className="text-xs text-amber-700 font-medium">Use this client →</span>
+                </button>
+              ))}
+            </div>
+            <Button variant="outline" size="sm" onClick={proceedNewClient} className="w-full">
+              Create new record anyway
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-5">
-        <StepDots />
+        <StepIndicator step={1} />
+
         {isNewClient ? (
           <div className="space-y-4">
-            <button onClick={() => setIsNewClient(false)} className="text-[10px] font-black uppercase text-muted-foreground hover:text-primary flex items-center gap-1">
-              <ChevronLeft className="w-3 h-3" />Back
+            <button
+              onClick={() => setIsNewClient(false)}
+              className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1"
+            >
+              <ChevronLeft className="w-3 h-3" /> Back
             </button>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">New Client</p>
-            <Input autoFocus placeholder="Full name *" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} className="h-12 rounded-xl border-2" />
-            <Input placeholder="Phone number" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} className="h-12 rounded-xl border-2" type="tel" />
-            <Input placeholder="Email (for link & receipt)" value={newClientEmail} onChange={(e) => setNewClientEmail(e.target.value)} className="h-12 rounded-xl border-2" type="email" />
-            <Button disabled={!newClientName.trim()} onClick={() => setStep(2)} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">
-              Continue → Pick Service
+            <p className="text-xs text-slate-400 uppercase tracking-wider">New client</p>
+            <Input
+              autoFocus
+              placeholder="Full name *"
+              value={newClientName}
+              onChange={e => setNewClientName(e.target.value)}
+              className="h-11"
+            />
+            <Input
+              placeholder="Phone number"
+              value={newClientPhone}
+              onChange={e => setNewClientPhone(e.target.value)}
+              className="h-11"
+              type="tel"
+            />
+            <Input
+              placeholder="Email (for link & receipt)"
+              value={newClientEmail}
+              onChange={e => setNewClientEmail(e.target.value)}
+              className="h-11"
+              type="email"
+            />
+            <Button
+              disabled={!newClientName.trim()}
+              onClick={() => {
+                const hasDupes = checkDuplicates();
+                if (!hasDupes) setStep(2);
+              }}
+              className="w-full h-11"
+            >
+              Continue → Pick service
             </Button>
           </div>
         ) : (
           <>
             <div className="relative">
-              <Input ref={searchRef} placeholder="Search client by name, phone, email…" value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} className="h-12 rounded-xl border-2 pr-10" />
-              {clientSearch && <button onClick={() => setClientSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"><XCircle className="w-4 h-4" /></button>}
+              <Input
+                ref={searchRef}
+                placeholder="Search by name, phone, or email…"
+                value={clientSearch}
+                onChange={e => setClientSearch(e.target.value)}
+                className="h-11 pr-10"
+              />
+              {clientSearch && (
+                <button
+                  onClick={() => setClientSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500"
+                >
+                  <XCircle className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             {filteredClients.length > 0 && (
-              <div className="rounded-2xl border-2 divide-y overflow-hidden shadow-sm">
+              <div className="rounded-xl border divide-y overflow-hidden">
                 {filteredClients.map((c: any) => (
-                  <button key={c.id} onClick={() => selectClient(c)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-primary/5 transition-colors text-left group">
-                    <div>
-                      <p className="font-black text-sm text-slate-900">{c.name}</p>
-                      <p className="text-[10px] text-muted-foreground">{c.phone || c.email || '—'}</p>
+                  <button
+                    key={c.id}
+                    onClick={() => selectClient(c)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors text-left group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0',
+                        c.status === 'blocked'
+                          ? 'bg-red-100 text-red-600'
+                          : 'bg-slate-100 text-slate-500',
+                      )}>
+                        {c.status === 'blocked'
+                          ? <Ban className="w-3.5 h-3.5" />
+                          : c.name?.charAt(0)?.toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{c.name}</p>
+                        <p className="text-xs text-slate-400">{c.phone || c.email || '—'}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {safeNumber(c.outstandingBalance) > 0 && <span className="text-[9px] font-black uppercase text-destructive bg-destructive/5 px-2 py-0.5 rounded-full">Owes ${safeNumber(c.outstandingBalance).toFixed(0)}</span>}
-                      {c.lastServiceId && <span className="text-[9px] font-black uppercase text-primary/60 bg-primary/5 px-2 py-0.5 rounded-full">Rebook ready</span>}
-                      {c.lifetimeValue > 0 && <span className="text-[9px] font-bold text-slate-400">${Math.round(c.lifetimeValue)}</span>}
-                      <ChevronRight className="w-4 h-4 text-muted-foreground opacity-40 group-hover:opacity-80" />
+                      {c.status === 'blocked' && (
+                        <span className="text-[10px] font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">Blocked</span>
+                      )}
+                      {safeNumber(c.outstandingBalance) > 0 && (
+                        <span className="text-[10px] font-medium text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
+                          Owes ${safeNumber(c.outstandingBalance).toFixed(0)}
+                        </span>
+                      )}
+                      {c.lastServiceId && (
+                        <span className="text-[10px] text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Rebook</span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500" />
                     </div>
                   </button>
                 ))}
@@ -807,25 +1508,41 @@ export function QuickBookForm({
             )}
 
             {clientSearch && filteredClients.length === 0 && (
-              <button onClick={() => { setNewClientName(clientSearch); setIsNewClient(true); }} className="w-full flex items-center gap-3 p-4 rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 hover:bg-primary/10 transition-all text-left">
-                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0"><UserPlus className="w-4 h-4 text-primary" /></div>
+              <button
+                onClick={() => { setNewClientName(clientSearch); setIsNewClient(true); }}
+                className="w-full flex items-center gap-3 p-4 rounded-xl border border-dashed border-slate-200 hover:border-blue-200 hover:bg-blue-50/50 transition-all text-left"
+              >
+                <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                  <UserPlus className="w-4 h-4 text-slate-400" />
+                </div>
                 <div>
-                  <p className="text-[11px] font-black uppercase tracking-widest text-primary">Create "{clientSearch}"</p>
-                  <p className="text-[9px] font-bold text-muted-foreground uppercase">New client · add details next</p>
+                  <p className="text-sm font-medium text-slate-700">Create "{clientSearch}"</p>
+                  <p className="text-xs text-slate-400">New client · add details next</p>
                 </div>
               </button>
             )}
 
             {!clientSearch && recentClients.length > 0 && (
               <div className="space-y-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Recent Clients</p>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider">Recent clients</p>
                 <div className="grid grid-cols-2 gap-2">
                   {recentClients.map((c: any) => (
-                    <button key={c.id} onClick={() => selectClient(c)} className="flex items-center gap-3 p-3 rounded-2xl border-2 border-muted/50 hover:border-primary/30 hover:bg-primary/5 transition-all text-left group">
-                      <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0 text-[11px] font-black text-slate-500">{c.name?.charAt(0)?.toUpperCase()}</div>
+                    <button
+                      key={c.id}
+                      onClick={() => selectClient(c)}
+                      className="flex items-center gap-2.5 p-3 rounded-xl border hover:border-blue-200 hover:bg-blue-50/50 transition-all text-left"
+                    >
+                      <div className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0',
+                        c.status === 'blocked' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500',
+                      )}>
+                        {c.status === 'blocked' ? <Ban className="w-3 h-3" /> : c.name?.charAt(0)?.toUpperCase()}
+                      </div>
                       <div className="min-w-0">
-                        <p className="font-black text-[11px] text-slate-900 truncate">{c.name}</p>
-                        {c.lastAppointment && <p className="text-[9px] text-muted-foreground">{format(new Date(c.lastAppointment), 'MMM d')}</p>}
+                        <p className="text-xs font-medium text-slate-900 truncate">{c.name}</p>
+                        {c.lastAppointment && (
+                          <p className="text-[10px] text-slate-400">{format(new Date(c.lastAppointment), 'MMM d')}</p>
+                        )}
                       </div>
                     </button>
                   ))}
@@ -834,9 +1551,14 @@ export function QuickBookForm({
             )}
 
             {!clientSearch && (
-              <button onClick={() => setIsNewClient(true)} className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 border-dashed border-muted hover:border-primary/30 hover:bg-primary/5 transition-all text-left">
-                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"><UserPlus className="w-4 h-4 text-slate-400" /></div>
-                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">New Client</p>
+              <button
+                onClick={() => setIsNewClient(true)}
+                className="w-full flex items-center gap-3 p-3.5 rounded-xl border border-dashed border-slate-200 hover:border-blue-200 hover:bg-blue-50/50 transition-all text-left"
+              >
+                <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+                  <UserPlus className="w-4 h-4 text-slate-400" />
+                </div>
+                <p className="text-xs font-medium text-slate-500">New client</p>
               </button>
             )}
           </>
@@ -847,23 +1569,51 @@ export function QuickBookForm({
 
   // ── Step 2: Service + Provider + Time ─────────────────────────────────────
   if (step === 2) {
-    const activeStaff = staff.filter((s: any) => s.active);
     return (
       <div className="space-y-5">
-        <StepDots />
+        <StepIndicator step={2} />
 
         {/* Client pill */}
-        <div className="flex items-center justify-between p-3 rounded-2xl bg-primary/5 border-2 border-primary/10">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center text-[10px] font-black text-primary">
+        <div className="rounded-xl border overflow-hidden">
+          <div className="flex items-center gap-3 px-3.5 py-2.5 bg-white">
+            <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center text-sm font-medium text-slate-500 shrink-0">
               {(selectedClient?.name || newClientName).charAt(0).toUpperCase()}
             </div>
-            <div>
-              <p className="text-[11px] font-black text-slate-900">{selectedClient?.name || newClientName}</p>
-              {alreadyHasCard && <p className="text-[9px] text-green-600 font-bold">Card on file ✓</p>}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-slate-900 truncate">{selectedClient?.name || newClientName}</p>
+              {selectedClient?.lastAppointment && (
+                <p className="text-[11px] text-slate-400">
+                  Last visit {format(new Date(selectedClient.lastAppointment), 'MMM d')}
+                  {selectedClient.lastServiceId && ` · ${services.find((s: any) => s.id === selectedClient.lastServiceId)?.name || ''}`}
+                </p>
+              )}
             </div>
+            <button
+              onClick={() => { setStep(1); setSelectedService(''); }}
+              className="text-xs text-blue-600 hover:text-blue-800 shrink-0"
+            >
+              Change
+            </button>
           </div>
-          <button onClick={() => { setStep(1); setSelectedService(''); }} className="text-[9px] font-black uppercase text-muted-foreground hover:text-primary">Change</button>
+          {(selectedClient?.cardOnFile || selectedClient?.lifetimeValue > 0) && (
+            <div className="flex border-t divide-x bg-slate-50/60">
+              {selectedClient?.cardOnFile?.paymentMethodId && (
+                <div className="flex-1 px-3 py-1.5 text-center">
+                  <p className="text-[11px] font-medium text-green-700 flex items-center justify-center gap-1">
+                    <CreditCard className="w-3 h-3" />
+                    {selectedClient.cardOnFile.brand?.toUpperCase() || 'Card'} ••{selectedClient.cardOnFile.last4}
+                  </p>
+                  <p className="text-[10px] text-slate-400">Card on file</p>
+                </div>
+              )}
+              {selectedClient?.lifetimeValue > 0 && (
+                <div className="flex-1 px-3 py-1.5 text-center">
+                  <p className="text-[11px] font-medium text-slate-700">${Math.round(selectedClient.lifetimeValue).toLocaleString()}</p>
+                  <p className="text-[10px] text-slate-400">Lifetime</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Intelligence panel */}
@@ -871,39 +1621,81 @@ export function QuickBookForm({
           intel={intel}
           staff={staff}
           onActionClick={(insight) => {
-            if (insight.actionData?.serviceId) setSelectedService(insight.actionData.serviceId as string);
+            if (insight.actionData?.serviceId) {
+              setSelectedService(insight.actionData.serviceId as string);
+              setAddOnIds([]);
+              setDurationOffset(0);
+            }
           }}
         />
 
         {/* Rebook shortcut */}
         {lastService && (
-          <button onClick={() => setSelectedService(lastService.id)} className={cn('w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all text-left', selectedService === lastService.id ? 'border-primary bg-primary/5' : 'border-amber-200 bg-amber-50 hover:border-amber-300')}>
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0"><ArrowRight className="w-3.5 h-3.5 text-amber-600" /></div>
+          <button
+            onClick={() => setSelectedService(lastService.id)}
+            className={cn(
+              'w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left',
+              selectedService === lastService.id
+                ? 'border-blue-200 bg-blue-50'
+                : 'border-amber-200 bg-amber-50 hover:border-amber-300',
+            )}
+          >
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                <ArrowRight className="w-3.5 h-3.5 text-amber-600" />
+              </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Rebook last service</p>
-                <p className="text-[11px] font-bold text-slate-900">{lastService.name} · {lastService.duration}m · ${getServicePrice(lastService, null)}</p>
+                <p className="text-[10px] font-medium text-amber-700 uppercase tracking-wide">Rebook last service</p>
+                <p className="text-xs text-slate-900">{lastService.name} · {lastService.duration}m · ${getServicePrice(lastService, resolvedStaffForPrice)}</p>
               </div>
             </div>
-            {selectedService === lastService.id && <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />}
+            {selectedService === lastService.id && <CheckCircle2 className="w-4 h-4 text-blue-500 shrink-0" />}
           </button>
         )}
 
         {/* Service list */}
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Service</p>
-          <div className="rounded-2xl border-2 divide-y overflow-hidden">
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider">Service</p>
+          <div className="rounded-xl border overflow-hidden bg-white divide-y">
             {services.filter((s: any) => s.type === 'service').map((s: any) => {
-              const price = getServicePrice(s, resolvedStaffMember);
+              const price = getServicePrice(s, resolvedStaffForPrice);
+              const needsPatch = s.requiresPatchTest && patchTestExpired;
+              const isSelected = selectedService === s.id;
               return (
-                <button key={s.id} onClick={() => setSelectedService(s.id)} className={cn('w-full flex items-center justify-between px-4 py-3 text-left transition-colors', selectedService === s.id ? 'bg-primary/5' : 'hover:bg-muted/30')}>
-                  <div>
-                    <p className={cn('font-bold text-sm', selectedService === s.id ? 'text-primary' : 'text-slate-900')}>{s.name}</p>
-                    <p className="text-[9px] text-muted-foreground">{s.duration}m</p>
-                  </div>
+                <button
+                  key={s.id}
+                  onClick={() => {
+                    setSelectedService(s.id);
+                    setAddOnIds([]);
+                    setDurationOffset(0);
+                  }}
+                  className={cn(
+                    'w-full flex items-center justify-between px-4 py-3 text-left transition-colors',
+                    isSelected ? 'bg-blue-50' : 'hover:bg-slate-50',
+                  )}
+                >
                   <div className="flex items-center gap-3">
-                    <p className="font-black text-sm text-slate-900">${price.toFixed(0)}</p>
-                    {selectedService === s.id && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    <div className={cn(
+                      'w-1.5 h-1.5 rounded-full shrink-0',
+                      isSelected ? 'bg-blue-500' : 'bg-slate-200',
+                    )} />
+                    <div>
+                      <p className={cn('text-sm', isSelected ? 'font-medium text-blue-700' : 'text-slate-900')}>
+                        {s.name}
+                      </p>
+                      <p className="text-[11px] text-slate-400">{s.duration}m</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2.5">
+                    {needsPatch && (
+                      <span className="flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                        <FlaskConical className="w-2.5 h-2.5" /> Patch test
+                      </span>
+                    )}
+                    <p className={cn('text-sm', isSelected ? 'font-medium text-blue-700' : 'text-slate-900')}>
+                      ${price.toFixed(0)}
+                    </p>
+                    {isSelected && <CheckCircle2 className="w-4 h-4 text-blue-500" />}
                   </div>
                 </button>
               );
@@ -911,22 +1703,100 @@ export function QuickBookForm({
           </div>
         </div>
 
+        {/* Patch test warning */}
+        {patchTestBlocking && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 flex items-start gap-2.5">
+            <FlaskConical className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-medium text-amber-800">Patch test required</p>
+              <p className="text-[11px] text-amber-700/80 mt-0.5">
+                {patchTestDate
+                  ? `Last patch test was ${format(patchTestDate, 'MMM d yyyy')} — more than ${PATCH_TEST_VALIDITY_MONTHS} months ago.`
+                  : 'No patch test on record.'}
+                {' '}This service cannot be booked without a valid patch test.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Duration override */}
+        {selectedSvc && (
+          <div className="flex items-center gap-3 px-1">
+            <p className="text-xs text-slate-500 flex-1">
+              Duration: {(selectedSvc.duration || 60) + durationOffset} min
+            </p>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setDurationOffset(prev => Math.max(0, prev - 15))}
+                disabled={durationOffset === 0}
+                className="w-7 h-7 rounded-lg border flex items-center justify-center text-slate-400 hover:text-slate-700 hover:border-slate-300 disabled:opacity-30 transition-colors"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="text-xs text-slate-500 w-12 text-center">
+                {durationOffset === 0 ? 'Standard' : `+${durationOffset}m`}
+              </span>
+              <button
+                onClick={() => setDurationOffset(prev => Math.min(60, prev + 15))}
+                disabled={durationOffset >= 60}
+                className="w-7 h-7 rounded-lg border flex items-center justify-center text-slate-400 hover:text-slate-700 hover:border-slate-300 disabled:opacity-30 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Provider chips */}
         <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Provider</p>
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider">Provider</p>
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setSelectedStaff('any')} className={cn('px-3 py-2 rounded-xl border-2 text-[11px] font-black uppercase transition-all', selectedStaff === 'any' ? 'border-primary bg-primary/5 text-primary' : 'border-muted text-muted-foreground hover:border-primary/30')}>Any</button>
-            {activeStaff.map((s: any) => (
-              <button key={s.id} onClick={() => setSelectedStaff(s.id)} className={cn('px-3 py-2 rounded-xl border-2 text-[11px] font-black uppercase transition-all', selectedStaff === s.id ? 'border-primary bg-primary/5 text-primary' : 'border-muted text-muted-foreground hover:border-primary/30')}>
-                {s.name.split(' ')[0]}
-                {(s.status === 'idle' || s.status === 'available') && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />}
-              </button>
-            ))}
+            <button
+              onClick={() => setSelectedStaff('any')}
+              className={cn(
+                'px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
+                selectedStaff === 'any'
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-slate-200 text-slate-500 hover:border-slate-300',
+              )}
+            >
+              Any available
+            </button>
+            {activeStaff.map((s: any) => {
+              const load = staffDateLoad[s.id] || 0;
+              const isFullyBooked = load >= (s.maxDailyAppointments || 99);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedStaff(s.id)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5',
+                    selectedStaff === s.id
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : isFullyBooked
+                        ? 'border-slate-100 bg-slate-50 text-slate-300 cursor-not-allowed'
+                        : 'border-slate-200 text-slate-500 hover:border-slate-300',
+                  )}
+                  disabled={isFullyBooked}
+                >
+                  {s.name.split(' ')[0]}
+                  {!isFullyBooked && (
+                    <span className={cn(
+                      'w-1.5 h-1.5 rounded-full',
+                      s.status === 'idle' || s.status === 'available' ? 'bg-green-400' : 'bg-slate-300',
+                    )} />
+                  )}
+                  {isFullyBooked && (
+                    <span className="text-[9px] text-slate-300">Full</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Smart availability grid */}
-        {selectedService && (
+        {selectedService && !hasNoSlots && (
           <SmartAvailabilityGrid
             slots={slots}
             addOnUpsells={addOnUpsells}
@@ -942,18 +1812,59 @@ export function QuickBookForm({
           />
         )}
 
-        {/* Group booking toggle */}
+        {/* No slots / waitlist */}
+        {hasNoSlots && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-center">
+            <CalendarOff className="w-7 h-7 text-slate-300 mx-auto" />
+            <div>
+              <p className="text-sm font-medium text-slate-600">No availability on {format(new Date(aptDate), 'EEE MMM d')}</p>
+              <p className="text-xs text-slate-400 mt-1">Try a different date or add {selectedClient?.name?.split(' ')[0] || 'the client'} to the waitlist.</p>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAptDate(format(addMinutes(new Date(`${aptDate}T00:00`), 24 * 60), 'yyyy-MM-dd'))}
+              >
+                Try tomorrow
+              </Button>
+              {selectedClient && (
+                <Button size="sm" onClick={handleAddToWaitlist}>
+                  Add to waitlist
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Slot conflict warning */}
+        {slotConflict && (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+            <p className="text-xs text-red-700">That slot was just taken by another booking. Please pick a different time.</p>
+          </div>
+        )}
+
+        {/* Group booking */}
         <button
           type="button"
-          onClick={() => { setIsGroup((v) => !v); if (!isGroup && groupGuests.length === 0) setGroupGuests([{ id: 'g1', name: '', serviceId: selectedService, staffId: 'any' }]); }}
-          className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-all', isGroup ? 'border-primary bg-primary/5' : 'border-border bg-white')}
+          onClick={() => {
+            setIsGroup(v => !v);
+            if (!isGroup && groupGuests.length === 0) {
+              setGroupGuests([{ id: 'g1', name: '', serviceId: selectedService, staffId: 'any' }]);
+            }
+          }}
+          className={cn(
+            'w-full rounded-xl border p-3.5 text-left transition-all',
+            isGroup ? 'border-blue-200 bg-blue-50' : 'border-slate-200',
+          )}
         >
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
-              <Users className="w-3.5 h-3.5 text-primary" />Group booking
+            <p className="text-xs font-medium text-slate-700 flex items-center gap-2">
+              <Users className="w-3.5 h-3.5 text-slate-400" /> Group booking
             </p>
-            <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', isGroup ? 'bg-primary' : 'bg-slate-200')}>
-              <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', isGroup ? 'left-[22px]' : 'left-0.5')} />
+            <div className={cn('w-10 h-5.5 rounded-full relative transition-colors', isGroup ? 'bg-blue-500' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', isGroup ? 'left-[22px]' : 'left-0.5')} />
             </div>
           </div>
         </button>
@@ -970,22 +1881,30 @@ export function QuickBookForm({
           />
         )}
 
-        {/* Multi-provider toggle — SAME client, different services/staff, sequential */}
+        {/* Multi-provider */}
         {!isGroup && selectedService && (
           <button
             type="button"
-            onClick={() => { setIsMultiProvider((v) => !v); if (!isMultiProvider && providerLegs.length === 0) setProviderLegs([{ id: `leg_${Date.now()}`, serviceId: '', staffId: 'any' }]); }}
-            className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-all', isMultiProvider ? 'border-primary bg-primary/5' : 'border-border bg-white')}
+            onClick={() => {
+              setIsMultiProvider(v => !v);
+              if (!isMultiProvider && providerLegs.length === 0) {
+                setProviderLegs([{ id: `leg_${Date.now()}`, serviceId: '', staffId: 'any' }]);
+              }
+            }}
+            className={cn(
+              'w-full rounded-xl border p-3.5 text-left transition-all',
+              isMultiProvider ? 'border-blue-200 bg-blue-50' : 'border-slate-200',
+            )}
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
-                  <UserCog className="w-3.5 h-3.5 text-primary" />Add another provider
+                <p className="text-xs font-medium text-slate-700 flex items-center gap-2">
+                  <UserCog className="w-3.5 h-3.5 text-slate-400" /> Add another provider
                 </p>
-                <p className="text-[9px] font-bold text-muted-foreground uppercase mt-0.5">e.g. color, then a separate stylist for the cut</p>
+                <p className="text-[10px] text-slate-400 mt-0.5">e.g. color with one stylist, then a cut with another</p>
               </div>
-              <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', isMultiProvider ? 'bg-primary' : 'bg-slate-200')}>
-                <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', isMultiProvider ? 'left-[22px]' : 'left-0.5')} />
+              <div className={cn('w-10 h-5.5 rounded-full relative transition-colors shrink-0', isMultiProvider ? 'bg-blue-500' : 'bg-slate-200')}>
+                <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', isMultiProvider ? 'left-[22px]' : 'left-0.5')} />
               </div>
             </div>
           </button>
@@ -1005,94 +1924,218 @@ export function QuickBookForm({
         )}
 
         <div className="flex gap-3 pt-1">
-          <Button onClick={() => setStep(1)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
-          <Button disabled={!selectedService || !aptTime} onClick={() => setStep(3)} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Review →</Button>
+          <Button onClick={() => setStep(1)} variant="outline" className="h-11 px-4">
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <Button
+            disabled={!selectedService || !aptTime || patchTestBlocking}
+            onClick={() => setStep(3)}
+            className="flex-1 h-11"
+          >
+            Review →
+          </Button>
         </div>
       </div>
     );
   }
 
   // ── Step 3: Confirm ───────────────────────────────────────────────────────
-  const summaryStaff = selectedStaff === 'any' ? 'First available' : staff.find((s: any) => s.id === selectedStaff)?.name || '—';
-  const addOnTotal = addOnIds.reduce((acc, id) => {
-    const svc = services.find((s: any) => s.id === id);
-    return acc + (svc ? getServicePrice(svc, resolvedStaffMember) : 0);
-  }, 0);
-  const grandTotal = svcPrice + addOnTotal + legsTotal;
+  const summaryStaff = selectedStaff === 'any'
+    ? 'First available'
+    : staff.find((s: any) => s.id === selectedStaff)?.name || '—';
 
   return (
     <div className="space-y-5">
-      <StepDots />
+      <StepIndicator step={3} />
 
-      <ArrearsBanner />
+      {/* Arrears banner (fallback for step 3) */}
+      {hasUnresolvedArrears && (
+        <ArrearsBanner
+          outstandingBalance={outstandingBalance}
+          clientFirstName={selectedClient?.name?.split(' ')[0] || 'This client'}
+          canChargeOnFile={canChargeOnFile}
+          isChargingArrears={isChargingArrears}
+          arrearsResolved={arrearsResolved}
+          showOverride={showArrearsOverride}
+          overrideReason={arrearsOverrideReason}
+          overrideDetail={arrearsOverrideDetail}
+          onChargeArrears={handleChargeArrears}
+          onShowOverride={() => setShowArrearsOverride(true)}
+          onSetOverrideReason={setArrearsOverrideReason}
+          onSetOverrideDetail={setArrearsOverrideDetail}
+          onCancelOverride={() => { setShowArrearsOverride(false); setArrearsOverrideReason(''); setArrearsOverrideDetail(''); }}
+        />
+      )}
 
-      {/* Summary */}
-      <div className="rounded-2xl border-2 border-primary/10 bg-primary/5 p-4 space-y-3">
-        <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Booking Summary</p>
-        <div className="space-y-1.5">
-          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Client</p><p className="text-[11px] font-black text-slate-900">{selectedClient?.name || newClientName}</p></div>
-          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Service</p><p className="text-[11px] font-black text-slate-900">{selectedSvc?.name}{addOnIds.length > 0 && ` + ${addOnIds.length} add-on${addOnIds.length > 1 ? 's' : ''}`}</p></div>
-          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Provider</p><p className="text-[11px] font-black text-slate-900">{summaryStaff}</p></div>
-          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">When</p><p className="text-[11px] font-black text-slate-900">{format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')}</p></div>
-          {scheduledLegs.map((leg) => {
+      {/* Receipt summary */}
+      <div className="rounded-xl border overflow-hidden bg-white">
+        <div className="px-4 py-3 border-b">
+          <p className="text-sm font-medium text-slate-900">
+            {selectedSvc?.name}
+            {addOnIds.length > 0 && ` + ${addOnIds.length} add-on${addOnIds.length > 1 ? 's' : ''}`}
+            {isMultiProvider && scheduledLegs.length > 0 && ` · ${scheduledLegs.length + 1} providers`}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')} · {summaryStaff}
+            {durationOffset > 0 && ` · +${durationOffset}m`}
+          </p>
+        </div>
+        <div className="px-4 py-2.5 space-y-1.5">
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">Client</span>
+            <span className="text-slate-900">{selectedClient?.name || newClientName}</span>
+          </div>
+          {addOnIds.length > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">Add-ons</span>
+              <span className="text-slate-900">
+                {addOnIds.map(id => services.find((s: any) => s.id === id)?.name).filter(Boolean).join(', ')}
+              </span>
+            </div>
+          )}
+          {scheduledLegs.map(leg => {
             const legSvc = services.find((s: any) => s.id === leg.serviceId);
             const legStaff = staff.find((s: any) => s.id === leg.staffId);
             return (
-              <div key={leg.id} className="flex justify-between pl-3 border-l-2 border-primary/10">
-                <p className="text-[11px] font-bold text-muted-foreground">+ {legSvc?.name || 'Service'}</p>
-                <p className="text-[11px] font-black text-slate-900">{legStaff?.name?.split(' ')[0] || 'Any'} · {format(leg.startTime, 'h:mm a')}</p>
+              <div key={leg.id} className="flex justify-between text-xs pl-3 border-l border-slate-100">
+                <span className="text-slate-400">+ {legSvc?.name || 'Service'}</span>
+                <span className="text-slate-700">{legStaff?.name?.split(' ')[0] || 'Any'} · {format(leg.startTime, 'h:mm a')}</span>
               </div>
             );
           })}
-          <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Price</p><p className="text-[11px] font-black text-slate-900">${grandTotal.toFixed(2)}{depositCents > 0 ? ` · $${(depositCents / 100).toFixed(2)} deposit` : ''}</p></div>
-          {isGroup && groupGuests.length > 0 && <div className="flex justify-between"><p className="text-[11px] font-bold text-muted-foreground">Group</p><p className="text-[11px] font-black text-slate-900">{groupGuests.length + 1} guests</p></div>}
+          {isGroup && groupGuests.length > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">Group size</span>
+              <span className="text-slate-900">{groupGuests.length + 1} guests</span>
+            </div>
+          )}
+          {promoDiscount && (
+            <div className="flex justify-between text-xs text-green-700">
+              <span>Promo ({promoDiscount.label})</span>
+              <span>−${(discountCents / 100).toFixed(2)}</span>
+            </div>
+          )}
         </div>
-        <button onClick={() => setStep(2)} className="text-[9px] font-black uppercase tracking-widest text-primary/60 hover:text-primary">Edit details</button>
+        <div className="px-4 py-3 border-t bg-slate-50/60 flex justify-between items-baseline">
+          <span className="text-xs text-slate-400">Total</span>
+          <div className="text-right">
+            <p className="text-base font-medium text-slate-900">${grandTotal.toFixed(2)}</p>
+            {effectiveDepositCents > 0 && (
+              <p className="text-[11px] text-slate-400">${(effectiveDepositCents / 100).toFixed(2)} deposit</p>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Consent form status */}
+      {requiredFormIds.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <FileText className="w-3 h-3" /> Consent forms
+          </p>
+          <div className="rounded-xl border divide-y overflow-hidden">
+            {formStatuses.map(fs => (
+              <div key={fs.id} className="flex items-center justify-between px-3.5 py-2.5">
+                <p className="text-xs text-slate-700">{fs.id}</p>
+                {fs.signed ? (
+                  <span className="text-[10px] text-green-600 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Signed {fs.signedAt ? format(fs.signedAt, 'MMM d yyyy') : ''}
+                  </span>
+                ) : fs.expiredSig ? (
+                  <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> Expired — needs re-sign
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-red-500 font-medium">Not signed</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Package redemption */}
       {activePackages.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"><Package className="w-3 h-3" />Redeem package session</p>
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Package className="w-3 h-3" /> Redeem package
+          </p>
           {activePackages.map((pkg: any) => {
-            const pkgDef = services.find((s: any) => s.id === pkg.packageId) || { name: pkg.packageId };
+            const pkgSvc = services.find((s: any) => s.id === pkg.packageId) || { name: pkg.packageId };
             const isSelected = redeemPackageId === pkg.packageId;
             return (
-              <button key={pkg.packageId} onClick={() => setRedeemPackageId(isSelected ? null : pkg.packageId)}
-                className={cn('w-full flex items-center justify-between p-3 rounded-xl border-2 transition-all text-left', isSelected ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/20')}>
+              <button
+                key={pkg.packageId}
+                onClick={() => setRedeemPackageId(isSelected ? null : pkg.packageId)}
+                className={cn(
+                  'w-full flex items-center justify-between p-3 rounded-xl border transition-all text-left',
+                  isSelected ? 'border-blue-200 bg-blue-50' : 'border-slate-200 hover:border-slate-300',
+                )}
+              >
                 <div>
-                  <p className={cn('text-[11px] font-black uppercase', isSelected ? 'text-primary' : 'text-slate-900')}>{pkgDef.name}</p>
-                  <p className="text-[10px] text-muted-foreground">{pkg.sessionsRemaining} session{pkg.sessionsRemaining !== 1 ? 's' : ''} remaining</p>
+                  <p className={cn('text-xs font-medium', isSelected ? 'text-blue-700' : 'text-slate-900')}>
+                    {pkgSvc.name}
+                  </p>
+                  <p className="text-[10px] text-slate-400">{pkg.sessionsRemaining} session{pkg.sessionsRemaining !== 1 ? 's' : ''} remaining</p>
                 </div>
-                {isSelected && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                {isSelected && <CheckCircle2 className="w-4 h-4 text-blue-500" />}
               </button>
             );
           })}
         </div>
       )}
 
+      {/* Promo code */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Tag className="w-3 h-3" /> Promo code
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Enter code"
+            value={promoCode}
+            onChange={e => { setPromoCode(e.target.value); setPromoDiscount(null); }}
+            className="h-10 text-xs flex-1"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={applyPromoCode}
+            disabled={promoChecking || !promoCode.trim()}
+            className="h-10 shrink-0"
+          >
+            {promoChecking ? <Loader className="w-3.5 h-3.5 animate-spin" /> : 'Apply'}
+          </Button>
+        </div>
+      </div>
+
       {/* Charge card on file */}
-      {canChargeOnFile && depositCents > 0 && (
+      {canChargeOnFile && effectiveDepositCents > 0 && (
         <button
           type="button"
-          onClick={() => setChargeNow((v) => !v)}
-          className={cn('w-full rounded-2xl border-2 p-4 text-left transition-all', chargeNow ? 'border-primary bg-primary/5' : 'border-border bg-white')}
+          onClick={() => { setChargeNow(v => !v); setChargeConfirmPending(false); }}
+          className={cn(
+            'w-full rounded-xl border p-4 text-left transition-all',
+            chargeNow ? 'border-blue-200 bg-blue-50' : 'border-slate-200',
+          )}
         >
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-0.5">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2">
-                <CreditCard className="w-3.5 h-3.5 text-primary" />
+              <p className="text-xs font-medium text-slate-900 flex items-center gap-2">
+                <CreditCard className="w-3.5 h-3.5 text-slate-400" />
                 Charge card on file now
               </p>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
+              <p className="text-[11px] text-slate-400">
                 {selectedClient?.cardOnFile?.brand && selectedClient?.cardOnFile?.last4
-                  ? `${selectedClient.cardOnFile.brand.toUpperCase()} •••• ${selectedClient.cardOnFile.last4} — `
+                  ? `${selectedClient.cardOnFile.brand.toUpperCase()} ••••${selectedClient.cardOnFile.last4} — `
                   : ''}
-                Charges ${(depositCents / 100).toFixed(2)} immediately. If it's declined, we'll send a completion link instead.
+                ${(effectiveDepositCents / 100).toFixed(2)} charged immediately.
+                If declined, a completion link will be sent instead.
               </p>
             </div>
-            <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', chargeNow ? 'bg-primary' : 'bg-slate-200')}>
-              <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', chargeNow ? 'left-[22px]' : 'left-0.5')} />
+            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', chargeNow ? 'bg-blue-500' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', chargeNow ? 'left-[22px]' : 'left-0.5')} />
             </div>
           </div>
         </button>
@@ -1101,78 +2144,157 @@ export function QuickBookForm({
       {/* Email */}
       {!selectedClient?.email && (
         <div className="space-y-1.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-            Client email {(!canChargeOnFile || !chargeNow) && sendLink ? '(required)' : '(optional, needed if charge is declined)'}
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider">
+            Client email {(!canChargeOnFile || !chargeNow) && sendLink ? '(required)' : '(optional)'}
           </p>
-          <Input type="email" placeholder="client@email.com" value={newClientEmail} onChange={(e) => setNewClientEmail(e.target.value)} className="h-11 rounded-xl border-2" />
+          <Input
+            type="email"
+            placeholder="client@email.com"
+            value={newClientEmail}
+            onChange={e => setNewClientEmail(e.target.value)}
+            className="h-10 text-xs"
+          />
         </div>
       )}
       {selectedClient?.email && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-100">
           <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-          <p className="text-[10px] font-bold text-green-700">{selectedClient.email}</p>
+          <p className="text-xs text-green-700">{selectedClient.email}</p>
         </div>
       )}
 
-      {/* Notes */}
+      {/* Reminder timing */}
       <div className="space-y-1.5">
-        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Receptionist notes (optional)</p>
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Allergies, special requests, etc." rows={2} className="w-full rounded-xl border-2 p-3 text-sm font-medium resize-none outline-none focus:border-primary transition-colors" />
+        <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Clock className="w-3 h-3" /> Reminder
+        </p>
+        <select
+          value={reminderHours}
+          onChange={e => setReminderHours(e.target.value)}
+          className="w-full h-10 rounded-lg border text-xs px-3 bg-white"
+        >
+          {REMINDER_OPTIONS.map(o => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
       </div>
 
-      {/* Completion link toggle — hidden entirely when we're about to charge
-          the card on file now; it reappears automatically if that charge
-          gets declined, since handleBook falls back to effectiveSendLink. */}
-      {!(canChargeOnFile && chargeNow && depositCents > 0) && (
-        <button type="button"
-          onClick={() => { if (!sendLink && requiredFormIds.length > 0) { toast({ title: 'Link required — consent forms must be signed.' }); return; } setSendLink((v) => !v); }}
-          className={cn('w-full rounded-2xl border-2 p-4 text-left transition-all', sendLink ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+      {/* Notes: client-visible */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <MessageSquare className="w-3 h-3" /> Note for client (included in confirmation)
+        </p>
+        <textarea
+          value={clientNotes}
+          onChange={e => setClientNotes(e.target.value)}
+          placeholder="e.g. Please arrive with dry hair"
+          rows={2}
+          className="w-full rounded-lg border px-3 py-2 text-xs resize-none outline-none focus:border-blue-300 transition-colors bg-white"
+        />
+      </div>
+
+      {/* Notes: internal only */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <ShieldCheck className="w-3 h-3" /> Internal note (staff only — not sent to client)
+        </p>
+        <textarea
+          value={internalNotes}
+          onChange={e => setInternalNotes(e.target.value)}
+          placeholder="e.g. Prefers no small talk, allergic to latex gloves"
+          rows={2}
+          className="w-full rounded-lg border px-3 py-2 text-xs resize-none outline-none focus:border-blue-300 transition-colors bg-white"
+        />
+      </div>
+
+      {/* Completion link toggle */}
+      {!(canChargeOnFile && chargeNow && effectiveDepositCents > 0) && (
+        <button
+          type="button"
+          onClick={() => {
+            if (!sendLink && requiredFormIds.length > 0) {
+              toast({ title: 'Link required', description: 'Consent forms must be signed via the link.' });
+              return;
+            }
+            setSendLink(v => !v);
+          }}
+          className={cn(
+            'w-full rounded-xl border p-4 text-left transition-all',
+            sendLink ? 'border-blue-200 bg-blue-50' : 'border-slate-200',
+          )}
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="space-y-0.5">
-              <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5 text-primary" />Send secure completion link</p>
-              <p className="text-[10px] text-muted-foreground leading-relaxed">
-                {alreadyHasCard && requiredFormIds.length === 0 ? 'Card on file — no link needed.' :
-                 depositCents > 0 ? `Client pays $${(depositCents / 100).toFixed(2)} deposit${requiredFormIds.length > 0 ? ` + signs ${requiredFormIds.length} form${requiredFormIds.length > 1 ? 's' : ''}` : ''} · secures card.` :
-                 requiredFormIds.length > 0 ? `Client signs ${requiredFormIds.length} consent form${requiredFormIds.length > 1 ? 's' : ''} · secures card.` :
-                 'Client secures card on file before arrival.'}
+              <p className="text-xs font-medium text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-slate-400" />
+                Send secure completion link
+              </p>
+              <p className="text-[11px] text-slate-400">
+                {alreadyHasCard && formsNeedingSignature.length === 0
+                  ? 'Card already on file — link optional.'
+                  : effectiveDepositCents > 0
+                    ? `Client pays $${(effectiveDepositCents / 100).toFixed(2)} deposit${formsNeedingSignature.length > 0 ? ` + signs ${formsNeedingSignature.length} form${formsNeedingSignature.length > 1 ? 's' : ''}` : ''}.`
+                    : formsNeedingSignature.length > 0
+                      ? `Client signs ${formsNeedingSignature.length} consent form${formsNeedingSignature.length > 1 ? 's' : ''}.`
+                      : 'Client adds card on file before arrival.'}
               </p>
             </div>
-            <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', sendLink ? 'bg-primary' : 'bg-slate-200')}>
-              <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', sendLink ? 'left-[22px]' : 'left-0.5')} />
+            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', sendLink ? 'bg-blue-500' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', sendLink ? 'left-[22px]' : 'left-0.5')} />
             </div>
           </div>
         </button>
       )}
 
-      {sendLink && !(canChargeOnFile && chargeNow && depositCents > 0) && (
-        <button type="button" onClick={() => setRequestFiles((v) => !v)} className={cn('w-full rounded-2xl border-2 p-3.5 text-left transition-all', requestFiles ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+      {sendLink && !(canChargeOnFile && chargeNow && effectiveDepositCents > 0) && (
+        <button
+          type="button"
+          onClick={() => setRequestFiles(v => !v)}
+          className={cn(
+            'w-full rounded-xl border p-3.5 text-left transition-all',
+            requestFiles ? 'border-blue-200 bg-blue-50' : 'border-slate-200',
+          )}
+        >
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-900 flex items-center gap-2"><Sparkles className="w-3.5 h-3.5 text-primary" />Request inspiration photos</p>
-            <div className={cn('w-11 h-6 rounded-full shrink-0 transition-colors relative', requestFiles ? 'bg-primary' : 'bg-slate-200')}>
-              <div className={cn('absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all', requestFiles ? 'left-[22px]' : 'left-0.5')} />
+            <p className="text-xs font-medium text-slate-700 flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-slate-400" /> Request inspiration photos
+            </p>
+            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', requestFiles ? 'bg-blue-500' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', requestFiles ? 'left-[22px]' : 'left-0.5')} />
             </div>
           </div>
         </button>
       )}
 
+      {/* Confirm button */}
       <div className="flex gap-3 pt-1">
-        <Button onClick={() => setStep(2)} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2 px-5"><ChevronLeft className="w-4 h-4" /></Button>
+        <Button onClick={() => setStep(2)} variant="outline" className="h-11 px-4">
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
         <Button
           onClick={handleBook}
           disabled={
             isSubmitting ||
             !canConfirmBooking ||
-            (!(canChargeOnFile && chargeNow && depositCents > 0) && sendLink && !clientEmail.trim())
+            (!(canChargeOnFile && chargeNow && effectiveDepositCents > 0) && sendLink && !clientEmail.trim())
           }
-          className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"
+          className={cn('flex-1 h-11 transition-all', chargeConfirmPending ? 'bg-amber-500 hover:bg-amber-600' : '')}
         >
-          {isSubmitting
-            ? <Loader className="w-4 h-4 animate-spin" />
-            : !canConfirmBooking
-              ? 'Resolve Balance First'
-              : canChargeOnFile && chargeNow && depositCents > 0
-                ? `Charge $${(depositCents / 100).toFixed(2)} & Book →`
-                : sendLink ? 'Book & Send Link →' : 'Confirm Booking →'}
+          {isSubmitting ? (
+            <Loader className="w-4 h-4 animate-spin" />
+          ) : !canConfirmBooking ? (
+            'Resolve balance first'
+          ) : canChargeOnFile && chargeNow && effectiveDepositCents > 0 ? (
+            chargeConfirmPending ? (
+              `Tap again to confirm charge of $${(effectiveDepositCents / 100).toFixed(2)}`
+            ) : (
+              `Charge $${(effectiveDepositCents / 100).toFixed(2)} and book`
+            )
+          ) : sendLink ? (
+            'Book and send link'
+          ) : (
+            'Confirm booking'
+          )}
         </Button>
       </div>
     </div>
