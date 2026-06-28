@@ -80,7 +80,8 @@ export const InventorySidebar = ({
         const activeExp: InventoryItem[] = [];
         const overheadInStock: InventoryItem[] = [];
 
-        inventory.forEach(item => {
+        // FIX: guard inventory itself
+        (inventory ?? []).forEach(item => {
             let itemTotalValue = (item.totalStock || 0) * (item.costPerUnit || 0);
             
             const costPerUnit = item.costPerUnit || 0;
@@ -107,7 +108,9 @@ export const InventorySidebar = ({
                 const lifespanMonths = (item.lifespanYears || 5) * 12;
                 const monthlyDepreciation = lifespanMonths > 0 ? purchaseCost / lifespanMonths : 0;
                 
-                const purchaseDate = item.batches[0]?.receivedDate ? parseISO(item.batches[0].receivedDate) : new Date();
+                // FIX: guard item.batches before indexing
+                const batches = item.batches ?? [];
+                const purchaseDate = batches[0]?.receivedDate ? parseISO(batches[0].receivedDate) : new Date();
                 const monthsInService = differenceInMonths(new Date(), purchaseDate);
                 
                 const accumulatedDepreciation = Math.min(monthlyDepreciation * monthsInService, purchaseCost);
@@ -118,7 +121,8 @@ export const InventorySidebar = ({
                 activeExp.push(item);
             }
 
-            item.batches.forEach(batch => {
+            // FIX: guard item.batches before iterating
+            (item.batches ?? []).forEach(batch => {
                 if (batch.expirationDate && isPast(parseISO(batch.expirationDate)) && batch.stock > 0) {
                     expVal += batch.stock * batch.costPerUnit;
                     expCount += batch.stock;
@@ -143,10 +147,11 @@ export const InventorySidebar = ({
 
     const topUsedProducts = useMemo(() => {
         const usageCounts: { [key: string]: { name: string; count: number } } = {};
-        stockCorrections
+        // FIX: guard both stockCorrections and inventory
+        (stockCorrections ?? [])
             .filter(sc => sc.reason.includes('Service') || sc.reason.includes('Appointment'))
             .forEach(sc => {
-                const product = inventory.find(p => p.id === sc.productId);
+                const product = (inventory ?? []).find(p => p.id === sc.productId);
                 if (product) {
                     if (!usageCounts[sc.productId]) {
                         usageCounts[sc.productId] = { name: product.name, count: 0 };
@@ -176,12 +181,14 @@ export const InventorySidebar = ({
         const batch = writeBatch(firestore);
         let totalLoss = 0;
         
-        items.forEach(item => {
-            const product = inventory.find(p => p.id === item.productId);
+        // FIX: guard items
+        (items ?? []).forEach(item => {
+            const product = (inventory ?? []).find(p => p.id === item.productId);
             if (product) {
                 const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
 
-                const updatedBatches = product.batches.map(b => {
+                // FIX: guard product.batches
+                const updatedBatches = (product.batches ?? []).map(b => {
                     if (b.id === item.batchId) {
                         totalLoss += item.stock * item.costPerUnit;
                         return { ...b, stock: 0 };
@@ -204,11 +211,11 @@ export const InventorySidebar = ({
         
         if (totalLoss > 0) {
             const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            batch.set(txnRef, { date: new Date().toISOString(), description: `Spoilage Write-off: ${items.length} batch(es)`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Spoilage', amount: totalLoss, paymentMethod: 'Internal', hasReceipt: !!imageUrl, receiptUrl: imageUrl, notes });
+            batch.set(txnRef, { date: new Date().toISOString(), description: `Spoilage Write-off: ${(items ?? []).length} batch(es)`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Spoilage', amount: totalLoss, paymentMethod: 'Internal', hasReceipt: !!imageUrl, receiptUrl: imageUrl, notes });
         }
 
         batch.commit().then(() => {
-            toast({ title: "Spoilage Written Off", description: `${items.length} item(s) written off with a total loss of $${totalLoss.toFixed(2)}.` });
+            toast({ title: "Spoilage Written Off", description: `${(items ?? []).length} item(s) written off with a total loss of $${totalLoss.toFixed(2)}.` });
         });
         setIsSpoilageDialogOpen(false);
     };
