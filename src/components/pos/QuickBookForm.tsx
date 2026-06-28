@@ -152,12 +152,26 @@ const buildFormNameLookup = (tenant: any, formsProp: any[] = [], liveForms: any[
 function ContactLine({
   contact,
   className,
+  compact = false,
 }: {
   contact: { phone?: string; email?: string } | null | undefined;
   className?: string;
+  compact?: boolean;
 }) {
   if (!contact?.phone && !contact?.email) {
     return <span className={cn('text-slate-400', className)}>—</span>;
+  }
+  // Compact: single truncating line, one leading icon — used anywhere space
+  // is tight (list rows). The full two-icon version can overflow its
+  // container when both phone and email are present and the row is narrow.
+  if (compact) {
+    const parts = [contact.phone, contact.email].filter(Boolean);
+    return (
+      <span className={cn('inline-flex items-center gap-1 min-w-0 max-w-full', className)}>
+        <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+        <span className="truncate">{parts.join(' · ')}</span>
+      </span>
+    );
   }
   return (
     <span className={cn('inline-flex items-center gap-2.5 flex-wrap', className)}>
@@ -874,13 +888,35 @@ export function QuickBookForm({
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   // ── Derived ─────────────────────────────────────────────────────────────────
+  // "Recent clients" — derived from real appointment records rather than the
+  // client doc's `lastAppointment` field. That field gets stamped with the
+  // moment a booking was CREATED (see handleBook below: `lastAppointment: now`),
+  // not the appointment's actual date — so a client who just booked something
+  // three weeks out would jump to the top of "recent," ahead of someone who
+  // was genuinely serviced yesterday. This computes each client's true most
+  // recent PAST visit from startTime instead.
+  const lastVisitByClientId = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    const nowMs = Date.now();
+    appointments.forEach((a: any) => {
+      if (!a.clientId || typeof a.startTime !== 'string') return;
+      if (a.status === 'cancelled') return;
+      const t = new Date(a.startTime).getTime();
+      if (Number.isNaN(t) || t >= nowMs) return; // only real past visits count as "recent"
+      if (!map[a.clientId] || t > new Date(map[a.clientId]).getTime()) {
+        map[a.clientId] = a.startTime;
+      }
+    });
+    return map;
+  }, [appointments]);
+
   const recentClients = React.useMemo(() =>
     [...(clients || [])]
-      .filter((c: any) => c.lastAppointment)
+      .filter((c: any) => lastVisitByClientId[c.id])
       .sort((a: any, b: any) =>
-        new Date(b.lastAppointment).getTime() - new Date(a.lastAppointment).getTime())
+        new Date(lastVisitByClientId[b.id]).getTime() - new Date(lastVisitByClientId[a.id]).getTime())
       .slice(0, 6),
-  [clients]);
+  [clients, lastVisitByClientId]);
 
   const filteredClients = React.useMemo(() => {
     if (!clientSearch.trim()) return [];
@@ -2072,7 +2108,7 @@ export function QuickBookForm({
             </div>
             <div>
               <p className="text-sm font-medium text-slate-900">{selectedClient.name}</p>
-              <ContactLine contact={selectedClient} className="text-xs text-slate-400" />
+              <ContactLine contact={selectedClient} compact className="text-xs text-slate-400" />
             </div>
           </div>
 
@@ -2135,7 +2171,7 @@ export function QuickBookForm({
                 >
                   <div>
                     <p className="text-sm font-medium text-slate-900">{c.name}</p>
-                    <ContactLine contact={c} className="text-xs text-slate-400" />
+                    <ContactLine contact={c} compact className="text-xs text-slate-400" />
                   </div>
                   <span className="text-xs text-amber-700 font-medium">Use this client →</span>
                 </button>
@@ -2277,7 +2313,7 @@ export function QuickBookForm({
                       </div>
                       <div>
                         <p className="text-sm font-medium text-slate-900">{c.name}</p>
-                        <ContactLine contact={c} className="text-xs text-slate-400" />
+                        <ContactLine contact={c} compact className="text-xs text-slate-400" />
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2317,25 +2353,32 @@ export function QuickBookForm({
             {!clientSearch && recentClients.length > 0 && (
               <div className="space-y-2">
                 <p className="text-[10px] text-slate-400 uppercase tracking-wider">Recent clients</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl border divide-y overflow-hidden">
                   {recentClients.map((c: any) => (
                     <button
                       key={c.id}
                       onClick={() => selectClient(c)}
-                      className="flex items-center gap-2.5 p-3 rounded-xl border hover:border-blue-200 hover:bg-blue-50/50 transition-all text-left"
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left group"
                     >
-                      <div className={cn(
-                        'w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium shrink-0',
-                        c.status === 'blocked' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500',
-                      )}>
-                        {c.status === 'blocked' ? <Ban className="w-3 h-3" /> : c.name?.charAt(0)?.toUpperCase()}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={cn(
+                          'w-9 h-9 rounded-full flex items-center justify-center text-xs font-medium shrink-0',
+                          c.status === 'blocked' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500',
+                        )}>
+                          {c.status === 'blocked' ? <Ban className="w-3.5 h-3.5" /> : c.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">{c.name}</p>
+                          <ContactLine contact={c} compact className="text-xs text-slate-400" />
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium text-slate-900 truncate">{c.name}</p>
-                        <ContactLine contact={c} className="text-[10px] text-slate-400 flex-nowrap overflow-hidden" />
-                        {c.lastAppointment && (
-                          <p className="text-[10px] text-slate-400">{format(new Date(c.lastAppointment), 'MMM d')}</p>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {lastVisitByClientId[c.id] && (
+                          <span className="text-[10px] text-slate-400">
+                            {format(new Date(lastVisitByClientId[c.id]), 'MMM d')}
+                          </span>
                         )}
+                        <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500" />
                       </div>
                     </button>
                   ))}
