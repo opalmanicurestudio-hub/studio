@@ -450,6 +450,8 @@ function ClientDetailPanel({
   formStatuses,
   activePackages,
   getFormName,
+  firestore,
+  tenantId,
   onChangeClient,
 }: {
   client: any;
@@ -463,19 +465,50 @@ function ClientDetailPanel({
   formStatuses: { id: string; signed: boolean; expiredSig: boolean; signedAt: Date | null }[];
   activePackages: any[];
   getFormName: (id: string) => string;
+  firestore: any;
+  tenantId: string;
   onChangeClient: () => void;
 }) {
   const [historyExpanded, setHistoryExpanded] = React.useState(false);
 
+  // The `appointments` prop passed into QuickBookForm is almost certainly
+  // scoped for availability checking (a window around the date being
+  // booked), not a client's full history — which is why these stats weren't
+  // rendering real numbers. A dedicated, client-specific subscription
+  // guarantees the full picture regardless of how the parent scopes that
+  // shared prop for its own purposes. Single equality filter, no orderBy, so
+  // it doesn't need a composite index (sorted client-side instead). Falls
+  // back to the appointments prop only before the live snapshot has loaded,
+  // to avoid a blank flash.
+  const [clientAppointmentsLive, setClientAppointmentsLive] = React.useState<any[] | null>(null);
+  React.useEffect(() => {
+    if (!firestore || !tenantId || !client?.id) return;
+    setClientAppointmentsLive(null);
+    const q = query(
+      collection(firestore, `tenants/${tenantId}/appointments`),
+      where('clientId', '==', client.id),
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const list: any[] = [];
+        snap.forEach(d => list.push({ id: d.id, ...(d.data() as any) }));
+        setClientAppointmentsLive(list);
+      },
+      () => { /* non-fatal — falls back to the appointments prop below */ },
+    );
+    return () => unsubscribe();
+  }, [firestore, tenantId, client?.id]);
+
   // Defensive: only trust startTime values that are actually strings, same
   // guard as staffDateLoad — a non-string startTime should never crash this
   // panel either.
-  const clientAppointments = React.useMemo(
-    () => (appointments || [])
+  const clientAppointments = React.useMemo(() => {
+    const source = clientAppointmentsLive ?? appointments;
+    return (source || [])
       .filter((a: any) => a.clientId === client.id && typeof a.startTime === 'string')
-      .sort((a: any, b: any) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()),
-    [appointments, client.id],
-  );
+      .sort((a: any, b: any) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  }, [clientAppointmentsLive, appointments, client.id]);
 
   const nowMs = Date.now();
   const pastVisits = clientAppointments.filter((a: any) => new Date(a.startTime).getTime() < nowMs && a.status !== 'cancelled');
@@ -1081,6 +1114,35 @@ export function QuickBookForm({
   });
   const hasNoSlots = selectedService && slots.length === 0;
 
+  // When the client said "any available," don't let the per-provider time
+  // grid become a menu the receptionist can pick a favorite from — merge it
+  // into one "anyone available" slot per time. The actual provider is
+  // decided by fair rotation (resolveAnyStaffId below), not by which named
+  // button looks most appealing. When a specific stylist is selected, this
+  // is just a pass-through of the real per-provider slots.
+  const displaySlots = React.useMemo(() => {
+    if (selectedStaff !== 'any') return slots;
+    const byTime = new Map<string, typeof slots[number]>();
+    for (const s of slots) {
+      if (!s.available) continue;
+      const existing = byTime.get(s.time);
+      if (!existing || s.gapMinutesAfter > existing.gapMinutesAfter) {
+        byTime.set(s.time, { ...s, staffId: 'any', staffName: 'Any available' });
+      }
+    }
+    return Array.from(byTime.values()).sort((a, b) => a.time.localeCompare(b.time));
+  }, [slots, selectedStaff]);
+
+  // Real per-time eligibility — which staff are genuinely free at the
+  // selected time, from the actual availability data (not just "on shift").
+  // Feeds resolveAnyStaffId so the rotation can't hand someone a booking
+  // that collides with an appointment they already have.
+  const eligibleStaffIdsForAptTime = React.useMemo(() => {
+    if (selectedStaff !== 'any' || !aptTime) return undefined;
+    const ids = Array.from(new Set(slots.filter(s => s.time === aptTime && s.available).map(s => s.staffId)));
+    return ids.length > 0 ? ids : undefined;
+  }, [slots, aptTime, selectedStaff]);
+
   // Staff date availability — how many appointments each provider already has on aptDate.
   // Guard against non-string startTime values (e.g. un-normalized Firestore
   // Timestamps) before calling .startsWith() on them.
@@ -1107,14 +1169,39 @@ export function QuickBookForm({
   // multi-provider booking) spread across different staff instead of handing
   // every slot to the same person, since lastBookingAssignedAt won't reflect
   // earlier picks in the same booking until it's written after commit.
-  const resolveAnyStaffId = React.useCallback((dateStr: string, exclude: string[] = []): string | null => {
+  //
+  // `eligibleStaffIds`, when provided, restricts the pool to staff who are
+  // actually free at the specific time being booked (derived from the real
+  // slot-availability data) — without this, the rotation could hand someone
+  // a booking that collides with an appointment they already have, since
+  // "most overdue + on shift" alone says nothing about a specific time slot.
+  // Not every "any" assignment has this available (multi-provider legs and
+  // group guests don't have per-slot availability data computed for them),
+  // so it's optional and falls back to the broader shift-based pool.
+  const resolveAnyStaffId = React.useCallback((
+    dateStr: string,
+    exclude: string[] = [],
+    eligibleStaffIds?: string[],
+  ): string | null => {
     const onShiftIds = new Set(
       shifts
         .filter((s: any) => s.date === dateStr && s.status !== 'cancelled' && s.status !== 'draft')
         .map((s: any) => s.staffId),
     );
-    let pool = staff.filter((s: any) => s.active && onShiftIds.has(s.id));
-    if (pool.length === 0) pool = staff.filter((s: any) => s.active); // no shift data for that date — fall back to all active staff
+    const basePool = staff.filter((s: any) =>
+      s.active &&
+      (s as any).acceptingWalkIns !== false && // reuses the walk-in opt-out flag; confirm the field name if call-in bookings need a separate one
+      onShiftIds.has(s.id),
+    );
+    let pool = eligibleStaffIds
+      ? basePool.filter((s: any) => eligibleStaffIds.includes(s.id))
+      : basePool;
+    // If restricting to "free at this exact time" leaves nobody, widen back
+    // out rather than blocking the booking entirely — better to hand it to
+    // someone than fail the call.
+    if (pool.length === 0) pool = basePool;
+    if (pool.length === 0) pool = staff.filter((s: any) => s.active && onShiftIds.has(s.id));
+    if (pool.length === 0) pool = staff.filter((s: any) => s.active); // no shift data for that date at all
     const excluding = pool.filter((s: any) => !exclude.includes(s.id));
     const finalPool = excluding.length > 0 ? excluding : pool; // everyone already used this booking — allow a repeat
     if (finalPool.length === 0) return null;
@@ -1125,6 +1212,17 @@ export function QuickBookForm({
     });
     return sorted[0]?.id || null;
   }, [staff, shifts]);
+
+  // Live preview shown to the receptionist — uses the exact same inputs
+  // handleBook will use, so what's displayed is genuinely what gets booked
+  // (barring a true simultaneous-booking race, same caveat as the walk-in
+  // rotation).
+  const anyAvailablePreviewStaffId = selectedStaff === 'any' && aptTime
+    ? resolveAnyStaffId(aptDate, [], eligibleStaffIdsForAptTime)
+    : null;
+  const anyAvailablePreviewName = anyAvailablePreviewStaffId
+    ? staff.find((s: any) => s.id === anyAvailablePreviewStaffId)?.name
+    : null;
 
   // Client intelligence
   const intel = useClientIntelligence(selectedClient, appointments, services);
@@ -1613,7 +1711,7 @@ export function QuickBookForm({
       const anyAssignedStaffIds: string[] = [];
       const resolvedStaffId =
         selectedStaff === 'any'
-          ? resolveAnyStaffId(aptDate, anyAssignedStaffIds)
+          ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, eligibleStaffIdsForAptTime)
           : selectedStaff;
       if (selectedStaff === 'any' && resolvedStaffId) anyAssignedStaffIds.push(resolvedStaffId);
       const aptId = _nanoid();
@@ -1829,6 +1927,11 @@ export function QuickBookForm({
       if (multiProviderGroupId && scheduledLegs.length > 0) {
         scheduledLegs.forEach((leg, idx) => {
           const legSvc = services.find((s: any) => s.id === leg.serviceId);
+          // No per-slot availability data exists for legs (unlike the primary
+          // booking time), so this can only check shift + active status, not
+          // whether this specific person is free at the leg's computed time —
+          // a real gap until multi-provider legs get their own availability
+          // check. Flagging rather than silently pretending it's covered.
           const legStaffId = leg.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : leg.staffId;
           if (leg.staffId === 'any' && legStaffId) anyAssignedStaffIds.push(legStaffId);
           const legId = _nanoid();
@@ -2424,6 +2527,8 @@ export function QuickBookForm({
             formStatuses={formStatuses}
             activePackages={activePackages}
             getFormName={getFormName}
+            firestore={firestore}
+            tenantId={tenantId}
             onChangeClient={() => { setStep(1); setSelectedService(''); }}
           />
         ) : (
@@ -2628,18 +2733,34 @@ export function QuickBookForm({
         {/* Smart availability grid */}
         {selectedService && !hasNoSlots && (
           <SmartAvailabilityGrid
-            slots={slots}
+            slots={displaySlots}
             addOnUpsells={addOnUpsells}
             selectedTime={aptTime}
             onSelectTime={(time, staffId) => {
               setAptTime(time);
-              if (staffId && staffId !== selectedStaff) setSelectedStaff(staffId);
+              // "any" is a synthetic id from displaySlots — never let it pin
+              // a specific provider. Only a genuinely named staffId (i.e.
+              // selectedStaff was already a specific person, not "any")
+              // should ever switch the selection.
+              if (staffId && staffId !== 'any' && staffId !== selectedStaff) setSelectedStaff(staffId);
             }}
             addOnIds={addOnIds}
             onToggleAddOn={toggleAddOn}
             date={aptDate}
             onDateChange={setAptDate}
           />
+        )}
+
+        {/* Any-available transparency note — the receptionist picks a time,
+            not a person; this is who the fair rotation currently resolves to. */}
+        {selectedStaff === 'any' && aptTime && !hasNoSlots && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3.5 py-2.5 flex items-center gap-2.5">
+            <Star className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <p className="text-xs text-blue-700">
+              Assigned automatically by rotation — currently{' '}
+              <span className="font-medium">{anyAvailablePreviewName || 'unassigned'}</span>.
+            </p>
+          </div>
         )}
 
         {/* No slots / waitlist */}
