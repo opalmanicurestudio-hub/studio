@@ -344,18 +344,24 @@ const RequirementRow = ({ icon, label, value, status, action }: {
 );
 
 // ─── Client stats bar ─────────────────────────────────────────────────────────
-const ClientStatsBar = ({ client, recentVisits, allVisits }: { client: any; recentVisits: any[]; allVisits: any[] }) => {
+// `isLoading` distinguishes "still fetching, don't trust the zeros yet" from
+// "confirmed empty" — without it, a slow/failed query and a genuinely new
+// client both render identically as dashes, which is exactly what made this
+// hard to diagnose. While loading (and only while there's no data yet at
+// all), tiles render a muted pulsing "···" instead of a dash.
+const ClientStatsBar = ({ client, recentVisits, allVisits, isLoading }: { client: any; recentVisits: any[]; allVisits: any[]; isLoading?: boolean }) => {
   const visits = allVisits || [];
   const lifetimeSpend = safeNumber(client?.lifetimeValue || client?.lifetimeSpend);
   const visitCount = safeNumber(client?.totalVisits || visits.length);
   const noShowCount = visits.filter(isNoShowVisit).length;
   const avgSpend = visitCount > 0 && lifetimeSpend > 0 ? lifetimeSpend / visitCount : 0;
+  const showSkeleton = !!isLoading && visitCount === 0;
 
   const stats = [
-    { label: 'Total visits', value: visitCount || '—', icon: <Calendar className="w-3 h-3" /> },
+    { label: 'Total visits', value: showSkeleton ? '···' : (visitCount || '—'), icon: <Calendar className="w-3 h-3" /> },
     { label: 'Lifetime spend', value: lifetimeSpend > 0 ? `$${lifetimeSpend.toLocaleString()}` : '—', icon: <TrendingUp className="w-3 h-3" /> },
-    { label: 'Avg per visit', value: avgSpend > 0 ? `$${avgSpend.toFixed(0)}` : '—', icon: <BarChart2 className="w-3 h-3" /> },
-    { label: 'No-shows', value: noShowCount > 0 ? noShowCount : '0', icon: <UserX className="w-3 h-3" />, warn: noShowCount > 1 },
+    { label: 'Avg per visit', value: showSkeleton ? '···' : (avgSpend > 0 ? `$${avgSpend.toFixed(0)}` : '—'), icon: <BarChart2 className="w-3 h-3" /> },
+    { label: 'No-shows', value: showSkeleton ? '···' : (noShowCount > 0 ? noShowCount : '0'), icon: <UserX className="w-3 h-3" />, warn: !showSkeleton && noShowCount > 1 },
   ];
 
   return (
@@ -363,7 +369,8 @@ const ClientStatsBar = ({ client, recentVisits, allVisits }: { client: any; rece
       {stats.map((s, i) => (
         <div key={i} className={cn(
           'rounded-xl p-2.5 text-center border-2',
-          s.warn ? 'bg-red-50 border-red-100' : 'bg-muted/5 border-transparent'
+          s.warn ? 'bg-red-50 border-red-100' : 'bg-muted/5 border-transparent',
+          showSkeleton && 'animate-pulse'
         )}>
           <div className={cn('flex justify-center mb-1', s.warn ? 'text-destructive' : 'text-muted-foreground opacity-40')}>{s.icon}</div>
           <p className={cn('text-[12px] font-black font-mono leading-none', s.warn ? 'text-destructive' : 'text-slate-800')}>{s.value}</p>
@@ -1102,14 +1109,48 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     depositDecision: latestDepositDecision, auditLogEntries: auditLogDocs || [], staff: staff || [],
   }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff]);
 
-  // Full client visit history (for stats + frequency)
+  // ── Client visit history ────────────────────────────────────────────────────
+  // Two sources, merged: the live in-memory `allAppointments` list from
+  // useInventory() (already loaded for the calendar — zero extra cost, and
+  // not dependent on any composite index), and a dedicated Firestore query
+  // scoped to this client for anything outside whatever window the in-memory
+  // list covers. A where()+orderBy() query like this REQUIRES a Firestore
+  // composite index (clientId + startTime) — if that index is missing, the
+  // query fails silently and returns nothing, forever, with no visible error.
+  // That failure mode is exactly what produced dashed-out stats and a
+  // false "first time with this provider" banner for a client who's actually
+  // been in many times. Merging both sources means the stats stay correct
+  // even if that index was never created; the loading flag below lets the
+  // UI tell "still fetching" apart from "genuinely zero."
   const clientHistoryQuery = useMemoFirebase(() => {
     if (!firestore || !tenantId || !client?.id) return null;
     return query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', client.id), orderBy('startTime', 'desc'), limit(50));
   }, [firestore, tenantId, client?.id]);
   const { data: clientHistoryDocs } = useCollection<any>(clientHistoryQuery);
-  const allClientVisits = useMemo(() => (clientHistoryDocs || []), [clientHistoryDocs]);
-  const recentVisits = useMemo(() => (clientHistoryDocs || []).filter((a: any) => a.id !== appointment?.id).slice(0, 5), [clientHistoryDocs, appointment?.id]);
+
+  const clientVisitsFromContext = useMemo(
+    () => (allAppointments || []).filter((a: any) => a?.clientId === client?.id),
+    [allAppointments, client?.id]
+  );
+
+  const allClientVisits = useMemo(() => {
+    const merged = new Map<string, any>();
+    clientVisitsFromContext.forEach((a: any) => { if (a?.id) merged.set(a.id, a); });
+    (clientHistoryDocs || []).forEach((a: any) => { if (a?.id) merged.set(a.id, a); });
+    return Array.from(merged.values()).sort(
+      (a: any, b: any) => safeDate(b.startTime).getTime() - safeDate(a.startTime).getTime()
+    );
+  }, [clientVisitsFromContext, clientHistoryDocs]);
+
+  // True only while the Firestore query is genuinely still in flight AND we
+  // have nothing yet from either source — once the in-memory list supplies
+  // anything, there's no reason to show a loading state at all.
+  const isLoadingClientHistory = !!clientHistoryQuery && clientHistoryDocs === undefined && allClientVisits.length === 0;
+
+  const recentVisits = useMemo(
+    () => allClientVisits.filter((a: any) => a.id !== appointment?.id).slice(0, 5),
+    [allClientVisits, appointment?.id]
+  );
 
   // Consent forms
   const signedConsentsQuery = useMemoFirebase(() => {
@@ -1466,12 +1507,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     servicing: 'In Session', completed: 'Completed', cancelled: 'Cancelled',
   };
 
-  // Preferred staff detection
+  // Preferred staff detection — guarded against the loading state so a slow
+  // (or previously broken) history fetch can't render a false "first time"
+  // claim for a client who's actually been in many times before.
   const staffFreq: Record<string, number> = {};
   allClientVisits.forEach((a: any) => { if (a.staffId) staffFreq[a.staffId] = (staffFreq[a.staffId] || 0) + 1; });
   const preferredStaffId = Object.entries(staffFreq).sort((a, b) => b[1] - a[1])[0]?.[0];
   const isPreferredStaff = preferredStaffId === mainStaffId && allClientVisits.length > 1;
-  const isFirstTimeWithStaff = allClientVisits.filter((a: any) => a.staffId === mainStaffId).length === 0;
+  const isFirstTimeWithStaff = !isLoadingClientHistory && allClientVisits.filter((a: any) => a.staffId === mainStaffId).length === 0;
 
   // ── Identity header ────────────────────────────────────────────────────────
   const IdentityHeader = (
@@ -1574,7 +1617,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
             <Activity className="w-3 h-3" /> Client Intelligence
           </h3>
-          <ClientStatsBar client={client} recentVisits={recentVisits} allVisits={allClientVisits} />
+          <ClientStatsBar client={client} recentVisits={recentVisits} allVisits={allClientVisits} isLoading={isLoadingClientHistory} />
           {/* Staff relationship signal */}
           {(isPreferredStaff || isFirstTimeWithStaff) && (
             <div className={cn('flex items-center gap-2 px-3.5 py-2.5 rounded-xl border-2 text-[9px] font-bold uppercase', isPreferredStaff ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-amber-50 border-amber-200 text-amber-700')}>
@@ -2016,7 +2059,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <Badge className={cn('text-[7px] font-black uppercase border-none text-white shrink-0', a.status === 'cancelled' ? 'bg-destructive' : a.status === 'completed' ? 'bg-green-500' : 'bg-slate-400')}>{a.status}</Badge>
                     </div>
                   );
-                }) : (
+                }) : isLoadingClientHistory ? (
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">Loading visit history…</p>
+                ) : (
                   <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">No other visits on record</p>
                 )}
                 <Link href={`/clients/${client.id}`} className="flex items-center justify-center gap-1 text-[8px] font-bold text-primary uppercase tracking-tight opacity-60 hover:opacity-100 pt-1">
@@ -2217,6 +2262,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         initialSelected={currentAddOns}
         staff={staff || []}
         defaultStaffId={appointment.staffId || ''}
+        leadService={service}
+        existingOverrides={appointment.checkoutState?.serviceStaffOverrides}
+        existingConcurrentIds={appointment.checkoutState?.concurrentServiceIds}
       />
 
       <RescheduleAppointmentDialog
