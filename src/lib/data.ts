@@ -376,6 +376,30 @@ export type Service = {
   cancellationWindowHours?: number;
   cancellationFeeMode?: 'inherit' | 'matrix' | 'flat' | 'percentage';
   cancellationFeeValue?: number;
+  // ── Smart rebooking (Quick Book redesign #1) ──────────────────────────────
+  // How many weeks after this service a client is typically due back. Drives
+  // the "Mrs. Smith is due back around July 12" recommendation and the
+  // Schedule Recommended / +1 Week / +2 Weeks shortcuts in Quick Book.
+  // Optional and unset for one-off/non-recurring services (e.g. a single
+  // event booking) where a return cadence doesn't make sense.
+  recommendedReturnWeeks?: number;
+  // ── Multi-provider sequencing (used by MultiProviderPanel.computeLegSchedule) ──
+  // Minutes of processing/setting time after this service before the NEXT
+  // leg in a multi-provider booking can start (e.g. color needs to process
+  // before the next provider's leg begins). Defaults to 0 (back-to-back)
+  // wherever it's read, via `svc?.processingGapMinutes || 0` — this field
+  // was being read already but never actually existed on the type, so every
+  // multi-provider booking has silently been scheduled with zero gap until now.
+  processingGapMinutes?: number;
+  // ── Provider-assignment transparency (Quick Book redesign #10) ────────────
+  // Staff ids certified/qualified to perform this specific service. Used
+  // only as one of several "why was this person picked" reasons shown next
+  // to the "Any available" auto-assignment in Quick Book — entirely
+  // optional; if unset, that reason simply never appears and nothing else
+  // changes. Not a hard eligibility filter (requiredSkills already exists
+  // for that) — this is specifically about surfacing a true reason to staff,
+  // not gating availability.
+  certifiedStaffIds?: string[];
 };
 
 export type Batch = {
