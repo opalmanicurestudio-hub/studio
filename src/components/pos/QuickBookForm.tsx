@@ -197,6 +197,26 @@ const buildFormNameLookup = (tenant: any, formsProp: any[] = [], liveForms: any[
 // Shows phone and email side by side with icons — replaces the old
 // `c.phone || c.email` pattern that silently hid the email any time a phone
 // number was also present.
+// v7 — small avatar used everywhere a provider is shown (selection chips,
+// add-on overrides, confirmation). Falls back to initials on a colored
+// circle when there's no avatarUrl, so it never renders blank.
+function StaffAvatar({ staffMember, size = 'w-5 h-5', textSize = 'text-[9px]' }: { staffMember: any; size?: string; textSize?: string }) {
+  if (staffMember?.avatarUrl) {
+    return (
+      <img
+        src={staffMember.avatarUrl}
+        alt={staffMember.name || 'Provider'}
+        className={cn(size, 'rounded-full object-cover shrink-0 border border-white shadow-sm')}
+      />
+    );
+  }
+  return (
+    <div className={cn(size, textSize, 'rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-semibold shrink-0')}>
+      {staffMember?.name?.charAt(0)?.toUpperCase() || '?'}
+    </div>
+  );
+}
+
 function ContactLine({
   contact,
   className,
@@ -280,6 +300,12 @@ type Props = {
   // entirely if your app doesn't pass these down — nudges just never show.
   packages?: any[];
   memberships?: any[];
+  // v7 — optional. Discount docs (matching your Discount type: code, type,
+  // value, isActive, automation.trigger, applicableServiceIds, etc). If
+  // provided, eligible ones auto-surface as tap-to-apply chips in step 3
+  // instead of requiring the client to know a code. Omitted entirely if not
+  // passed — the manual code field still works exactly as before.
+  discounts?: any[];
   onSuccess: () => void;
   onCancel: () => void;
 };
@@ -304,7 +330,7 @@ type BookingSuccess = {
   totalDollars: number;
   depositPaidDollars: number;
   remainingBalanceDollars: number;
-  providersSummary: { name: string; detail: string }[];
+  providersSummary: { name: string; detail: string; avatarUrl?: string }[];
   chargeOutcome: ChargeOutcome;
   generatedLink: string | null;
   sendStatus: any;
@@ -1051,9 +1077,7 @@ function SuccessScreen({
           <div className="divide-y">
             {result.providersSummary.map((p, i) => (
               <div key={i} className="px-3.5 py-2.5 flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
-                  {p.name.charAt(0).toUpperCase()}
-                </div>
+                <StaffAvatar staffMember={{ name: p.name, avatarUrl: p.avatarUrl }} size="w-7 h-7" textSize="text-[11px]" />
                 <div className="min-w-0">
                   <p className="text-xs font-medium text-slate-900 truncate">{p.name}</p>
                   <p className="text-[11px] text-slate-400 truncate">{p.detail}</p>
@@ -1170,7 +1194,7 @@ function SuccessScreen({
 // ── Main component ────────────────────────────────────────────────────────────
 export function QuickBookForm({
   clients, services, staff, tenantId, tenant, firestore,
-  appointments = [], forms = [], packages = [], memberships = [],
+  appointments = [], forms = [], packages = [], memberships = [], discounts = [],
   currentStaffId, onSuccess, onCancel,
 }: Props) {
   const { toast } = useToast();
@@ -1442,6 +1466,41 @@ export function QuickBookForm({
   const showMembershipNudge = !!cheapestMembership &&
     !selectedClient?.activeMembershipId &&
     safeNumber(selectedClient?.lifetimeValue) > 250;
+
+  // v7 — eligible discounts auto-surfaced in step 3 instead of requiring a
+  // typed-in code. Computed from real visit history already in `appointments`.
+  const clientVisitCount = React.useMemo(() => {
+    if (!selectedClient?.id) return 0;
+    return appointments.filter((a: any) => a.clientId === selectedClient.id && a.status !== 'cancelled').length;
+  }, [appointments, selectedClient?.id]);
+
+  const daysSinceLastVisit = React.useMemo(() => {
+    const last = selectedClient?.id ? lastVisitByClientId[selectedClient.id] : null;
+    if (!last) return null;
+    return differenceInCalendarDays(new Date(), new Date(last));
+  }, [lastVisitByClientId, selectedClient?.id]);
+
+  const availableDiscounts = React.useMemo(() => {
+    if (!discounts?.length) return [];
+    const now = new Date();
+    return discounts.filter((d: any) => {
+      if (!d.isActive) return false;
+      if (d.usageLimit && safeNumber(d.usageCount) >= d.usageLimit) return false;
+      if (d.validFrom && new Date(d.validFrom) > now) return false;
+      if (d.validUntil && new Date(d.validUntil) < now) return false;
+      if (d.applicableServiceIds?.length && selectedService && !d.applicableServiceIds.includes(selectedService)) return false;
+      if (d.limitOnePerCustomer && selectedClient?.id && (d.usedByClientIds || []).includes(selectedClient.id)) return false;
+      const trig = d.automation?.trigger || 'none';
+      // 'none' means manual-code-only by design — don't auto-surface those,
+      // only ones with a real automation trigger that actually matches.
+      if (trig === 'none') return false;
+      if (trig === 'new_client') return !selectedClient || clientVisitCount === 0;
+      if (trig === 'birthday') return !!birthdayProximity(selectedClient?.birthday)?.isToday;
+      if (trig === 'loyalty') return clientVisitCount >= safeNumber(d.automation?.appointmentThreshold || 5);
+      if (trig === 're_engagement') return daysSinceLastVisit !== null && daysSinceLastVisit >= safeNumber(d.automation?.daysSinceLastVisit || 60);
+      return false;
+    });
+  }, [discounts, selectedService, selectedClient, clientVisitCount, daysSinceLastVisit]);
 
   // Patch test status
   const patchTestDate: Date | null = selectedClient?.lastPatchTest
@@ -2026,6 +2085,20 @@ export function QuickBookForm({
     }
   };
 
+  // v7 — applies an already-known-eligible discount directly, no server
+  // round-trip needed since availableDiscounts already filtered for
+  // eligibility client-side. Still records the code on the appointment
+  // (promoCode field) for reporting consistency with the manual path.
+  const applyListedDiscount = (d: any) => {
+    setPromoCode(d.code || '');
+    setPromoDiscount({
+      type: d.type === 'percentage' ? 'pct' : 'flat',
+      amount: d.value,
+      label: d.description || d.code || 'Discount',
+    });
+    toast({ title: 'Discount applied', description: d.description || d.code });
+  };
+
   const handleChargeArrears = async () => {
     if (!selectedClient || outstandingBalance <= 0) return;
     setIsChargingArrears(true);
@@ -2185,9 +2258,11 @@ export function QuickBookForm({
           ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, eligibleStaffIdsForAptTime)
           : selectedStaff;
       if (selectedStaff === 'any' && resolvedStaffId) anyAssignedStaffIds.push(resolvedStaffId);
+      const resolvedPrimaryStaffMember = staff.find((s: any) => s.id === resolvedStaffId);
       providersSummary.push({
-        name: staff.find((s: any) => s.id === resolvedStaffId)?.name || 'Unassigned',
+        name: resolvedPrimaryStaffMember?.name || 'Unassigned',
         detail: selectedSvc?.name || 'Primary service',
+        avatarUrl: resolvedPrimaryStaffMember?.avatarUrl,
       });
       // Add-on provider overrides — same staff as primary unless explicitly
       // overridden via the per-add-on assignment UI in step 2.
@@ -2195,9 +2270,9 @@ export function QuickBookForm({
         const overrideStaffId = addOnStaffOverrides[id];
         if (!overrideStaffId || overrideStaffId === resolvedStaffId) return;
         const addOnSvc = services.find((s: any) => s.id === id);
-        const overrideStaffName = staff.find((s: any) => s.id === overrideStaffId)?.name;
-        if (addOnSvc && overrideStaffName) {
-          providersSummary.push({ name: overrideStaffName, detail: addOnSvc.name });
+        const overrideStaffMember = staff.find((s: any) => s.id === overrideStaffId);
+        if (addOnSvc && overrideStaffMember?.name) {
+          providersSummary.push({ name: overrideStaffMember.name, detail: addOnSvc.name, avatarUrl: overrideStaffMember.avatarUrl });
         }
       });
       const aptId = _nanoid();
@@ -2430,9 +2505,11 @@ export function QuickBookForm({
           // check. Flagging rather than silently pretending it's covered.
           const legStaffId = leg.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : leg.staffId;
           if (leg.staffId === 'any' && legStaffId) anyAssignedStaffIds.push(legStaffId);
+          const legStaffMemberForSummary = staff.find((s: any) => s.id === legStaffId);
           providersSummary.push({
-            name: staff.find((s: any) => s.id === legStaffId)?.name || 'Unassigned',
+            name: legStaffMemberForSummary?.name || 'Unassigned',
             detail: legSvc?.name || 'Service',
+            avatarUrl: legStaffMemberForSummary?.avatarUrl,
           });
           const legId = _nanoid();
           const legToken = _nanoid();
@@ -2483,9 +2560,11 @@ export function QuickBookForm({
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
           const gStaffId = guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId;
           if (guest.staffId === 'any' && gStaffId) anyAssignedStaffIds.push(gStaffId);
+          const gStaffMemberForSummary = staff.find((s: any) => s.id === gStaffId);
           providersSummary.push({
-            name: staff.find((s: any) => s.id === gStaffId)?.name || 'Unassigned',
+            name: gStaffMemberForSummary?.name || 'Unassigned',
             detail: `${gSvc?.name || 'Service'} (${guest.name.split(' ')[0]})`,
+            avatarUrl: gStaffMemberForSummary?.avatarUrl,
           });
           const gAddOnIds = guest.addOnIds || [];
           const gAddOnDuration = gAddOnIds.reduce((acc, id) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
@@ -3428,7 +3507,7 @@ export function QuickBookForm({
                   key={s.id}
                   onClick={() => setSelectedStaff(s.id)}
                   className={cn(
-                    'px-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5',
+                    'pl-1.5 pr-3 py-1.5 rounded-lg border text-xs font-medium transition-all flex items-center gap-1.5',
                     selectedStaff === s.id
                       ? 'border-blue-200 bg-blue-50 text-blue-700'
                       : isFullyBooked
@@ -3437,6 +3516,7 @@ export function QuickBookForm({
                   )}
                   disabled={isFullyBooked}
                 >
+                  <StaffAvatar staffMember={s} size="w-5 h-5" />
                   {s.name.split(' ')[0]}
                   {!isFullyBooked && (
                     <span className={cn(
@@ -3513,10 +3593,11 @@ export function QuickBookForm({
                         type="button"
                         onClick={() => setAddOnStaffOverrides(prev => ({ ...prev, [id]: s.id }))}
                         className={cn(
-                          'px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors',
+                          'pl-1 pr-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors flex items-center gap-1',
                           overrideStaffId === s.id ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500 hover:border-slate-300',
                         )}
                       >
+                        <StaffAvatar staffMember={s} size="w-4 h-4" textSize="text-[8px]" />
                         {s.name.split(' ')[0]}
                       </button>
                     ))}
@@ -3699,10 +3780,49 @@ export function QuickBookForm({
     ? 'First available'
     : staff.find((s: any) => s.id === selectedStaff)?.name || '—';
 
+  // v7 — "read this back to the client" sentence (Quick Book redesign:
+  // confirmation should feel like someone reading back every detail). Pure
+  // display, built entirely from values already on screen — doesn't change
+  // what gets booked, just how it's communicated before the final tap.
+  const readBackSentence = React.useMemo(() => {
+    const name = selectedClient?.name || newClientName.trim() || 'the client';
+    const addOnNames = addOnIds.map(id => services.find((s: any) => s.id === id)?.name).filter(Boolean);
+    const servicePart = selectedSvc?.name ? `a ${selectedSvc.name}` : 'an appointment';
+    const addOnPart = addOnNames.length > 0 ? ` with ${addOnNames.join(' and ')}` : '';
+    let dateTimePart = '';
+    try {
+      dateTimePart = format(new Date(`${aptDate}T${aptTime}`), "EEEE, MMMM do 'at' h:mm a");
+    } catch {
+      dateTimePart = `${aptDate} at ${aptTime}`;
+    }
+    const providerPart = isMultiProvider && scheduledLegs.length > 0
+      ? `starting with ${summaryStaff}`
+      : `with ${summaryStaff}`;
+    const groupPart = isGroup && groupGuests.length > 0
+      ? `, plus ${groupGuests.length} more guest${groupGuests.length > 1 ? 's' : ''}`
+      : '';
+    const pricePart = `$${grandTotal.toFixed(2)} total`;
+    const depositPart = effectiveDepositCents > 0
+      ? `, with $${(effectiveDepositCents / 100).toFixed(2)} due now`
+      : '';
+    return `So that's ${servicePart}${addOnPart} for ${name}, ${providerPart}, on ${dateTimePart}${groupPart} — ${pricePart}${depositPart}.`;
+  }, [selectedClient?.name, newClientName, addOnIds, services, selectedSvc, aptDate, aptTime, isMultiProvider, scheduledLegs.length, summaryStaff, isGroup, groupGuests.length, grandTotal, effectiveDepositCents]);
+
   return (
     <div className="space-y-5">
       {saveDraftModal}
       <CommandBar step={3} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
+
+      {/* v7 — the read-back. Distinct styling from the itemized receipt
+          below (which is for staff's eyes / record-keeping) — this one is
+          meant to be spoken out loud to the caller before confirming. */}
+      <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3.5 flex items-start gap-2.5">
+        <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-[10px] font-medium text-blue-600 uppercase tracking-wider mb-1">Read this back to confirm</p>
+          <p className="text-sm text-blue-900 leading-relaxed">{readBackSentence}</p>
+        </div>
+      </div>
 
       {/* Arrears banner (fallback for step 3) */}
       {hasUnresolvedArrears && (
@@ -3885,10 +4005,44 @@ export function QuickBookForm({
         </div>
       )}
 
+      {/* v7 — eligible discounts (Quick Book redesign #4: "existing
+          discounts should be instantly available"). Tap to apply, no code
+          to remember. The manual field below still works for anything not
+          covered by an automation trigger. */}
+      {availableDiscounts.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <Gift className="w-3 h-3" /> Available discounts
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {availableDiscounts.map((d: any) => {
+              const isApplied = promoDiscount?.label === (d.description || d.code);
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => applyListedDiscount(d)}
+                  className={cn(
+                    'px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors flex items-center gap-1.5',
+                    isApplied ? 'border-green-200 bg-green-50 text-green-700' : 'border-purple-200 bg-purple-50 text-purple-700 hover:border-purple-300',
+                  )}
+                >
+                  {isApplied ? <CheckCircle2 className="w-3 h-3" /> : '✔'}
+                  {d.description || d.code}
+                  <span className="opacity-70">
+                    {d.type === 'percentage' ? `${d.value}% off` : `$${safeNumber(d.value).toFixed(0)} off`}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Promo code */}
       <div className="space-y-1.5">
         <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-          <Tag className="w-3 h-3" /> Promo code
+          <Tag className="w-3 h-3" /> {availableDiscounts.length > 0 ? 'Other promo code' : 'Promo code'}
         </p>
         <div className="flex gap-2">
           <Input
