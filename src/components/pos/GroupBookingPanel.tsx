@@ -58,6 +58,26 @@ import { UserPlus, Trash2, ChevronDown, CheckCircle2, Users, Link2, Mail, Cake, 
 import { Input } from '@/components/ui/input';
 import { getServicePrice } from '@/lib/data';
 
+// v4 — small avatar for provider chips, matching the one added to
+// QuickBookForm's provider selection and confirmation screen. Falls back to
+// initials when there's no avatarUrl.
+function StaffAvatar({ staffMember, size = 'w-4 h-4' }: { staffMember: any; size?: string }) {
+  if (staffMember?.avatarUrl) {
+    return (
+      <img
+        src={staffMember.avatarUrl}
+        alt={staffMember.name || 'Provider'}
+        className={cn(size, 'rounded-full object-cover shrink-0 border border-white')}
+      />
+    );
+  }
+  return (
+    <div className={cn(size, 'rounded-full bg-primary/10 text-primary flex items-center justify-center text-[8px] font-black shrink-0')}>
+      {staffMember?.name?.charAt(0)?.toUpperCase() || '?'}
+    </div>
+  );
+}
+
 export type GroupGuest = {
   id: string;
   name: string;
@@ -434,12 +454,13 @@ function GuestRow({
                   key={s.id}
                   onClick={() => onChange({ ...guest, staffId: s.id })}
                   className={cn(
-                    'px-2.5 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase transition-all',
+                    'pl-1.5 pr-2.5 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase transition-all flex items-center gap-1',
                     guest.staffId === s.id
                       ? 'border-primary bg-primary/5 text-primary'
                       : 'border-muted text-muted-foreground',
                   )}
                 >
+                  <StaffAvatar staffMember={s} />
                   {s.name.split(' ')[0]}
                   {(s.status === 'idle' || s.status === 'available') && (
                     <span className="ml-1 w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
