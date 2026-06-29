@@ -836,6 +836,12 @@ function POSPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">Book an appointment directly from the POS for walk-in or call-in guests.</p>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* FIX: previously omitted currentStaffId, packages, memberships, and
+                discounts — all four already exist in this component's own scope
+                (useInventory() already destructures memberships/packages/discounts,
+                and currentUser is right there from useFirebase()), so every
+                package/membership nudge and auto-listed-discount feature built into
+                QuickBookForm was silently inert: the data simply never arrived. */}
             <QuickBookForm
               clients={clients || []}
               services={services || []}
@@ -844,6 +850,10 @@ function POSPage() {
               tenant={selectedTenant}
               firestore={firestore}
               appointments={appointmentsFromInventory || []}
+              currentStaffId={currentUser?.uid}
+              packages={packages || []}
+              memberships={memberships || []}
+              discounts={discounts || []}
               onSuccess={() => { setIsQuickBookOpen(false); toast({ title: "Appointment Booked" }); }}
               onCancel={() => setIsQuickBookOpen(false)}
             />
