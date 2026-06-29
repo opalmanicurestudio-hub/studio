@@ -944,8 +944,49 @@ function SuccessScreen({
     }
   };
 
+  // v8 — FIX: the QR code was an <img> pointing at api.qrserver.com — a
+  // real external network dependency. On a slow/flaky connection (or a
+  // browser that defers loading of never-visible elements, per the "Images
+  // loaded lazily and replaced with placeholders" intervention seen in
+  // console logs — the print-only wrapper is `display:none` until print
+  // media activates, which is exactly the kind of element that
+  // intervention can defer indefinitely), that image could simply never
+  // resolve, producing a blank ticket. Dropped entirely in favor of a
+  // self-contained, human-readable check-in code — zero network calls,
+  // zero failure mode. `navigator.share` is also now the PRIMARY mobile
+  // action instead of print: window.print() is unreliable (frequently a
+  // silent no-op) inside mobile webviews/in-app browsers, which is what
+  // "non-responsive" almost certainly was. Desktop (where navigator.share
+  // is usually unavailable) still gets Print as the main action.
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+
   const handlePrint = () => {
-    if (typeof window !== 'undefined') window.print();
+    // Immediate feedback regardless of what the OS print dialog ends up
+    // doing — so a tap never feels like it did nothing, which was the
+    // "non-responsive" complaint even on browsers where print DOES work.
+    toast({ title: 'Opening print preview…' });
+    if (typeof window !== 'undefined') {
+      // Small delay lets the toast paint before the print dialog steals
+      // focus/rendering on some mobile browsers.
+      setTimeout(() => window.print(), 50);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!canShare) return;
+    try {
+      await navigator.share({
+        title: `${result.clientName} — ${result.serviceName}`,
+        text: `${result.clientName}'s appointment: ${result.serviceName} on ${format(new Date(`${result.aptDate}T${result.aptTime}`), 'EEE MMM d \'at\' h:mm a')} at ${result.locationName}.${checkInCodeDisplay ? ` Check-in code: ${checkInCodeDisplay}.` : ''}`,
+        url: checkInUrl || undefined,
+      });
+    } catch (e: any) {
+      // AbortError just means the person closed the native share sheet
+      // without picking anything — not a real failure, don't toast it.
+      if (e?.name !== 'AbortError') {
+        toast({ variant: 'destructive', title: 'Could not open share sheet' });
+      }
+    }
   };
 
   // v4 — hits a not-yet-built endpoint. Add /api/notifications/resend-
@@ -979,23 +1020,23 @@ function SuccessScreen({
 
   const firstName = result.clientName.split(' ')[0];
 
-  // v5 — printable check-in ticket. The old Print button just called
-  // window.print() on the live app with no print stylesheet, which is why
-  // it "didn't work" — there was nothing telling the browser what to
-  // actually print, so it either printed the whole app chrome or did
-  // nothing depending on the browser/PWA context. This wraps the rest of
-  // the screen in print:hidden and renders a dedicated, print-only ticket
-  // as a sibling — Tailwind's print: variant means only the ticket survives
-  // when the browser print dialog fires. Note this only controls what THIS
-  // component renders; if Quick Book is embedded inside POS page chrome
-  // (nav bars, sidebar), that surrounding chrome isn't scoped by this
-  // change and would need its own print:hidden, or the ticket should open
-  // in its own window/tab for a guaranteed-clean printout.
+  // v5/v8 — printable check-in ticket. The print:hidden / hidden print:block
+  // split (Tailwind's built-in print variant) ensures only the ticket below
+  // survives when the browser print dialog fires. Note this only controls
+  // what THIS component renders; if Quick Book is embedded inside POS page
+  // chrome (nav bars, sidebar) or an iframe, that surrounding chrome isn't
+  // scoped by this change and printing from inside an iframe is itself
+  // unreliable on mobile — if Print still produces a blank/wrong page after
+  // this fix, that's the next place to look, and Share (above) sidesteps
+  // the problem entirely by not depending on the print pipeline at all.
   const checkInUrl = typeof window !== 'undefined' && result.checkInToken
     ? `${window.location.origin}/check-in/${result.checkInToken}`
     : '';
-  const qrSrc = checkInUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(checkInUrl)}`
+  // A short, easy-to-read-aloud-or-type code instead of a QR image — the
+  // last 8 characters of the token, uppercased. No network call, nothing
+  // that can fail to load.
+  const checkInCodeDisplay = result.checkInToken
+    ? result.checkInToken.slice(-8).toUpperCase()
     : '';
 
   return (
@@ -1146,15 +1187,34 @@ function SuccessScreen({
         </div>
       )}
 
-      {/* v4 — Print + Resend, the screen staff reference while on the phone */}
+      {/* v8 — Share is now the PRIMARY action when the device supports it
+          (most mobile browsers) — reliably opens the native share sheet,
+          unlike window.print() which is frequently a silent no-op in
+          mobile webviews. Print stays available as a secondary action for
+          desktop / front-desk printer setups. */}
       <div className="grid grid-cols-2 gap-3">
-        <Button onClick={handlePrint} variant="outline" className="h-10 text-xs">
-          <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
-        </Button>
+        {canShare ? (
+          <Button onClick={handleShare} variant="outline" className="h-10 text-xs">
+            <Send className="w-3.5 h-3.5 mr-1.5" /> Share
+          </Button>
+        ) : (
+          <Button onClick={handlePrint} variant="outline" className="h-10 text-xs">
+            <Printer className="w-3.5 h-3.5 mr-1.5" /> Print
+          </Button>
+        )}
         <Button onClick={handleResend} variant="outline" className="h-10 text-xs" disabled={isResending}>
           {isResending ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" /> Resend confirmation</>}
         </Button>
       </div>
+      {canShare && (
+        <button
+          type="button"
+          onClick={handlePrint}
+          className="w-full text-center text-[11px] text-slate-400 hover:text-slate-600 flex items-center justify-center gap-1"
+        >
+          <Printer className="w-3 h-3" /> Print instead
+        </button>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
         <Button onClick={onBookAnother} variant="outline" className="h-11">Book another</Button>
@@ -1162,10 +1222,14 @@ function SuccessScreen({
       </div>
     </div>
 
-    {/* Print-only ticket — invisible on screen, the only thing the browser
-        prints. Same data already in hand from the booking, plus a QR code
-        encoding the existing check-in token/link so it can be scanned at
-        the door with no new backend route needed. */}
+    {/* v8 — printable check-in ticket. Previously included a QR <img>
+        pointing at an external image-generation API — a real network
+        dependency that could fail to load (especially since this block is
+        display:none until print media activates, which is exactly the
+        kind of never-visible element some browsers defer loading
+        indefinitely, per the "Images loaded lazily" intervention). Replaced
+        with a self-contained short code derived straight from the existing
+        checkInToken — nothing to fetch, nothing that can fail to load. */}
     <div className="hidden print:block p-6">
       <div className="text-center space-y-1 mb-4">
         <p className="text-lg font-semibold">{result.clientName}</p>
@@ -1175,10 +1239,11 @@ function SuccessScreen({
         </p>
         <p className="text-xs text-slate-500">{result.locationName}</p>
       </div>
-      {qrSrc && (
-        <div className="flex flex-col items-center gap-2">
-          <img src={qrSrc} alt="Check-in QR code" width={200} height={200} />
-          <p className="text-xs text-slate-500">Show this code at check-in</p>
+      {checkInCodeDisplay && (
+        <div className="flex flex-col items-center gap-1.5 my-4">
+          <p className="text-[10px] uppercase tracking-widest text-slate-400">Check-in code</p>
+          <p className="text-3xl font-mono font-bold tracking-widest text-slate-900">{checkInCodeDisplay}</p>
+          {checkInUrl && <p className="text-[10px] text-slate-400 break-all mt-1">{checkInUrl}</p>}
         </div>
       )}
       {result.depositPaidDollars > 0 && (
