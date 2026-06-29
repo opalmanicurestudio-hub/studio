@@ -1502,6 +1502,45 @@ export function QuickBookForm({
     });
   }, [discounts, selectedService, selectedClient, clientVisitCount, daysSinceLastVisit]);
 
+  // v7 fix — these two were previously declared after the step 1/step 2/
+  // success-screen early `return`s, which only let them run when step === 3.
+  // A hook (readBackSentence's useMemo) being called conditionally like
+  // that violates React's Rules of Hooks and threw "Minified React error
+  // #310" the moment someone reached step 3. Moved here so both are
+  // computed unconditionally on every render, like every other hook in this
+  // component.
+  const summaryStaff = selectedStaff === 'any'
+    ? 'First available'
+    : staff.find((s: any) => s.id === selectedStaff)?.name || '—';
+
+  // "Read this back to the client" sentence (Quick Book redesign:
+  // confirmation should feel like someone reading back every detail). Pure
+  // display, built entirely from values already in scope — doesn't change
+  // what gets booked, just how it's communicated before the final tap.
+  const readBackSentence = React.useMemo(() => {
+    const name = selectedClient?.name || newClientName.trim() || 'the client';
+    const addOnNames = addOnIds.map(id => services.find((s: any) => s.id === id)?.name).filter(Boolean);
+    const servicePart = selectedSvc?.name ? `a ${selectedSvc.name}` : 'an appointment';
+    const addOnPart = addOnNames.length > 0 ? ` with ${addOnNames.join(' and ')}` : '';
+    let dateTimePart = '';
+    try {
+      dateTimePart = format(new Date(`${aptDate}T${aptTime}`), "EEEE, MMMM do 'at' h:mm a");
+    } catch {
+      dateTimePart = `${aptDate} at ${aptTime}`;
+    }
+    const providerPart = isMultiProvider && scheduledLegs.length > 0
+      ? `starting with ${summaryStaff}`
+      : `with ${summaryStaff}`;
+    const groupPart = isGroup && groupGuests.length > 0
+      ? `, plus ${groupGuests.length} more guest${groupGuests.length > 1 ? 's' : ''}`
+      : '';
+    const pricePart = `$${grandTotal.toFixed(2)} total`;
+    const depositPart = effectiveDepositCents > 0
+      ? `, with $${(effectiveDepositCents / 100).toFixed(2)} due now`
+      : '';
+    return `So that's ${servicePart}${addOnPart} for ${name}, ${providerPart}, on ${dateTimePart}${groupPart} — ${pricePart}${depositPart}.`;
+  }, [selectedClient?.name, newClientName, addOnIds, services, selectedSvc, aptDate, aptTime, isMultiProvider, scheduledLegs.length, summaryStaff, isGroup, groupGuests.length, grandTotal, effectiveDepositCents]);
+
   // Patch test status
   const patchTestDate: Date | null = selectedClient?.lastPatchTest
     ? new Date(selectedClient.lastPatchTest)
@@ -3776,38 +3815,6 @@ export function QuickBookForm({
   }
 
   // ── Step 3: Confirm ───────────────────────────────────────────────────────
-  const summaryStaff = selectedStaff === 'any'
-    ? 'First available'
-    : staff.find((s: any) => s.id === selectedStaff)?.name || '—';
-
-  // v7 — "read this back to the client" sentence (Quick Book redesign:
-  // confirmation should feel like someone reading back every detail). Pure
-  // display, built entirely from values already on screen — doesn't change
-  // what gets booked, just how it's communicated before the final tap.
-  const readBackSentence = React.useMemo(() => {
-    const name = selectedClient?.name || newClientName.trim() || 'the client';
-    const addOnNames = addOnIds.map(id => services.find((s: any) => s.id === id)?.name).filter(Boolean);
-    const servicePart = selectedSvc?.name ? `a ${selectedSvc.name}` : 'an appointment';
-    const addOnPart = addOnNames.length > 0 ? ` with ${addOnNames.join(' and ')}` : '';
-    let dateTimePart = '';
-    try {
-      dateTimePart = format(new Date(`${aptDate}T${aptTime}`), "EEEE, MMMM do 'at' h:mm a");
-    } catch {
-      dateTimePart = `${aptDate} at ${aptTime}`;
-    }
-    const providerPart = isMultiProvider && scheduledLegs.length > 0
-      ? `starting with ${summaryStaff}`
-      : `with ${summaryStaff}`;
-    const groupPart = isGroup && groupGuests.length > 0
-      ? `, plus ${groupGuests.length} more guest${groupGuests.length > 1 ? 's' : ''}`
-      : '';
-    const pricePart = `$${grandTotal.toFixed(2)} total`;
-    const depositPart = effectiveDepositCents > 0
-      ? `, with $${(effectiveDepositCents / 100).toFixed(2)} due now`
-      : '';
-    return `So that's ${servicePart}${addOnPart} for ${name}, ${providerPart}, on ${dateTimePart}${groupPart} — ${pricePart}${depositPart}.`;
-  }, [selectedClient?.name, newClientName, addOnIds, services, selectedSvc, aptDate, aptTime, isMultiProvider, scheduledLegs.length, summaryStaff, isGroup, groupGuests.length, grandTotal, effectiveDepositCents]);
-
   return (
     <div className="space-y-5">
       {saveDraftModal}
