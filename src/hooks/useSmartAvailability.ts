@@ -1,9 +1,22 @@
 'use client';
 
 /**
- * useSmartAvailability
+ * useSmartAvailability — v2
  *
- * Given a date, serviceId, and optional staffId, returns only the time
+ * v2 — BUG FIX: the add-on upsell filter checked `s.type === 'service'` and
+ * `s.isAddOn !== false`. Your Service type has no `isAddOn` field at all, so
+ * that second check was always true (undefined !== false), and the first
+ * check pulled from full primary SERVICES, not things actually flagged as
+ * add-ons. The practical effect: a manicure's "upsells" could include an
+ * unrelated Pedicure or Facial just because it happened to fit the time gap
+ * — not because anyone marked it compatible. Now filters on
+ * `type === 'addon'` AND membership in the selected service's
+ * `compatibleAddOnIds`, the same field AppointmentDetailsSheet,
+ * AddAndConfigurePartsDialog, and MultiProviderPanel already key off of —
+ * so upsells here are finally drawn from the same compatibility model as
+ * the rest of the app instead of an independent (and broken) one.
+ *
+ * v1 — Given a date, serviceId, and optional staffId, returns only the time
  * slots where the full service (duration + padBefore + padAfter) fits
  * without overlapping any existing confirmed appointment.
  *
@@ -12,15 +25,16 @@
  *
  * No extra Firestore reads — uses appointments already in InventoryContext.
  *
- * FIX: the slot dedup step below previously keyed by `slot.time` alone.
- * That's harmless when staffId is a single specific provider (there's only
- * ever one slot per time, so nothing collides) but breaks "Any available":
- * with multiple providers open at the same time, only the one with the
- * largest gapMinutesAfter survived — every other provider's slot at that
- * exact time was silently overwritten and discarded. Keying by
- * `${staffId}-${time}` instead means providers no longer collide with each
- * other, so SmartAvailabilityGrid (which already keys its buttons by
- * staffId+time) actually receives every provider's slots, not just one.
+ * FIX (carried forward): the slot dedup step below previously keyed by
+ * `slot.time` alone. That's harmless when staffId is a single specific
+ * provider (there's only ever one slot per time, so nothing collides) but
+ * breaks "Any available": with multiple providers open at the same time,
+ * only the one with the largest gapMinutesAfter survived — every other
+ * provider's slot at that exact time was silently overwritten and
+ * discarded. Keying by `${staffId}-${time}` instead means providers no
+ * longer collide with each other, so SmartAvailabilityGrid (which already
+ * keys its buttons by staffId+time) actually receives every provider's
+ * slots, not just one.
  */
 
 import { useMemo } from 'react';
@@ -180,12 +194,17 @@ export function useSmartAvailability(params: {
     );
 
     const bestGap = deduped.at(0)?.gapMinutesAfter ?? 0;
+
+    // v2 — FIX: draw upsells from the same compatibility model as the rest
+    // of the app (type === 'addon' + the primary service's
+    // compatibleAddOnIds) instead of the broken type/isAddOn check that let
+    // any unrelated full-price service through as an "upsell."
+    const compatibleAddOnIds: string[] = svc.compatibleAddOnIds || [];
     const addOnUpsells: AddOnUpsell[] = allServices
       .filter(
         (s) =>
-          s.id !== serviceId &&
-          s.type === 'service' &&
-          s.isAddOn !== false &&
+          s.type === 'addon' &&
+          compatibleAddOnIds.includes(s.id) &&
           (s.duration ?? 0) > 0,
       )
       .map((s) => ({
