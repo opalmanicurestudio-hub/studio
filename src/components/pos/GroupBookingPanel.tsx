@@ -1,14 +1,35 @@
 'use client';
 
 /**
- * GroupBookingPanel — v2
+ * GroupBookingPanel — v3
+ *
+ * v3:
+ *   - REMOVED: the "Relationship" field. Low value for a beauty-service
+ *     booking (more useful in event/medical contexts), and it was eating
+ *     half the birthday row for little payoff. Birthday now gets the full
+ *     row, with an explicit label above it instead of relying on iOS's
+ *     placeholder-less empty date-input rendering (which is what made it
+ *     look like "just an icon" with no visible field).
+ *   - NEW: per-guest add-ons. Previously a guest could only pick ONE
+ *     service — there was no way to add e.g. nail art on top of a guest's
+ *     manicure in a group booking. `GroupGuest.addOnIds` now exists, with a
+ *     toggle list scoped to whatever add-ons are compatible with the
+ *     guest's selected service (same `compatibleAddOnIds` field the rest of
+ *     the app already uses).
+ *   - NEW: linked-client visibility. If a guest is linked to an existing
+ *     client record (via the v2 duplicate-match flow), their birthday,
+ *     active membership, and active packages now surface as small badges —
+ *     informational only. Redeeming a package/membership for a GROUP GUEST
+ *     is not wired up yet (only the primary client can redeem a package,
+ *     in QuickBookForm step 3) — flagging this honestly rather than
+ *     pretending it's covered.
  *
  * v2 — guest data + duplicate-client detection (Quick Book redesign #6):
  *   - Each guest now captures phone (proper international format via
  *     PhoneInput, matching the rest of the app instead of a plain tel
- *     input), email, birthday, relationship to the booking owner, and a
- *     marketing-consent toggle — closer to "every guest treated as their
- *     own client" instead of name + service only.
+ *     input), email, birthday, and a marketing-consent toggle — closer to
+ *     "every guest treated as their own client" instead of name + service
+ *     only.
  *   - NEW: optional `clients` prop. If a guest's phone or email matches an
  *     existing client record, a "Matches an existing client" suggestion
  *     appears with a one-tap "Use this client" action that fills the
@@ -26,13 +47,14 @@
  * the group-guest creation loop inside handleBook, check
  * `guest.linkedClientId` first — if set, reuse that client id (and skip
  * creating a new client doc) instead of always minting a fresh `gClientId`.
+ * Also pass each guest's `addOnIds` through into their appointment doc.
  */
 
 import React, { useState } from 'react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { cn } from '@/lib/utils';
-import { UserPlus, Trash2, ChevronDown, CheckCircle2, Users, Link2, Mail, Cake, Heart, Megaphone } from 'lucide-react';
+import { UserPlus, Trash2, ChevronDown, CheckCircle2, Users, Link2, Mail, Cake, Megaphone, Sparkles, Award, Package } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { getServicePrice } from '@/lib/data';
 
@@ -42,9 +64,9 @@ export type GroupGuest = {
   phone?: string;
   email?: string;
   birthday?: string; // ISO date string, optional
-  relationship?: string; // e.g. "Friend", "Sister" — optional, free text
   marketingConsent?: boolean;
   serviceId: string;
+  addOnIds?: string[]; // v3 — add-ons compatible with this guest's serviceId
   staffId: string; // 'any' is valid
   // v2 — set when the guest's contact info matched an existing client and
   // staff confirmed the link. When present, QuickBookForm should reuse this
@@ -87,6 +109,21 @@ function findClientMatch(guest: GroupGuest, clients: any[]): any | null {
   );
 }
 
+// True if an ISO birthday string falls on today's month/day, regardless of
+// year. Used purely as an in-the-moment "hey, it's their birthday" nudge —
+// not validated beyond a basic parse, since a malformed value should never
+// crash this row.
+function isBirthdayToday(iso?: string): boolean {
+  if (!iso) return false;
+  try {
+    const d = new Date(iso);
+    const today = new Date();
+    return d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
+  } catch {
+    return false;
+  }
+}
+
 function GuestRow({
   guest,
   index,
@@ -107,9 +144,13 @@ function GuestRow({
   const [expanded, setExpanded] = useState(index === 0);
   const selectedSvc = services.find((s: any) => s.id === guest.serviceId);
   const selectedStaff = staff.find((s: any) => s.id === guest.staffId);
-  const price = selectedSvc
+  const addOnTotal = (guest.addOnIds || []).reduce((acc, id) => {
+    const addOnSvc = services.find((s: any) => s.id === id);
+    return acc + (addOnSvc ? getServicePrice(addOnSvc, selectedStaff) : 0);
+  }, 0);
+  const price = (selectedSvc
     ? getServicePrice(selectedSvc, selectedStaff)
-    : 0;
+    : 0) + addOnTotal;
 
   const colorClass = GUEST_COLORS[index % GUEST_COLORS.length];
   const activeStaff = staff.filter((s: any) => s.active);
@@ -118,6 +159,17 @@ function GuestRow({
   // surfaced if not already linked (or if contact info changed since the
   // last link, which clears linkedClientId — see the phone/email onChange).
   const match = !guest.linkedClientId ? findClientMatch(guest, clients || []) : null;
+
+  // v3 — once a guest IS linked, pull their real record so birthday/
+  // membership/package status can surface as badges. Falls back to the
+  // guest's own typed-in birthday if there's no link (or no match found).
+  const linkedClient = guest.linkedClientId
+    ? (clients || []).find((c: any) => c.id === guest.linkedClientId) || null
+    : null;
+  const effectiveBirthday = linkedClient?.birthday || guest.birthday;
+  const linkedActivePackages: any[] = (linkedClient?.activePackages || []).filter(
+    (p: any) => p.sessionsRemaining > 0,
+  );
 
   const linkToMatch = () => {
     if (!match) return;
@@ -160,6 +212,7 @@ function GuestRow({
           </p>
           <p className="text-[10px] text-muted-foreground truncate">
             {selectedSvc?.name || 'No service'}{price > 0 ? ` · $${price.toFixed(0)}` : ''}
+            {(guest.addOnIds || []).length > 0 ? ` · +${guest.addOnIds!.length} add-on${guest.addOnIds!.length > 1 ? 's' : ''}` : ''}
             {selectedStaff ? ` · ${selectedStaff.name.split(' ')[0]}` : ''}
           </p>
         </div>
@@ -231,36 +284,52 @@ function GuestRow({
               </button>
             </div>
           )}
+          {/* v3 — linked-client status: birthday/membership/package badges,
+              informational only. Package/membership REDEMPTION for a group
+              guest isn't wired up yet — only the primary client can redeem
+              a package today, in QuickBookForm step 3. */}
           {guest.linkedClientId && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 border border-green-200">
-              <CheckCircle2 className="w-3 h-3 text-green-600 shrink-0" />
-              <p className="text-[10px] font-bold text-green-700">Linked to existing client record</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-50 border border-green-200">
+                <CheckCircle2 className="w-3 h-3 text-green-600 shrink-0" />
+                <p className="text-[10px] font-bold text-green-700">Linked to existing client record</p>
+              </div>
+              {(isBirthdayToday(effectiveBirthday) || linkedClient?.activeMembershipId || linkedActivePackages.length > 0) && (
+                <div className="flex flex-wrap gap-1.5">
+                  {isBirthdayToday(effectiveBirthday) && (
+                    <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Cake className="w-2.5 h-2.5" /> Birthday today
+                    </span>
+                  )}
+                  {linkedClient?.activeMembershipId && (
+                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Award className="w-2.5 h-2.5" /> Member
+                    </span>
+                  )}
+                  {linkedActivePackages.length > 0 && (
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <Package className="w-2.5 h-2.5" /> Has package — redeem from their own booking
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2">
-            {/* min-w-0 is required here — grid items default to min-width:
-                auto, and a native date input's intrinsic width on iOS Safari
-                is wide enough to blow out a 2-col grid otherwise, squeezing
-                this field down to its icon and pushing Relationship past the
-                card edge. */}
-            <div className="relative min-w-0">
-              <Cake className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground z-10" />
+          {/* v3 — birthday gets the full row now that Relationship is gone.
+              An explicit label sits above the field rather than relying on
+              the placeholder, since iOS renders an empty type="date" input
+              as just a small calendar control with no visible "mm/dd/yyyy"
+              until tapped — that's what made it look like "just an icon." */}
+          <div className="space-y-1">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Birthday (optional)</p>
+            <div className="relative">
+              <Cake className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground z-10 pointer-events-none" />
               <Input
-                placeholder="Birthday (optional)"
                 value={guest.birthday || ''}
                 onChange={(e) => onChange({ ...guest, birthday: e.target.value })}
                 className="h-10 rounded-xl border-2 text-sm pl-9 w-full"
                 type="date"
-              />
-            </div>
-            <div className="relative min-w-0">
-              <Heart className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground z-10" />
-              <Input
-                placeholder="Relationship"
-                value={guest.relationship || ''}
-                onChange={(e) => onChange({ ...guest, relationship: e.target.value })}
-                className="h-10 rounded-xl border-2 text-sm pl-9 w-full"
               />
             </div>
           </div>
@@ -306,6 +375,44 @@ function GuestRow({
               })}
             </div>
           </div>
+
+          {/* v3 — per-guest add-ons. Scoped to whatever's compatible with
+              the guest's currently-selected service, same field
+              (compatibleAddOnIds) the rest of the app already uses. */}
+          {selectedSvc && (selectedSvc.compatibleAddOnIds || []).length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+                <Sparkles className="w-2.5 h-2.5" /> Add-ons
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {services
+                  .filter((s: any) => s.type === 'addon' && (selectedSvc.compatibleAddOnIds || []).includes(s.id))
+                  .map((s: any) => {
+                    const isOn = (guest.addOnIds || []).includes(s.id);
+                    const p = getServicePrice(s, selectedStaff);
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => {
+                          const current = guest.addOnIds || [];
+                          onChange({
+                            ...guest,
+                            addOnIds: isOn ? current.filter((id) => id !== s.id) : [...current, s.id],
+                          });
+                        }}
+                        className={cn(
+                          'px-2.5 py-1.5 rounded-xl border-2 text-[10px] font-black transition-all',
+                          isOn ? 'border-primary bg-primary/5 text-primary' : 'border-muted text-muted-foreground',
+                        )}
+                      >
+                        {s.name}{p > 0 ? ` · $${p.toFixed(0)}` : ''}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
 
           {/* Provider */}
           <div className="space-y-1.5">
@@ -366,6 +473,7 @@ export function GroupBookingPanel({
         id: Math.random().toString(36).slice(2),
         name: '',
         serviceId: primaryServiceId || '',
+        addOnIds: [],
         staffId: 'any',
         linkedClientId: null,
       },
@@ -382,11 +490,16 @@ export function GroupBookingPanel({
     onChange(guests.filter((_, i) => i !== index));
   };
 
-  // Total price across all guests
+  // Total price across all guests, including each guest's add-ons
   const totalPrice = guests.reduce((acc, g) => {
     const svc = services.find((s: any) => s.id === g.serviceId);
     const staffMember = staff.find((s: any) => s.id === g.staffId);
-    return acc + (svc ? getServicePrice(svc, staffMember) : 0);
+    const base = svc ? getServicePrice(svc, staffMember) : 0;
+    const addOns = (g.addOnIds || []).reduce((a, id) => {
+      const addOnSvc = services.find((s: any) => s.id === id);
+      return a + (addOnSvc ? getServicePrice(addOnSvc, staffMember) : 0);
+    }, 0);
+    return acc + base + addOns;
   }, 0);
 
   return (
