@@ -1,9 +1,20 @@
 'use client';
 
 /**
- * SmartAvailabilityGrid
+ * SmartAvailabilityGrid — v2
  *
- * Replaces the raw date/time inputs in QuickBookForm step 2.
+ * v2 — BUG FIX: the 7-day date strip in DateNavBar was hardcoded to always
+ * build its window from `today`, completely ignoring the `date` prop except
+ * to decide which chip (if any) got the "selected" highlight. Jumping the
+ * date forward via QuickBookForm's date-jump control (+1 wk / +1 mo / direct
+ * picker) moved the actual booking date just fine, but this strip kept
+ * showing today-through-today+6 regardless — so the selected date routinely
+ * fell outside the visible window entirely and nothing highlighted. Now the
+ * window is built from (and centered on) the `date` prop, so the strip
+ * always follows wherever the booking has been navigated to. A small dot
+ * under today's chip distinguishes it when it happens to be in view.
+ *
+ * v1 — Replaces the raw date/time inputs in QuickBookForm step 2.
  * Uses useSmartAvailability to show only slots where the full service fits.
  * Surfaces add-on upsells that fit in the remaining gap after the selected slot.
  *
@@ -26,7 +37,7 @@
 
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { format, addDays, parseISO } from 'date-fns';
+import { format, addDays, parseISO, isValid } from 'date-fns';
 import { CheckCircle2, Clock, ChevronLeft, ChevronRight, Sparkles, Plus, Minus } from 'lucide-react';
 import type { AvailableSlot, AddOnUpsell } from '@/hooks/useSmartAvailability';
 
@@ -50,12 +61,20 @@ function DateNavBar({
   date: string;
   onDateChange: (d: string) => void;
 }) {
-  const parsed = parseISO(date);
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const todayIso = format(new Date(), 'yyyy-MM-dd');
 
-  // Build 7-day strip centred on selected date
+  // v2 — anchor the window on the actual selected date, not always on
+  // today. Falls back to today if `date` is momentarily empty/malformed
+  // rather than crashing on an Invalid Date.
+  const parsed = date ? parseISO(date) : null;
+  const anchor = parsed && isValid(parsed) ? parsed : new Date(todayIso);
+
+  // Centered 7-day strip: 3 days before the selected date, the date itself,
+  // and 3 days after — so the selected day stays visible alongside nearby
+  // days instead of always being the leftmost (or, per the bug above,
+  // potentially off-strip entirely).
   const days = Array.from({ length: 7 }, (_, i) => {
-    const d = addDays(new Date(today), i);
+    const d = addDays(anchor, i - 3);
     return { iso: format(d, 'yyyy-MM-dd'), label: format(d, 'EEE'), day: format(d, 'd') };
   });
 
@@ -65,21 +84,31 @@ function DateNavBar({
         Date
       </p>
       <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-        {days.map((d) => (
-          <button
-            key={d.iso}
-            onClick={() => onDateChange(d.iso)}
-            className={cn(
-              'flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border-2 text-center shrink-0 transition-all',
-              date === d.iso
-                ? 'border-primary bg-primary/5 text-primary'
-                : 'border-muted text-muted-foreground hover:border-primary/30',
-            )}
-          >
-            <span className="text-[9px] font-black uppercase tracking-wide">{d.label}</span>
-            <span className="text-[15px] font-black leading-none">{d.day}</span>
-          </button>
-        ))}
+        {days.map((d) => {
+          const isSelected = date === d.iso;
+          const isToday = d.iso === todayIso;
+          return (
+            <button
+              key={d.iso}
+              onClick={() => onDateChange(d.iso)}
+              className={cn(
+                'flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border-2 text-center shrink-0 transition-all relative',
+                isSelected
+                  ? 'border-primary bg-primary/5 text-primary'
+                  : 'border-muted text-muted-foreground hover:border-primary/30',
+              )}
+            >
+              <span className="text-[9px] font-black uppercase tracking-wide">{d.label}</span>
+              <span className="text-[15px] font-black leading-none">{d.day}</span>
+              {isToday && (
+                <span className={cn(
+                  'absolute bottom-1 w-1 h-1 rounded-full',
+                  isSelected ? 'bg-primary' : 'bg-muted-foreground/50',
+                )} />
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
