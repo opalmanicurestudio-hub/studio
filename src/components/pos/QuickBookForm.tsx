@@ -92,7 +92,7 @@
 import React from 'react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
-import { format, addMinutes, addDays, addWeeks, addMonths, differenceInMonths, formatDistanceToNow } from 'date-fns';
+import { format, addMinutes, addDays, addWeeks, addMonths, differenceInCalendarDays, differenceInMonths, formatDistanceToNow } from 'date-fns';
 import {
   doc, writeBatch, collection, runTransaction, query,
   where, getDocs, onSnapshot, deleteDoc, setDoc,
@@ -112,7 +112,7 @@ import {
   FileText, Minus, Plus, CalendarOff, PhoneIncoming, Save,
   History, Star, CalendarCheck, StickyNote, ChevronDown,
   ChevronUp, Trash2, Phone, Mail, Pencil, Printer, Send,
-  MapPin, Lock, CalendarDays, Repeat, Gift, Award, QrCode,
+  MapPin, Lock, CalendarDays, Repeat, Gift, Award, QrCode, Cake,
 } from 'lucide-react';
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
@@ -146,6 +146,30 @@ const safeRelativeTime = (iso?: string): string => {
     return formatDistanceToNow(new Date(iso), { addSuffix: true });
   } catch {
     return '';
+  }
+};
+
+// v6 — birthday-proximity check for the new ClientDetailPanel badge.
+// Returns 'today' | a day count (1-30) | null. Comparing month/day only
+// (year-agnostic) since a stored birthday's year is the birth year, not
+// this year. Wraps year-end correctly (e.g. today Dec 28, birthday Jan 3).
+const birthdayProximity = (iso?: string): { isToday: boolean; daysAway: number } | null => {
+  if (!iso) return null;
+  try {
+    const bday = new Date(iso);
+    if (Number.isNaN(bday.getTime())) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const thisYear = new Date(today.getFullYear(), bday.getMonth(), bday.getDate());
+    let diffDays = Math.round((thisYear.getTime() - today.getTime()) / 86400000);
+    if (diffDays < 0) {
+      const nextYear = new Date(today.getFullYear() + 1, bday.getMonth(), bday.getDate());
+      diffDays = Math.round((nextYear.getTime() - today.getTime()) / 86400000);
+    }
+    if (diffDays > 30) return null;
+    return { isToday: diffDays === 0, daysAway: diffDays };
+  } catch {
+    return null;
   }
 };
 
@@ -280,6 +304,7 @@ type BookingSuccess = {
   totalDollars: number;
   depositPaidDollars: number;
   remainingBalanceDollars: number;
+  providersSummary: { name: string; detail: string }[];
   chargeOutcome: ChargeOutcome;
   generatedLink: string | null;
   sendStatus: any;
@@ -739,6 +764,25 @@ function ClientDetailPanel({
               Usually books {topService.name}
             </span>
           )}
+          {/* v6 — previously Quick Book never surfaced birthday or membership
+              status anywhere, even though both fields exist on Client.
+              Package status was already shown (further down); these close
+              the gap for the other two. */}
+          {client.activeMembershipId && (
+            <span className="text-[10px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Award className="w-2.5 h-2.5" /> Member
+            </span>
+          )}
+          {birthdayProximity(client.birthday)?.isToday && (
+            <span className="text-[10px] font-medium text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Cake className="w-2.5 h-2.5" /> Birthday today!
+            </span>
+          )}
+          {!birthdayProximity(client.birthday)?.isToday && birthdayProximity(client.birthday) && (
+            <span className="text-[10px] font-medium text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <Cake className="w-2.5 h-2.5" /> Birthday in {birthdayProximity(client.birthday)!.daysAway}d
+            </span>
+          )}
         </div>
 
         {/* Upcoming appointments */}
@@ -931,22 +975,43 @@ function SuccessScreen({
   return (
     <>
     <div className="print:hidden space-y-5">
-      <div className="text-center space-y-3 pt-2">
-        <div className="w-14 h-14 rounded-full bg-green-50 border-2 border-green-100 flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-7 h-7 text-green-500" />
+      {/* v6 — stronger, more celebratory hero. A flat icon-in-a-circle with
+          small text read as "form submitted," not "you're booked" — this
+          gives the confirmation a bit more visual weight to match the
+          moment, without adding any new dependencies. */}
+      <div className="text-center space-y-2 pt-3 pb-1">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center mx-auto shadow-lg shadow-green-500/20">
+          <CheckCircle2 className="w-8 h-8 text-white" strokeWidth={2.5} />
         </div>
         <div>
-          <p className="text-base font-medium text-slate-900">{result.clientName} · Booked</p>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {format(new Date(`${result.aptDate}T${result.aptTime}`), 'EEE MMM d · h:mm a')}
-            {result.isGroup && result.groupGuestCount > 0 && ` · Group of ${result.groupGuestCount + 1}`}
-            {result.isMultiProvider && result.legCount > 0 && ` · ${result.legCount + 1} providers`}
-          </p>
+          <p className="text-lg font-semibold text-slate-900 tracking-tight">{result.clientName}</p>
+          <p className="text-xs text-slate-400 uppercase tracking-wide font-medium mt-0.5">Booked</p>
         </div>
+        <p className="text-sm text-slate-600">
+          {format(new Date(`${result.aptDate}T${result.aptTime}`), 'EEE MMM d · h:mm a')}
+        </p>
+        {(result.isGroup && result.groupGuestCount > 0) || (result.isMultiProvider && result.legCount > 0) ? (
+          <div className="flex items-center justify-center gap-1.5 flex-wrap pt-1">
+            {result.isGroup && result.groupGuestCount > 0 && (
+              <span className="text-[10px] font-medium text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
+                Group of {result.groupGuestCount + 1}
+              </span>
+            )}
+            {result.isMultiProvider && result.legCount > 0 && (
+              <span className="text-[10px] font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                {result.legCount + 1} providers
+              </span>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* v4 — booking-summary strip: location, duration, financial split */}
-      <div className="rounded-xl border divide-y overflow-hidden bg-white">
+      <div className="rounded-xl border overflow-hidden bg-white">
+        <p className="px-3.5 pt-3 pb-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+          Booking summary
+        </p>
+        <div className="divide-y">
         <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
           <span className="text-slate-400 flex items-center gap-1.5"><MapPin className="w-3 h-3" /> Location</span>
           <span className="text-slate-900">{result.locationName}</span>
@@ -957,19 +1022,47 @@ function SuccessScreen({
         </div>
         <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
           <span className="text-slate-400">Total</span>
-          <span className="text-slate-900">${result.totalDollars.toFixed(2)}</span>
+          <span className="text-slate-900 font-medium">${result.totalDollars.toFixed(2)}</span>
         </div>
         {result.depositPaidDollars > 0 && (
           <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
             <span className="text-slate-400">Deposit paid</span>
-            <span className="text-green-700">${result.depositPaidDollars.toFixed(2)}</span>
+            <span className="text-green-700 font-medium">${result.depositPaidDollars.toFixed(2)}</span>
           </div>
         )}
         <div className="px-3.5 py-2.5 flex items-center justify-between text-xs">
           <span className="text-slate-400">Remaining balance</span>
-          <span className="text-slate-900">${Math.max(0, result.remainingBalanceDollars).toFixed(2)}</span>
+          <span className="text-slate-900 font-medium">${Math.max(0, result.remainingBalanceDollars).toFixed(2)}</span>
+        </div>
         </div>
       </div>
+
+      {/* v6 — "who's working" (Quick Book redesign: confirmations must
+          visually show which providers are on this appointment). Previously
+          the confirmation only showed a leg/guest COUNT ("3 providers") with
+          no names — this lists every resolved provider with what they're
+          actually doing, built in handleBook from the primary assignment,
+          any add-on overrides, multi-provider legs, and group guests. */}
+      {result.providersSummary.length > 0 && (
+        <div className="rounded-xl border bg-white overflow-hidden">
+          <p className="px-3.5 pt-3 pb-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+            Who's working this appointment
+          </p>
+          <div className="divide-y">
+            {result.providersSummary.map((p, i) => (
+              <div key={i} className="px-3.5 py-2.5 flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-[11px] font-semibold shrink-0">
+                  {p.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-900 truncate">{p.name}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{p.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {result.chargeOutcome?.charged && (
         <div className="rounded-xl border border-green-200 bg-green-50 px-3.5 py-2.5 flex items-center gap-2.5">
@@ -1403,6 +1496,18 @@ export function QuickBookForm({
 
   // Smart availability
   const todayStr = format(new Date(), 'yyyy-MM-dd');
+
+  // v6 — "how far out is this" indicator for the date-jump control. Pure
+  // display, doesn't affect booking logic.
+  const aptDateOffsetLabel = React.useMemo(() => {
+    const days = differenceInCalendarDays(new Date(`${aptDate}T00:00`), new Date(`${todayStr}T00:00`));
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Tomorrow';
+    if (days === -1) return 'Yesterday';
+    const ad = Math.abs(days);
+    const unit = ad < 14 ? `${ad} day${ad !== 1 ? 's' : ''}` : ad < 60 ? `${Math.round(ad / 7)} week${Math.round(ad / 7) !== 1 ? 's' : ''}` : `${Math.round(ad / 30)} month${Math.round(ad / 30) !== 1 ? 's' : ''}`;
+    return days > 0 ? `in ${unit}` : `${unit} ago`;
+  }, [aptDate, todayStr]);
   const nowTimeStr = format(addMinutes(new Date(), 5), 'HH:mm');
   const { slots, addOnUpsells } = useSmartAvailability({
     date: aptDate,
@@ -2070,11 +2175,31 @@ export function QuickBookForm({
       // explicit by-name requests) and so multiple any-available slots in one
       // booking don't all land on the same person.
       const anyAssignedStaffIds: string[] = [];
+      // v6 — accumulated as legs/add-ons/group guests get their staff
+      // resolved below, then baked into the success result so the
+      // confirmation screen can show exactly who's working this
+      // appointment instead of just a leg/guest count.
+      const providersSummary: { name: string; detail: string }[] = [];
       const resolvedStaffId =
         selectedStaff === 'any'
           ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, eligibleStaffIdsForAptTime)
           : selectedStaff;
       if (selectedStaff === 'any' && resolvedStaffId) anyAssignedStaffIds.push(resolvedStaffId);
+      providersSummary.push({
+        name: staff.find((s: any) => s.id === resolvedStaffId)?.name || 'Unassigned',
+        detail: selectedSvc?.name || 'Primary service',
+      });
+      // Add-on provider overrides — same staff as primary unless explicitly
+      // overridden via the per-add-on assignment UI in step 2.
+      addOnIds.forEach((id) => {
+        const overrideStaffId = addOnStaffOverrides[id];
+        if (!overrideStaffId || overrideStaffId === resolvedStaffId) return;
+        const addOnSvc = services.find((s: any) => s.id === id);
+        const overrideStaffName = staff.find((s: any) => s.id === overrideStaffId)?.name;
+        if (addOnSvc && overrideStaffName) {
+          providersSummary.push({ name: overrideStaffName, detail: addOnSvc.name });
+        }
+      });
       const aptId = _nanoid();
       const checkInToken = _nanoid();
       // v5 — shared across the primary appointment and every future
@@ -2305,6 +2430,10 @@ export function QuickBookForm({
           // check. Flagging rather than silently pretending it's covered.
           const legStaffId = leg.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : leg.staffId;
           if (leg.staffId === 'any' && legStaffId) anyAssignedStaffIds.push(legStaffId);
+          providersSummary.push({
+            name: staff.find((s: any) => s.id === legStaffId)?.name || 'Unassigned',
+            detail: legSvc?.name || 'Service',
+          });
           const legId = _nanoid();
           const legToken = _nanoid();
           batch.set(doc(firestore, `tenants/${tenantId}/appointments`, legId), sanitizeForFirestore({
@@ -2341,29 +2470,55 @@ export function QuickBookForm({
       if (isGroup && groupGuests.length > 0) {
         for (const guest of groupGuests) {
           if (!guest.name.trim() || !guest.serviceId) continue;
-          const gClientId = _nanoid(); // real client id, not apt id
+          // v6 — honor a linked existing client instead of always minting a
+          // duplicate. This was flagged as a known gap in GroupBookingPanel's
+          // header notes since v2 but never actually wired up here — every
+          // linked guest was still getting a brand-new client doc.
+          const linkedGuestClient = guest.linkedClientId
+            ? (clients || []).find((c: any) => c.id === guest.linkedClientId)
+            : null;
+          const gClientId = guest.linkedClientId || _nanoid();
           const gAptId = _nanoid();
           const gToken = _nanoid();
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
           const gStaffId = guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId;
           if (guest.staffId === 'any' && gStaffId) anyAssignedStaffIds.push(gStaffId);
-          const gEnd = addMinutes(startTime, gSvc?.duration || 60);
+          providersSummary.push({
+            name: staff.find((s: any) => s.id === gStaffId)?.name || 'Unassigned',
+            detail: `${gSvc?.name || 'Service'} (${guest.name.split(' ')[0]})`,
+          });
+          const gAddOnIds = guest.addOnIds || [];
+          const gAddOnDuration = gAddOnIds.reduce((acc, id) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
+          const gEnd = addMinutes(startTime, (gSvc?.duration || 60) + gAddOnDuration);
 
-          // Create a minimal client record for the guest
-          batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
-            id: gClientId,
-            name: guest.name,
-            status: 'active',
-            lifetimeValue: 0,
-            lastAppointment: now,
-            groupLinkedTo: clientId,
-          }));
+          if (linkedGuestClient) {
+            // Real client — just bump their visit record, don't recreate them.
+            batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
+              lastServiceId: guest.serviceId,
+              lastAppointment: now,
+            }), { merge: true });
+          } else {
+            // Create a minimal client record for the guest
+            batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
+              id: gClientId,
+              name: guest.name,
+              phone: guest.phone || undefined,
+              email: guest.email || undefined,
+              birthday: guest.birthday || undefined,
+              marketingConsent: guest.marketingConsent || undefined,
+              status: 'active',
+              lifetimeValue: 0,
+              lastAppointment: now,
+              groupLinkedTo: clientId,
+            }));
+          }
 
           batch.set(doc(firestore, `tenants/${tenantId}/appointments`, gAptId), sanitizeForFirestore({
             id: gAptId, tenantId,
             clientId: gClientId,
             clientName: guest.name,
             serviceId: guest.serviceId,
+            addOnIds: gAddOnIds.length > 0 ? gAddOnIds : undefined,
             staffId: gStaffId,
             checkInToken: gToken,
             status: 'confirmed',
@@ -2588,6 +2743,7 @@ export function QuickBookForm({
         totalDollars: grandTotal,
         depositPaidDollars,
         remainingBalanceDollars: grandTotal - depositPaidDollars,
+        providersSummary,
         chargeOutcome,
         generatedLink: link,
         sendStatus,
@@ -3183,14 +3339,21 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* v5 — direct date jump (Quick Book redesign: "schedule weeks or
+        {/* v5/v6 — direct date jump (Quick Book redesign: "schedule weeks or
             months outward"). Previously the only way to move aptDate was
             one day at a time via the no-slots "Try tomorrow" button or
             whatever date-nav exists inside SmartAvailabilityGrid — there
             was no way to jump straight to, say, six weeks from now. This is
-            always visible regardless of slot availability. */}
+            always visible regardless of slot availability. v6 adds the
+            relative-distance label and back/Today controls so it's clear
+            how far out you've moved, with an easy way to step back. */}
         <div className="space-y-1.5">
-          <p className="text-[10px] text-slate-400 uppercase tracking-wider">Date</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider">Date</p>
+            <span className={cn('text-[10px] font-medium', aptDate === todayStr ? 'text-slate-400' : 'text-blue-600')}>
+              {aptDateOffsetLabel}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <div className="flex-1 h-10 rounded-lg border bg-white px-3 flex items-center gap-2">
               <CalendarDays className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -3201,17 +3364,41 @@ export function QuickBookForm({
                 className="flex-1 text-xs outline-none bg-transparent min-w-0"
               />
             </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAptDate(format(addMonths(new Date(`${aptDate}T00:00`), -1), 'yyyy-MM-dd'))}
+              className="flex-1 h-9 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
+            >
+              −1 mo
+            </button>
+            <button
+              type="button"
+              onClick={() => setAptDate(format(addWeeks(new Date(`${aptDate}T00:00`), -1), 'yyyy-MM-dd'))}
+              className="flex-1 h-9 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
+            >
+              −1 wk
+            </button>
+            <button
+              type="button"
+              onClick={() => setAptDate(todayStr)}
+              disabled={aptDate === todayStr}
+              className="flex-1 h-9 rounded-lg border text-xs font-medium text-blue-600 hover:border-blue-300 transition-colors disabled:opacity-40 disabled:hover:border-slate-200"
+            >
+              Today
+            </button>
             <button
               type="button"
               onClick={() => setAptDate(format(addWeeks(new Date(`${aptDate}T00:00`), 1), 'yyyy-MM-dd'))}
-              className="h-10 px-3 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors shrink-0"
+              className="flex-1 h-9 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
             >
               +1 wk
             </button>
             <button
               type="button"
               onClick={() => setAptDate(format(addMonths(new Date(`${aptDate}T00:00`), 1), 'yyyy-MM-dd'))}
-              className="h-10 px-3 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors shrink-0"
+              className="flex-1 h-9 rounded-lg border text-xs font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700 transition-colors"
             >
               +1 mo
             </button>
