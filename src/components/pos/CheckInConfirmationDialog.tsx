@@ -1,5 +1,41 @@
-
 'use client';
+
+/**
+ * CheckInConfirmationDialog — v2
+ *
+ * v2:
+ *   - NEW: reuses AppointmentDetailsSheet's ReadinessBanner (now exported
+ *     from that file) instead of having zero readiness/safety checks. Ban
+ *     status, open disputes, allergy/medical flags, pending consent forms,
+ *     missing deposit/card, and outstanding balance now surface here exactly
+ *     the same way they already do in the full appointment sheet — gated
+ *     behind optional `client`/`consentForms`/`tenantId`/`firestore` props,
+ *     so this dialog still works (just without the banner) if those aren't
+ *     wired in yet.
+ *   - NEW: carried-forward client context — allergy/medical notes and the
+ *     most recent past visit's outcome (if it flagged an adverse reaction or
+ *     a low satisfaction rating) now show as a small read-only panel, so
+ *     staff SEE what's already known instead of re-asking for it. Requires
+ *     the optional `appointments` prop to look up visit history.
+ *   - FIX: this dialog previously owned its own embedded <PrintTicket> +
+ *     window.print() — a THIRD independent print implementation in this
+ *     codebase (POS page's "Ticket Issued" dialog and QuickBookForm's
+ *     SuccessScreen each have their own). Now delegates to an optional
+ *     `onPrintTicket` callback so all three can eventually collapse into
+ *     one. Falls back to the old inline behavior if the callback isn't
+ *     provided, so nothing breaks if the parent isn't updated yet.
+ *   - Routing note: this dialog already branched correctly on
+ *     `item.serviceIds` (walk-in) vs appointment shape when CONFIRMING —
+ *     the reason booked appointments never reached it was a routing choice
+ *     in the POS page (`onResolve` sent every non-walk-in straight to
+ *     AppointmentDetailsSheet), not a limitation here. See the POS page
+ *     diff for the actual fix — every arrival now passes through this
+ *     dialog first; AppointmentDetailsSheet opens only once someone's
+ *     already checked in.
+ *
+ * v1 — service/add-on re-selection at arrival, accommodation toggles,
+ * contact verification, arrival notes, print ticket.
+ */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -34,7 +70,10 @@ import {
     VolumeX,
     SunDim,
     MessageSquare,
-    Users
+    Users,
+    AlertTriangle,
+    HeartPulse,
+    Star,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -46,11 +85,15 @@ import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useForm, FormProvider } from 'react-hook-form';
 import { PhoneInput } from '@/components/ui/phone-input';
-import { type Service, type Tenant } from '@/lib/data';
+import { type Service, type Tenant, type ConsentForm, type Client } from '@/lib/data';
 import { PrintTicket } from '@/components/planner/PrintTicket';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { collection, query, where } from 'firebase/firestore';
+import { useCollection, useMemoFirebase } from '@/firebase';
+import { useDepositCredit } from '@/hooks/useDepositCredit';
+import { ReadinessBanner } from '@/components/planner/AppointmentDetailsSheet';
 
 interface CheckInConfirmationDialogProps {
   open: boolean;
@@ -66,6 +109,15 @@ interface CheckInConfirmationDialogProps {
     accommodations: string[];
     notes: string;
   }) => void;
+  // v2 — all optional, all additive. Dialog works exactly as before if none
+  // of these are passed; the readiness banner and carried-forward context
+  // simply don't render.
+  client?: Client | null;
+  consentForms?: ConsentForm[];
+  tenantId?: string;
+  firestore?: any;
+  appointments?: any[];
+  onPrintTicket?: () => void;
 }
 
 const accommodationsOptions = [
@@ -81,6 +133,12 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   services,
   tenant,
   onConfirm,
+  client,
+  consentForms,
+  tenantId,
+  firestore,
+  appointments,
+  onPrintTicket,
 }) => {
   const isMobile = useIsMobile();
   const [serviceId, setServiceId] = useState('');
@@ -101,20 +159,73 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
       setAddOnIds(item.addOnIds || item.serviceIds?.slice(1) || []);
       setArrivalNotes(item.notes || '');
       
-      const currentNeeds = item.client?.sensoryNeeds || '';
+      const currentNeeds = client?.sensoryNeeds || item.client?.sensoryNeeds || '';
       const initialAcc = accommodationsOptions
         .filter(opt => currentNeeds.toLowerCase().includes(opt.label.toLowerCase()))
         .map(opt => opt.id);
       setSelectedAccommodations(initialAcc);
 
       methods.reset({
-          email: item.clientEmail || item.customerEmail || item.client?.email || '',
-          phone: (item.clientPhone || item.customerPhone || item.client?.phone || '').replace(/\s/g, ''),
+          email: item.clientEmail || item.customerEmail || client?.email || item.client?.email || '',
+          phone: (item.clientPhone || item.customerPhone || client?.phone || item.client?.phone || '').replace(/\s/g, ''),
       });
     }
-  }, [open, item, methods]);
+  }, [open, item, client, methods]);
 
   const selectedService = useMemo(() => services.find(s => s.id === serviceId), [services, serviceId]);
+
+  // ── v2 — readiness banner data ──────────────────────────────────────────
+  // Same pattern AppointmentDetailsSheet already uses: a live subscription
+  // to this client's signed consents, gated on actually having firestore +
+  // tenantId + a client id. Walk-ins with no linked client, or callers who
+  // haven't wired these props in yet, just get an empty pending-forms list
+  // instead of an error.
+  const signedConsentsQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !client?.id) return null;
+    return collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`);
+  }, [firestore, tenantId, client?.id]);
+  const { data: signedConsents } = useCollection<any>(signedConsentsQuery);
+
+  const complianceInfo = useMemo(() => {
+    if (!selectedService || !consentForms?.length) {
+      return { requiredForms: [], pendingForms: [], healthPendingForms: [], otherPendingForms: [], allCertified: true };
+    }
+    const requiredIds = selectedService.requiredFormIds || [];
+    const requiredForms = consentForms.filter(f => requiredIds.includes(f.id));
+    const aptSignedIds = (item?.signedForms || []).map((f: any) => f.formId);
+    const pendingForms = requiredForms.filter(rf => !signedConsents?.some(sc => sc.formId === rf.id) && !aptSignedIds.includes(rf.id));
+    const healthPendingForms = pendingForms.filter(f => f.category === 'Intake');
+    const otherPendingForms = pendingForms.filter(f => f.category !== 'Intake');
+    return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0 };
+  }, [selectedService, consentForms, signedConsents, item?.signedForms]);
+
+  const { hasDeposit: hasLiveDeposit, isLoadingDeposit: isLoadingLiveDeposit } = useDepositCredit(
+    item?.clientId || client?.id,
+    client?.email,
+    tenantId,
+    !!(tenantId && (item?.clientId || client?.id)),
+  );
+  const cardSecured = !!(item?.cardOnFileSecured || client?.cardOnFile?.token || client?.cardOnFile?.paymentMethodId);
+
+  // v2 — carried-forward context: allergy/medical notes plus the most
+  // recent PAST visit's outcome, if it flagged something worth knowing
+  // before this visit starts. Entirely read-only here — editing still
+  // happens on the client profile / AppointmentDetailsSheet.
+  const lastVisitOutcome = useMemo(() => {
+    const clientId = client?.id || item?.clientId;
+    if (!clientId || !appointments?.length) return null;
+    const nowMs = Date.now();
+    const pastVisits = appointments
+      .filter((a: any) => a.clientId === clientId && a.id !== item?.id && typeof a.startTime === 'string' && new Date(a.startTime).getTime() < nowMs && a.status !== 'cancelled')
+      .sort((a: any, b: any) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    const mostRecent = pastVisits[0];
+    if (!mostRecent?.visitOutcome) return null;
+    const { adverseReaction, satisfactionRating } = mostRecent.visitOutcome;
+    if (!adverseReaction && (satisfactionRating == null || satisfactionRating > 2)) return null;
+    return mostRecent.visitOutcome;
+  }, [appointments, client?.id, item?.clientId, item?.id]);
+
+  const carriedForwardNotes = [client?.allergyNotes, client?.medicalNotes].filter(Boolean);
   
   const handleToggleAddOn = (id: string) => {
     setAddOnIds(prev => prev.includes(id) ? prev.filter(aid => aid !== id) : [...prev, id]);
@@ -143,7 +254,10 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
     onOpenChange(false);
   };
 
+  // v2 — delegate to the parent's single print flow when available, so
+  // this dialog stops being its own independent print implementation.
   const handlePrint = () => {
+      if (onPrintTicket) { onPrintTicket(); return; }
       window.print();
   };
 
@@ -180,6 +294,46 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                             <h3 className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{item.clientName || item.customerName}</h3>
                         </div>
                     </div>
+
+                    {/* v2 — readiness banner. Only renders blockers that are
+                        actually true; shows the same "Ready to start" success
+                        state as AppointmentDetailsSheet when nothing's wrong,
+                        so this adds zero friction in the common case. */}
+                    {client && (
+                      <ReadinessBanner
+                        appointment={item}
+                        client={client}
+                        complianceInfo={complianceInfo}
+                        hasDeposit={hasLiveDeposit}
+                        isLoadingDeposit={isLoadingLiveDeposit}
+                        cardSecured={cardSecured}
+                      />
+                    )}
+
+                    {/* v2 — carried-forward context: things already on file,
+                        shown so staff don't have to re-ask. */}
+                    {(carriedForwardNotes.length > 0 || lastVisitOutcome) && (
+                      <div className="rounded-2xl border-2 border-dashed bg-muted/5 p-4 space-y-2.5 text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
+                          <Info className="w-3 h-3" /> Already on file
+                        </p>
+                        {carriedForwardNotes.map((note, i) => (
+                          <p key={i} className="text-[11px] font-medium text-red-700 leading-relaxed flex items-start gap-2">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {note}
+                          </p>
+                        ))}
+                        {lastVisitOutcome && (
+                          <p className="text-[11px] font-medium text-amber-700 leading-relaxed flex items-start gap-2">
+                            <HeartPulse className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            Last visit {lastVisitOutcome.adverseReaction ? 'had an adverse reaction noted' : 'rated'}
+                            {!lastVisitOutcome.adverseReaction && lastVisitOutcome.satisfactionRating
+                              ? ` ${lastVisitOutcome.satisfactionRating}/5`
+                              : ''}
+                            {lastVisitOutcome.text ? ` — "${lastVisitOutcome.text}"` : ''} — worth checking in on.
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     <FormProvider {...methods}>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -311,16 +465,21 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
           </div>
         </DialogFooter>
 
-        <div className="hidden print:block" id="print-ticket-area">
-            {selectedService && (
-                <PrintTicket data={{
-                    business: { name: tenant?.name || 'Studio', phone: tenant?.twilioPhoneNumber || '' },
-                    client: { name: item.clientName || item.customerName, email: methods.watch('email'), phone: methods.watch('phone') } as any,
-                    appointment: item,
-                    service: selectedService
-                }} />
-            )}
-        </div>
+        {/* Fallback inline print markup — only used when no onPrintTicket
+            callback is supplied. Once the parent wires that callback in,
+            this block is effectively dead code and can be removed. */}
+        {!onPrintTicket && (
+          <div className="hidden print:block" id="print-ticket-area">
+              {selectedService && (
+                  <PrintTicket data={{
+                      business: { name: tenant?.name || 'Studio', phone: tenant?.twilioPhoneNumber || '' },
+                      client: { name: item.clientName || item.customerName, email: methods.watch('email'), phone: methods.watch('phone') } as any,
+                      appointment: item,
+                      service: selectedService
+                  }} />
+              )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
