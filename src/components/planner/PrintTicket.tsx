@@ -1,48 +1,52 @@
 'use client';
 
 /**
- * PrintTicket — v2
+ * PrintTicket — v3
+ *
+ * v3 — full redesign:
+ *   - Allergy/medical strip is now the FIRST visual element, rendered before
+ *     even the client name, in a high-contrast red bar that's impossible to
+ *     miss when a stack of tickets is fanned on the station. In v2 it sat
+ *     below the header — technically present but easy to scan past.
+ *   - Studio branding: studio name and "Tech Prep Sheet" label printed at
+ *     the top. Every ticket is identifiable even when separated.
+ *   - Visit count: shows "Visit #N" (count of non-cancelled appointments for
+ *     this client) so the technician knows immediately whether this is an
+ *     established client with known preferences or someone new. Requires
+ *     the optional `visitCount` prop from the parent.
+ *   - Pre-fill callout: when formula was pre-loaded from the prior visit,
+ *     a green "↩ Pre-loaded from last visit" banner appears above the
+ *     checklist and pre-checked items render on a green background so they're
+ *     visually distinct from items the tech manually checks in this session.
+ *   - Station/chair assignment: optional `stationName` field on TicketData,
+ *     shown in the meta row so "Chair 3" is printed and doesn't need to be
+ *     communicated verbally.
+ *   - QR code: generated entirely in-browser via the `qrcode` npm package
+ *     (canvas → data URL, zero network calls, no blank-print risk). Falls
+ *     back gracefully to the text code alone if the package isn't installed
+ *     or canvas isn't available.
+ *     To enable: `npm install qrcode` + `npm install --save-dev @types/qrcode`
  *
  * v2:
- *   - FIX: the embedded print CSS scoped to `#print-ticket-area`, but the
- *     component's own outer div rendered with `id="ticket-area-content"`.
- *     In the POS "Ticket Issued" dialog there was no `#print-ticket-area`
- *     wrapper in the DOM at all — the CSS made everything visibility:hidden,
- *     found nothing to restore, and produced a blank page. The component
- *     worked in CheckInConfirmationDialog only accidentally, because that
- *     file happened to wrap it in a div with id="print-ticket-area". Fixed
- *     by scoping the print CSS to `#ticket-area-content` — now self-
- *     contained and correct regardless of where it is placed.
- *
- *   - NEW: add-on services. A booked Gel Overlay + Nail Art previously
- *     only printed the primary service's formula. Now accepts an optional
- *     `addOnServices` prop; each add-on that has its own products list gets
- *     its own formula section so every technician working the appointment
- *     has a complete prep sheet.
- *
- *   - NEW: provider name. Optional `staffName` field on TicketData — shown
- *     as a small "Assigned to" line so the ticket is useful even when it's
- *     handed across the room.
- *
- *   - NEW: check-in code. Prints the last 8 characters of checkInToken in
- *     large mono type at the bottom. Staff can type this into a lookup
- *     field (or scan a QR, once that exists) to pull up the appointment
- *     record from POS without searching by name.
+ *   - Fixed print CSS (scoped to #ticket-area-content instead of
+ *     #print-ticket-area which was never in the DOM in the POS dialog).
+ *   - Add-on formulas: separate checklist per add-on service.
+ *   - Provider name in header.
+ *   - 8-char check-in code at bottom.
  *
  * v1 — technician prep sheet: formula checklist, allergy/medical alerts,
- * guest context notes. NOT a client confirmation — see QuickBookForm's
- * SuccessScreen for that.
+ * guest context notes. NOT a client-facing confirmation.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format, parseISO } from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { type Service, type Client, type Appointment } from '@/lib/data';
 import { Checkbox } from '../ui/checkbox';
 import { Label } from '../ui/label';
-import { Card, CardContent } from '../ui/card';
-import { AlertTriangle, FlaskConical, MapPin, ShieldPlus, Clock, MessageSquare, User, Fingerprint } from 'lucide-react';
+import { AlertTriangle, FlaskConical, MapPin, ShieldPlus, MessageSquare, User, Fingerprint, Repeat, MapPinned } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
+import { cn } from '@/lib/utils';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -62,21 +66,57 @@ export interface TicketData {
   client: Client;
   appointment: Appointment;
   service: Service;
-  // v2 — optional additions. All backwards-compatible.
   addOnServices?: Service[];
   staffName?: string;
-  // v3 — last visit's formula, used to pre-check matching product lines so
-  // the technician doesn't start from a blank checklist for returning clients.
   previousFormula?: { id: string; quantityUsed?: number; quantity?: number; unit?: string }[];
+  // v3 additions — all optional, all graceful when absent
+  visitCount?: number;       // total non-cancelled visits for this client
+  stationName?: string;      // e.g. "Chair 3" — assigned at check-in
 }
 
 interface PrintTicketProps {
   data: TicketData;
 }
 
-// Renders a formula section for one service (primary or add-on).
-// Extracted so it can be called once for the primary service and once per
-// add-on without duplicating the checklist logic.
+// In-browser QR code generator using the `qrcode` npm package.
+// Renders asynchronously into a canvas, then converts to a data URL image.
+// If the package isn't installed or canvas fails, renders nothing (no crash).
+function QRCodeCanvas({ value, size = 72 }: { value: string; size?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!value) return;
+    (async () => {
+      try {
+        const QRCode = (await import('qrcode')).default;
+        const url = await QRCode.toDataURL(value, {
+          width: size * 2,        // 2× for print sharpness
+          margin: 1,
+          color: { dark: '#0f172a', light: '#ffffff' },
+        });
+        setDataUrl(url);
+      } catch {
+        // Package not installed — fallback renders below
+      }
+    })();
+  }, [value, size]);
+
+  if (!dataUrl) return null;
+  return (
+    <img
+      src={dataUrl}
+      alt="Scan to look up"
+      width={size}
+      height={size}
+      className="rounded"
+      style={{ imageRendering: 'pixelated' }}
+    />
+  );
+}
+
+// Formula section — extracted to avoid duplicating checklist logic for
+// primary service + each add-on.
 const FormulaSection = ({
   service,
   appointment,
@@ -85,6 +125,7 @@ const FormulaSection = ({
   checkedItems,
   onCheckChange,
   prefix,
+  preCheckedKeys,
 }: {
   service: Service;
   appointment: Appointment;
@@ -93,46 +134,66 @@ const FormulaSection = ({
   checkedItems: Set<string>;
   onCheckChange: (id: string) => void;
   prefix: string;
+  preCheckedKeys: Set<string>;
 }) => {
   const products = service.products || [];
   if (products.length === 0) {
     return (
-      <p className="text-gray-500 text-[10px] font-bold uppercase pl-4 italic">
-        Standard procedural tools.
+      <p className="text-gray-400 text-[10px] font-bold uppercase pl-4 italic">
+        Standard procedural tools — no listed formula.
       </p>
     );
   }
   return (
-    <div className="space-y-2 pl-2">
+    <div className="space-y-1">
       {products.map((item: any, index: number) => {
         const product = inventory.find((p: any) => p.id === item.id);
         const location = locations.find((l: any) => l.id === product?.primaryLocationId);
         const itemNote = appointment.checkoutState?.formula?.find((f: any) => f.id === item.id)?.note;
         const key = `${prefix}-${index}`;
+        const isPreFilled = preCheckedKeys.has(key);
+        const isChecked = checkedItems.has(key);
         return (
-          <div key={key} className="flex items-start gap-3 p-2 rounded-md hover:bg-gray-50 print:hover:bg-transparent border-b last:border-none pb-3 mb-3">
+          <div
+            key={key}
+            className={cn(
+              'flex items-start gap-3 p-2 rounded-lg transition-colors',
+              isPreFilled ? 'bg-green-50' : 'hover:bg-gray-50',
+            )}
+          >
             <Checkbox
-              id={`formula-item-${key}`}
-              checked={checkedItems.has(key)}
+              id={`fi-${key}`}
+              checked={isChecked}
               onCheckedChange={() => onCheckChange(key)}
-              className="print:border-gray-400 mt-1"
+              className={cn(
+                'print:border-gray-400 mt-0.5',
+                isPreFilled && isChecked && 'data-[state=checked]:bg-green-600 data-[state=checked]:border-green-600',
+              )}
             />
-            <Label htmlFor={`formula-item-${key}`} className="flex flex-col w-full cursor-pointer gap-1">
-              <div className="flex justify-between w-full">
-                <div className="text-left">
-                  <span className="font-bold uppercase text-[11px]">{item.name}</span>
+            <Label htmlFor={`fi-${key}`} className="flex flex-col w-full cursor-pointer gap-0.5">
+              <div className="flex justify-between w-full items-center">
+                <div>
+                  <span className={cn(
+                    'font-bold uppercase text-[11px]',
+                    isPreFilled ? 'text-green-800' : 'text-slate-800',
+                  )}>{item.name}</span>
                   {location && (
-                    <p className="text-[9px] text-gray-500 flex items-center gap-1 uppercase font-bold">
-                      <MapPin className="w-2.5 h-2.5" />{location.name}
+                    <p className="text-[9px] text-gray-400 flex items-center gap-1 uppercase font-bold mt-0.5">
+                      <MapPin className="w-2 h-2" />{location.name}
                     </p>
                   )}
                 </div>
-                <span className="font-black font-mono text-xs">{item.quantityUsed || item.quantity}{item.unit}</span>
+                <span className={cn(
+                  'font-black font-mono text-[11px]',
+                  isPreFilled ? 'text-green-700' : 'text-slate-500',
+                )}>
+                  {item.quantityUsed || item.quantity}{item.unit}
+                </span>
               </div>
               {itemNote && (
-                <div className="flex items-start gap-2 pt-1 mt-1 border-t border-dashed">
-                  <MessageSquare className="w-3 h-3 text-gray-400 mt-0.5" />
-                  <p className="text-[10px] font-medium text-gray-600 italic leading-tight">"{itemNote}"</p>
+                <div className="flex items-start gap-1.5 pt-1 mt-0.5 border-t border-dashed border-gray-100">
+                  <MessageSquare className="w-2.5 h-2.5 text-gray-300 mt-0.5 shrink-0" />
+                  <p className="text-[9px] font-medium text-gray-500 italic leading-tight">"{itemNote}"</p>
                 </div>
               )}
             </Label>
@@ -144,116 +205,169 @@ const FormulaSection = ({
 };
 
 export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
-  const { client, service, appointment, addOnServices = [], staffName, previousFormula = [] } = data;
+  const {
+    business,
+    client,
+    service,
+    appointment,
+    addOnServices = [],
+    staffName,
+    previousFormula = [],
+    visitCount,
+    stationName,
+  } = data;
   const { inventory, locations } = useInventory();
 
-  // v3 — pre-check items from the previous visit's formula. If the product
-  // id and quantity match, it's almost certainly the same formula — the
-  // technician can glance and confirm rather than re-building from scratch.
-  const preChecked = React.useMemo(() => {
+  const preCheckedKeys = React.useMemo(() => {
     const set = new Set<string>();
     if (!previousFormula.length) return set;
     (service.products || []).forEach((item: any, index: number) => {
-      const prev = previousFormula.find(p => p.id === item.id);
-      if (prev) set.add(`primary-${index}`);
+      if (previousFormula.some(p => p.id === item.id)) set.add(`primary-${index}`);
     });
-    (addOnServices || []).forEach((addOn, addonIdx) => {
+    addOnServices.forEach((addOn, addonIdx) => {
       (addOn.products || []).forEach((item: any, index: number) => {
-        const prev = previousFormula.find(p => p.id === item.id);
-        if (prev) set.add(`addon-${addonIdx}-${index}`);
+        if (previousFormula.some(p => p.id === item.id)) set.add(`addon-${addonIdx}-${index}`);
       });
     });
     return set;
   }, [previousFormula, service.products, addOnServices]);
 
-  const [checkedItems, setCheckedItems] = useState<Set<string>>(() => new Set(preChecked));
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(() => new Set(preCheckedKeys));
 
-  const handleCheckChange = (itemId: string) => {
-    const next = new Set(checkedItems);
-    if (next.has(itemId)) next.delete(itemId);
-    else next.add(itemId);
-    setCheckedItems(next);
+  const handleCheckChange = (key: string) => {
+    setCheckedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
   const displayDate = safeDate(appointment.startTime || (appointment as any).checkInTime);
-
-  // v2 — short display code derived from the full checkInToken (same
-  // approach as QuickBookForm's SuccessScreen). Staff can type this to
-  // look up the appointment; no new infrastructure needed.
-  const checkInCode = appointment.checkInToken
-    ? appointment.checkInToken.slice(-8).toUpperCase()
+  const checkInCode = appointment.checkInToken ? appointment.checkInToken.slice(-8).toUpperCase() : null;
+  const checkInUrl = typeof window !== 'undefined' && appointment.checkInToken
+    ? `${window.location.origin}/check-in/${appointment.checkInToken}`
     : null;
 
+  const hasAlerts = !!(client.allergyNotes || client.medicalNotes);
+  const hasPrefill = preCheckedKeys.size > 0;
+  const isReturning = (visitCount || 0) > 1;
+
   return (
-    <div className="p-4 bg-white text-black font-sans text-sm max-w-md mx-auto print:p-0" id="ticket-area-content">
-      {/* v2 FIX: CSS now scopes to #ticket-area-content — the id this
-          component actually renders with — instead of #print-ticket-area,
-          which was never present in the DOM in the POS "Ticket Issued"
-          dialog (causing blank-page prints). */}
+    <div
+      id="ticket-area-content"
+      className="bg-white text-black font-sans text-sm max-w-sm mx-auto print:max-w-none"
+    >
       <style>{`
         @media print {
-          body {
-            background-color: white !important;
-            -webkit-print-color-adjust: exact;
-          }
-          body * {
-            visibility: hidden;
-          }
-          #ticket-area-content, #ticket-area-content * {
-            visibility: visible;
-          }
-          #ticket-area-content {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
+          body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body * { visibility: hidden; }
+          #ticket-area-content, #ticket-area-content * { visibility: visible; }
+          #ticket-area-content { position: absolute; left: 0; top: 0; width: 100%; }
         }
       `}</style>
 
-      <div className="text-center space-y-1 mb-6">
-        <h1 className="text-2xl font-bold uppercase tracking-tight">{service.name}</h1>
-        {addOnServices.length > 0 && (
-          <p className="text-[10px] font-black uppercase text-gray-500 tracking-widest">
-            + {addOnServices.map(s => s.name).join(' · ')}
-          </p>
-        )}
-        <p className="text-base font-black uppercase">{client.name}</p>
-        <p className="text-gray-600 font-mono text-xs">{format(displayDate, 'MMM d, yyyy h:mm a')}</p>
-        {/* v2 — provider name */}
-        {staffName && (
-          <p className="text-[10px] font-black uppercase text-gray-500 flex items-center justify-center gap-1">
-            <User className="w-3 h-3" /> {staffName}
-          </p>
-        )}
+      {/* ── Brand bar ────────────────────────────────────────────────────── */}
+      <div className="bg-slate-900 px-4 py-3 flex items-center justify-between print:bg-slate-900">
+        <div>
+          <p className="text-white text-[11px] font-black uppercase tracking-widest">{business.name}</p>
+          <p className="text-slate-500 text-[8px] font-bold uppercase tracking-wider mt-0.5">Tech Prep Sheet</p>
+        </div>
+        <div className="text-right">
+          <p className="text-slate-400 text-[8px] font-bold uppercase">{format(displayDate, 'EEE MMM d')}</p>
+          <p className="text-white text-[11px] font-mono font-bold">{format(displayDate, 'h:mm a')}</p>
+        </div>
       </div>
 
-      {(client.allergyNotes || client.medicalNotes) && (
-        <Card className="mb-4 bg-yellow-50 border-yellow-200 print:border-gray-200">
-          <CardContent className="p-3 space-y-2">
-            {client.allergyNotes && (
-              <div className="flex items-start gap-2 text-yellow-800">
-                <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <p className="text-sm"><strong>Allergy Alert:</strong> {client.allergyNotes}</p>
-              </div>
-            )}
-            {client.medicalNotes && (
-              <div className="flex items-start gap-2 text-red-800">
-                <ShieldPlus className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <p className="text-sm"><strong>Medical Alert:</strong> {client.medicalNotes}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* ── Allergy/medical FIRST — v3 ───────────────────────────────────
+          In v2 this came after the header. Moved to position 1 so it's
+          the first thing a tech sees when they pick up the ticket. */}
+      {hasAlerts && (
+        <div className="border-b-2 border-red-200 bg-red-50 px-4 py-3 space-y-1.5 print:bg-red-50">
+          {client.allergyNotes && (
+            <div className="flex items-start gap-2 text-red-800">
+              <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-red-600" />
+              <p className="text-[11px] font-bold leading-snug">
+                <span className="font-black uppercase text-[9px] tracking-wider text-red-600 mr-1.5">Allergy</span>
+                {client.allergyNotes}
+              </p>
+            </div>
+          )}
+          {client.medicalNotes && (
+            <div className="flex items-start gap-2 text-red-900">
+              <ShieldPlus className="h-3.5 w-3.5 mt-0.5 flex-shrink-0 text-red-700" />
+              <p className="text-[11px] font-bold leading-snug">
+                <span className="font-black uppercase text-[9px] tracking-wider text-red-700 mr-1.5">Medical</span>
+                {client.medicalNotes}
+              </p>
+            </div>
+          )}
+        </div>
       )}
 
-      <div className="space-y-4">
-        {/* Primary service formula */}
+      <div className="p-4 space-y-4">
+
+        {/* ── Client + Service header ───────────────────────────────────── */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-base font-black uppercase tracking-tight text-slate-900 leading-none truncate">{service.name}</p>
+            {addOnServices.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {addOnServices.map(a => (
+                  <span key={a.id} className="text-[9px] font-black uppercase bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                    + {a.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-sm font-black uppercase text-slate-900 leading-none">{client.name}</p>
+            <div className="flex items-center justify-end gap-1.5 mt-1.5">
+              {isReturning ? (
+                <span className="text-[9px] font-black uppercase bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <Repeat className="w-2.5 h-2.5" /> Visit #{visitCount}
+                </span>
+              ) : (
+                <span className="text-[9px] font-black uppercase bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                  New client
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Meta row: provider + station ─────────────────────────────── */}
+        {(staffName || stationName) && (
+          <div className="flex items-center gap-3 text-[10px] text-slate-400 font-bold uppercase">
+            {staffName && (
+              <span className="flex items-center gap-1">
+                <User className="w-3 h-3" /> {staffName}
+              </span>
+            )}
+            {stationName && (
+              <span className="flex items-center gap-1 text-blue-600 font-black">
+                <MapPinned className="w-3 h-3" /> {stationName}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* ── Pre-fill notice ───────────────────────────────────────────── */}
+        {hasPrefill && (
+          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+            <Repeat className="w-3.5 h-3.5 text-green-600 shrink-0" />
+            <p className="text-[10px] font-black text-green-700 uppercase tracking-wide">
+              Formula pre-loaded from last visit — confirm before starting
+            </p>
+          </div>
+        )}
+
+        {/* ── Primary service formula ───────────────────────────────────── */}
         <div>
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 flex items-center gap-2">
-            <FlaskConical className="h-3.5 w-3.5" />
+          <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+            <FlaskConical className="h-3 w-3" />
             {addOnServices.length > 0 ? `${service.name} Formula` : 'Service Formula'}
-          </h2>
+          </p>
           <FormulaSection
             service={service}
             appointment={appointment}
@@ -262,17 +376,18 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
             checkedItems={checkedItems}
             onCheckChange={handleCheckChange}
             prefix="primary"
+            preCheckedKeys={preCheckedKeys}
           />
         </div>
 
-        {/* v2 — add-on formulas, one section per add-on that has products */}
+        {/* ── Add-on formulas ───────────────────────────────────────────── */}
         {addOnServices.filter(s => (s.products || []).length > 0).map((addOn, idx) => (
           <div key={addOn.id}>
-            <Separator className="my-3" />
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2 flex items-center gap-2">
-              <FlaskConical className="h-3.5 w-3.5" />
+            <Separator className="mb-3" />
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+              <FlaskConical className="h-3 w-3" />
               {addOn.name} Formula
-            </h2>
+            </p>
             <FormulaSection
               service={addOn}
               appointment={appointment}
@@ -281,34 +396,40 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
               checkedItems={checkedItems}
               onCheckChange={handleCheckChange}
               prefix={`addon-${idx}`}
+              preCheckedKeys={preCheckedKeys}
             />
           </div>
         ))}
 
+        {/* ── Guest context notes ───────────────────────────────────────── */}
         {client.notes && (
           <div>
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">Guest Context</h2>
-            <div className="p-3 bg-gray-100 rounded-lg print:bg-gray-50 text-left">
-              <p className="text-gray-700 text-xs leading-relaxed font-medium italic">
-                "{client.notes.general || 'No general dossier notes.'}"
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Guest Context</p>
+            <div className="bg-slate-50 rounded-lg p-3 border border-slate-100">
+              <p className="text-slate-600 text-[11px] leading-relaxed font-medium italic">
+                "{(client.notes as any).general || 'No general notes.'}"
               </p>
             </div>
           </div>
         )}
       </div>
 
-      {/* v2 — check-in code for POS lookup / future QR scanning */}
+      {/* ── Check-in code + QR ───────────────────────────────────────────── */}
       {checkInCode && (
-        <div className="mt-6 pt-4 border-t border-dashed text-center space-y-1">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-gray-400 flex items-center justify-center gap-1">
-            <Fingerprint className="w-3 h-3" /> Check-in code
-          </p>
-          <p className="font-mono font-black text-2xl tracking-[0.3em] text-gray-900">{checkInCode}</p>
+        <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-[8px] font-black uppercase tracking-[0.15em] text-slate-400 flex items-center gap-1 mb-1">
+              <Fingerprint className="w-2.5 h-2.5" /> Check-in code
+            </p>
+            <p className="font-mono font-black text-xl tracking-[0.25em] text-slate-900">{checkInCode}</p>
+            <p className="text-[8px] text-slate-400 mt-0.5">Type at POS desk to pull up record</p>
+          </div>
+          {checkInUrl && <QRCodeCanvas value={checkInUrl} size={64} />}
         </div>
       )}
 
-      <div className="text-center mt-10 border-t border-dashed pt-4">
-        <p className="text-gray-400 text-[8px] font-black uppercase tracking-[0.3em]">ClarityFlow Studio OS</p>
+      <div className="text-center py-3 border-t border-slate-100">
+        <p className="text-slate-300 text-[7px] font-black uppercase tracking-[0.3em]">ClarityFlow Studio OS</p>
       </div>
     </div>
   );
