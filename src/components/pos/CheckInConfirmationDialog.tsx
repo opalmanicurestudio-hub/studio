@@ -109,7 +109,6 @@ interface CheckInConfirmationDialogProps {
     phone: string;
     accommodations: string[];
     notes: string;
-    nailCondition?: string;
     mustFinishBy?: string;
   }) => void;
   // v2 — all optional, all additive. Dialog works exactly as before if none
@@ -153,8 +152,6 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
   const [selectedAccommodations, setSelectedAccommodations] = useState<string[]>([]);
   const [arrivalNotes, setArrivalNotes] = useState('');
-  // v2 — new fields
-  const [nailCondition, setNailCondition] = useState('');
   const [hasTimeConstraint, setHasTimeConstraint] = useState(false);
   const [mustFinishBy, setMustFinishBy] = useState('');
   
@@ -170,7 +167,6 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
       setServiceId(item.serviceId || (item.serviceIds?.[0]) || '');
       setAddOnIds(item.addOnIds || item.serviceIds?.slice(1) || []);
       setArrivalNotes(item.notes || '');
-      setNailCondition(item.nailCondition || '');
       setHasTimeConstraint(!!item.mustFinishBy);
       setMustFinishBy(item.mustFinishBy || '');
       
@@ -265,7 +261,6 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
         phone,
         accommodations: accommodationsLabels,
         notes: arrivalNotes,
-        nailCondition: nailCondition || undefined,
         mustFinishBy: hasTimeConstraint && mustFinishBy ? mustFinishBy : undefined,
     });
     onOpenChange(false);
@@ -449,35 +444,6 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                                         </div>
                                     );
                                 })}
-                            </div>
-                        </div>
-
-                        <div className="space-y-2 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                                <Activity className="w-3.5 h-3.5 opacity-40" /> Nail Condition
-                            </Label>
-                            <div className="flex flex-wrap gap-1.5">
-                                {[
-                                    { id: 'fresh_removal', label: 'Fresh removal' },
-                                    { id: 'wearing_set', label: 'Wearing current set' },
-                                    { id: 'natural', label: 'Natural nails' },
-                                    { id: 'growing_out', label: 'Growing out' },
-                                    { id: 'new_client', label: 'New client — unknown' },
-                                ].map(opt => (
-                                    <button
-                                        key={opt.id}
-                                        type="button"
-                                        onClick={() => setNailCondition(prev => prev === opt.id ? '' : opt.id)}
-                                        className={cn(
-                                            'px-3 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase transition-all',
-                                            nailCondition === opt.id
-                                                ? 'border-primary bg-primary/5 text-primary'
-                                                : 'border-muted text-muted-foreground hover:border-primary/30',
-                                        )}
-                                    >
-                                        {opt.label}
-                                    </button>
-                                ))}
                             </div>
                         </div>
 
