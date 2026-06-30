@@ -944,7 +944,7 @@ const CompletionReceipt = ({ appointment, transactions, staff, providers }: { ap
 };
 
 // ─── Readiness banner ──────────────────────────────────────────────────────────
-const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposit, isLoadingDeposit, cardSecured }: {
+export const ReadinessBanner = ({ appointment, client, complianceInfo, hasDeposit, isLoadingDeposit, cardSecured }: {
   appointment: any; client: any;
   complianceInfo: { healthPendingForms: ConsentForm[]; otherPendingForms: ConsentForm[]; allCertified: boolean };
   hasDeposit: boolean; isLoadingDeposit: boolean; cardSecured: boolean;
