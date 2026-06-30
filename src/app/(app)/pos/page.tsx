@@ -364,6 +364,16 @@ function POSPage() {
 
   const payerOptions = useMemo(() => { const clientIds = new Set<string>(); readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).forEach(data => { if (data.client?.id) clientIds.add(data.client.id); }); return (clients || []).filter(c => clientIds.has(c.id)); }, [readyForCheckoutAppointments, selectedAppointmentIds, clients]);
 
+  // ── FIX: extracted from inline JSX prop — hooks cannot be called inside JSX ──
+  const groupSizes = useMemo(() => {
+    const sizes = new Map<string, number>();
+    (walkIns || []).forEach((w: any) => {
+      if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize);
+      else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
+    });
+    return sizes;
+  }, [walkIns]);
+
   const handleSelectAppointment = useCallback((id: string) => {
     const nextIds = new Set(selectedAppointmentIds);
     if (nextIds.has(id)) { nextIds.delete(id); if (nextIds.size === 0) setSelectedClientId(null); }
@@ -731,7 +741,58 @@ function POSPage() {
 
             <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
 
-            <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={useMemo(() => { const sizes = new Map<string, number>(); (walkIns || []).forEach((w: any) => { if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize); else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1); }); return sizes; }, [walkIns])} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { // v2 routing fix: unarrived booked appointments go through the check-in // dialog first (readiness check, service confirm, accommodations, notes). // Already-arrived (checkInStatus === 'arrived' | 'running_late' | 'on_my_way') // skip straight to the full AppointmentDetailsSheet as before. const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
+            <WalkInQueue
+              walkIns={walkIns}
+              appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))}
+              readyForCheckoutAppointments={readyForCheckoutAppointments}
+              selectedAppointmentIds={selectedAppointmentIds}
+              onSelectAppointment={handleSelectAppointment}
+              services={services}
+              staff={staff}
+              onAssignStaff={handleAssignStaff}
+              onAssignNext={handleAssignNext}
+              onCancel={handleCancelAction}
+              onStartService={handleStartService}
+              orderedWaitingQueue={[]}
+              onReorder={() => {}}
+              assignmentMode={assignmentMode}
+              onPrintTicket={(id: string) => {
+                const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id);
+                if (item) {
+                  const client = clients?.find(c => c.id === item.clientId);
+                  const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0]));
+                  const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean);
+                  const staffMember = staff?.find(s => s.id === item.staffId);
+                  if (client && service) {
+                    setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name });
+                    setIsPrintDialogOpen(true);
+                  }
+                }
+              }}
+              onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }}
+              onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }}
+              groupSizes={groupSizes}
+              onToggleWaitForStaff={() => {}}
+              onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }}
+              onUpdateStatus={handleUpdateStatus}
+              onRevertToReady={handleRevertToReady}
+              onRevertToService={handleRevertToService}
+              onResolve={(item: any) => {
+                if (item.isPotentialAlias && item.matchedClient) {
+                  setPendingIdentityMatch(item);
+                } else if (item.type === 'walk-in') {
+                  setPendingCheckInItem(item);
+                } else {
+                  const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed';
+                  if (notYetArrived) {
+                    setPendingCheckInItem(item);
+                  } else {
+                    setSelectedAppointment(item);
+                    setIsDetailsOpen(true);
+                  }
+                }
+              }}
+            />
 
             {/* ── WAITLIST MANAGER — new feature ───────────────────────────── */}
             <WaitlistManager
@@ -860,12 +921,6 @@ function POSPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">Book an appointment directly from the POS for walk-in or call-in guests.</p>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            {/* FIX: previously omitted currentStaffId, packages, memberships, and
-                discounts — all four already exist in this component's own scope
-                (useInventory() already destructures memberships/packages/discounts,
-                and currentUser is right there from useFirebase()), so every
-                package/membership nudge and auto-listed-discount feature built into
-                QuickBookForm was silently inert: the data simply never arrived. */}
             <QuickBookForm
               clients={clients || []}
               services={services || []}
