@@ -62,10 +62,12 @@ export interface TicketData {
   client: Client;
   appointment: Appointment;
   service: Service;
-  // v2 — optional additions. All backwards-compatible; ticket renders
-  // correctly without any of these, same as v1.
+  // v2 — optional additions. All backwards-compatible.
   addOnServices?: Service[];
   staffName?: string;
+  // v3 — last visit's formula, used to pre-check matching product lines so
+  // the technician doesn't start from a blank checklist for returning clients.
+  previousFormula?: { id: string; quantityUsed?: number; quantity?: number; unit?: string }[];
 }
 
 interface PrintTicketProps {
@@ -142,9 +144,29 @@ const FormulaSection = ({
 };
 
 export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
-  const { client, service, appointment, addOnServices = [], staffName } = data;
+  const { client, service, appointment, addOnServices = [], staffName, previousFormula = [] } = data;
   const { inventory, locations } = useInventory();
-  const [checkedItems, setCheckedItems] = useState<Set<string>>(new Set());
+
+  // v3 — pre-check items from the previous visit's formula. If the product
+  // id and quantity match, it's almost certainly the same formula — the
+  // technician can glance and confirm rather than re-building from scratch.
+  const preChecked = React.useMemo(() => {
+    const set = new Set<string>();
+    if (!previousFormula.length) return set;
+    (service.products || []).forEach((item: any, index: number) => {
+      const prev = previousFormula.find(p => p.id === item.id);
+      if (prev) set.add(`primary-${index}`);
+    });
+    (addOnServices || []).forEach((addOn, addonIdx) => {
+      (addOn.products || []).forEach((item: any, index: number) => {
+        const prev = previousFormula.find(p => p.id === item.id);
+        if (prev) set.add(`addon-${addonIdx}-${index}`);
+      });
+    });
+    return set;
+  }, [previousFormula, service.products, addOnServices]);
+
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(() => new Set(preChecked));
 
   const handleCheckChange = (itemId: string) => {
     const next = new Set(checkedItems);
