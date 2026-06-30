@@ -256,6 +256,11 @@ function POSPage() {
   const [voidTransactionId, setVoidTransactionId] = useState<string | null>(null);
   const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
   const [isQuickBookOpen, setIsQuickBookOpen] = useState(false);
+  const [isScanLookupOpen, setIsScanLookupOpen] = useState(false);
+  const [scanQuery, setScanQuery] = useState('');
+  const [scanResult, setScanResult] = useState<any | null>(null);
+  const [scanNotFound, setScanNotFound] = useState(false);
+  const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingRefund, setPendingRefund] = useState<any | null>(null);
   const [storeCreditApplied, setStoreCreditApplied] = useState(0);
   const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
@@ -363,16 +368,6 @@ function POSPage() {
   const totalCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
 
   const payerOptions = useMemo(() => { const clientIds = new Set<string>(); readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).forEach(data => { if (data.client?.id) clientIds.add(data.client.id); }); return (clients || []).filter(c => clientIds.has(c.id)); }, [readyForCheckoutAppointments, selectedAppointmentIds, clients]);
-
-  // ── FIX: extracted from inline JSX prop — hooks cannot be called inside JSX ──
-  const groupSizes = useMemo(() => {
-    const sizes = new Map<string, number>();
-    (walkIns || []).forEach((w: any) => {
-      if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize);
-      else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1);
-    });
-    return sizes;
-  }, [walkIns]);
 
   const handleSelectAppointment = useCallback((id: string) => {
     const nextIds = new Set(selectedAppointmentIds);
@@ -665,6 +660,43 @@ function POSPage() {
 
   const handleRevertToService = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'servicing' }); toast({ title: "Status Reverted" }); };
   const handleRevertToReady = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'ready_for_checkout' }); toast({ title: "Status Reverted" }); };
+
+  // ── Scan / code lookup ─────────────────────────────────────────────────────
+  // Resolves an 8-char check-in code (or a full token) against appointments
+  // already in memory — no extra Firestore read. The 8-char code is the last
+  // 8 chars of checkInToken, uppercased (same value PrintTicket prints and
+  // QuickBookForm's SuccessScreen shows). Full token also accepted so QR
+  // scans work when/if QR is re-added to the confirmation email.
+  const resolveScanCode = React.useCallback((raw: string) => {
+    const code = raw.trim().toUpperCase();
+    if (!code) return;
+    const found = (appointmentsFromInventory || []).find((a: any) => {
+      if (!a.checkInToken) return false;
+      const full = a.checkInToken.toUpperCase();
+      return full === code || full.slice(-8) === code.slice(-8);
+    });
+    if (found) { setScanResult(found); setScanNotFound(false); }
+    else { setScanResult(null); setScanNotFound(true); }
+  }, [appointmentsFromInventory]);
+
+  // Barcode scanners emulate keyboard typing at ~50ms/char. When the whole
+  // code arrives within 80ms of the 8th character, auto-resolve without
+  // requiring the staff member to press Enter.
+  const scanTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleScanInput = React.useCallback((val: string) => {
+    setScanQuery(val); setScanNotFound(false); setScanResult(null);
+    if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
+    if (val.length >= 8) scanTimerRef.current = setTimeout(() => resolveScanCode(val), 80);
+  }, [resolveScanCode]);
+
+  const handleScanConfirm = React.useCallback(() => {
+    if (!scanResult) return;
+    setIsScanLookupOpen(false);
+    setScanQuery(''); setScanResult(null); setScanNotFound(false);
+    const notYetArrived = !scanResult.checkInStatus || scanResult.checkInStatus === 'pending' || scanResult.checkInStatus === 'confirmed';
+    if (notYetArrived) { setPendingCheckInItem(scanResult); }
+    else { setSelectedAppointment(scanResult); setIsDetailsOpen(true); }
+  }, [scanResult]);
   const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const newSession: any = { ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
   const handleCloseTill = (data: any) => {
     if (!firestore || !tenantId || !activeTill) return;
@@ -716,6 +748,15 @@ function POSPage() {
     },
   };
 
+  // Looks up the most recent COMPLETED appointment for a client + service
+  // and returns its formula, so PrintTicket can pre-check matching items.
+  const getPreviousFormula = React.useCallback((clientId: string, serviceId: string) => {
+    const past = (appointmentsFromInventory || [])
+      .filter((a: any) => a.clientId === clientId && a.serviceId === serviceId && a.status === 'completed' && a.checkoutState?.formula?.length)
+      .sort((a: any, b: any) => new Date(b.startTime || 0).getTime() - new Date(a.startTime || 0).getTime());
+    return past[0]?.checkoutState?.formula || [];
+  }, [appointmentsFromInventory]);
+
   if (isInventoryLoading) return <div className="h-screen w-full flex flex-col items-center justify-center gap-4 bg-background"><Loader className="h-10 w-10 animate-spin text-primary" /><p className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground animate-pulse">Initializing Terminal...</p></div>;
 
   return (
@@ -736,63 +777,16 @@ function POSPage() {
           <div className="grid gap-10 grid-cols-1">
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={() => setIsQuickBookOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 gap-2"><Calendar className="w-4 h-4" /> Quick Book</Button>
+              {/* Scan / Check-In lookup — opens a barcode-aware code input.
+                  USB/BT scanners work out of the box: they type the code into
+                  the focused input and the 80ms debounce auto-resolves it. */}
+              <Button onClick={() => { setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsScanLookupOpen(true); setTimeout(() => scanInputRef.current?.focus(), 120); }} variant="outline" className="h-10 px-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 font-black uppercase text-[10px] tracking-widest hover:bg-emerald-100 gap-2"><QrCode className="w-4 h-4" /> Scan / Check-In</Button>
               <Button onClick={() => setIsVoidDialogOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-600 font-black uppercase text-[10px] tracking-widest hover:bg-red-100 gap-2" disabled={!transactions?.some(t => isToday(safeDate(t.date)) && !t.voided)}><XCircle className="w-4 h-4" /> Void Tx</Button>
             </div>
 
             <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
 
-            <WalkInQueue
-              walkIns={walkIns}
-              appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))}
-              readyForCheckoutAppointments={readyForCheckoutAppointments}
-              selectedAppointmentIds={selectedAppointmentIds}
-              onSelectAppointment={handleSelectAppointment}
-              services={services}
-              staff={staff}
-              onAssignStaff={handleAssignStaff}
-              onAssignNext={handleAssignNext}
-              onCancel={handleCancelAction}
-              onStartService={handleStartService}
-              orderedWaitingQueue={[]}
-              onReorder={() => {}}
-              assignmentMode={assignmentMode}
-              onPrintTicket={(id: string) => {
-                const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id);
-                if (item) {
-                  const client = clients?.find(c => c.id === item.clientId);
-                  const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0]));
-                  const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean);
-                  const staffMember = staff?.find(s => s.id === item.staffId);
-                  if (client && service) {
-                    setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name });
-                    setIsPrintDialogOpen(true);
-                  }
-                }
-              }}
-              onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }}
-              onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }}
-              groupSizes={groupSizes}
-              onToggleWaitForStaff={() => {}}
-              onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }}
-              onUpdateStatus={handleUpdateStatus}
-              onRevertToReady={handleRevertToReady}
-              onRevertToService={handleRevertToService}
-              onResolve={(item: any) => {
-                if (item.isPotentialAlias && item.matchedClient) {
-                  setPendingIdentityMatch(item);
-                } else if (item.type === 'walk-in') {
-                  setPendingCheckInItem(item);
-                } else {
-                  const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed';
-                  if (notYetArrived) {
-                    setPendingCheckInItem(item);
-                  } else {
-                    setSelectedAppointment(item);
-                    setIsDetailsOpen(true);
-                  }
-                }
-              }}
-            />
+            <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id) }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={useMemo(() => { const sizes = new Map<string, number>(); (walkIns || []).forEach((w: any) => { if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize); else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1); }); return sizes; }, [walkIns])} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { // v2 routing fix: unarrived booked appointments go through the check-in // dialog first (readiness check, service confirm, accommodations, notes). // Already-arrived (checkInStatus === 'arrived' | 'running_late' | 'on_my_way') // skip straight to the full AppointmentDetailsSheet as before. const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
 
             {/* ── WAITLIST MANAGER — new feature ───────────────────────────── */}
             <WaitlistManager
@@ -883,7 +877,7 @@ function POSPage() {
           const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean);
           const staffMember = staff?.find(s => s.id === item.staffId);
           if (client && service) {
-            setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name });
+            setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id) });
             setIsPrintDialogOpen(true);
           }
         }}
@@ -921,6 +915,12 @@ function POSPage() {
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">Book an appointment directly from the POS for walk-in or call-in guests.</p>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* FIX: previously omitted currentStaffId, packages, memberships, and
+                discounts — all four already exist in this component's own scope
+                (useInventory() already destructures memberships/packages/discounts,
+                and currentUser is right there from useFirebase()), so every
+                package/membership nudge and auto-listed-discount feature built into
+                QuickBookForm was silently inert: the data simply never arrived. */}
             <QuickBookForm
               clients={clients || []}
               services={services || []}
@@ -951,6 +951,75 @@ function POSPage() {
             <div className="flex gap-3">
               <Button onClick={() => setPendingRefund(null)} variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2">Skip · keep as credit</Button>
               <Button onClick={handleConfirmRefund} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20">Refund ${safeNumber(pendingRefund?.amount).toFixed(2)}</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── SCAN / CHECK-IN LOOKUP ───────────────────────────────────────────
+          Type or scan an 8-char check-in code → opens the right dialog.
+          Barcode scanners auto-resolve via the 80ms debounce in handleScanInput.
+          Unarrived appointments → CheckInConfirmationDialog (readiness check).
+          Already-arrived → AppointmentDetailsSheet (full record). */}
+      <Dialog open={isScanLookupOpen} onOpenChange={(o) => { if (!o) { setScanQuery(''); setScanResult(null); setScanNotFound(false); } setIsScanLookupOpen(o); }}>
+        <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-0">
+            <DialogTitle className="text-xl font-black uppercase tracking-tighter flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-emerald-600" /> Scan or Enter Code
+            </DialogTitle>
+            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+              8-character code from the printed ticket or confirmation screen. Barcode scanner supported.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-6 space-y-4">
+            <Input
+              ref={scanInputRef}
+              value={scanQuery}
+              onChange={e => handleScanInput(e.target.value.toUpperCase())}
+              onKeyDown={e => { if (e.key === 'Enter') resolveScanCode(scanQuery); }}
+              placeholder="e.g. 7QX2K9LM"
+              className={cn(
+                'h-14 text-center text-2xl font-black font-mono tracking-[0.3em] rounded-2xl border-4 uppercase',
+                scanResult ? 'border-emerald-400 bg-emerald-50' : scanNotFound ? 'border-red-300 bg-red-50' : 'border-slate-200',
+              )}
+              maxLength={21}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            {scanResult && (() => {
+              const c = clients?.find((cl: any) => cl.id === scanResult.clientId);
+              const svc = services?.find((s: any) => s.id === scanResult.serviceId);
+              const isArrived = scanResult.checkInStatus && !['pending','confirmed'].includes(scanResult.checkInStatus);
+              return (
+                <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-1.5">
+                  <p className="text-[10px] font-black uppercase text-emerald-700 tracking-widest">Match found</p>
+                  <p className="text-sm font-black text-slate-900">{c?.name || scanResult.clientName || 'Unknown client'}</p>
+                  <p className="text-xs text-slate-500">{svc?.name || 'Service'}</p>
+                  <p className="text-[10px] text-slate-400">{scanResult.startTime ? format(new Date(scanResult.startTime), 'EEE MMM d · h:mm a') : ''}</p>
+                  {isArrived && <Badge className="bg-blue-100 text-blue-700 border-none text-[9px]">Already checked in — opens full record</Badge>}
+                  {!isArrived && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">Not yet arrived — opens check-in</Badge>}
+                </div>
+              );
+            })()}
+            {scanNotFound && (
+              <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-center gap-3">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+                <div>
+                  <p className="text-[10px] font-black uppercase text-red-700">No appointment found</p>
+                  <p className="text-[10px] text-red-500">Check the code and try again, or search by name in the queue.</p>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-3">
+              <Button variant="ghost" onClick={() => setIsScanLookupOpen(false)} className="flex-1 h-12 rounded-xl font-black uppercase text-[10px]">Cancel</Button>
+              <Button
+                onClick={handleScanConfirm}
+                disabled={!scanResult}
+                className="flex-[2] h-12 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {scanResult ? 'Open Appointment' : 'Scan or type code above'}
+              </Button>
             </div>
           </div>
         </DialogContent>
