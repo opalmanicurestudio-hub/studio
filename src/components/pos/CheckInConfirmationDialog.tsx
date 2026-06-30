@@ -74,6 +74,7 @@ import {
     AlertTriangle,
     HeartPulse,
     Star,
+    Clock,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -108,6 +109,8 @@ interface CheckInConfirmationDialogProps {
     phone: string;
     accommodations: string[];
     notes: string;
+    nailCondition?: string;
+    mustFinishBy?: string;
   }) => void;
   // v2 — all optional, all additive. Dialog works exactly as before if none
   // of these are passed; the readiness banner and carried-forward context
@@ -117,7 +120,12 @@ interface CheckInConfirmationDialogProps {
   tenantId?: string;
   firestore?: any;
   appointments?: any[];
-  onPrintTicket?: () => void;
+  onPrintTicket?: (currentState: {
+    serviceId: string;
+    addOnIds: string[];
+    notes: string;
+    accommodations: string[];
+  }) => void;
 }
 
 const accommodationsOptions = [
@@ -145,6 +153,10 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   const [addOnIds, setAddOnIds] = useState<string[]>([]);
   const [selectedAccommodations, setSelectedAccommodations] = useState<string[]>([]);
   const [arrivalNotes, setArrivalNotes] = useState('');
+  // v2 — new fields
+  const [nailCondition, setNailCondition] = useState('');
+  const [hasTimeConstraint, setHasTimeConstraint] = useState(false);
+  const [mustFinishBy, setMustFinishBy] = useState('');
   
   const methods = useForm({
       defaultValues: {
@@ -158,6 +170,9 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
       setServiceId(item.serviceId || (item.serviceIds?.[0]) || '');
       setAddOnIds(item.addOnIds || item.serviceIds?.slice(1) || []);
       setArrivalNotes(item.notes || '');
+      setNailCondition(item.nailCondition || '');
+      setHasTimeConstraint(!!item.mustFinishBy);
+      setMustFinishBy(item.mustFinishBy || '');
       
       const currentNeeds = client?.sensoryNeeds || item.client?.sensoryNeeds || '';
       const initialAcc = accommodationsOptions
@@ -249,7 +264,9 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
         email, 
         phone,
         accommodations: accommodationsLabels,
-        notes: arrivalNotes
+        notes: arrivalNotes,
+        nailCondition: nailCondition || undefined,
+        mustFinishBy: hasTimeConstraint && mustFinishBy ? mustFinishBy : undefined,
     });
     onOpenChange(false);
   };
@@ -257,8 +274,14 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
   // v2 — delegate to the parent's single print flow when available, so
   // this dialog stops being its own independent print implementation.
   const handlePrint = () => {
-      if (onPrintTicket) { onPrintTicket(); return; }
-      window.print();
+    const accommodationsLabels = accommodationsOptions
+      .filter(opt => selectedAccommodations.includes(opt.id))
+      .map(opt => opt.label);
+    if (onPrintTicket) {
+      onPrintTicket({ serviceId, addOnIds, notes: arrivalNotes, accommodations: accommodationsLabels });
+      return;
+    }
+    window.print();
   };
 
   if (!item) return null;
@@ -427,6 +450,63 @@ export const CheckInConfirmationDialog: React.FC<CheckInConfirmationDialogProps>
                                     );
                                 })}
                             </div>
+                        </div>
+
+                        <div className="space-y-2 text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
+                                <Activity className="w-3.5 h-3.5 opacity-40" /> Nail Condition
+                            </Label>
+                            <div className="flex flex-wrap gap-1.5">
+                                {[
+                                    { id: 'fresh_removal', label: 'Fresh removal' },
+                                    { id: 'wearing_set', label: 'Wearing current set' },
+                                    { id: 'natural', label: 'Natural nails' },
+                                    { id: 'growing_out', label: 'Growing out' },
+                                    { id: 'new_client', label: 'New client — unknown' },
+                                ].map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => setNailCondition(prev => prev === opt.id ? '' : opt.id)}
+                                        className={cn(
+                                            'px-3 py-1.5 rounded-xl border-2 text-[10px] font-black uppercase transition-all',
+                                            nailCondition === opt.id
+                                                ? 'border-primary bg-primary/5 text-primary'
+                                                : 'border-muted text-muted-foreground hover:border-primary/30',
+                                        )}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 text-left">
+                            <div className="flex items-center justify-between ml-1">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                                    <Clock className="w-3.5 h-3.5 opacity-40" /> Time Constraint
+                                </Label>
+                                <button
+                                    type="button"
+                                    onClick={() => { setHasTimeConstraint(p => !p); setMustFinishBy(''); }}
+                                    className={cn(
+                                        'text-[9px] font-black uppercase px-2.5 py-1 rounded-lg border-2 transition-colors',
+                                        hasTimeConstraint
+                                            ? 'border-amber-300 bg-amber-50 text-amber-700'
+                                            : 'border-muted text-muted-foreground hover:border-muted-foreground',
+                                    )}
+                                >
+                                    {hasTimeConstraint ? 'Must leave by' : 'No constraint'}
+                                </button>
+                            </div>
+                            {hasTimeConstraint && (
+                                <input
+                                    type="time"
+                                    value={mustFinishBy}
+                                    onChange={e => setMustFinishBy(e.target.value)}
+                                    className="w-full h-10 rounded-xl border-2 border-amber-200 bg-amber-50 text-amber-900 font-black text-sm px-3 focus:outline-none focus:border-amber-400"
+                                />
+                            )}
                         </div>
 
                         <div className="space-y-2 text-left">
