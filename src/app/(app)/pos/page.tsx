@@ -48,6 +48,51 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { QuickBookForm } from '@/components/pos/QuickBookForm';
 import { WaitlistManager } from '@/components/pos/WaitlistManager';
 import { useWaitlist } from '@/hooks/useWaitlist';
+import { QRScanner } from '@/components/pos/QRScanner';
+
+// Opens the ticket in a fresh, chrome-free browser window and auto-prints.
+// This sidesteps the core mobile print problem: window.print() from inside
+// a shadcn Dialog (a React Portal, outside the main body DOM tree) is
+// unreliable on mobile Safari/Chrome — the print CSS fires, hides
+// everything, but the portal content may not be reachable by the
+// visibility:visible restore, producing a blank page. A new window has no
+// app chrome, no portals, no overlapping z-index — just the ticket.
+function printTicketInNewWindow(ticketHtml: string, studioName: string) {
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Print Ticket — ${studioName}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; }
+    @media print {
+      body { margin: 0; }
+      button { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  ${ticketHtml}
+  <script>
+    window.addEventListener('load', function() {
+      setTimeout(function() { window.print(); }, 400);
+    });
+  </script>
+</body>
+</html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) {
+    // Popup blocked — fall back to sharing or copying the URL
+    navigator.clipboard?.writeText(url).catch(() => {});
+    alert('Pop-up blocked. Please allow pop-ups for this site to print tickets, or use the Share / copy link option.');
+  }
+  // Revoke after a delay to allow the window to load
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
 
 
 const sanitizeForFirestore = (obj: any): any => {
@@ -257,6 +302,7 @@ function POSPage() {
   const [isVoidDialogOpen, setIsVoidDialogOpen] = useState(false);
   const [isQuickBookOpen, setIsQuickBookOpen] = useState(false);
   const [isScanLookupOpen, setIsScanLookupOpen] = useState(false);
+  const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
   const [scanQuery, setScanQuery] = useState('');
   const [scanResult, setScanResult] = useState<any | null>(null);
   const [scanNotFound, setScanNotFound] = useState(false);
@@ -651,6 +697,8 @@ function POSPage() {
     const batch = writeBatch(firestore);
     const updates: any = { serviceId: data.serviceId, addOnIds: data.addOnIds, checkInStatus: 'arrived', notes: data.notes };
     if (data.accommodations?.length) updates.sensoryNeeds = data.accommodations.join(', ');
+    if (data.nailCondition) updates.nailCondition = data.nailCondition;
+    if (data.mustFinishBy) updates.mustFinishBy = data.mustFinishBy;
     batch.update(docRef, sanitizeForFirestore(updates));
     if (!isWalkIn && pendingCheckInItem.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', pendingCheckInItem.checkInToken), sanitizeForFirestore({ ...updates, tenantId }));
     if (pendingCheckInItem.clientId) batch.update(doc(firestore, `tenants/${tenantId}/clients`, pendingCheckInItem.clientId), sanitizeForFirestore({ email: data.email, phone: data.phone, ...(data.accommodations?.length ? { sensoryNeeds: data.accommodations.join(', ') } : {}) }));
@@ -782,16 +830,16 @@ function POSPage() {
           <div className="grid gap-10 grid-cols-1">
             <div className="flex items-center gap-3 flex-wrap">
               <Button onClick={() => setIsQuickBookOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 gap-2"><Calendar className="w-4 h-4" /> Quick Book</Button>
-              {/* Scan / Check-In lookup — opens a barcode-aware code input.
-                  USB/BT scanners work out of the box: they type the code into
-                  the focused input and the 80ms debounce auto-resolves it. */}
-              <Button onClick={() => { setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsScanLookupOpen(true); setTimeout(() => scanInputRef.current?.focus(), 120); }} variant="outline" className="h-10 px-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 font-black uppercase text-[10px] tracking-widest hover:bg-emerald-100 gap-2"><QrCode className="w-4 h-4" /> Scan / Check-In</Button>
+              {/* Scan / Check-In — opens full-screen camera scanner.
+                  After a successful scan, resolves the code against in-memory
+                  appointments and opens the appropriate dialog. */}
+              <Button onClick={() => { setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); }} variant="outline" className="h-10 px-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 font-black uppercase text-[10px] tracking-widest hover:bg-emerald-100 gap-2"><QrCode className="w-4 h-4" /> Scan / Check-In</Button>
               <Button onClick={() => setIsVoidDialogOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-600 font-black uppercase text-[10px] tracking-widest hover:bg-red-100 gap-2" disabled={!transactions?.some(t => isToday(safeDate(t.date)) && !t.voided)}><XCircle className="w-4 h-4" /> Void Tx</Button>
             </div>
 
             <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
 
-            <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: item.stationName || item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds?.[0])?.name : undefined }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={useMemo(() => { const sizes = new Map<string, number>(); (walkIns || []).forEach((w: any) => { if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize); else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1); }); return sizes; }, [walkIns])} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { /* v2 routing fix: unarrived booked appointments go through the check-in dialog first (readiness check, service confirm, accommodations, notes). Already-arrived (checkInStatus === 'arrived' | 'running_late' | 'on_my_way') skip straight to the full AppointmentDetailsSheet as before. */ const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
+            <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: item.stationName || item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds?.[0])?.name : undefined }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={useMemo(() => { const sizes = new Map<string, number>(); (walkIns || []).forEach((w: any) => { if (w.groupId && w.groupSize) sizes.set(w.groupId, w.groupSize); else if (w.groupId) sizes.set(w.groupId, (sizes.get(w.groupId) || 0) + 1); }); return sizes; }, [walkIns])} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { // v2 routing fix: unarrived booked appointments go through the check-in // dialog first (readiness check, service confirm, accommodations, notes). // Already-arrived (checkInStatus === 'arrived' | 'running_late' | 'on_my_way') // skip straight to the full AppointmentDetailsSheet as before. const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
 
             {/* ── WAITLIST MANAGER — new feature ───────────────────────────── */}
             <WaitlistManager
@@ -874,15 +922,34 @@ function POSPage() {
         tenantId={tenantId}
         firestore={firestore}
         appointments={appointmentsFromInventory || []}
-        onPrintTicket={() => {
+        onPrintTicket={(currentState) => {
           const item = pendingCheckInItem;
           if (!item) return;
           const client = clients?.find(c => c.id === item.clientId);
-          const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0]));
-          const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean);
+          // Use confirmed serviceId from dialog (may differ from original booking)
+          const resolvedServiceId = currentState?.serviceId || item.serviceId || item.serviceIds?.[0];
+          const service = services?.find(s => s.id === resolvedServiceId);
+          const resolvedAddOnIds = currentState?.addOnIds || item.addOnIds || [];
+          const addOnServices = resolvedAddOnIds.map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean);
           const staffMember = staff?.find(s => s.id === item.staffId);
+          const station = item.stationName || ((item.requiredResourceIds || [])[0]
+            ? (resources || []).find((r: any) => r.id === item.requiredResourceIds[0])?.name
+            : undefined);
           if (client && service) {
-            setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: item.stationName || item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds?.[0])?.name : undefined });
+            // Merge arrival notes from the dialog into the appointment object
+            const enrichedItem = currentState?.notes
+              ? { ...item, notes: currentState.notes, addOnIds: resolvedAddOnIds }
+              : { ...item, addOnIds: resolvedAddOnIds };
+            setTicketToPrint({
+              business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' },
+              client, service,
+              appointment: enrichedItem,
+              addOnServices,
+              staffName: staffMember?.name,
+              previousFormula: getPreviousFormula(client.id, service.id),
+              visitCount: getVisitCount(client.id),
+              stationName: station,
+            });
             setIsPrintDialogOpen(true);
           }
         }}
@@ -961,11 +1028,23 @@ function POSPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── CAMERA QR SCANNER ─────────────────────────────────────────────── */}
+      {isCameraScanOpen && (
+        <QRScanner
+          onClose={() => setIsCameraScanOpen(false)}
+          onScan={(raw) => {
+            setIsCameraScanOpen(false);
+            const code = raw.trim().toUpperCase();
+            setScanQuery(code);
+            resolveScanCode(code);
+            setIsScanLookupOpen(true);
+          }}
+        />
+      )}
+
       {/* ── SCAN / CHECK-IN LOOKUP ───────────────────────────────────────────
-          Type or scan an 8-char check-in code → opens the right dialog.
-          Barcode scanners auto-resolve via the 80ms debounce in handleScanInput.
-          Unarrived appointments → CheckInConfirmationDialog (readiness check).
-          Already-arrived → AppointmentDetailsSheet (full record). */}
+          Shows after camera scan resolves, or can be opened directly for
+          USB barcode scanners (keyboard emulation) or manual code entry. */}
       <Dialog open={isScanLookupOpen} onOpenChange={(o) => { if (!o) { setScanQuery(''); setScanResult(null); setScanNotFound(false); } setIsScanLookupOpen(o); }}>
         <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl p-0 overflow-hidden">
           <DialogHeader className="p-6 pb-0">
@@ -1034,7 +1113,26 @@ function POSPage() {
         <DialogContent className="max-w-sm rounded-[2rem] border-2 shadow-3xl p-0 overflow-hidden text-center">
           <DialogHeader className="p-6 bg-muted/5 border-b"><DialogTitle className="text-xl font-bold uppercase tracking-tight text-center text-slate-900 leading-none">Ticket Issued</DialogTitle></DialogHeader>
           <div className="flex justify-center p-8 bg-white text-center">{ticketToPrint && <PrintTicket data={ticketToPrint} />}</div>
-          <DialogFooter className="p-6 border-t bg-muted/5"><Button className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20" onClick={() => { window.print(); setIsPrintDialogOpen(false); }}>Authorize Print</Button></DialogFooter>
+          <DialogFooter className="p-6 border-t bg-muted/5">
+            <Button
+              className="w-full h-12 rounded-xl text-lg font-bold uppercase tracking-widest shadow-xl shadow-primary/20"
+              onClick={() => {
+                const el = document.getElementById('ticket-area-content');
+                const html = el?.innerHTML || '';
+                if (html) {
+                  printTicketInNewWindow(
+                    `<div id="ticket-area-content" style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;">${html}</div>`,
+                    selectedTenant?.name || 'Studio',
+                  );
+                } else {
+                  window.print();
+                }
+                setIsPrintDialogOpen(false);
+              }}
+            >
+              Authorize Print
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
