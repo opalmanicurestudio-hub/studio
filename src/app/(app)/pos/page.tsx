@@ -1144,6 +1144,4 @@ export default function POSPageWrapper() {
       <POSPage />
     </Suspense>
   );
-}/Suspense>
-  );
 }
