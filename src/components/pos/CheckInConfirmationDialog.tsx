@@ -74,7 +74,6 @@ import {
     AlertTriangle,
     HeartPulse,
     Star,
-    Clock,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
