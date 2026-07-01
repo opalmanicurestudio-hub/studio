@@ -1,5 +1,33 @@
 'use client';
 
+/**
+ * TechnicianReviewDialog — v2
+ *
+ * v2 — FIX: the desktop modal was capped at `sm:max-w-xl` (576px) with a
+ * `side="right"` prop that does nothing — `side` is a Sheet prop, and
+ * DialogContent (what desktop actually renders) has no such prop, so this
+ * always rendered as a plain centered modal, never a side panel. The
+ * ScrollArea itself was correctly bounded (max-h-[95dvh] + flex flex-col +
+ * overflow-hidden — same pattern needed elsewhere in this codebase), so
+ * scrolling MECHANICALLY worked; the actual problem was four full content
+ * modules (Flow Control, Usage Actuals/formula editing, Hospitality Audit,
+ * Dossier Intelligence) all forced through a 576px-wide single column on
+ * desktop screens with far more room to spare.
+ *
+ * Fixed by: (1) removing the no-op `side` prop on desktop, (2) widening the
+ * desktop modal substantially (up to max-w-6xl), (3) splitting the four
+ * modules into a genuine two-column layout at the lg breakpoint — left
+ * column carries the technician's actual work (Flow Control + Usage
+ * Actuals, which has the most individual input rows and needs the room),
+ * right column carries supporting context (target reference photo,
+ * Hospitality Audit, Dossier Intelligence/notes). Alerts stay full-width
+ * above the split since they're important warnings that shouldn't get
+ * buried in a narrower column. Mobile (Sheet) is completely unchanged —
+ * same single-column bottom sheet as before.
+ *
+ * All state, handlers, and business logic below are unchanged from v1.
+ */
+
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Dialog,
@@ -528,10 +556,330 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
   const titleText = isLastProvider ? 'Complete Service' : 'Service Hand-off';
   const buttonLabel = isLastProvider ? 'Complete Service & Send to Desk' : 'Complete Part & Hand-off';
 
+  // v2 — Target Reference block extracted so it can be rendered inside the
+  // right-hand desktop column instead of always full-width. Logic/markup
+  // unchanged from v1.
+  const targetReferenceBlock = appointment.inspirationPhotoUrl && (
+      <div className="space-y-4">
+          <div className="flex justify-between items-center px-1 text-left">
+              <SectionHeader icon={FileImage} title="Target Reference" step="Ref" />
+              <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setIsMarkupOpen(true)}
+                  className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
+              >
+                  <Edit className="w-3 h-3 mr-1.5" /> Markup Tool
+              </Button>
+          </div>
+          <div 
+              className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in"
+              onClick={() => setExpandedImage(appointment.inspirationPhotoUrl!)}
+          >
+              <Image src={appointment.inspirationPhotoUrl} alt="Target Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
+              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <Maximize2 className="w-8 h-8 text-white" />
+              </div>
+              <div className="absolute top-4 right-4">
+                  <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Choice</Badge>
+              </div>
+          </div>
+      </div>
+  );
+
+  // v2 — LEFT column: the technician's actual work. Gets the wider column
+  // since the formula editor has the most individual input rows.
+  const flowAndActualsColumn = (
+      <div className="space-y-10">
+          <div className="space-y-4 text-left">
+              <SectionHeader icon={ListChecks} title="Flow Control" step={1} />
+              <div className="space-y-3 text-left">
+                  <div className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
+                      <div className="flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
+                              <Checkbox 
+                                  id={`complete-review-${service.id}`} 
+                                  checked={completedServiceIds.includes(service.id)} 
+                                  onCheckedChange={() => toggleServiceComplete(service.id)}
+                                  className="h-6 w-6 rounded-full border-2"
+                              />
+                              <div className="min-w-0 text-left">
+                                  <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{service.name}</Label>
+                                  <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left">Main Service</p>
+                              </div>
+                          </div>
+                          <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
+                              <SelectTrigger className="w-[140px] h-11 rounded-xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
+                                  <SelectValue placeholder="Staff" />
+                              </SelectTrigger>
+                              <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                  {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[service.id])).map(s => (
+                                      <SelectItem key={s.id} value={s.id} className="rounded-xl font-bold uppercase text-[9px] tracking-widest">
+                                          <div className="flex items-center gap-2">
+                                              <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                              <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
+                                          </div>
+                                      </SelectItem>
+                                  ))}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                  </div>
+                  {selectedAddOns.map(addon => (
+                      <div key={addon.id} className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
+                          <div className="flex items-center justify-between gap-4">
+                              <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
+                                  <Checkbox 
+                                      id={`complete-review-${addon.id}`} 
+                                      checked={completedServiceIds.includes(addon.id)} 
+                                      onCheckedChange={() => toggleServiceComplete(addon.id)}
+                                      className="h-6 w-6 rounded-full border-2"
+                                  />
+                                  <div className="min-w-0 text-left">
+                                      <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{addon.name}</Label>
+                                      <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
+                                          {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
+                                      </Badge>
+                                  </div>
+                              </div>
+                              <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
+                                  <SelectTrigger className="w-[140px] h-11 rounded-xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
+                                      <SelectValue placeholder="Staff" />
+                                  </SelectTrigger>
+                                  <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                      {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[addon.id]) && (!addon.requiredSkills || addon.requiredSkills?.length === 0 || addon.requiredSkills.every(sk => (s.skillSet || []).includes(sk)))).map(s => (
+                                          <SelectItem key={s.id} value={s.id} className="rounded-xl font-bold uppercase text-[9px] tracking-widest">
+                                              <div className="flex items-center gap-2">
+                                                  <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
+                                                  <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
+                                              </div>
+                                          </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                              </Select>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 mt-2">
+                  <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40" /> Append Add-on Enhancement
+              </Button>
+          </div>
+
+          <div className="space-y-8 pt-10 border-t border-dashed text-left">
+              <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
+              <div className="space-y-8 text-left">
+                  <div className="space-y-3 text-left">
+                    <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
+                        <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
+                    </Label>
+                    <Input 
+                        id="actual-duration-review"
+                        type="number"
+                        value={actualDuration}
+                        onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
+                        className="h-16 text-2xl md:text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
+                    />
+                    {actualDuration > service.duration && (
+                        <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2 text-left">
+                            <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight text-left"><Info className="w-3.5 h-3.5"/> Foundation Burn: +{actualDuration - service.duration}m Over Goal</span>
+                        </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-dashed text-left">
+                      <div className="flex items-center justify-between px-1 text-left">
+                          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 text-left">
+                              <PackageOpen className="w-3.5 h-3.5 opacity-40" /> Actual Product Formula
+                          </Label>
+                          <div className="flex items-center gap-2 text-left">
+                              {(client.customFormulas && client.customFormulas.length > 0) && (
+                                  <Select onValueChange={handleApplyClientFormula} defaultValue="default">
+                                      <SelectTrigger className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm w-40">
+                                          <SelectValue placeholder="Load Formula..." />
+                                      </SelectTrigger>
+                                      <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                          <SelectItem value="default" className="font-bold text-[9px] uppercase">LIBRARY STANDARD</SelectItem>
+                                          {client.customFormulas.map(formula => (
+                                              <SelectItem key={formula.id} value={formula.name} className="font-bold text-[9px] uppercase">{formula.name}</SelectItem>
+                                          ))}
+                                      </SelectContent>
+                                  </Select>
+                              )}
+                              <Button variant="ghost" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                                  <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
+                              </Button>
+                          </div>
+                      </div>
+                      
+                      <div className="space-y-2 text-left">
+                          {editableFormula.length > 0 ? (
+                              <div className="grid gap-3 text-left">
+                                  {editableFormula.map((item, index) => (
+                                      <div key={item.id} className="p-5 bg-white rounded-2xl border-2 shadow-sm space-y-4 group hover:border-primary/20 transition-all">
+                                          <div className="flex items-center justify-between gap-4 text-left">
+                                              <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
+                                              <div className="flex items-center gap-3 text-left">
+                                                  <div className="flex items-center gap-2 text-left">
+                                                      <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
+                                                      <Input
+                                                          type="number"
+                                                          value={item.quantity}
+                                                          onChange={(e) => {
+                                                              const newQty = parseFloat(e.target.value) || 0;
+                                                              const next = [...editableFormula];
+                                                              next[index] = { ...item, quantity: newQty };
+                                                              setEditableFormula(next);
+                                                          }}
+                                                          className="w-16 h-9 text-center font-black font-mono border-2 rounded-lg text-xs"
+                                                          step="0.1"
+                                                      />
+                                                      <span className="text-[9px] font-black uppercase text-muted-foreground w-10 opacity-60 truncate text-left">{item.unit}</span>
+                                                  </div>
+                                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeProduct(item.id)}>
+                                                      <Trash2 className="w-4 h-4" />
+                                                  </Button>
+                                              </div>
+                                          </div>
+                                          <div className="relative">
+                                              <MessageSquare className="absolute left-3 top-3 w-3 h-3 text-primary opacity-20" />
+                                              <Input 
+                                                  placeholder="ITEM PROTOCOL NOTE..." 
+                                                  value={item.note || ''} 
+                                                  onChange={(e) => {
+                                                      const next = [...editableFormula];
+                                                      next[index] = { ...item, note: e.target.value };
+                                                      setEditableFormula(next);
+                                                  }}
+                                                  className="h-9 pl-8 rounded-lg border-2 bg-muted/5 font-bold uppercase text-[9px] tracking-tight"
+                                              />
+                                          </div>
+                                      </div>
+                                  ))}
+                              </div>
+                          ) : (
+                              <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
+                                  <Activity className="w-12 h-12" />
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-left">Recipe Manifest Empty</p>
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+  );
+
+  // v2 — RIGHT column: supporting context. Target reference photo (if any),
+  // Hospitality Audit, Dossier Intelligence/notes.
+  const contextColumn = (
+      <div className={cn("space-y-10", isMobile && "pt-10 border-t border-dashed")}>
+          {targetReferenceBlock}
+
+          <div className={cn("space-y-4 text-left", !targetReferenceBlock && "pt-0")}>
+              <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
+              <div className="flex items-center justify-between px-1 text-left">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
+                  <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
+                      <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
+                  </Button>
+              </div>
+              
+              {refreshments.length > 0 ? (
+                  <div className="grid gap-2 text-left">
+                      {refreshments.map((ref, idx) => (
+                          <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
+                              <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
+                                  <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
+                                  <div className="min-w-0 text-left">
+                                      <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
+                                      <div className="flex items-center gap-2 text-left">
+                                          <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
+                                          {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
+                                      </div>
+                                  </div>
+                              </div>
+                              <div className="flex items-center gap-4 shrink-0 text-left">
+                                  {safeNumber(ref.price) === 0 ? (
+                                      <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
+                                          <Star className="w-2 h-2 mr-1 fill-current" /> Club Perk
+                                      </Badge>
+                                  ) : (
+                                      <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
+                                  )}
+                                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setRefreshments(prev => prev.filter((_, i) => i !== idx))}><Trash2 className="w-4 h-4" /></Button>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              ) : (
+                  <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left">
+                      <Coffee className="w-10 h-10" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">No Amenities Served</p>
+                  </div>
+              )}
+          </div>
+
+          <div className="space-y-6 pt-10 border-t border-dashed text-left">
+              <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={4} />
+              <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left">
+                  <div className="space-y-1 text-left">
+                      <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
+                          <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
+                      </Label>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Register this recipe in guest dossier</p>
+                  </div>
+                  <Switch id="save-formula-toggle" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
+              </div>
+
+              <AnimatePresence>
+                  {saveAsCustomFormula && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden text-left">
+                          <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
+                              <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
+                                  <Tag className="w-3.5 h-3.5" /> Formula Identifier
+                              </Label>
+                              <Input 
+                                  id="custom-formula-name" 
+                                  placeholder="e.g., WINTER GLOSS MIX" 
+                                  value={customFormulaName} 
+                                  onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
+                                  className="h-12 rounded-xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
+                              />
+                          </div>
+                      </motion.div>
+                  )}
+              </AnimatePresence>
+
+              <div className="space-y-3 text-left">
+                  <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
+                      <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
+                  </Label>
+                  <Textarea 
+                      id="review-notes"
+                      placeholder="Audit notes regarding treatment outcomes, reactions, or client requests..." 
+                      value={reviewNotes}
+                      onChange={(e) => setReviewNotes(e.target.value)}
+                      rows={4}
+                      className="rounded-[2.5rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed focus-visible:ring-primary/20 shadow-inner"
+                  />
+              </div>
+          </div>
+      </div>
+  );
+
   return (
     <>
       <DialogComponent open={open} onOpenChange={onOpenChange}>
-        <ContentComponent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl rounded-[3rem] border-4 max-h-[95dvh]")}>
+        <ContentComponent
+          {...(isMobile ? { side: 'bottom' } : {})}
+          className={cn(
+            "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
+            isMobile
+              ? "h-[92dvh] rounded-t-[2.5rem]"
+              : "sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl w-[calc(100vw-4rem)] rounded-[3rem] border-4 max-h-[90vh]"
+          )}
+        >
             <DialogHeader className={cn("flex-shrink-0 text-left border-b bg-muted/5", isMobile ? "p-6" : "p-8 pb-6")}>
                 <div className="flex items-center gap-3 mb-2 text-left">
                     <Sparkles className="w-5 h-5 text-primary" />
@@ -541,7 +889,7 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                 <DialogDescription className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verify actuals and mark completed parts before moving forward.</DialogDescription>
             </DialogHeader>
             <ScrollArea className="flex-1 text-left">
-              <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
+              <div className={cn("pb-32", isMobile ? "p-6" : "p-8 lg:p-10")}>
                 <Card className="border-4 border-primary/10 bg-primary/5 rounded-[2rem] shadow-xl shadow-primary/5 overflow-hidden text-left">
                     <CardContent className="p-6 flex items-center gap-6">
                         <Avatar className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] shrink-0">
@@ -555,34 +903,9 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     </CardContent>
                 </Card>
 
-                {appointment.inspirationPhotoUrl && (
-                    <div className="mt-8 space-y-4">
-                        <div className="flex justify-between items-center px-1 text-left">
-                            <SectionHeader icon={FileImage} title="Target Reference" step="Ref" />
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => setIsMarkupOpen(true)}
-                                className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm"
-                            >
-                                <Edit className="w-3 h-3 mr-1.5" /> Markup Tool
-                            </Button>
-                        </div>
-                        <div 
-                            className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in"
-                            onClick={() => setExpandedImage(appointment.inspirationPhotoUrl!)}
-                        >
-                            <Image src={appointment.inspirationPhotoUrl} alt="Target Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
-                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <Maximize2 className="w-8 h-8 text-white" />
-                            </div>
-                            <div className="absolute top-4 right-4">
-                                <Badge className="bg-primary/90 backdrop-blur-md text-white border-none font-black text-[8px] uppercase h-6 px-3 shadow-xl">Guest Choice</Badge>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
+                {/* v2 — alerts stay full-width above the two-column split;
+                    these are important warnings that shouldn't get buried
+                    in a narrower column. */}
                 <div className="mt-8 space-y-3 text-left">
                     <AnimatePresence>
                         {adjustmentBreakdown.rescheduleFee > 0 && (
@@ -634,277 +957,11 @@ export const TechnicianReviewDialog: React.FC<TechnicianReviewDialogProps> = ({
                     )}
                 </div>
 
-                <div className="space-y-10 mt-10 text-left">
-                  <SectionHeader icon={ListChecks} title="Flow Control" step={1} />
-                  <div className="space-y-4 text-left">
-                        <div className="space-y-3 text-left">
-                            <div className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
-                                <div className="flex items-center justify-between gap-4">
-                                    <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
-                                        <Checkbox 
-                                            id={`complete-review-${service.id}`} 
-                                            checked={completedServiceIds.includes(service.id)} 
-                                            onCheckedChange={() => toggleServiceComplete(service.id)}
-                                            className="h-6 w-6 rounded-full border-2"
-                                        />
-                                        <div className="min-w-0 text-left">
-                                            <Label htmlFor={`complete-review-${service.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{service.name}</Label>
-                                            <p className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60 text-left">Main Service</p>
-                                        </div>
-                                    </div>
-                                    <Select value={serviceStaffOverrides[service.id] || ''} onValueChange={(sid) => handleStaffOverride(service.id, sid)}>
-                                        <SelectTrigger className="w-[140px] h-11 rounded-xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
-                                            <SelectValue placeholder="Staff" />
-                                        </SelectTrigger>
-                                        <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                            {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[service.id])).map(s => (
-                                                <SelectItem key={s.id} value={s.id} className="rounded-xl font-bold uppercase text-[9px] tracking-widest">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
-                                                        <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
-                                                    </div>
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                            {selectedAddOns.map(addon => (
-                                <div key={addon.id} className="p-5 rounded-[2rem] border-2 transition-all bg-muted/10 shadow-inner">
-                                    <div className="flex items-center justify-between gap-4">
-                                        <div className="flex items-center gap-4 min-w-0 flex-1 text-left">
-                                            <Checkbox 
-                                                id={`complete-review-${addon.id}`} 
-                                                checked={completedServiceIds.includes(addon.id)} 
-                                                onCheckedChange={() => toggleServiceComplete(addon.id)}
-                                                className="h-6 w-6 rounded-full border-2"
-                                            />
-                                            <div className="min-w-0 text-left">
-                                                <Label htmlFor={`complete-review-${addon.id}`} className="text-sm font-black uppercase tracking-tight text-slate-900 block truncate text-left">{addon.name}</Label>
-                                                <Badge variant="outline" className={cn("text-[8px] h-5 px-2 uppercase font-black tracking-widest cursor-pointer border-2 shadow-sm transition-all", (concurrentServiceIds.includes(addon.id)) ? "bg-primary text-white border-primary" : "bg-white text-muted-foreground border-border")} onClick={() => handleToggleConcurrency(addon.id, !concurrentServiceIds.includes(addon.id))}>
-                                                    {concurrentServiceIds.includes(addon.id) ? <><Zap className="w-2.5 h-2.5 mr-1" /> Concurrent</> : <><Workflow className="w-2.5 h-2.5 mr-1" /> Sequential</>}
-                                                </Badge>
-                                            </div>
-                                        </div>
-                                        <Select value={serviceStaffOverrides[addon.id] || ''} onValueChange={(staffId) => handleStaffOverride(addon.id, staffId)}>
-                                            <SelectTrigger className="w-[140px] h-11 rounded-xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm">
-                                                <SelectValue placeholder="Staff" />
-                                            </SelectTrigger>
-                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                                {staff.filter(s => ((s.active && !s.onBreak) || s.id === serviceStaffOverrides[addon.id]) && (!addon.requiredSkills || addon.requiredSkills?.length === 0 || addon.requiredSkills.every(sk => (s.skillSet || []).includes(sk)))).map(s => (
-                                                    <SelectItem key={s.id} value={s.id} className="rounded-xl font-bold uppercase text-[9px] tracking-widest">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className={cn("w-2 h-2 rounded-full", s.status === 'busy' ? "bg-red-500" : "bg-green-500")} />
-                                                            <span>{s?.name?.split(' ')[0] || 'Tech'}</span>
-                                                        </div>
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        <Button variant="outline" size="sm" onClick={() => setIsAddOnSelectorOpen(true)} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5 mt-2">
-                            <PlusCircle className="mr-2 h-4 w-4 text-primary opacity-40" /> Append Add-on Enhancement
-                        </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-8 pt-10 border-t border-dashed text-left">
-                    <SectionHeader icon={Calculator} title="Usage Actuals" step={2} />
-                    <div className="space-y-8 text-left">
-                        <div className="space-y-3 text-left">
-                          <Label htmlFor="actual-duration-review" className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
-                              <Clock className="w-3.5 h-3.5 opacity-40" /> Actual Duration (Minutes)
-                          </Label>
-                          <Input 
-                              id="actual-duration-review"
-                              type="number"
-                              value={actualDuration}
-                              onChange={(e) => setActualDuration(parseInt(e.target.value) || 0)}
-                              className="h-16 text-2xl md:text-3xl font-black font-mono border-2 rounded-2xl shadow-inner bg-muted/5 text-center focus-visible:ring-primary/20"
-                          />
-                          {actualDuration > service.duration && (
-                              <div className="p-4 bg-amber-500/5 border-2 border-amber-500/10 rounded-2xl animate-in slide-in-from-top-2 text-left">
-                                  <span className="text-[10px] font-black text-amber-700 flex items-center gap-2 uppercase tracking-tight text-left"><Info className="w-3.5 h-3.5"/> Foundation Burn: +{actualDuration - service.duration}m Over Goal</span>
-                              </div>
-                          )}
-                        </div>
-
-                        <div className="space-y-4 pt-4 border-t border-dashed text-left">
-                            <div className="flex items-center justify-between px-1 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2 text-left">
-                                    <PackageOpen className="w-3.5 h-3.5 opacity-40" /> Actual Product Formula
-                                </Label>
-                                <div className="flex items-center gap-2 text-left">
-                                    {(client.customFormulas && client.customFormulas.length > 0) && (
-                                        <Select onValueChange={handleApplyClientFormula} defaultValue="default">
-                                            <SelectTrigger className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm w-40">
-                                                <SelectValue placeholder="Load Formula..." />
-                                            </SelectTrigger>
-                                            <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                                <SelectItem value="default" className="font-bold text-[9px] uppercase">LIBRARY STANDARD</SelectItem>
-                                                {client.customFormulas.map(formula => (
-                                                    <SelectItem key={formula.id} value={formula.name} className="font-bold text-[9px] uppercase">{formula.name}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    )}
-                                    <Button variant="ghost" size="sm" type="button" onClick={() => setIsProductBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                                        <PlusCircle className="w-3 h-3 mr-1.5" /> Append Inventory
-                                    </Button>
-                                </div>
-                            </div>
-                            
-                            <div className="space-y-2 text-left">
-                                {editableFormula.length > 0 ? (
-                                    <div className="grid gap-3 text-left">
-                                        {editableFormula.map((item, index) => (
-                                            <div key={item.id} className="p-5 bg-white rounded-2xl border-2 shadow-sm space-y-4 group hover:border-primary/20 transition-all">
-                                                <div className="flex items-center justify-between gap-4 text-left">
-                                                    <span className="font-black text-xs uppercase tracking-tight text-slate-900 flex-1 truncate text-left">{item.name}</span>
-                                                    <div className="flex items-center gap-3 text-left">
-                                                        <div className="flex items-center gap-2 text-left">
-                                                            <Label className="text-[8px] font-black uppercase text-muted-foreground opacity-40 text-left">Load</Label>
-                                                            <Input
-                                                                type="number"
-                                                                value={item.quantity}
-                                                                onChange={(e) => {
-                                                                    const newQty = parseFloat(e.target.value) || 0;
-                                                                    const next = [...editableFormula];
-                                                                    next[index] = { ...item, quantity: newQty };
-                                                                    setEditableFormula(next);
-                                                                }}
-                                                                className="w-16 h-9 text-center font-black font-mono border-2 rounded-lg text-xs"
-                                                                step="0.1"
-                                                            />
-                                                            <span className="text-[9px] font-black uppercase text-muted-foreground w-10 opacity-60 truncate text-left">{item.unit}</span>
-                                                        </div>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeProduct(item.id)}>
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                                <div className="relative">
-                                                    <MessageSquare className="absolute left-3 top-3 w-3 h-3 text-primary opacity-20" />
-                                                    <Input 
-                                                        placeholder="ITEM PROTOCOL NOTE..." 
-                                                        value={item.note || ''} 
-                                                        onChange={(e) => {
-                                                            const next = [...editableFormula];
-                                                            next[index] = { ...item, note: e.target.value };
-                                                            setEditableFormula(next);
-                                                        }}
-                                                        className="h-9 pl-8 rounded-lg border-2 bg-muted/5 font-bold uppercase text-[9px] tracking-tight"
-                                                    />
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div className="p-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4 text-left">
-                                        <Activity className="w-12 h-12" />
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-left">Recipe Manifest Empty</p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="space-y-8 pt-10 border-t border-dashed text-left">
-                    <SectionHeader icon={Coffee} title="Hospitality Audit" step={3} />
-                    <div className="space-y-4 text-left">
-                        <div className="flex items-center justify-between px-1 text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Refreshments Served</Label>
-                            <Button variant="ghost" size="sm" onClick={() => setIsRefreshmentBrowserOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5 shadow-sm">
-                                <PlusCircle className="w-3 h-3 mr-1.5" /> Append Amenity
-                            </Button>
-                        </div>
-                        
-                        {refreshments.length > 0 ? (
-                            <div className="grid gap-2 text-left">
-                                {refreshments.map((ref, idx) => (
-                                    <div key={`${ref.id}-${idx}`} className="flex items-center justify-between p-4 rounded-2xl border-2 bg-white shadow-sm group">
-                                        <div className="flex items-center gap-3 flex-1 min-w-0 text-left">
-                                            <div className="p-2 bg-primary/5 rounded-xl shrink-0"><Coffee className="w-4 h-4 text-primary" /></div>
-                                            <div className="min-w-0 text-left">
-                                                <p className="text-[11px] font-black uppercase tracking-tight text-slate-900 truncate text-left">{ref.name}</p>
-                                                <div className="flex items-center gap-2 text-left">
-                                                    <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-left">Served {format(parseISO(ref.deliveredAt), 'h:mm a')}</p>
-                                                    {ref.isAccountedFor && <Badge variant="outline" className="h-3.5 text-[6px] font-black uppercase bg-green-50 text-green-700 border-green-200">Inventory Sync</Badge>}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-4 shrink-0 text-left">
-                                            {safeNumber(ref.price) === 0 ? (
-                                                <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest shadow-sm">
-                                                    <Star className="w-2 h-2 mr-1 fill-current" /> Club Perk
-                                                </Badge>
-                                            ) : (
-                                                <p className="font-black font-mono text-xs text-primary">${safeNumber(ref.price).toFixed(2)}</p>
-                                            )}
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setRefreshments(prev => prev.filter((_, i) => i !== idx))}><Trash2 className="w-4 h-4" /></Button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="p-12 text-center border-4 border-dashed rounded-[2.5rem] opacity-30 flex flex-col items-center gap-3 text-left">
-                                <Coffee className="w-10 h-10" />
-                                <p className="text-[10px] font-black uppercase tracking-widest">No Amenities Served</p>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="space-y-8 pt-10 border-t border-dashed text-left">
-                    <SectionHeader icon={BookMarked} title="Dossier Intelligence" step={4} />
-                    <div className="space-y-6 text-left">
-                        <div className="flex items-center justify-between p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/5 shadow-inner transition-all text-left">
-                            <div className="space-y-1 text-left">
-                                <Label htmlFor="save-formula-toggle" className="text-base font-black uppercase tracking-tight flex items-center gap-2 text-left">
-                                    <FileSignature className="w-4 h-4 text-primary" /> Archive Formula
-                                </Label>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">Register this recipe in guest dossier</p>
-                            </div>
-                            <Switch id="save-formula-toggle" checked={saveAsCustomFormula} onCheckedChange={setSaveAsCustomFormula} className="scale-125 data-[state=checked]:bg-primary" />
-                        </div>
-
-                        <AnimatePresence>
-                            {saveAsCustomFormula && (
-                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden text-left">
-                                    <div className="space-y-3 p-6 rounded-[2rem] border-2 bg-white shadow-xl text-left">
-                                        <Label htmlFor="custom-formula-name" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2 text-left">
-                                            <Tag className="w-3.5 h-3.5" /> Formula Identifier
-                                        </Label>
-                                        <Input 
-                                            id="custom-formula-name" 
-                                            placeholder="e.g., WINTER GLOSS MIX" 
-                                            value={customFormulaName} 
-                                            onChange={e => setCustomFormulaName(e.target.value.toUpperCase())}
-                                            className="h-12 rounded-xl border-2 font-black uppercase text-sm tracking-tight focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
-                                        />
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                        <div className="space-y-3 text-left">
-                            <Label htmlFor="review-notes" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2 text-left">
-                                <MessageSquare className="w-3.5 h-3.5 opacity-40" /> Professional Debrief Notes
-                            </Label>
-                            <Textarea 
-                                id="review-notes"
-                                placeholder="Audit notes regarding treatment outcomes, reactions, or client requests..." 
-                                value={reviewNotes}
-                                onChange={(e) => setReviewNotes(e.target.value)}
-                                rows={4}
-                                className="rounded-[2.5rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed focus-visible:ring-primary/20 shadow-inner"
-                            />
-                        </div>
-                    </div>
+                {/* v2 — the actual fix: two-column layout at lg+, single
+                    column (unchanged) below that / on mobile. */}
+                <div className={cn("mt-10", !isMobile && "grid grid-cols-1 lg:grid-cols-[1.4fr,1fr] gap-x-12 gap-y-10 items-start")}>
+                    {flowAndActualsColumn}
+                    {contextColumn}
                 </div>
               </div>
             </ScrollArea>
