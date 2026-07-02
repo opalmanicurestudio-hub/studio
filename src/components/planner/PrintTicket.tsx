@@ -1,7 +1,19 @@
 'use client';
 
 /**
- * PrintTicket — v3
+ * PrintTicket — v4
+ *
+ * v4 — unambiguous check-in code:
+ *   - The printed/displayed check-in code now prefers `appointment.shortCode`
+ *     (generated from a restricted alphabet that excludes visually
+ *     ambiguous characters — no 0/O, no 1/I/L) over the old
+ *     `checkInToken.slice(-8)` approach. The old approach inherited
+ *     whatever characters nanoid's default alphabet produced, which are
+ *     genuinely indistinguishable in a lot of ticket-printer fonts once
+ *     printed — a customer could type a perfectly legible code that was
+ *     simply the wrong character and get a false "not found" for a
+ *     completely valid appointment. Falls back to the legacy slice for any
+ *     appointment that predates shortCode, so old tickets don't just break.
  *
  * v3 — full redesign:
  *   - Allergy/medical strip is now the FIRST visual element, rendered before
@@ -243,7 +255,19 @@ export const PrintTicket: React.FC<PrintTicketProps> = ({ data }) => {
   };
 
   const displayDate = safeDate(appointment.startTime || (appointment as any).checkInTime);
-  const checkInCode = appointment.checkInToken ? appointment.checkInToken.slice(-8).toUpperCase() : null;
+
+  // FIX (v4): prefer the unambiguous-alphabet shortCode over slicing
+  // checkInToken. checkInToken uses nanoid's default alphabet, which
+  // includes characters (0/O, 1/I/L) that are genuinely indistinguishable
+  // in a lot of printed ticket fonts — shortCode is generated specifically
+  // to avoid that. Falls back to the old slice for appointments booked
+  // before shortCode existed, so previously-printed tickets aren't the only
+  // thing that breaks if this ships mid-shift.
+  const checkInCode = (appointment as any).shortCode
+    ? String((appointment as any).shortCode).toUpperCase()
+    : appointment.checkInToken
+      ? appointment.checkInToken.slice(-8).toUpperCase()
+      : null;
   const checkInUrl = typeof window !== 'undefined' && appointment.checkInToken
     ? `${window.location.origin}/check-in/${appointment.checkInToken}`
     : null;
