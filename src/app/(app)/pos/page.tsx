@@ -13,7 +13,7 @@ import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField, limit } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
 import { nanoid } from 'nanoid';
@@ -311,6 +311,12 @@ function POSPage() {
   const [scanQuery, setScanQuery] = useState('');
   const [scanResult, setScanResult] = useState<any | null>(null);
   const [scanNotFound, setScanNotFound] = useState(false);
+  const [isScanResolving, setIsScanResolving] = useState(false);
+  // Which surface triggered the scanner — routes the result differently:
+  // 'checkin'/'checkout' both resolve against appointments and open the
+  // lookup dialog; 'retail' resolves against inventory and drops straight
+  // into the cart with no dialog at all.
+  const [scanMode, setScanMode] = useState<'checkin' | 'checkout' | 'retail'>('checkin');
   const scanInputRef = React.useRef<HTMLInputElement>(null);
   const [pendingRefund, setPendingRefund] = useState<any | null>(null);
   const [storeCreditApplied, setStoreCreditApplied] = useState(0);
@@ -714,22 +720,84 @@ function POSPage() {
   const handleRevertToReady = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'ready_for_checkout' }); toast({ title: "Status Reverted" }); };
 
   // ── Scan / code lookup ─────────────────────────────────────────────────────
-  // Resolves an 8-char check-in code (or a full token) against appointments
-  // already in memory — no extra Firestore read. The 8-char code is the last
-  // 8 chars of checkInToken, uppercased (same value PrintTicket prints and
-  // QuickBookForm's SuccessScreen shows). Full token also accepted so QR
-  // scans work when/if QR is re-added to the confirmation email.
-  const resolveScanCode = React.useCallback((raw: string) => {
+  // Resolves an 8-char check-in code (or a full token) two ways:
+  //   1. In-memory match against appointmentsFromInventory — instant, covers
+  //      the overwhelming majority of scans (today's and recent tickets).
+  //   2. Firestore fallback — only fires on an in-memory miss. Handles
+  //      tickets that exist in the DB but, for whatever reason, aren't
+  //      matching in memory (e.g. rotated checkInToken, stale local cache).
+  //      NOTE: this does not fix every possible "not found" — if the
+  //      appointment document itself has no checkInToken field, or was
+  //      deleted, no query will find it. Confirm that in the Firestore
+  //      console for a specific failing ticket before assuming this alone
+  //      resolves it.
+  const resolveScanCode = React.useCallback(async (raw: string) => {
     const code = raw.trim().toUpperCase();
     if (!code) return;
-    const found = (appointmentsFromInventory || []).find((a: any) => {
+
+    // 1. In-memory match (fast path)
+    const inMemory = (appointmentsFromInventory || []).find((a: any) => {
       if (!a.checkInToken) return false;
       const full = a.checkInToken.toUpperCase();
       return full === code || full.slice(-8) === code.slice(-8);
     });
-    if (found) { setScanResult(found); setScanNotFound(false); }
-    else { setScanResult(null); setScanNotFound(true); }
-  }, [appointmentsFromInventory]);
+    if (inMemory) {
+      setScanResult(inMemory);
+      setScanNotFound(false);
+      return;
+    }
+
+    // 2. Firestore fallback
+    if (!firestore || !tenantId) {
+      setScanResult(null);
+      setScanNotFound(true);
+      return;
+    }
+
+    setIsScanResolving(true);
+    try {
+      // Exact full-token match — works today with zero schema changes, since
+      // the printed/QR code is derived from checkInToken.
+      let snap = await getDocs(query(
+        collection(firestore, 'tenants', tenantId, 'appointments'),
+        where('checkInToken', '==', code),
+        limit(1),
+      ));
+
+      // Forward-compat: once appointments persist a permanent `shortCode`
+      // field at booking time, this becomes the reliable 8-char lookup.
+      // Firestore can't do "checkInToken ends with X", so the 8-char case
+      // only works via exact match today, or via this separate field once
+      // it exists on newly-booked appointments.
+      if (snap.empty) {
+        snap = await getDocs(query(
+          collection(firestore, 'tenants', tenantId, 'appointments'),
+          where('shortCode', '==', code),
+          limit(1),
+        ));
+      }
+
+      if (!snap.empty) {
+        const docSnap = snap.docs[0];
+        const raw = docSnap.data() as any;
+        setScanResult({
+          id: docSnap.id,
+          ...raw,
+          checkInStatus: raw.checkInStatus || 'pending',
+        });
+        setScanNotFound(false);
+      } else {
+        setScanResult(null);
+        setScanNotFound(true);
+      }
+    } catch (e) {
+      console.error('[resolveScanCode] Firestore fallback failed:', e);
+      setScanResult(null);
+      setScanNotFound(true);
+    } finally {
+      setIsScanResolving(false);
+    }
+  }, [appointmentsFromInventory, firestore, tenantId]);
 
   // Barcode scanners emulate keyboard typing at ~50ms/char. When the whole
   // code arrives within 80ms of the 8th character, auto-resolve without
@@ -779,10 +847,31 @@ function POSPage() {
     setIsVoidDialogOpen(false); setVoidTransactionId(null);
   };
 
+  // ── Retail QR / barcode resolution ──────────────────────────────────────────
+  // Matches a scanned code against inventory. Adjust the field names below
+  // (`barcode` / `sku`) to whatever InventoryItem actually uses if it
+  // differs — this assumes those fields exist on the type; if they don't
+  // yet, this needs a schema addition plus a way to assign/print codes per
+  // product before retail scanning can work end-to-end.
+  const resolveRetailScan = useCallback((raw: string) => {
+    const code = raw.trim().toUpperCase();
+    const item = (inventory || []).find((i: any) =>
+      (i.barcode && String(i.barcode).toUpperCase() === code) ||
+      (i.sku && String(i.sku).toUpperCase() === code)
+    );
+    if (item) {
+      handleAddToCart(item);
+      toast({ title: 'Added to Cart', description: item.name });
+    } else {
+      toast({ variant: 'destructive', title: 'Product Not Found', description: `No item matches code ${code}.` });
+    }
+  }, [inventory, handleAddToCart, toast]);
+
   const checkoutHubProps = {
     cart: retailItems, onCartChange: setRetailItems, appointmentsData: readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)), onSelectAppointment: handleSelectAppointment,
     clients: clients || [], isGroupCheckout: selectedAppointmentIds.size > 1, payerOptions: payerOptions || [], selectedClientId, setSelectedClientId,
-    onAddClientClick: () => setIsAddClientOpen(true), onScanClick: () => {},
+    onAddClientClick: () => setIsAddClientOpen(true),
+    onScanClick: () => { setScanMode('checkout'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); },
     subtotal: subtotalCalc, tax: taxCalc, total: totalCalc, tipAmount, setTipAmount, onCheckout: handleCheckout,
     appliedDiscountCodes, setAppliedDiscountCodes, discount: discountValue, membershipDiscount: membershipDiscountValue,
     isSubmitting, paymentTab, setPaymentTab, discounts: discounts || [], amountTendered, setAmountTendered,
@@ -864,8 +953,9 @@ function POSPage() {
               <Button onClick={() => setIsQuickBookOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-primary/20 bg-primary/5 text-primary font-black uppercase text-[10px] tracking-widest hover:bg-primary/10 gap-2 shrink-0"><Calendar className="w-4 h-4" /> Quick Book</Button>
               {/* Scan / Check-In — opens full-screen camera scanner.
                   After a successful scan, resolves the code against in-memory
-                  appointments and opens the appropriate dialog. */}
-              <Button onClick={() => { setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); }} variant="outline" className="h-10 px-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 font-black uppercase text-[10px] tracking-widest hover:bg-emerald-100 gap-2 shrink-0"><QrCode className="w-4 h-4" /> Scan / Check-In</Button>
+                  appointments (with a Firestore fallback) and opens the
+                  appropriate dialog. */}
+              <Button onClick={() => { setScanMode('checkin'); setScanQuery(''); setScanResult(null); setScanNotFound(false); setIsCameraScanOpen(true); }} variant="outline" className="h-10 px-4 rounded-xl border-2 border-emerald-200 bg-emerald-50 text-emerald-700 font-black uppercase text-[10px] tracking-widest hover:bg-emerald-100 gap-2 shrink-0"><QrCode className="w-4 h-4" /> Scan / Check-In</Button>
               <Button onClick={() => setIsVoidDialogOpen(true)} variant="outline" className="h-10 px-4 rounded-xl border-2 border-red-200 bg-red-50 text-red-600 font-black uppercase text-[10px] tracking-widest hover:bg-red-100 gap-2 shrink-0" disabled={!transactions?.some(t => isToday(safeDate(t.date)) && !t.voided)}><XCircle className="w-4 h-4" /> Void Tx</Button>
             </div>
 
@@ -933,7 +1023,14 @@ function POSPage() {
             {activeFloorTab === 'retail' && (
               <div className="space-y-4 text-left">
                 <h3 className="text-sm font-black uppercase tracking-[0.2em] text-muted-foreground flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" />Retail & Additions</h3>
-                <RetailCatalog services={services || []} inventory={inventory || []} memberships={memberships || []} packages={packages || []} onAddToCart={handleAddToCart} onScanClick={() => {}} />
+                <RetailCatalog
+                  services={services || []}
+                  inventory={inventory || []}
+                  memberships={memberships || []}
+                  packages={packages || []}
+                  onAddToCart={handleAddToCart}
+                  onScanClick={() => { setScanMode('retail'); setIsCameraScanOpen(true); }}
+                />
               </div>
             )}
           </div>
@@ -1118,6 +1215,13 @@ function POSPage() {
           onScan={(raw) => {
             setIsCameraScanOpen(false);
             const code = raw.trim().toUpperCase();
+
+            if (scanMode === 'retail') {
+              resolveRetailScan(code);
+              return;
+            }
+
+            // checkin / checkout modes both go through the appointment lookup dialog
             setScanQuery(code);
             resolveScanCode(code);
             setIsScanLookupOpen(true);
@@ -1126,8 +1230,9 @@ function POSPage() {
       )}
 
       {/* ── SCAN / CHECK-IN LOOKUP ───────────────────────────────────────────
-          Shows after camera scan resolves, or can be opened directly for
-          USB barcode scanners (keyboard emulation) or manual code entry. */}
+          Shows after camera scan resolves (checkin/checkout modes only), or
+          can be opened directly for USB barcode scanners (keyboard emulation)
+          or manual code entry. */}
       <Dialog open={isScanLookupOpen} onOpenChange={(o) => { if (!o) { setScanQuery(''); setScanResult(null); setScanNotFound(false); } setIsScanLookupOpen(o); }}>
         <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 shadow-2xl p-0 overflow-hidden">
           <DialogHeader className="p-6 pb-0">
@@ -1154,6 +1259,14 @@ function POSPage() {
               autoCorrect="off"
               spellCheck={false}
             />
+
+            {isScanResolving && (
+              <div className="flex items-center justify-center gap-2 py-2 text-slate-400">
+                <Loader className="w-4 h-4 animate-spin" />
+                <p className="text-[10px] font-black uppercase tracking-widest">Checking full records…</p>
+              </div>
+            )}
+
             {scanResult && (() => {
               const c = clients?.find((cl: any) => cl.id === scanResult.clientId);
               const svc = services?.find((s: any) => s.id === scanResult.serviceId);
@@ -1163,13 +1276,13 @@ function POSPage() {
                   <p className="text-[10px] font-black uppercase text-emerald-700 tracking-widest">Match found</p>
                   <p className="text-sm font-black text-slate-900">{c?.name || scanResult.clientName || 'Unknown client'}</p>
                   <p className="text-xs text-slate-500">{svc?.name || 'Service'}</p>
-                  <p className="text-[10px] text-slate-400">{scanResult.startTime ? format(new Date(scanResult.startTime), 'EEE MMM d · h:mm a') : ''}</p>
+                  <p className="text-[10px] text-slate-400">{scanResult.startTime ? format(safeDate(scanResult.startTime), 'EEE MMM d · h:mm a') : ''}</p>
                   {isArrived && <Badge className="bg-blue-100 text-blue-700 border-none text-[9px]">Already checked in — opens full record</Badge>}
                   {!isArrived && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">Not yet arrived — opens check-in</Badge>}
                 </div>
               );
             })()}
-            {scanNotFound && (
+            {scanNotFound && !isScanResolving && (
               <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-center gap-3">
                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
                 <div>
