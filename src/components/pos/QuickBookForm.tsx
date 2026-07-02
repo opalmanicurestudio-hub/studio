@@ -1,94 +1,5 @@
 'use client';
 
-/**
- * QuickBookForm — v4
- *
- * v4 — receptionist-workspace upgrades (from the Quick Book redesign doc):
- *   - NEW: provider-assignment transparency. The "Any available" preview now
- *     shows the actual reasons behind the pick (on-shift/available at this
- *     time, client's usual provider for this service, lightest schedule
- *     today, certified — if the service doc defines certifiedStaffIds) plus
- *     a rough match score, and a "Lock this provider" action that converts
- *     the booking from "any" to that specific person without losing the
- *     reasoning that was just shown.
- *   - NEW: richer confirmation screen — location, total duration, and a
- *     deposit-paid vs. remaining-balance breakdown, plus working Print and
- *     Resend Confirmation actions. Resend calls /api/notifications/resend-
- *     confirmation, which does not exist yet server-side — add it alongside
- *     send-completion-link before relying on this button.
- *   - NEW: inline contact editing. A pencil next to the client's name in the
- *     step-2 client panel lets staff fix a phone number or add an email
- *     without leaving the booking flow, writing straight to the client doc.
- *     Address / emergency contact / communication preferences are not yet
- *     wired in — need confirmed field names on the Client type first.
- *
- * All v1–v3 features retained — see prior revision notes below.
- *
- * v3 — call-in workflow upgrade:
- *   - BUG FIX: paying down a client's outstanding balance via handleChargeArrears
- *     previously only set local state (`arrearsResolved`). The client's
- *     `outstandingBalance` field in Firestore was never updated, so the balance
- *     kept showing as owed on every subsequent call or visit. Now writes
- *     outstandingBalance: 0 back to the client doc (merge) the moment the
- *     charge succeeds, and updates local `selectedClient` state to match.
- *   - NEW: comprehensive, always-expanded ClientDetailPanel shown the instant a
- *     client is selected in step 2 — total visits, last visit, avg spend,
- *     lifetime value, preferred provider/service, upcoming appointments,
- *     packages, patch test + consent form status, notes, and full visit
- *     history. Designed so front desk can answer almost any caller question
- *     without leaving the booking flow or clicking to "open" anything.
- *   - NEW: "Pending call-backs" workflow. If a call-in booking gets
- *     interrupted, staff can tap "Call back later" at any step to save the
- *     entire in-progress booking (client, service, time, notes, everything)
- *     as a draft in `tenants/{tenantId}/callBackDrafts`. Any staff member can
- *     see the pending list at step 1 and resume exactly where the call left
- *     off. The draft is automatically cleared once that booking completes.
- *   - NEW: persistent "live call" bar across all steps showing who's on the
- *     phone, what's being booked, and the running total, plus the call-back
- *     button — so nothing gets lost mid-call.
- *
- * Earlier (v2) fix carried forward:
- *   - staffDateLoad useMemo crashed with "a.startsWith is not a function" when
- *     any appointment had a non-string `startTime`. Now guards with
- *     `typeof a.startTime === 'string'` before calling .startsWith().
- *
- * NOTE FOR DEPLOYMENT: the new callBackDrafts collection needs Firestore
- * security rules added — staff need read/write on
- * `tenants/{tenantId}/callBackDrafts/{draftId}` the same way they already
- * have it for `appointments` and `clients`, or this will throw the same kind
- * of "Missing or insufficient permissions" error you saw on the appointments
- * list query.
- *
- * NOTE FOR DEPLOYMENT (v4): /api/notifications/resend-confirmation needs to
- * be created server-side — mirrors send-completion-link but resends the
- * original booking confirmation (not the deposit/consent-form link).
- *
- * v2 — bug fixes from v1:
- *   - New client doc no longer double-written on charge path (mini-batch removed;
- *     client is committed inside a single pre-charge batch, appointment follows)
- *   - Group guest clientId now uses a real generated id, not the appointment id
- *   - Multi-provider ledger batch failure now shown with a persistent error state,
- *     not just a dismissable toast
- *   - Deposit policy extended to include multi-provider legs total
- *   - Package redemption now validates that the package matches the selected service
- *   - Outstanding balance cent-rounding guard added
- *   - Add-on pricing resolves staff correctly when selectedStaff === 'any'
- *   - Changing client now clears all step-2 state (addOnIds, aptTime, groupGuests, etc.)
- *
- * v2 — features:
- *   - Blocked client gate, duplicate client detection, outstanding balance
- *     interstitial, patch test / allergy alert, service eligibility filtering,
- *     duration override stepper, staff date-load chips, waitlist path,
- *     add-on compatibility, promo codes, charge confirmation guard, reminder
- *     timing override, client-visible vs internal notes, consent form status,
- *     success screen parity, completion link expiry, slot concurrency guard.
- *
- * All existing features retained:
- *   - ClientIntelligencePanel, SmartAvailabilityGrid, GroupBookingPanel,
- *     MultiProviderPanel, package redemption, charge card on file, arrears banner,
- *     multi-provider legs, add-on upsell
- */
-
 import React from 'react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
@@ -99,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { getServicePrice } from '@/lib/data';
 import { computeDepositCents } from '@/lib/deposit-policy';
+import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
 import { cn, safeNumber } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
@@ -319,6 +231,10 @@ type BookingSuccess = {
   appointmentId: string;
   tenantId: string;
   checkInToken: string;
+  // NEW — the unambiguous-alphabet code, generated alongside checkInToken.
+  // See lib/short-code.ts for why this exists as its own field rather than
+  // being derived from checkInToken.
+  shortCode: string;
   clientName: string;
   clientEmail: string;
   clientPhone: string;
@@ -1032,12 +948,19 @@ function SuccessScreen({
   const checkInUrl = typeof window !== 'undefined' && result.checkInToken
     ? `${window.location.origin}/check-in/${result.checkInToken}`
     : '';
-  // A short, easy-to-read-aloud-or-type code instead of a QR image — the
-  // last 8 characters of the token, uppercased. No network call, nothing
-  // that can fail to load.
-  const checkInCodeDisplay = result.checkInToken
-    ? result.checkInToken.slice(-8).toUpperCase()
-    : '';
+  // v5 — FIX: prefer the unambiguous-alphabet shortCode over slicing
+  // checkInToken. checkInToken uses nanoid's default alphabet, which
+  // includes characters (0/O, 1/I/L) that are genuinely indistinguishable
+  // in a lot of confirmation-screen/print fonts — a customer could read off
+  // a perfectly legible code that was simply the wrong character and get a
+  // false "not found" at the front desk. shortCode is generated specifically
+  // to avoid that; falls back to the old slice if shortCode is somehow
+  // absent, so this never renders blank.
+  const checkInCodeDisplay = result.shortCode
+    ? result.shortCode.toUpperCase()
+    : result.checkInToken
+      ? result.checkInToken.slice(-8).toUpperCase()
+      : '';
 
   return (
     <>
@@ -1184,6 +1107,22 @@ function SuccessScreen({
           ) : (
             <p className="text-[11px] text-slate-400">Send this to {firstName} to secure their spot.</p>
           )}
+        </div>
+      )}
+
+      {/* NEW — the check-in code is shown here too, not just on the printed
+          ticket below. Front desk staff and clients frequently need to read
+          this off a screen (e.g. dictating it over the phone, or a client
+          screenshotting the confirmation), and print: is display:none until
+          print media actually activates — nothing before this made the code
+          visible on-screen at all. */}
+      {checkInCodeDisplay && (
+        <div className="rounded-xl border p-3.5 flex items-center justify-between gap-3 bg-slate-50">
+          <div>
+            <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Check-in code</p>
+            <p className="font-mono font-bold text-lg tracking-[0.2em] text-slate-900">{checkInCodeDisplay}</p>
+          </div>
+          <QrCode className="w-5 h-5 text-slate-300 shrink-0" />
         </div>
       )}
 
@@ -2381,6 +2320,9 @@ export function QuickBookForm({
       });
       const aptId = _nanoid();
       const checkInToken = _nanoid();
+      // NEW — the permanent, unambiguous-alphabet code for front-desk
+      // lookup, generated alongside checkInToken. See lib/short-code.ts.
+      const shortCode = generateShortCode();
       // v5 — shared across the primary appointment and every future
       // recurring occurrence created after the main batch commits below.
       const recurrenceId = isRecurring && recurrenceCount > 1 ? _nanoid() : null;
@@ -2500,8 +2442,19 @@ export function QuickBookForm({
       // ── Main batch ────────────────────────────────────────────────────────
       const batch = writeBatch(firestore);
 
-      // Client doc (new client, non-charge path)
-      if (!selectedClient) {
+      // Client doc.
+      //
+      // v9 FIX: previously this block unconditionally wrote a "new client"
+      // doc whenever `!selectedClient`, even though the comment claimed it
+      // was the "non-charge path." When `willChargeNow` was also true, the
+      // client doc had *already* been committed a few lines above in its
+      // own pre-charge batch — so this fired a second, redundant write for
+      // the exact same document right after. Gating on `!willChargeNow`
+      // makes this block only run for the genuine non-charge new-client
+      // case, matching what it always claimed to do. The existing-client
+      // merge-update branch is untouched and still runs for any existing
+      // client regardless of whether a charge just happened.
+      if (!selectedClient && !willChargeNow) {
         batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
           id: clientId,
           name: clientName,
@@ -2512,7 +2465,7 @@ export function QuickBookForm({
           status: 'active',
           reminderSent: false,
         }));
-      } else {
+      } else if (selectedClient) {
         const updates: any = {};
         if (newClientEmail.trim() && !selectedClient.email) updates.email = newClientEmail.trim();
         if (Object.keys(updates).length) {
@@ -2531,6 +2484,7 @@ export function QuickBookForm({
         durationOverrideMinutes: durationOffset > 0 ? durationOffset : undefined,
         staffId: resolvedStaffId,
         checkInToken,
+        shortCode,
         status: 'confirmed',
         source: 'pos_quick_book',
         startTime: startTime.toISOString(),
@@ -2617,11 +2571,13 @@ export function QuickBookForm({
           });
           const legId = _nanoid();
           const legToken = _nanoid();
+          const legShortCode = generateShortCode(); // NEW — each leg is independently scannable
           batch.set(doc(firestore, `tenants/${tenantId}/appointments`, legId), sanitizeForFirestore({
             id: legId, tenantId, clientId, clientName,
             serviceId: leg.serviceId,
             staffId: legStaffId,
             checkInToken: legToken,
+            shortCode: legShortCode,
             status: 'confirmed',
             source: 'pos_quick_book',
             startTime: leg.startTime.toISOString(),
@@ -2638,6 +2594,7 @@ export function QuickBookForm({
             serviceId: leg.serviceId,
             staffId: legStaffId,
             checkInToken: legToken,
+            shortCode: legShortCode,
             status: 'confirmed',
             startTime: leg.startTime.toISOString(),
             endTime: leg.endTime.toISOString(),
@@ -2661,6 +2618,7 @@ export function QuickBookForm({
           const gClientId = guest.linkedClientId || _nanoid();
           const gAptId = _nanoid();
           const gToken = _nanoid();
+          const gShortCode = generateShortCode(); // NEW — each group guest is independently scannable
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
           const gStaffId = guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId;
           if (guest.staffId === 'any' && gStaffId) anyAssignedStaffIds.push(gStaffId);
@@ -2704,6 +2662,7 @@ export function QuickBookForm({
             addOnIds: gAddOnIds.length > 0 ? gAddOnIds : undefined,
             staffId: gStaffId,
             checkInToken: gToken,
+            shortCode: gShortCode,
             status: 'confirmed',
             source: 'pos_quick_book_group',
             startTime: startTime.toISOString(),
@@ -2781,6 +2740,7 @@ export function QuickBookForm({
               : selectedStaff;
             const occId = _nanoid();
             const occToken = _nanoid();
+            const occShortCode = generateShortCode(); // NEW — each occurrence is independently scannable
             recurBatch.set(doc(firestore, `tenants/${tenantId}/appointments`, occId), sanitizeForFirestore({
               id: occId,
               tenantId,
@@ -2790,6 +2750,7 @@ export function QuickBookForm({
               addOnIds: addOnIds.length > 0 ? addOnIds : undefined,
               staffId: occStaffId,
               checkInToken: occToken,
+              shortCode: occShortCode,
               status: 'confirmed',
               source: 'pos_quick_book',
               startTime: occStart.toISOString(),
@@ -2810,6 +2771,7 @@ export function QuickBookForm({
               serviceId: selectedService,
               staffId: occStaffId,
               checkInToken: occToken,
+              shortCode: occShortCode,
               status: 'confirmed',
               startTime: occStart.toISOString(),
               endTime: occEnd.toISOString(),
@@ -2915,6 +2877,7 @@ export function QuickBookForm({
         appointmentId: aptId,
         tenantId,
         checkInToken,
+        shortCode,
         clientName,
         clientEmail: clientEmail.trim(),
         clientPhone: selectedClient?.phone || newClientPhone || '',
