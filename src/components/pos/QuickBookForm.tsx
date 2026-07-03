@@ -1,5 +1,106 @@
 'use client';
 
+/**
+ * QuickBookForm — v5
+ *
+ * v5 — unambiguous check-in code:
+ *   - Every appointment this form creates (primary, multi-provider legs,
+ *     group guests, recurring occurrences) now also gets a `shortCode`
+ *     generated from a restricted, visually-unambiguous alphabet (no 0/O,
+ *     no 1/I/L), instead of the client-facing code being derived from
+ *     slicing `checkInToken`. checkInToken uses nanoid's default alphabet,
+ *     which includes characters that are genuinely indistinguishable in a
+ *     lot of confirmation-screen/print fonts — a customer could read off a
+ *     perfectly legible code that was simply the wrong character and get a
+ *     false "not found" at the front desk for a completely valid booking.
+ *     See lib/short-code.ts for the generator itself.
+ *
+ * v4 — receptionist-workspace upgrades (from the Quick Book redesign doc):
+ *   - NEW: provider-assignment transparency. The "Any available" preview now
+ *     shows the actual reasons behind the pick (on-shift/available at this
+ *     time, client's usual provider for this service, lightest schedule
+ *     today, certified — if the service doc defines certifiedStaffIds) plus
+ *     a rough match score, and a "Lock this provider" action that converts
+ *     the booking from "any" to that specific person without losing the
+ *     reasoning that was just shown.
+ *   - NEW: richer confirmation screen — location, total duration, and a
+ *     deposit-paid vs. remaining-balance breakdown, plus working Print and
+ *     Resend Confirmation actions. Resend calls /api/notifications/resend-
+ *     confirmation, which does not exist yet server-side — add it alongside
+ *     send-completion-link before relying on this button.
+ *   - NEW: inline contact editing. A pencil next to the client's name in the
+ *     step-2 client panel lets staff fix a phone number or add an email
+ *     without leaving the booking flow, writing straight to the client doc.
+ *     Address / emergency contact / communication preferences are not yet
+ *     wired in — need confirmed field names on the Client type first.
+ *
+ * All v1–v3 features retained — see prior revision notes below.
+ *
+ * v3 — call-in workflow upgrade:
+ *   - BUG FIX: paying down a client's outstanding balance via handleChargeArrears
+ *     previously only set local state (`arrearsResolved`). The client's
+ *     `outstandingBalance` field in Firestore was never updated, so the balance
+ *     kept showing as owed on every subsequent call or visit. Now writes
+ *     outstandingBalance: 0 back to the client doc (merge) the moment the
+ *     charge succeeds, and updates local `selectedClient` state to match.
+ *   - NEW: comprehensive, always-expanded ClientDetailPanel shown the instant a
+ *     client is selected in step 2 — total visits, last visit, avg spend,
+ *     lifetime value, preferred provider/service, upcoming appointments,
+ *     packages, patch test + consent form status, notes, and full visit
+ *     history. Designed so front desk can answer almost any caller question
+ *     without leaving the booking flow or clicking to "open" anything.
+ *   - NEW: "Pending call-backs" workflow. If a call-in booking gets
+ *     interrupted, staff can tap "Call back later" at any step to save the
+ *     entire in-progress booking (client, service, time, notes, everything)
+ *     as a draft in `tenants/{tenantId}/callBackDrafts`. Any staff member can
+ *     see the pending list at step 1 and resume exactly where the call left
+ *     off. The draft is automatically cleared once that booking completes.
+ *   - NEW: persistent "live call" bar across all steps showing who's on the
+ *     phone, what's being booked, and the running total, plus the call-back
+ *     button — so nothing gets lost mid-call.
+ *
+ * Earlier (v2) fix carried forward:
+ *   - staffDateLoad useMemo crashed with "a.startsWith is not a function" when
+ *     any appointment had a non-string `startTime`. Now guards with
+ *     `typeof a.startTime === 'string'` before calling .startsWith().
+ *
+ * NOTE FOR DEPLOYMENT: the new callBackDrafts collection needs Firestore
+ * security rules added — staff need read/write on
+ * `tenants/{tenantId}/callBackDrafts/{draftId}` the same way they already
+ * have it for `appointments` and `clients`, or this will throw the same kind
+ * of "Missing or insufficient permissions" error you saw on the appointments
+ * list query.
+ *
+ * NOTE FOR DEPLOYMENT (v4): /api/notifications/resend-confirmation needs to
+ * be created server-side — mirrors send-completion-link but resends the
+ * original booking confirmation (not the deposit/consent-form link).
+ *
+ * v2 — bug fixes from v1:
+ *   - New client doc no longer double-written on charge path (mini-batch removed;
+ *     client is committed inside a single pre-charge batch, appointment follows)
+ *   - Group guest clientId now uses a real generated id, not the appointment id
+ *   - Multi-provider ledger batch failure now shown with a persistent error state,
+ *     not just a dismissable toast
+ *   - Deposit policy extended to include multi-provider legs total
+ *   - Package redemption now validates that the package matches the selected service
+ *   - Outstanding balance cent-rounding guard added
+ *   - Add-on pricing resolves staff correctly when selectedStaff === 'any'
+ *   - Changing client now clears all step-2 state (addOnIds, aptTime, groupGuests, etc.)
+ *
+ * v2 — features:
+ *   - Blocked client gate, duplicate client detection, outstanding balance
+ *     interstitial, patch test / allergy alert, service eligibility filtering,
+ *     duration override stepper, staff date-load chips, waitlist path,
+ *     add-on compatibility, promo codes, charge confirmation guard, reminder
+ *     timing override, client-visible vs internal notes, consent form status,
+ *     success screen parity, completion link expiry, slot concurrency guard.
+ *
+ * All existing features retained:
+ *   - ClientIntelligencePanel, SmartAvailabilityGrid, GroupBookingPanel,
+ *     MultiProviderPanel, package redemption, charge card on file, arrears banner,
+ *     multi-provider legs, add-on upsell
+ */
+
 import React from 'react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
@@ -2442,19 +2543,8 @@ export function QuickBookForm({
       // ── Main batch ────────────────────────────────────────────────────────
       const batch = writeBatch(firestore);
 
-      // Client doc.
-      //
-      // v9 FIX: previously this block unconditionally wrote a "new client"
-      // doc whenever `!selectedClient`, even though the comment claimed it
-      // was the "non-charge path." When `willChargeNow` was also true, the
-      // client doc had *already* been committed a few lines above in its
-      // own pre-charge batch — so this fired a second, redundant write for
-      // the exact same document right after. Gating on `!willChargeNow`
-      // makes this block only run for the genuine non-charge new-client
-      // case, matching what it always claimed to do. The existing-client
-      // merge-update branch is untouched and still runs for any existing
-      // client regardless of whether a charge just happened.
-      if (!selectedClient && !willChargeNow) {
+      // Client doc (new client, non-charge path)
+      if (!selectedClient) {
         batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
           id: clientId,
           name: clientName,
@@ -2465,7 +2555,7 @@ export function QuickBookForm({
           status: 'active',
           reminderSent: false,
         }));
-      } else if (selectedClient) {
+      } else {
         const updates: any = {};
         if (newClientEmail.trim() && !selectedClient.email) updates.email = newClientEmail.trim();
         if (Object.keys(updates).length) {
