@@ -99,6 +99,23 @@
  *   - ClientIntelligencePanel, SmartAvailabilityGrid, GroupBookingPanel,
  *     MultiProviderPanel, package redemption, charge card on file, arrears banner,
  *     multi-provider legs, add-on upsell
+ *
+ * v9 — BUG FIX (client doc double-write on the new-client + charge-now path):
+ *   The v2 changelog above claims the mini-batch was removed so a new
+ *   client's doc is "committed inside a single pre-charge batch, appointment
+ *   follows" — but the main batch further down was still unconditionally
+ *   writing that same client doc again whenever `!selectedClient`, with no
+ *   check for `willChargeNow`. So for a brand-new client who pays now, the
+ *   client doc got written twice: once by the pre-charge batch (with
+ *   whatever fields that path sets) and then immediately overwritten by an
+ *   identical-looking write in the main batch. Harmless today only because
+ *   both payloads happen to match; the moment either write is extended
+ *   (e.g. to add a field only the pre-charge commit should set), the second
+ *   write silently clobbers it. Fixed by gating the main-batch client-doc
+ *   creation on `!willChargeNow` — it now only fires on the genuine
+ *   non-charge new-client path, matching what the comment already claimed.
+ *   The existing-client merge-update branch is unaffected and still runs
+ *   regardless of `willChargeNow`.
  */
 
 import React from 'react';
@@ -2543,8 +2560,19 @@ export function QuickBookForm({
       // ── Main batch ────────────────────────────────────────────────────────
       const batch = writeBatch(firestore);
 
-      // Client doc (new client, non-charge path)
-      if (!selectedClient) {
+      // Client doc.
+      //
+      // v9 FIX: previously this block unconditionally wrote a "new client"
+      // doc whenever `!selectedClient`, even though the comment claimed it
+      // was the "non-charge path." When `willChargeNow` was also true, the
+      // client doc had *already* been committed a few lines above in its
+      // own pre-charge batch — so this fired a second, redundant write for
+      // the exact same document right after. Gating on `!willChargeNow`
+      // makes this block only run for the genuine non-charge new-client
+      // case, matching what it always claimed to do. The existing-client
+      // merge-update branch is untouched and still runs for any existing
+      // client regardless of whether a charge just happened.
+      if (!selectedClient && !willChargeNow) {
         batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
           id: clientId,
           name: clientName,
@@ -2555,7 +2583,7 @@ export function QuickBookForm({
           status: 'active',
           reminderSent: false,
         }));
-      } else {
+      } else if (selectedClient) {
         const updates: any = {};
         if (newClientEmail.trim() && !selectedClient.email) updates.email = newClientEmail.trim();
         if (Object.keys(updates).length) {
