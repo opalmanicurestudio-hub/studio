@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { type Staff, type Appointment, type Service, type Resource } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { Clock, MoreHorizontal, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCw, Sparkles, Users, Zap, Workflow } from 'lucide-react';
+import { Clock, MoreHorizontal, ArrowUp, ArrowDown, MapPin, Car, HardHat, Building, RefreshCw, Sparkles, Users, Zap, Workflow, AlertTriangle } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { format, differenceInMinutes, parseISO, isSameDay, startOfDay } from 'date-fns';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
@@ -38,7 +38,7 @@ const StaffMemberCard = ({
     canManage,
     services
 }: { 
-    member: Staff & { availability?: { status: string } }, 
+    member: Staff & { availability?: { status: string; isOvertime?: boolean; overtimeMinutes?: number } }, 
     isNextUp: boolean, 
     turnOrder: number | null, 
     onMoveUp: (id: string) => void,
@@ -54,6 +54,7 @@ const StaffMemberCard = ({
     const getStatus = () => {
         if (!member.active) return { text: 'Offline', className: 'bg-muted text-muted-foreground' };
         if (member.onBreak) return { text: 'On Break', className: 'bg-amber-500 text-white border-none' };
+        if (member.availability?.isOvertime) return { text: 'Over', className: 'bg-destructive text-white border-none animate-pulse' };
         if (member.status === 'busy') return { text: 'Busy', className: 'bg-destructive text-white border-none' };
         return { text: 'Idle', className: 'bg-green-500 text-white border-none' };
     };
@@ -65,6 +66,7 @@ const StaffMemberCard = ({
         <Card className={cn(
             "relative transition-all border-2 rounded-[1.5rem] flex flex-col h-full overflow-hidden",
             isNextUp ? "border-primary ring-4 ring-primary/10 shadow-2xl scale-[1.02] z-10" : "border-border/50 shadow-sm",
+            member.availability?.isOvertime && !isNextUp && "border-destructive/40 ring-2 ring-destructive/10",
             !member.active && "opacity-40 grayscale"
         )}>
             {assignmentMode === 'ordered_list' && member.active && (
@@ -116,8 +118,12 @@ const StaffMemberCard = ({
                 </div>
 
                 {member.status === 'busy' && (
-                    <div className="mt-auto">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest opacity-60 leading-none truncate">{member.availability?.status}</p>
+                    <div className="mt-auto flex items-center gap-1 min-w-0">
+                        {member.availability?.isOvertime && <AlertTriangle className="w-2.5 h-2.5 text-destructive shrink-0" />}
+                        <p className={cn(
+                            "text-[8px] font-black uppercase tracking-widest leading-none truncate",
+                            member.availability?.isOvertime ? "text-destructive opacity-100" : "text-muted-foreground opacity-60"
+                        )}>{member.availability?.status}</p>
                     </div>
                 )}
             </CardContent>
@@ -220,16 +226,34 @@ export const TeamStatus: React.FC<TeamStatusProps> = ({ staff, appointments, res
                 });
             });
             const isCurrentlyBusy = !!currentAppointment || member.status === 'busy';
+            let isOvertime = false;
+            let overtimeMinutes = 0;
             if (member.active && !member.onBreak) {
                 if (isCurrentlyBusy) {
                     if (currentAppointment) {
                         const minutesRemaining = differenceInMinutes(safeDate(currentAppointment.endTime), now);
-                        availabilityStatus = minutesRemaining <= 0 ? "Finishing up" : `Free in ${minutesRemaining}m`;
+                        if (minutesRemaining > 0) {
+                            availabilityStatus = `Free in ${minutesRemaining}m`;
+                        } else {
+                            const minutesOver = Math.abs(minutesRemaining);
+                            // Small grace window — a session ending 1-3 minutes past its
+                            // scheduled end is normal drift, not something front desk needs
+                            // to react to. Past that, flag it clearly instead of hiding it
+                            // behind the same "Finishing up" label regardless of how late.
+                            const OVERTIME_GRACE_MINUTES = 3;
+                            if (minutesOver <= OVERTIME_GRACE_MINUTES) {
+                                availabilityStatus = "Wrapping up";
+                            } else {
+                                isOvertime = true;
+                                overtimeMinutes = minutesOver;
+                                availabilityStatus = `+${minutesOver}m Over`;
+                            }
+                        }
                     } else availabilityStatus = "Busy";
                 }
             }
             const nextApt = appointments.find(apt => apt.staffId === member.id && apt.status === 'confirmed' && isSameDay(safeDate(apt.startTime), todayStart) && safeDate(apt.startTime) > now);
-            return { ...member, status: member.active && !member.onBreak && isCurrentlyBusy ? 'busy' : member.status, availability: { status: availabilityStatus }, nextApt };
+            return { ...member, status: member.active && !member.onBreak && isCurrentlyBusy ? 'busy' : member.status, availability: { status: availabilityStatus, isOvertime, overtimeMinutes }, nextApt };
         });
     }, [staff, appointments]);
     
