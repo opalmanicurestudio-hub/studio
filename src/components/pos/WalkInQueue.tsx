@@ -82,8 +82,14 @@ interface WalkInQueueProps {
 
 // v2 — real bounded height for every lane. Responsive at the sm breakpoint
 // so mobile (which now only shows one lane at a time) gets a bit more room
-// than the tighter 4-across desktop layout.
-const LANE_HEIGHT = 'h-[460px] sm:h-[520px] md:h-[560px]';
+// than the tighter 4-across desktop layout. xl/2xl step up slightly so the
+// board doesn't look squat once BOARD_MAX_WIDTH below caps its horizontal size.
+const LANE_HEIGHT = 'h-[460px] sm:h-[520px] md:h-[560px] xl:h-[600px] 2xl:h-[640px]';
+
+// v3 — caps the whole four-lane board on large monitors so lanes stay a
+// readable, scannable width instead of stretching edge-to-edge, and centers
+// it so the extra space around it reads as intentional, not leftover.
+const BOARD_MAX_WIDTH = 'w-full max-w-[1720px] mx-auto';
 
 type LaneKey = 'waitlist' | 'notified' | 'inService' | 'atDesk';
 
@@ -188,7 +194,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     ];
 
     return (
-        <div className="flex flex-col border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white shadow-2xl shadow-primary/5">
+        <div className={cn(BOARD_MAX_WIDTH, "flex flex-col border-4 rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white shadow-2xl shadow-primary/5")}>
             {/* v2 — mobile lane switcher. Hidden at md+ where all four lanes
                 already sit side by side. All lanes below stay mounted
                 regardless (CSS-hidden, not conditionally rendered) so this
@@ -221,10 +227,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 divide-y md:divide-y-0 md:divide-x border-b">
                 {/* Waitlist */}
-                <div className={cn('flex-col', LANE_HEIGHT, mobileActiveLane === 'waitlist' ? 'flex' : 'hidden md:flex')}>
+                <div className={cn('flex-col min-w-0', LANE_HEIGHT, mobileActiveLane === 'waitlist' ? 'flex' : 'hidden md:flex')}>
                     <LaneHeader icon={Users} title="Waitlist" count={unifiedWaitlist.length} action={<Button size="sm" variant="ghost" onClick={onAssignNext} className="h-7 md:h-8 rounded-xl font-black uppercase text-[8px] md:text-[9px] tracking-widest text-primary hover:bg-primary/5">AUTO-TURN</Button>} />
-                    <ScrollArea className="flex-1 min-h-0">
-                        <div className="p-4 md:p-6 space-y-4">
+                    <ScrollArea className="flex-1 min-h-0 min-w-0">
+                        <div className="p-4 xl:p-5 space-y-3 min-w-0">
                             {unifiedWaitlist.length > 0 ? unifiedWaitlist.map(item => (
                                 <WaitingCustomerCard key={item.id} item={item} services={services} staffList={staff} onAssign={() => handleOpenAssignDialog(item)} onCancel={onCancel} onPrintTicket={onPrintTicket} groupSize={item.type === 'walk-in' ? (groupSizes.get((item as any).groupId) || 1) : 1} onUpdateStatus={onUpdateStatus} onResolve={() => onResolve(item)} />
                             )) : (
@@ -238,10 +244,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                 </div>
 
                 {/* Notified */}
-                <div className={cn('flex-col bg-primary/[0.01]', LANE_HEIGHT, mobileActiveLane === 'notified' ? 'flex' : 'hidden md:flex')}>
+                <div className={cn('flex-col bg-primary/[0.01] min-w-0', LANE_HEIGHT, mobileActiveLane === 'notified' ? 'flex' : 'hidden md:flex')}>
                     <LaneHeader icon={CheckCircle} title="Notified" count={notifiedQueue.length} colorClass="text-green-500" />
-                    <ScrollArea className="flex-1 min-h-0">
-                        <div className="p-4 md:p-6 space-y-4">
+                    <ScrollArea className="flex-1 min-h-0 min-w-0">
+                        <div className="p-4 xl:p-5 space-y-3 min-w-0">
                             {notifiedQueue.length > 0 ? notifiedQueue.map(walkIn => (
                                 <NotifiedCustomerCard key={walkIn.id} walkIn={walkIn} services={services} staff={staff} onStartService={() => onStartService(`apt-walkin-${walkIn.id}`)} onSkip={onSkip} onCancel={(id) => onCancel(id, true)} onReturnToQueue={onReturnToQueue} onUpdateStatus={onUpdateStatus} />
                             )) : (
@@ -255,10 +261,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                 </div>
 
                 {/* In Service */}
-                <div className={cn('flex-col', LANE_HEIGHT, mobileActiveLane === 'inService' ? 'flex' : 'hidden md:flex')}>
+                <div className={cn('flex-col min-w-0', LANE_HEIGHT, mobileActiveLane === 'inService' ? 'flex' : 'hidden md:flex')}>
                     <LaneHeader icon={Activity} title="In Service" count={inServiceQueue.length} colorClass="text-blue-500" />
-                    <ScrollArea className="flex-1 min-h-0">
-                        <div className="p-4 md:p-6 space-y-4">
+                    <ScrollArea className="flex-1 min-h-0 min-w-0">
+                        <div className="p-4 xl:p-5 space-y-3 min-w-0">
                             {inServiceQueue.length > 0 ? inServiceQueue.map(apt => (
                                 <InServiceAppointmentCard key={apt.id} appointment={apt} services={services} staff={staff} onSendToCheckout={() => onFinishService(apt)} onViewDetails={() => onResolve(apt)} onCancel={() => onCancel(apt.id, !!apt.isWalkIn)} />
                             )) : (
@@ -272,10 +278,10 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                 </div>
 
                 {/* At Desk */}
-                <div className={cn('flex-col bg-orange-500/[0.01]', LANE_HEIGHT, mobileActiveLane === 'atDesk' ? 'flex' : 'hidden md:flex')}>
+                <div className={cn('flex-col bg-orange-500/[0.01] min-w-0', LANE_HEIGHT, mobileActiveLane === 'atDesk' ? 'flex' : 'hidden md:flex')}>
                     <LaneHeader icon={ShoppingCart} title="At Desk" count={readyForCheckoutAppointments.length} colorClass="text-orange-500" action={<Button size="sm" variant="ghost" onClick={onScanClick} className="h-7 md:h-8 rounded-xl font-black uppercase text-[8px] md:text-[9px] tracking-widest text-orange-600 hover:bg-orange-500/5"><QrCode className="w-3 h-3 mr-1" /> SCAN</Button>} />
-                    <ScrollArea className="flex-1 min-h-0">
-                        <div className="p-4 md:p-6 space-y-4">
+                    <ScrollArea className="flex-1 min-h-0 min-w-0">
+                        <div className="p-4 xl:p-5 space-y-3 min-w-0">
                             {readyForCheckoutAppointments.length > 0 ? readyForCheckoutAppointments.map(data => (
                                 <CheckoutQueueCard key={data.id} appointmentData={data} isSelected={selectedAppointmentIds.has(data.id)} onSelect={() => onSelectAppointment(data.id)} onRevertToService={() => onRevertToService(data.id)} />
                             )) : (
