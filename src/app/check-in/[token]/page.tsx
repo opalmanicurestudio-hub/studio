@@ -1,5 +1,31 @@
-
 'use client';
+
+/**
+ * /check-in/[token] — v2
+ *
+ * v2 — UNIFICATION: this used to be one of TWO separate client-facing
+ * links for the same appointment. QuickBookForm minted a second,
+ * independent token for a "completion" link (forms, card-on-file,
+ * deposit) that pointed at a completely different page
+ * (/complete/[tenantId]/[token]) with its own visual style. Clients could
+ * receive two different URLs about the same booking.
+ *
+ * Now there is exactly one token (checkInToken) and one link
+ * (/check-in/{checkInToken}). This page gates on completion requirements
+ * BEFORE the arrival flow: if the appointment has an associated
+ * `bookingCompletions` record with outstanding requirements (unsigned
+ * consent forms, no card on file, unpaid deposit, missing file uploads),
+ * the client sees that first — restyled to match this page's existing
+ * ViewContainer/ViewHeader visual language rather than pasted in from the
+ * old page's different design. Once resolved (or if nothing was ever
+ * required), the client falls straight into the existing arrival ->
+ * concierge -> review flow, completely unchanged from v1.
+ *
+ * Render order:
+ *   loading -> not found -> cancelled -> completed ->
+ *   [NEW] completion pending -> arrived/servicing (concierge) ->
+ *   day-of arrival (Hello + status buttons)
+ */
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -50,12 +76,17 @@ import {
     User,
     LayoutDashboard,
     Maximize2,
-    Sofa
+    Sofa,
+    FileSignature,
+    CreditCard,
+    ShieldCheck,
+    Upload,
+    Image as ImageIcon,
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc } from 'firebase/firestore';
+import { collection, query, where, doc, addDoc, setDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { cn, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -66,6 +97,9 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
+import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
+import { loadStripe } from '@stripe/stripe-js';
+import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
@@ -659,6 +693,331 @@ const ConciergeExperienceView = ({
     );
 };
 
+// -- v2 -- NEW: CompletionGateView --------------------------------------
+// Ported from the old standalone /complete/[tenantId]/[token] page, restyled
+// to match this page's ViewContainer/ViewHeader visual language instead of
+// the old page's separate plain-slate-50 style. Handles the same four
+// scenarios: forms+card, forms only, card only, nothing (caller should not
+// render this view at all in the "nothing" case -- see isCompletionPending
+// in the main component below).
+const CompletionGateView = ({
+    tenant, tenantId, token, completion, forms, onDone,
+}: {
+    tenant: Tenant | null;
+    tenantId: string;
+    token: string;
+    completion: any;
+    forms: any[];
+    onDone: (justCompletedToday: boolean) => void;
+}) => {
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
+
+    const [answers, setAnswers] = useState<Record<string, Record<string, any>>>({});
+    const [uploads, setUploads] = useState<Record<string, any[]>>({});
+    const [uploading, setUploading] = useState(false);
+    const [accepted, setAccepted] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [clientSecret, setClientSecret] = useState<string | null>(null);
+    const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+
+    const stripePromise = useMemo(() => {
+        const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+        if (!pk || !stripeAccountId) return null;
+        return loadStripe(pk, { stripeAccount: stripeAccountId });
+    }, [stripeAccountId]);
+
+    const skipCardStep = completion?.skipCardStep === true;
+    const depositDollars = (completion?.depositAmountCents || 0) / 100;
+    const studioName = tenant?.name || 'the studio';
+
+    const allConsentsComplete = forms.every((f: any) =>
+        (f.fields || []).every((fld: any) => {
+            if (fld.type === 'heading' || fld.type === 'paragraph') return true;
+            const v = answers[f.id]?.[fld.id];
+            return v !== undefined && v !== null && v !== '';
+        })
+    );
+
+    const fileReqs: any[] = completion?.fileRequirements || [];
+    const fileCfg = (fr: any) => fr.file || fr;
+    const allFilesComplete = fileReqs.every((fr: any) => {
+        if (fr.required === false) return true;
+        const min = fileCfg(fr).minCount ?? 1;
+        return (uploads[fr.id] || []).length >= min;
+    });
+
+    const handleFiles = async (reqId: string, fileList: FileList | null, cfg: any) => {
+        if (!fileList || fileList.length === 0) return;
+        const existing = uploads[reqId] || [];
+        const max = cfg?.maxCount ?? 5;
+        const picked = Array.from(fileList).slice(0, Math.max(0, max - existing.length));
+        setError(null); setUploading(true);
+        try {
+            for (const file of picked) {
+                if (file.size > 10 * 1024 * 1024) { setError(`${file.name} is over 10MB and was skipped.`); continue; }
+                const fd = new FormData();
+                fd.append('file', file); fd.append('tenantId', tenantId);
+                fd.append('token', token); fd.append('reqId', reqId);
+                const res = await fetch('/api/completion/upload-file', { method: 'POST', body: fd });
+                const out = await res.json().catch(() => null);
+                if (out?.url) {
+                    setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url: out.url, uploadedAt: new Date().toISOString() }] }));
+                } else {
+                    setError(out?.error || `Couldn't upload ${file.name}.`);
+                }
+            }
+        } catch (e: any) { setError(`Upload failed: ${e.message}`); }
+        finally { setUploading(false); }
+    };
+
+    const removeUpload = (reqId: string, idx: number) =>
+        setUploads(prev => ({ ...prev, [reqId]: (prev[reqId] || []).filter((_, i) => i !== idx) }));
+
+    const handleSubmit = async () => {
+        setError(null);
+        if (!skipCardStep && !accepted) { setError('Please accept the policy and authorization to continue.'); return; }
+        if (!allConsentsComplete) { setError('Please complete and sign all forms before continuing.'); return; }
+        if (!allFilesComplete) { setError('Please add the requested photos/files before continuing.'); return; }
+        if (uploading) { setError('Please wait for uploads to finish.'); return; }
+        if (!firestore) { setError('Connection problem — please try again.'); return; }
+
+        setSubmitting(true);
+        try {
+            const nowISO = new Date().toISOString();
+            const signedForms = forms.map((f: any) => ({ formId: f.id, formTitle: f.title, formData: answers[f.id] || {} }));
+            const fileSubmissions = fileReqs.map((fr: any) => ({
+                requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Files', files: uploads[fr.id] || [],
+            }));
+            const policyAcceptance = {
+                acceptedAt: nowISO,
+                cardAuthorization: !skipCardStep,
+                policyVersion: tenant?.depositPolicy?.version || 'v1',
+                depositAmountCents: completion?.depositAmountCents || 0,
+            };
+
+            await addDoc(collection(firestore, `tenants/${tenantId}/completionSubmissions`), {
+                token, tenantId,
+                appointmentId: completion?.appointmentId || null,
+                clientId: completion?.clientId || null,
+                clientName: completion?.clientName || null,
+                clientEmail: completion?.clientEmail || null,
+                signedForms, fileSubmissions, policyAcceptance,
+                submittedAt: nowISO,
+                cardAlreadyOnFile: skipCardStep,
+            });
+
+            try {
+                if (completion?.appointmentId) {
+                    await setDoc(
+                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
+                        { signedForms, policyAcceptance, requirementFiles: fileSubmissions, completionConsentsAt: nowISO },
+                        { merge: true },
+                    );
+                }
+            } catch { /* public write may be restricted -- audit record is source of truth */ }
+
+            if (skipCardStep) {
+                try {
+                    await setDoc(
+                        doc(firestore, `tenants/${tenantId}/bookingCompletions`, token),
+                        { status: 'complete', completedAt: nowISO, formsSignedAt: nowISO },
+                        { merge: true },
+                    );
+                } catch { /* best-effort */ }
+                setSubmitting(false);
+                const startsToday = completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false;
+                onDone(startsToday);
+                return;
+            }
+
+            const res = await fetch('/api/stripe/completion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tenantId, completionToken: token,
+                    appointmentId: completion?.appointmentId, clientId: completion?.clientId,
+                    clientName: completion?.clientName, clientEmail: completion?.clientEmail,
+                    depositAmount: depositDollars, serviceName: completion?.serviceName,
+                }),
+            });
+            const out = await res.json().catch(() => null);
+            if (out?.clientSecret) {
+                setStripeAccountId(out.stripeAccountId || null);
+                setClientSecret(out.clientSecret);
+                setSubmitting(false);
+                return;
+            }
+            setError(out?.error || 'Could not start checkout. Please contact the studio.');
+            setSubmitting(false);
+        } catch (e: any) {
+            setError(e.message || 'Something went wrong. Please try again.');
+            setSubmitting(false);
+        }
+    };
+
+    // Stripe embedded checkout step
+    if (clientSecret) {
+        return (
+            <ViewContainer>
+                <ViewHeader title="Payment & Card" subtitle="Secured by Stripe" icon={CreditCard} />
+                <CardContent className="p-6 md:p-10 space-y-5">
+                    <p className="text-sm text-slate-500 text-center">
+                        {depositDollars > 0 ? `Pay your $${depositDollars.toFixed(2)} deposit and save your card.` : 'Securely save your card to finish.'}
+                    </p>
+                    <div className="bg-white rounded-2xl border-2 shadow-sm p-2 sm:p-4 min-h-[300px]">
+                        {stripePromise
+                            ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => onDone(completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false) }}>
+                                <EmbeddedCheckout />
+                            </EmbeddedCheckoutProvider>
+                            : <div className="p-8 text-center text-sm text-slate-500">Payment can't load right now — please contact {studioName}.</div>}
+                    </div>
+                    <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400">
+                        <Lock className="w-3 h-3" /> your card details never touch our servers
+                    </p>
+                </CardContent>
+            </ViewContainer>
+        );
+    }
+
+    return (
+        <ViewContainer>
+            <ViewHeader
+                title={skipCardStep ? 'Sign Your Forms' : 'Finish Your Booking'}
+                subtitle={skipCardStep ? 'Card already on file' : 'A couple of quick steps'}
+                icon={FileSignature}
+            />
+            <CardContent className="p-6 md:p-10 space-y-6">
+                {skipCardStep && (
+                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border-2 border-green-200">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                        <span className="text-[10px] font-black text-green-700 uppercase tracking-widest">Card on file — no payment needed</span>
+                    </div>
+                )}
+
+                {!skipCardStep && depositDollars > 0 && (
+                    <div className="bg-white rounded-2xl border-2 shadow-sm p-5 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <CreditCard className="w-5 h-5 text-primary" />
+                            <div>
+                                <p className="text-sm font-bold text-slate-900">Deposit due today</p>
+                                <p className="text-[11px] text-slate-400">{completion?.serviceName || 'Your appointment'}</p>
+                            </div>
+                        </div>
+                        <p className="text-xl font-black text-slate-900">${depositDollars.toFixed(2)}</p>
+                    </div>
+                )}
+
+                {forms.map((form: any) => (
+                    <div key={form.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-5">
+                        <div className="flex items-center gap-2 pb-3 border-b">
+                            <FileSignature className="w-4 h-4 text-primary" />
+                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{form.title}</h2>
+                        </div>
+                        <div className="space-y-6">
+                            {(form.fields || []).map((field: any) => (
+                                <FormFieldRenderer
+                                    key={field.id}
+                                    field={field}
+                                    value={answers[form.id]?.[field.id]}
+                                    onChange={(val: any) => setAnswers(prev => ({ ...prev, [form.id]: { ...(prev[form.id] || {}), [field.id]: val } }))}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                ))}
+
+                {fileReqs.map((fr: any) => {
+                    const cfg = fileCfg(fr);
+                    const got = uploads[fr.id] || [];
+                    const min = cfg.minCount ?? 1;
+                    const max = cfg.maxCount ?? 5;
+                    return (
+                        <div key={fr.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                            <div className="flex items-center gap-2 pb-3 border-b">
+                                <ImageIcon className="w-4 h-4 text-primary" />
+                                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{cfg.prompt || fr.label || 'Share files'}</h2>
+                            </div>
+                            <p className="text-xs text-slate-500">
+                                Add up to {max} {max > 1 ? 'files' : 'file'}{min > 0 ? ` (at least ${min})` : ''}. Images or PDFs, up to 10MB each.
+                            </p>
+                            {got.length > 0 && (
+                                <div className="grid grid-cols-3 gap-2">
+                                    {got.map((f: any, i: number) => (
+                                        <div key={i} className="relative rounded-xl border-2 overflow-hidden bg-slate-50 aspect-square">
+                                            {/\.(png|jpe?g|gif|webp)$/i.test(f.name)
+                                                ? <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
+                                                : <div className="flex items-center justify-center h-full text-[10px] p-2 text-center text-slate-500 break-all">{f.name}</div>}
+                                            <button onClick={() => removeUpload(fr.id, i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            {got.length < max && (
+                                <label className="flex items-center justify-center gap-2 h-12 rounded-xl border-2 border-dashed cursor-pointer text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors">
+                                    <Upload className="w-4 h-4" /> {uploading ? 'Uploading…' : got.length > 0 ? 'Add more' : 'Add photos'}
+                                    <input
+                                        type="file" multiple
+                                        accept={(cfg.acceptedTypes || ['image/*']).join(',')}
+                                        className="hidden"
+                                        onChange={e => { handleFiles(fr.id, e.target.files, cfg); e.currentTarget.value = ''; }}
+                                        disabled={uploading}
+                                    />
+                                </label>
+                            )}
+                        </div>
+                    );
+                })}
+
+                {!skipCardStep && (
+                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                        <div className="flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-primary" />
+                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Policy & Authorization</h2>
+                        </div>
+                        <div className="text-xs text-slate-500 leading-relaxed space-y-2 max-h-44 overflow-y-auto pr-1">
+                            <p>{tenant?.cancellationPolicyText || `Deposits secure your appointment time. Cancellations made with adequate notice are handled per ${studioName}'s policy; late cancellations and no-shows may forfeit the deposit or incur a fee.`}</p>
+                            <p>By continuing, you authorize {studioName} to keep your card on file and to charge it for late-cancellation or no-show fees in accordance with the policy above.</p>
+                        </div>
+                        <label className="flex items-start gap-3 cursor-pointer pt-2 border-t">
+                            <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 rounded border-2 shrink-0 accent-primary" />
+                            <span className="text-xs font-medium text-slate-700 leading-relaxed">
+                                I have read and agree to the policy, and I authorize {studioName} to securely store and charge my card for fees as described.
+                            </span>
+                        </label>
+                    </div>
+                )}
+
+                {error && (
+                    <div className="flex items-start gap-3 p-4 rounded-2xl bg-red-50 border-2 border-red-200">
+                        <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                        <p className="text-xs font-medium text-red-700">{error}</p>
+                    </div>
+                )}
+
+                <Button
+                    onClick={handleSubmit}
+                    disabled={submitting || uploading}
+                    className="w-full h-16 rounded-[2rem] text-sm md:text-lg font-black uppercase tracking-widest shadow-3xl shadow-primary/30"
+                >
+                    {submitting
+                        ? <><Loader className="w-5 h-5 animate-spin mr-2" /> Securing…</>
+                        : skipCardStep
+                            ? <>Submit & confirm</>
+                            : depositDollars > 0
+                                ? <>Pay ${depositDollars.toFixed(2)} & save card</>
+                                : <>Save card & finish</>}
+                </Button>
+
+                <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400">
+                    <Lock className="w-3 h-3" /> Your information is kept private and secure
+                </p>
+            </CardContent>
+        </ViewContainer>
+    );
+};
+
 export default function CheckInPage() {
     const params = useParams();
     const token = params.token as string;
@@ -666,6 +1025,10 @@ export default function CheckInPage() {
     const { firestore } = useFirebase();
 
     const [entered, setEntered] = useState(false);
+    // v2 -- once the completion gate is submitted, we don't want the
+    // still-cached-in-memory `completion` doc (which may not have refreshed
+    // yet) to flash the gate again before Firestore's snapshot updates.
+    const [completionJustDone, setCompletionJustDone] = useState<null | boolean>(null);
 
     const appointmentCheckInRef = useMemoFirebase(() => !firestore || !token ? null : doc(firestore, 'appointmentCheckIns', token), [firestore, token]);
     const { data: appointmentData, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
@@ -703,6 +1066,33 @@ export default function CheckInPage() {
     const staffDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.staffId ? null : doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId), [firestore, tenantId, appointmentData?.staffId]);
     const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
 
+    // v2 -- NEW: completion record + its required consent forms, looked up
+    // by the SAME token as everything else on this page. Both queries are
+    // no-ops (return null) until tenantId resolves, same pattern as every
+    // other query on this page.
+    const completionRef = useMemoFirebase(() => !firestore || !tenantId || !token ? null : doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), [firestore, tenantId, token]);
+    const { data: completion, isLoading: completionLoading } = useDoc<any>(completionRef);
+
+    const allConsentFormsQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
+    const { data: allConsentForms } = useCollection<any>(allConsentFormsQuery);
+
+    const requiredForms = useMemo(() => {
+        const ids: string[] = completion?.requiredConsentFormIds || [];
+        if (!ids.length || !allConsentForms) return [];
+        return allConsentForms.filter((f: any) => ids.includes(f.id));
+    }, [completion, allConsentForms]);
+
+    // Same computation CompletionContent used for its "nothingToDo" check,
+    // just inverted and named for clarity at this call site.
+    const isCompletionPending = useMemo(() => {
+        if (!completion) return false;
+        if (completion.status === 'complete') return false;
+        const skipCardStep = completion.skipCardStep === true;
+        const hasForms = requiredForms.length > 0;
+        const hasFileReqs = (completion.fileRequirements || []).length > 0;
+        return !(skipCardStep && !hasForms && !hasFileReqs);
+    }, [completion, requiredForms]);
+
     const updateStatus = async (status: string, lateMinutes?: number) => {
         if (!firestore || !token || !appointmentData) return;
         const updateRef = doc(firestore, 'appointmentCheckIns', token);
@@ -717,7 +1107,7 @@ export default function CheckInPage() {
         }
     };
 
-    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading) {
+    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) {
         return (
             <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-background text-center text-left">
                 <Loader className="h-10 w-10 animate-spin text-primary" />
@@ -760,6 +1150,43 @@ export default function CheckInPage() {
     if (appointmentData?.status === 'cancelled') {
         return (
             <CancelledView reason={appointmentData.cancellationReason} />
+        );
+    }
+
+    // v2 -- NEW: completion gate. Sits before the arrival flow. If the
+    // client just submitted it this session, `completionJustDone` short-
+    // circuits so we don't flash the gate again while Firestore's snapshot
+    // catches up -- and if the appointment isn't today, we show a distinct
+    // "you're all set, see you on {date}" success card instead of jumping
+    // into the day-of arrival screen.
+    if (completionJustDone === null && isCompletionPending) {
+        return (
+            <CompletionGateView
+                tenant={tenant || null}
+                tenantId={tenantId!}
+                token={token}
+                completion={{ ...completion, appointmentStartTime: appointmentData.startTime }}
+                forms={requiredForms}
+                onDone={(startsToday) => setCompletionJustDone(startsToday)}
+            />
+        );
+    }
+
+    if (completionJustDone === false) {
+        return (
+            <ViewContainer>
+                <ViewHeader title="You're All Set" subtitle="Booking secured" icon={CheckCircle2} />
+                <CardContent className="p-10 md:p-16 text-center space-y-6">
+                    <div className="w-20 h-20 bg-green-50 rounded-[2rem] flex items-center justify-center mx-auto">
+                        <CheckCircle2 className="w-10 h-10 text-green-500" />
+                    </div>
+                    <p className="text-sm font-medium text-slate-500 leading-relaxed max-w-sm mx-auto">
+                        Your appointment with {tenant?.name || 'the studio'} on{' '}
+                        <strong className="text-slate-900">{format(safeDate(appointmentData.startTime), 'EEEE, MMM d')}</strong>{' '}
+                        is confirmed. We'll see you then — this link will bring you back to check in on the day of your visit.
+                    </p>
+                </CardContent>
+            </ViewContainer>
         );
     }
     
