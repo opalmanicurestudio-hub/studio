@@ -965,42 +965,40 @@ function POSPage() {
                 problems at once: (1) staff no longer scroll past the entire
                 queue to reach retail or vice versa, and (2) wait time / guest
                 count stay glanceable even after scrolling past the KPI row. */}
-            <div className="sticky top-0 z-20 -mx-4 md:-mx-10 px-4 md:px-10 py-2.5 bg-background/95 backdrop-blur-sm border-b flex items-center justify-between gap-4">
-              <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-2xl">
-                <button
-                  onClick={() => setActiveFloorTab('floor')}
-                  className={cn(
-                    'h-9 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
-                    activeFloorTab === 'floor' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
-                  )}
-                >
-                  <Users className="w-3.5 h-3.5" /> Floor Ops
-                  {waitingNowCount > 0 && (
-                    <span className={cn(
-                      'ml-0.5 w-4.5 h-4.5 rounded-full text-[9px] flex items-center justify-center font-black',
-                      activeFloorTab === 'floor' ? 'bg-primary text-white' : 'bg-slate-200 text-slate-600',
-                    )}>{waitingNowCount}</span>
-                  )}
-                </button>
-                <button
-                  onClick={() => setActiveFloorTab('retail')}
-                  className={cn(
-                    'h-9 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
-                    activeFloorTab === 'retail' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
-                  )}
-                >
-                  <ShoppingCart className="w-3.5 h-3.5" /> Retail
-                </button>
-              </div>
-              {/* Live glance — visible regardless of scroll position or tab */}
-              <div className="hidden sm:flex items-center gap-4 text-[10px] font-bold text-muted-foreground uppercase tracking-wide shrink-0">
-                <span className="flex items-center gap-1.5"><Clock className="w-3 h-3 text-blue-400" /> Avg wait {kpiData.avgWaitTime.toFixed(0)}m</span>
-                <span className="flex items-center gap-1.5"><Users className="w-3 h-3 text-purple-400" /> {waitingNowCount} waiting</span>
-                {cartItemCount > 0 && (
-                  <span className="flex items-center gap-1.5 text-primary"><ShoppingCart className="w-3 h-3" /> {cartItemCount} in cart</span>
-                )}
-              </div>
-            </div>
+          <div className="sticky top-0 z-20 -mx-4 md:-mx-10 px-4 md:px-10 py-1.5 bg-background/90 backdrop-blur-md border-b flex items-center justify-between gap-3">
+  <div className="flex items-center gap-1 bg-muted/40 p-0.5 rounded-xl">
+    <button
+      onClick={() => setActiveFloorTab('floor')}
+      className={cn(
+        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
+        activeFloorTab === 'floor' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
+      )}
+    >
+      <Users className="w-3 h-3" /> Floor
+      {waitingNowCount > 0 && (
+        <span className={cn(
+          'w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black leading-none',
+          activeFloorTab === 'floor' ? 'bg-primary text-white' : 'bg-slate-200 text-slate-600',
+        )}>{waitingNowCount}</span>
+      )}
+    </button>
+    <button
+      onClick={() => setActiveFloorTab('retail')}
+      className={cn(
+        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
+        activeFloorTab === 'retail' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
+      )}
+    >
+      <ShoppingCart className="w-3 h-3" /> Retail
+    </button>
+  </div>
+
+  {cartItemCount > 0 && (
+    <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary bg-primary/10 px-2.5 py-1 rounded-full shrink-0">
+      <ShoppingCart className="w-3 h-3" /> {cartItemCount} in cart
+    </div>
+  )}
+</div>
 
             {/* ── Floor Ops tab ──────────────────────────────────────────── */}
             {activeFloorTab === 'floor' && (
