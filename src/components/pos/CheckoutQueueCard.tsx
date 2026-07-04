@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -62,7 +61,7 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
   }, [apt, allStaffList]);
 
   return (
-    <div className="w-full shrink-0">
+    <div className="w-full min-w-0">
         <div className={cn(
             "block rounded-[2rem] border-2 bg-white transition-all relative group h-full", 
             isSelected ? "border-primary ring-4 ring-primary/10 shadow-2xl translate-y-[-4px]" : "border-border/50 hover:border-primary/30 shadow-sm",
@@ -77,29 +76,29 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
             <CardContent className="p-5 space-y-4 text-left" onClick={onSelect}>
                 <div className="flex items-start justify-between gap-4 cursor-pointer text-left">
                     <div className="flex items-center gap-4 min-w-0 text-left">
-                        <Checkbox id={`pos-checkout-sel-${apt.id}`} checked={isSelected} onCheckedChange={onSelect} className="h-6 w-6 rounded-lg border-2" onClick={(e) => e.stopPropagation()} />
+                        <Checkbox id={`pos-checkout-sel-${apt.id}`} checked={isSelected} onCheckedChange={onSelect} className="h-6 w-6 rounded-lg border-2 shrink-0" onClick={(e) => e.stopPropagation()} />
                         <div className="min-w-0 space-y-1 text-left">
                             <div className="flex items-center gap-2 flex-wrap text-left">
                                 <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate text-left">{client?.name || 'Walk-in'}</p>
                                 {isBirthdayToday && <Cake className="h-3.5 w-3.5 text-pink-500 animate-pulse shrink-0" />}
                                 {isMember && (
-                                    <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Badge className="bg-indigo-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm shrink-0">
                                         <Award className="w-2 h-2 mr-0.5" /> MEM
                                     </Badge>
                                 )}
                                 {hasPackage && (
-                                    <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm">
+                                    <Badge className="bg-teal-600 text-white border-none text-[7px] font-black uppercase h-4 px-1.5 shadow-sm shrink-0">
                                         <Repeat className="w-2 h-2 mr-0.5" /> PKG
                                     </Badge>
                                 )}
                             </div>
                             <div className="flex items-center gap-2 text-left">
-                                <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest text-left">{apt.startTime ? format(safeDate(apt.startTime), 'h:mm a') : 'Now'}</p>
-                                <Badge variant="outline" className="text-[8px] h-4 font-black bg-muted/5 border-none">#{apt.id.slice(-4).toUpperCase()}</Badge>
+                                <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 tracking-widest text-left shrink-0">{apt.startTime ? format(safeDate(apt.startTime), 'h:mm a') : 'Now'}</p>
+                                <Badge variant="outline" className="text-[8px] h-4 font-black bg-muted/5 border-none shrink-0">#{apt.id.slice(-4).toUpperCase()}</Badge>
                             </div>
                         </div>
                     </div>
-                    <div className="flex -space-x-3 overflow-hidden text-left">
+                    <div className="flex -space-x-3 overflow-hidden text-left shrink-0">
                         {involvedStaff.map((member) => (
                             <TooltipProvider key={member.id}>
                                 <Tooltip>
@@ -115,8 +114,8 @@ export const CheckoutQueueCard: React.FC<any> = ({ appointmentData, isSelected, 
                         ))}
                     </div>
                 </div>
-                 <div className="flex items-end justify-between pt-4 border-t border-dashed mt-2 text-left">
-                    <div className="space-y-2 min-w-0 text-left text-left">
+                 <div className="flex items-end justify-between gap-3 pt-4 border-t border-dashed mt-2 text-left">
+                    <div className="space-y-2 min-w-0 text-left">
                         <p className="text-[9px] font-black uppercase text-muted-foreground tracking-widest opacity-40 text-left">Session Pros</p>
                         <div className="flex flex-wrap gap-x-3 gap-y-1 text-left">
                             {involvedStaff.map(member => (
