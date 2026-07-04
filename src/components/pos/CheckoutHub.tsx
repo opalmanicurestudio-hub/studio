@@ -111,6 +111,40 @@ const safeDate = (val: any): Date => {
   return new Date(val);
 };
 
+// ─── LineItem ─────────────────────────────────────────────────────────────────
+// One consistent visual language for every cart sub-line (add-ons, amenities,
+// adjustments, waived states) instead of each type having its own border/bg
+// treatment. Differentiated by a leading icon + tone color, not by structure.
+type LineItemTone = 'muted' | 'warning' | 'success' | 'primary';
+
+const LineItem = ({ icon: Icon, label, sub, amount, tone = 'muted', strike = false }: {
+  icon?: any;
+  label: string;
+  sub?: string;
+  amount: number;
+  tone?: LineItemTone;
+  strike?: boolean;
+}) => {
+  const toneText: Record<LineItemTone, string> = {
+    muted:   'text-muted-foreground',
+    warning: 'text-amber-600',
+    success: 'text-green-600',
+    primary: 'text-primary',
+  };
+  return (
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <div className="flex items-center gap-2 min-w-0">
+        {Icon && <Icon className={cn('w-3 h-3 shrink-0', toneText[tone])} />}
+        <div className="min-w-0">
+          <span className={cn('text-[10px] font-bold uppercase tracking-tight truncate', toneText[tone], strike && 'line-through opacity-40')}>{label}</span>
+          {sub && <span className="block text-[8px] font-black uppercase tracking-widest opacity-50">{sub}</span>}
+        </div>
+      </div>
+      <span className={cn('text-[10px] font-black font-mono shrink-0', toneText[tone], strike && 'line-through opacity-40')}>${amount.toFixed(2)}</span>
+    </div>
+  );
+};
+
 // ─── WaiveFeeDialog ───────────────────────────────────────────────────────────
 const WaiveFeeDialog = ({ open, onOpenChange, staff, onConfirm, title = 'Admin Override', description = 'Authorize fee waiver with manager PIN.' }: any) => {
   const [pin, setPin] = useState('');
@@ -509,7 +543,7 @@ export const CheckoutHub = ({
 
   const [recoveryAmount,    setRecoveryAmount]    = useState<number>(0);
   const [recoveryReason,    setRecoveryReason]    = useState('');
-  const [isRecoveryActive,  setIsRecoveryActive]  = useState(false);
+  const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
   const [showPinEntry,      setShowPinEntry]       = useState(false);
   const [overridePin,       setOverridePin]        = useState('');
   const [overrideReason,    setOverrideReason]     = useState('');
@@ -838,91 +872,105 @@ export const CheckoutHub = ({
         />
       </div>
 
-      {/* ── Service Recovery ── */}
+      {/* ── Recovery / Comp trigger ── */}
       {!isCartEmpty && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between px-1">
-            <div className="space-y-0.5">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" />Service Recovery Protocol</h3>
-              {(autonomyLimit > 0 || autonomyPercent > 0) && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">Autonomy: ${autonomyLimit} / {autonomyPercent}%</p>}
-            </div>
-            <Switch checked={isRecoveryActive} onCheckedChange={(v) => { setIsRecoveryActive(v); if (!v) { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); } }} />
-          </div>
-          <AnimatePresence>
-            {isRecoveryActive && (
-              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                <Card className={cn('border-4 rounded-[2rem] shadow-xl transition-all', isOverAutonomy && !isOverrideUnlocked ? 'border-destructive/40 bg-destructive/[0.02] shadow-destructive/10' : isOverrideUnlocked ? 'border-green-400/40 bg-green-50/20' : 'border-primary/20 bg-primary/[0.02] shadow-primary/5')}>
-                  <CardContent className="p-6 space-y-6">
-                    {isOverAutonomy && !isOverrideUnlocked && (
-                      <Alert variant="destructive" className="border-2 rounded-2xl p-4 bg-destructive/10">
-                        <AlertTriangle className="h-4 w-4" />
-                        <AlertTitle className="text-[10px] font-black uppercase">Threshold Exceeded</AlertTitle>
-                        <AlertDescription className="text-[9px] font-bold leading-tight uppercase opacity-80 mt-1">This adjustment requires a manager override to finalize.</AlertDescription>
-                      </Alert>
-                    )}
-                    <div className="space-y-3">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tactical Presets</p>
-                      <div className="flex flex-wrap gap-2">
-                        {(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => (
-                          <Button type="button" key={preset.id} variant="outline" size="sm" onClick={() => handleApplyRecoveryPreset(preset)} className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40">{preset.label}</Button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Manual Recovery Amount ($)</Label>
-                      <div className="relative">
-                        <DollarSign className={cn('absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40', isOverAutonomy && !isOverrideUnlocked ? 'text-destructive' : 'text-primary')} />
-                        <Input type="number" value={recoveryAmount || ''} onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="0.00" className={cn('h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono', isOverAutonomy && !isOverrideUnlocked ? 'border-destructive/20 text-destructive' : 'border-primary/20 text-primary')} />
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Context / Justification</Label>
-                      <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the service failure or reason for recovery..." className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
-                    </div>
-                    {isOverAutonomy && !isOverrideUnlocked && !showPinEntry && (
-                      <Button type="button" variant="destructive" onClick={() => setShowPinEntry(true)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
-                        <Lock className="w-4 h-4 mr-2" />Request Override<ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
-                      </Button>
-                    )}
-                    {isOverAutonomy && showPinEntry && !isOverrideUnlocked && (
-                      <div className="pt-2 space-y-3 border-t border-dashed">
-                        <p className="text-[9px] font-black uppercase text-destructive tracking-widest pt-2">Manager Authorization Required</p>
-                        <Input type="number" inputMode="numeric" placeholder="Enter PIN" maxLength={4} value={overridePin} onChange={e => setOverridePin(e.target.value.slice(0, 4))} className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white" />
-                        <Textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="Justification for this override..." className="rounded-2xl border-2 bg-white min-h-[80px] font-medium" />
-                        <div className="flex gap-2">
-                          <Button type="button" variant="ghost" onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }} className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2">Cancel</Button>
-                          <Button type="button" variant="destructive" disabled={overridePin.length < 4 || !overrideReason.trim()} onClick={() => {
-                            const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
-                            if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
-                            const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
-                            const finalAmount  = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
-                            setIsOverrideUnlocked(true); setShowPinEntry(false); setRecoveryReason(finalReason); setRecoveryAmount(finalAmount);
-                            toast({ title: 'Override Authorized', description: `Approved by ${auth.name}. $${finalAmount.toFixed(2)} comped.` });
-                          }} className="flex-[2] h-11 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                            <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />Authorize
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {isOverrideUnlocked && (
-                      <div className="flex items-center justify-between p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-                          <div>
-                            <p className="text-[10px] font-black uppercase text-green-700">Override Authorized</p>
-                            <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase">-${safeNumber(recoveryAmount).toFixed(2)} — {recoveryReason || 'Service Recovery'}</p>
-                          </div>
-                        </div>
-                        <Button type="button" variant="ghost" size="sm" onClick={() => { setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); setOverridePin(''); setOverrideReason(''); }} className="h-7 px-2 text-[8px] font-black uppercase text-destructive hover:bg-destructive/5">Undo</Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </motion.div>
+        <div className="flex items-center px-1">
+          <button
+            type="button"
+            onClick={() => setIsRecoveryDialogOpen(true)}
+            className={cn(
+              'flex items-center gap-2 h-9 px-3.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest transition-all',
+              recoveryAmount > 0
+                ? 'border-amber-300 bg-amber-50 text-amber-700'
+                : 'border-border bg-white text-muted-foreground hover:border-primary/20 hover:text-primary'
             )}
-          </AnimatePresence>
+          >
+            <ShieldAlert className="w-3.5 h-3.5" />
+            {recoveryAmount > 0 ? `Recovery Applied — -$${safeNumber(recoveryAmount).toFixed(2)}` : 'Apply Recovery / Comp'}
+          </button>
         </div>
       )}
+
+      <Dialog open={isRecoveryDialogOpen} onOpenChange={setIsRecoveryDialogOpen}>
+        <DialogContent className="sm:max-w-lg rounded-[2.5rem] border-4 shadow-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader className="p-2 pb-0 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg font-black uppercase tracking-tight text-slate-900"><ShieldAlert className="w-5 h-5 text-primary" /> Recovery / Comp</DialogTitle>
+            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Reduce or comp this checkout for a service issue.</DialogDescription>
+            {(autonomyLimit > 0 || autonomyPercent > 0) && <p className="text-[8px] font-bold text-slate-400 uppercase tracking-tight pt-1">Autonomy limit: ${autonomyLimit} / {autonomyPercent}%</p>}
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {isOverAutonomy && !isOverrideUnlocked && (
+              <Alert variant="destructive" className="border-2 rounded-2xl p-4 bg-destructive/10">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertTitle className="text-[10px] font-black uppercase">Threshold Exceeded</AlertTitle>
+                <AlertDescription className="text-[9px] font-bold leading-tight uppercase opacity-80 mt-1">This adjustment requires a manager override to finalize.</AlertDescription>
+              </Alert>
+            )}
+            <div className="space-y-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Quick Presets</p>
+              <div className="flex flex-wrap gap-2">
+                {(selectedTenant?.recoveryPresets || []).map((preset: RecoveryPreset) => (
+                  <Button type="button" key={preset.id} variant="outline" size="sm" onClick={() => handleApplyRecoveryPreset(preset)} className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm hover:border-primary/40">{preset.label}</Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Amount ($)</Label>
+              <div className="relative">
+                <DollarSign className={cn('absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 opacity-40', isOverAutonomy && !isOverrideUnlocked ? 'text-destructive' : 'text-primary')} />
+                <Input type="number" value={recoveryAmount || ''} onChange={e => setRecoveryAmount(parseFloat(e.target.value) || 0)} placeholder="0.00" className={cn('h-14 pl-12 rounded-2xl border-2 bg-white font-black text-xl font-mono', isOverAutonomy && !isOverrideUnlocked ? 'border-destructive/20 text-destructive' : 'border-primary/20 text-primary')} />
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Label className="text-[9px] font-black uppercase text-muted-foreground ml-1">Reason</Label>
+              <Textarea value={recoveryReason} onChange={e => setRecoveryReason(e.target.value)} placeholder="Detail the service issue..." className="rounded-2xl border-2 bg-white min-h-[100px] font-medium" />
+            </div>
+            {isOverAutonomy && !isOverrideUnlocked && !showPinEntry && (
+              <Button type="button" variant="destructive" onClick={() => setShowPinEntry(true)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-destructive/20 group">
+                <Lock className="w-4 h-4 mr-2" />Request Override<ArrowRight className="ml-2 w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
+              </Button>
+            )}
+            {isOverAutonomy && showPinEntry && !isOverrideUnlocked && (
+              <div className="pt-2 space-y-3 border-t border-dashed">
+                <p className="text-[9px] font-black uppercase text-destructive tracking-widest pt-2">Manager Authorization Required</p>
+                <Input type="number" inputMode="numeric" placeholder="Enter PIN" maxLength={4} value={overridePin} onChange={e => setOverridePin(e.target.value.slice(0, 4))} className="h-14 text-center text-2xl font-black border-2 rounded-2xl tracking-widest bg-white" />
+                <Textarea value={overrideReason} onChange={e => setOverrideReason(e.target.value)} placeholder="Justification for this override..." className="rounded-2xl border-2 bg-white min-h-[80px] font-medium" />
+                <div className="flex gap-2">
+                  <Button type="button" variant="ghost" onClick={() => { setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); }} className="flex-1 h-11 rounded-xl font-black uppercase text-[9px] border-2">Cancel</Button>
+                  <Button type="button" variant="destructive" disabled={overridePin.length < 4 || !overrideReason.trim()} onClick={() => {
+                    const auth = (staff || []).find((s: any) => s.pin === overridePin && (s.role === 'admin' || s.role === 'owner'));
+                    if (!auth) { toast({ variant: 'destructive', title: 'Unauthorized', description: 'PIN not recognized.' }); return; }
+                    const finalReason = overrideReason.trim() || recoveryReason.trim() || 'Service Recovery Override';
+                    const finalAmount  = recoveryAmount > 0 ? recoveryAmount : Number(subtotal.toFixed(2));
+                    setIsOverrideUnlocked(true); setShowPinEntry(false); setRecoveryReason(finalReason); setRecoveryAmount(finalAmount);
+                    toast({ title: 'Override Authorized', description: `Approved by ${auth.name}. $${finalAmount.toFixed(2)} comped.` });
+                  }} className="flex-[2] h-11 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                    <ShieldCheck className="w-3.5 h-3.5 mr-1.5" />Authorize
+                  </Button>
+                </div>
+              </div>
+            )}
+            {isOverrideUnlocked && (
+              <div className="flex items-center justify-between p-3 bg-green-50 border-2 border-green-200 rounded-2xl">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                  <div>
+                    <p className="text-[10px] font-black uppercase text-green-700">Override Authorized</p>
+                    <p className="text-[8px] font-bold text-green-600 opacity-70 uppercase">-${safeNumber(recoveryAmount).toFixed(2)} — {recoveryReason || 'Service Recovery'}</p>
+                  </div>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={() => { setIsOverrideUnlocked(false); setRecoveryAmount(0); setRecoveryReason(''); setOverridePin(''); setOverrideReason(''); }} className="h-7 px-2 text-[8px] font-black uppercase text-destructive hover:bg-destructive/5">Undo</Button>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            {recoveryAmount > 0 && (
+              <Button type="button" variant="ghost" onClick={() => { setRecoveryAmount(0); setRecoveryReason(''); setShowPinEntry(false); setOverridePin(''); setOverrideReason(''); setIsOverrideUnlocked(false); }} className="w-full h-10 rounded-xl font-black uppercase text-[10px] text-destructive hover:bg-destructive/5">Clear Recovery</Button>
+            )}
+            <Button onClick={() => setIsRecoveryDialogOpen(false)} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest">Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Birthday banner ── */}
       {selectedClient && isBirthdayToday && (
@@ -1431,7 +1479,7 @@ export const CheckoutHub = ({
             <p className="font-mono text-[11px] md:text-xs">${(subtotal * 0.07).toFixed(2)}</p>
           </div>
         )}
-        {totalDiscount > 0 && !isRecoveryActive && (
+        {totalDiscount > 0 && recoveryAmount === 0 && (
           <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
             <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
             <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
