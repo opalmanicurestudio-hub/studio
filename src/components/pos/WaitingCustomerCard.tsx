@@ -7,7 +7,8 @@ import { type WalkIn, type Staff, type Appointment, Service } from '@/lib/data';
 import { formatDistanceToNow, parseISO, format } from 'date-fns';
 import { 
     Clock, Users, Trash2, TrendingUp, Printer, Car, MapPin, AlertTriangle, 
-    Fingerprint, Cake, UserPlus, Award, Repeat, ShieldAlert, MessageSquare, Ear, FileImage
+    Fingerprint, Cake, UserPlus, Award, Repeat, ShieldAlert, MessageSquare, Ear, FileImage,
+    Timer, CalendarClock, Check
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +34,25 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
+// Converts a "HH:mm" clock time (from a native time input) into "minutes from now".
+// Assumes the target time is later today; if it has already passed today by more
+// than 6 hours, we assume the client meant tomorrow (handles overnight edge cases).
+const minutesFromClockTime = (timeStr: string): number | null => {
+    if (!timeStr) return null;
+    const [h, m] = timeStr.split(':').map(Number);
+    if (Number.isNaN(h) || Number.isNaN(m)) return null;
+
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(h, m, 0, 0);
+
+    let diffMs = target.getTime() - now.getTime();
+    const sixHoursMs = 6 * 60 * 60 * 1000;
+    if (diffMs < -sixHoursMs) diffMs += 24 * 60 * 60 * 1000;
+
+    return Math.round(diffMs / 60000);
+};
+
 export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, onAssign, onCancel, onMoveToFront, onPrintTicket, groupSize = 1, onUpdateStatus, onResolve }) => {
     const { clients } = useInventory();
     const isWalkIn = item.type === 'walk-in';
@@ -49,10 +69,28 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
     const preferredStaff = staffList?.find((s: Staff) => s.id === preferredStaffId);
     
     const [isLateEntryOpen, setIsLateEntryOpen] = useState(false);
+    const [lateEntryMode, setLateEntryMode] = useState<'minutes' | 'time'>('minutes');
     const [tempLateMinutes, setTempLateMinutes] = useState(lateTimeMinutes.toString());
+    const [tempArrivalTime, setTempArrivalTime] = useState('');
+
+    const resolvedMinutes = useMemo(() => {
+        if (lateEntryMode === 'time') {
+            const mins = minutesFromClockTime(tempArrivalTime);
+            return mins === null ? null : Math.max(mins, 0);
+        }
+        const parsed = parseInt(tempLateMinutes, 10);
+        return Number.isNaN(parsed) ? 0 : Math.max(parsed, 0);
+    }, [lateEntryMode, tempArrivalTime, tempLateMinutes]);
+
+    const openLateEntry = () => {
+        setLateEntryMode('minutes');
+        setTempLateMinutes(lateTimeMinutes > 0 ? lateTimeMinutes.toString() : '10');
+        setTempArrivalTime('');
+        setIsLateEntryOpen(true);
+    };
 
     const handleLateConfirm = () => {
-        const mins = parseInt(tempLateMinutes) || 0;
+        const mins = resolvedMinutes ?? 0;
         onUpdateStatus(item.id, isWalkIn, 'running_late', mins);
         setIsLateEntryOpen(false);
     };
@@ -148,7 +186,7 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                                     <TooltipProvider key={status.value}>
                                         <Tooltip>
                                             <TooltipTrigger asChild>
-                                                <Button variant={isActive ? 'default' : 'outline'} size="icon" className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} onClick={(e) => { e.stopPropagation(); status.value === 'running_late' ? setIsLateEntryOpen(true) : onUpdateStatus(item.id, isWalkIn, status.value); }}>
+                                                <Button variant={isActive ? 'default' : 'outline'} size="icon" className={cn("h-8 w-8 rounded-xl border-2 transition-all", isActive ? "shadow-md" : "text-muted-foreground/40 hover:border-primary/20")} onClick={(e) => { e.stopPropagation(); status.value === 'running_late' ? openLateEntry() : onUpdateStatus(item.id, isWalkIn, status.value); }}>
                                                     <Icon className="h-3.5 w-3.5" />
                                                 </Button>
                                             </TooltipTrigger>
@@ -219,18 +257,119 @@ export const WaitingCustomerCard: React.FC<any> = ({ item, services, staffList, 
                 </div>
             )}
 
+            {/* Redesigned late-arrival entry: presets, custom minutes, or a specific clock time the client texted in */}
             <Dialog open={isLateEntryOpen} onOpenChange={setIsLateEntryOpen}>
-                <DialogContent className="sm:max-w-[320px] rounded-[3rem] border-4 shadow-3xl" onClick={(e) => e.stopPropagation()}>
-                    <DialogHeader className="p-6 pb-0"><DialogTitle className="text-xl font-black uppercase tracking-tighter text-left">Minutes Late</DialogTitle></DialogHeader>
-                    <div className="p-8 text-left">
-                        <div className="grid grid-cols-4 gap-2 mb-6">
-                            {['5', '10', '15', '20'].map(m => (
-                                <Button key={m} variant={tempLateMinutes === m ? 'default' : 'outline'} className="h-10 rounded-xl font-black" onClick={() => setTempLateMinutes(m)}>{m}</Button>
-                            ))}
+                <DialogContent className="sm:max-w-[380px] rounded-[2.5rem] border-4 shadow-2xl p-0 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-amber-500 px-7 pt-7 pb-5">
+                        <div className="flex items-center gap-2 mb-1">
+                            <div className="h-8 w-8 rounded-xl bg-white/25 flex items-center justify-center shrink-0">
+                                <AlertTriangle className="h-4 w-4 text-white" />
+                            </div>
+                            <DialogTitle className="text-xl font-black uppercase tracking-tighter text-white">Running Late</DialogTitle>
                         </div>
-                        <Input type="number" placeholder="Custom..." className="text-center text-3xl font-black h-16 rounded-2xl border-2" value={tempLateMinutes} onChange={(e) => setTempLateMinutes(e.target.value)} />
+                        <DialogDescription className="text-[10px] font-black uppercase tracking-widest text-white/70 pl-10">
+                            {customerName}
+                        </DialogDescription>
                     </div>
-                    <DialogFooter className="p-6 pt-0"><Button className="w-full h-14 rounded-2xl text-lg font-black uppercase tracking-widest shadow-xl" onClick={handleLateConfirm}>Update Status</Button></DialogFooter>
+
+                    <div className="p-7 space-y-5">
+                        {/* Mode switch */}
+                        <div className="grid grid-cols-2 gap-1.5 p-1 bg-muted/40 rounded-2xl border-2 border-border/50">
+                            <button
+                                type="button"
+                                onClick={() => setLateEntryMode('minutes')}
+                                className={cn(
+                                    "flex items-center justify-center gap-1.5 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all",
+                                    lateEntryMode === 'minutes' ? "bg-white shadow-md text-slate-900" : "text-muted-foreground/50"
+                                )}
+                            >
+                                <Timer className="h-3.5 w-3.5" /> Minutes
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setLateEntryMode('time')}
+                                className={cn(
+                                    "flex items-center justify-center gap-1.5 h-10 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all",
+                                    lateEntryMode === 'time' ? "bg-white shadow-md text-slate-900" : "text-muted-foreground/50"
+                                )}
+                            >
+                                <CalendarClock className="h-3.5 w-3.5" /> Arrival Time
+                            </button>
+                        </div>
+
+                        {lateEntryMode === 'minutes' ? (
+                            <div className="space-y-3">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 pl-1">Quick Select</Label>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {['5', '10', '15', '20'].map(m => (
+                                        <Button
+                                            key={m}
+                                            type="button"
+                                            variant={tempLateMinutes === m ? 'default' : 'outline'}
+                                            className="h-11 rounded-xl font-black border-2"
+                                            onClick={() => setTempLateMinutes(m)}
+                                        >
+                                            {m}
+                                        </Button>
+                                    ))}
+                                </div>
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 pl-1">Or Enter Minutes</Label>
+                                <div className="relative">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        placeholder="12"
+                                        className="text-center text-3xl font-black h-16 rounded-2xl border-2"
+                                        value={tempLateMinutes}
+                                        onChange={(e) => setTempLateMinutes(e.target.value)}
+                                    />
+                                    <span className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">Min</span>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 pl-1">Client's Estimated Arrival</Label>
+                                <Input
+                                    type="time"
+                                    className="text-center text-3xl font-black h-16 rounded-2xl border-2 tracking-tight"
+                                    value={tempArrivalTime}
+                                    onChange={(e) => setTempArrivalTime(e.target.value)}
+                                />
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/50 pl-1">
+                                    Use what they texted, e.g. "I'll be there at 2:17"
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Live preview of what will be saved */}
+                        <div className={cn(
+                            "flex items-center gap-3 p-3.5 rounded-2xl border-2 transition-all",
+                            resolvedMinutes !== null ? "bg-amber-50 border-amber-200" : "bg-muted/20 border-border/40"
+                        )}>
+                            <div className={cn(
+                                "h-9 w-9 rounded-xl flex items-center justify-center shrink-0",
+                                resolvedMinutes !== null ? "bg-amber-500" : "bg-muted-foreground/20"
+                            )}>
+                                <Check className="h-4 w-4 text-white" />
+                            </div>
+                            <div className="min-w-0">
+                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">Will Show As</p>
+                                <p className="text-sm font-black uppercase text-slate-900 truncate">
+                                    {resolvedMinutes !== null ? `+${resolvedMinutes}m Late` : 'Enter a time to preview'}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter className="p-7 pt-0">
+                        <Button
+                            className="w-full h-14 rounded-2xl text-sm font-black uppercase tracking-widest shadow-xl bg-amber-500 hover:bg-amber-600"
+                            disabled={resolvedMinutes === null}
+                            onClick={handleLateConfirm}
+                        >
+                            Update Status
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </Card>
