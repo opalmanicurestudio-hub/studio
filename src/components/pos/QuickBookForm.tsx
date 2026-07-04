@@ -15,6 +15,15 @@
  *     false "not found" at the front desk for a completely valid booking.
  *     See lib/short-code.ts for the generator itself.
  *
+ * v6 — UNIFICATION: previously this form minted a SECOND, independent
+ *   token for the "completion link" (forms/card/deposit), distinct from
+ *   checkInToken (the day-of arrival / POS-scan / ticket token). Clients
+ *   could receive two different links about the same appointment, pointing
+ *   at two different pages. Now the completion record is keyed by the same
+ *   checkInToken, and the link points at /check-in/{checkInToken} — which
+ *   gates on completion requirements before showing the arrival flow. One
+ *   token, one link, one page, for the whole lifecycle of the appointment.
+ *
  * v4 — receptionist-workspace upgrades (from the Quick Book redesign doc):
  *   - NEW: provider-assignment transparency. The "Any available" preview now
  *     shows the actual reasons behind the pick (on-shift/available at this
@@ -319,22 +328,9 @@ type Props = {
   firestore: any;
   appointments?: any[];
   currentStaffId?: string;
-  // Optional list of consent form definitions ({ id, name } or { id, label }).
-  // Used to resolve a human-readable form name instead of showing the raw
-  // form id/code. If your form definitions live somewhere else (e.g. a
-  // dedicated `forms` collection passed down differently), wire that source
-  // into buildFormNameLookup below.
   forms?: any[];
-  // v5 — optional. If provided, Quick Book can nudge a package or
-  // membership purchase based on the client's visit pattern. Omitted
-  // entirely if your app doesn't pass these down — nudges just never show.
   packages?: any[];
   memberships?: any[];
-  // v7 — optional. Discount docs (matching your Discount type: code, type,
-  // value, isActive, automation.trigger, applicableServiceIds, etc). If
-  // provided, eligible ones auto-surface as tap-to-apply chips in step 3
-  // instead of requiring the client to know a code. Omitted entirely if not
-  // passed — the manual code field still works exactly as before.
   discounts?: any[];
   onSuccess: () => void;
   onCancel: () => void;
@@ -349,9 +345,6 @@ type BookingSuccess = {
   appointmentId: string;
   tenantId: string;
   checkInToken: string;
-  // NEW — the unambiguous-alphabet code, generated alongside checkInToken.
-  // See lib/short-code.ts for why this exists as its own field rather than
-  // being derived from checkInToken.
   shortCode: string;
   clientName: string;
   clientEmail: string;
@@ -375,7 +368,6 @@ type BookingSuccess = {
   ledgerError: boolean;
 };
 
-// A saved, in-progress call-in booking that can be resumed by any staff member.
 type CallBackDraft = {
   id: string;
   tenantId: string;
@@ -392,11 +384,6 @@ type CallBackDraft = {
   status: 'pending' | 'resolved';
 };
 
-// ── Command bar ───────────────────────────────────────────────────────────────
-// Replaces the old separate step-dots + live-call-bar with a single header:
-// who's on the phone, what's being booked, where they are in the flow (1/2/3),
-// and the call-back action — all in one place instead of two stacked elements
-// competing for attention.
 function CommandBar({
   step,
   callerName,
@@ -440,7 +427,6 @@ function CommandBar({
   );
 }
 
-// ── Arrears banner ────────────────────────────────────────────────────────────
 function ArrearsBanner({
   outstandingBalance,
   clientFirstName,
@@ -558,10 +544,6 @@ function ArrearsBanner({
 }
 
 // ── Client detail panel ────────────────────────────────────────────────────────
-// Always-expanded, comprehensive client profile shown the instant a client is
-// selected. Built so a staff member on the phone can answer almost any caller
-// question (when was I last in? do I have sessions left? who do I usually see?
-// do I owe anything?) without clicking to open or expand anything.
 function ClientDetailPanel({
   client,
   appointments,
@@ -593,16 +575,9 @@ function ClientDetailPanel({
   firestore: any;
   tenantId: string;
   onChangeClient: () => void;
-  // v4 — lets the contact-edit panel below push phone/email updates back up
-  // into the parent's selectedClient state immediately, without the parent
-  // needing to know anything about how the edit UI works.
   onUpdateClient?: (updates: { phone?: string; email?: string }) => void;
 }) {
   const [historyExpanded, setHistoryExpanded] = React.useState(false);
-
-  // v4 — inline contact editing. Phone/email only for now; address,
-  // emergency contact, and communication preferences need confirmed field
-  // names on the Client type before they're added here.
   const [editingContact, setEditingContact] = React.useState(false);
   const [editPhone, setEditPhone] = React.useState(client.phone || '');
   const [editEmail, setEditEmail] = React.useState(client.email || '');
@@ -635,15 +610,6 @@ function ClientDetailPanel({
     }
   };
 
-  // The `appointments` prop passed into QuickBookForm is almost certainly
-  // scoped for availability checking (a window around the date being
-  // booked), not a client's full history — which is why these stats weren't
-  // rendering real numbers. A dedicated, client-specific subscription
-  // guarantees the full picture regardless of how the parent scopes that
-  // shared prop for its own purposes. Single equality filter, no orderBy, so
-  // it doesn't need a composite index (sorted client-side instead). Falls
-  // back to the appointments prop only before the live snapshot has loaded,
-  // to avoid a blank flash.
   const [clientAppointmentsLive, setClientAppointmentsLive] = React.useState<any[] | null>(null);
   React.useEffect(() => {
     if (!firestore || !tenantId || !client?.id) return;
@@ -664,9 +630,6 @@ function ClientDetailPanel({
     return () => unsubscribe();
   }, [firestore, tenantId, client?.id]);
 
-  // Defensive: only trust startTime values that are actually strings, same
-  // guard as staffDateLoad — a non-string startTime should never crash this
-  // panel either.
   const clientAppointments = React.useMemo(() => {
     const source = clientAppointmentsLive ?? appointments;
     return (source || [])
@@ -702,7 +665,6 @@ function ClientDetailPanel({
 
   return (
     <div className="rounded-2xl border bg-white overflow-hidden shadow-sm">
-      {/* Header */}
       <div className="p-4 flex items-start justify-between gap-3 border-b">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className={cn(
@@ -764,7 +726,6 @@ function ClientDetailPanel({
         </button>
       </div>
 
-      {/* Stat grid — answers the most common phone questions at a glance */}
       <div className="grid grid-cols-4 divide-x border-b bg-slate-50/60">
         <div className="px-2 py-2.5 text-center">
           <p className="text-sm font-semibold text-slate-900">{pastVisits.length}</p>
@@ -791,7 +752,6 @@ function ClientDetailPanel({
       </div>
 
       <div className="p-4 space-y-3">
-        {/* Status badges row — things staff need to say out loud immediately */}
         <div className="flex flex-wrap gap-1.5">
           {outstandingBalance > 0 && (
             <span className="text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full">
@@ -824,10 +784,6 @@ function ClientDetailPanel({
               Usually books {topService.name}
             </span>
           )}
-          {/* v6 — previously Quick Book never surfaced birthday or membership
-              status anywhere, even though both fields exist on Client.
-              Package status was already shown (further down); these close
-              the gap for the other two. */}
           {client.activeMembershipId && (
             <span className="text-[10px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full flex items-center gap-1">
               <Award className="w-2.5 h-2.5" /> Member
@@ -845,7 +801,6 @@ function ClientDetailPanel({
           )}
         </div>
 
-        {/* Upcoming appointments */}
         {upcomingVisits.length > 0 && (
           <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
             <p className="text-[10px] font-medium text-blue-700 uppercase tracking-wide flex items-center gap-1 mb-1">
@@ -860,7 +815,6 @@ function ClientDetailPanel({
           </div>
         )}
 
-        {/* Packages */}
         {activePackages.length > 0 && (
           <div className="space-y-1">
             <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
@@ -877,7 +831,6 @@ function ClientDetailPanel({
           </div>
         )}
 
-        {/* Consent forms — compact */}
         {formStatuses.length > 0 && (
           <div className="space-y-1">
             <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1">
@@ -903,7 +856,6 @@ function ClientDetailPanel({
           </div>
         )}
 
-        {/* Notes on the client record, if present */}
         {client.notes && (
           <div className="rounded-lg bg-slate-50 border px-3 py-2 flex items-start gap-2">
             <StickyNote className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
@@ -911,7 +863,6 @@ function ClientDetailPanel({
           </div>
         )}
 
-        {/* Visit history */}
         {pastVisits.length > 0 && (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -978,33 +929,23 @@ function SuccessScreen({
     }
   };
 
-  // v8 — FIX: the QR code was an <img> pointing at api.qrserver.com — a
-  // real external network dependency. On a slow/flaky connection (or a
-  // browser that defers loading of never-visible elements, per the "Images
-  // loaded lazily and replaced with placeholders" intervention seen in
-  // console logs — the print-only wrapper is `display:none` until print
-  // media activates, which is exactly the kind of element that
-  // intervention can defer indefinitely), that image could simply never
-  // resolve, producing a blank ticket. Dropped entirely in favor of a
-  // self-contained, human-readable check-in code — zero network calls,
-  // zero failure mode. `navigator.share` is also now the PRIMARY mobile
-  // action instead of print: window.print() is unreliable (frequently a
-  // silent no-op) inside mobile webviews/in-app browsers, which is what
-  // "non-responsive" almost certainly was. Desktop (where navigator.share
-  // is usually unavailable) still gets Print as the main action.
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   const handlePrint = () => {
-    // Immediate feedback regardless of what the OS print dialog ends up
-    // doing — so a tap never feels like it did nothing, which was the
-    // "non-responsive" complaint even on browsers where print DOES work.
     toast({ title: 'Opening print preview…' });
     if (typeof window !== 'undefined') {
-      // Small delay lets the toast paint before the print dialog steals
-      // focus/rendering on some mobile browsers.
       setTimeout(() => window.print(), 50);
     }
   };
+
+  const checkInUrl = typeof window !== 'undefined' && result.checkInToken
+    ? `${window.location.origin}/check-in/${result.checkInToken}`
+    : '';
+  const checkInCodeDisplay = result.shortCode
+    ? result.shortCode.toUpperCase()
+    : result.checkInToken
+      ? result.checkInToken.slice(-8).toUpperCase()
+      : '';
 
   const handleShare = async () => {
     if (!canShare) return;
@@ -1015,17 +956,12 @@ function SuccessScreen({
         url: checkInUrl || undefined,
       });
     } catch (e: any) {
-      // AbortError just means the person closed the native share sheet
-      // without picking anything — not a real failure, don't toast it.
       if (e?.name !== 'AbortError') {
         toast({ variant: 'destructive', title: 'Could not open share sheet' });
       }
     }
   };
 
-  // v4 — hits a not-yet-built endpoint. Add /api/notifications/resend-
-  // confirmation server-side (same shape as send-completion-link) before
-  // shipping this; until then this will fail gracefully with a toast.
   const handleResend = async () => {
     setIsResending(true);
     try {
@@ -1054,39 +990,9 @@ function SuccessScreen({
 
   const firstName = result.clientName.split(' ')[0];
 
-  // v5/v8 — printable check-in ticket. The print:hidden / hidden print:block
-  // split (Tailwind's built-in print variant) ensures only the ticket below
-  // survives when the browser print dialog fires. Note this only controls
-  // what THIS component renders; if Quick Book is embedded inside POS page
-  // chrome (nav bars, sidebar) or an iframe, that surrounding chrome isn't
-  // scoped by this change and printing from inside an iframe is itself
-  // unreliable on mobile — if Print still produces a blank/wrong page after
-  // this fix, that's the next place to look, and Share (above) sidesteps
-  // the problem entirely by not depending on the print pipeline at all.
-  const checkInUrl = typeof window !== 'undefined' && result.checkInToken
-    ? `${window.location.origin}/check-in/${result.checkInToken}`
-    : '';
-  // v5 — FIX: prefer the unambiguous-alphabet shortCode over slicing
-  // checkInToken. checkInToken uses nanoid's default alphabet, which
-  // includes characters (0/O, 1/I/L) that are genuinely indistinguishable
-  // in a lot of confirmation-screen/print fonts — a customer could read off
-  // a perfectly legible code that was simply the wrong character and get a
-  // false "not found" at the front desk. shortCode is generated specifically
-  // to avoid that; falls back to the old slice if shortCode is somehow
-  // absent, so this never renders blank.
-  const checkInCodeDisplay = result.shortCode
-    ? result.shortCode.toUpperCase()
-    : result.checkInToken
-      ? result.checkInToken.slice(-8).toUpperCase()
-      : '';
-
   return (
     <>
     <div className="print:hidden space-y-5">
-      {/* v6 — stronger, more celebratory hero. A flat icon-in-a-circle with
-          small text read as "form submitted," not "you're booked" — this
-          gives the confirmation a bit more visual weight to match the
-          moment, without adding any new dependencies. */}
       <div className="text-center space-y-2 pt-3 pb-1">
         <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center mx-auto shadow-lg shadow-green-500/20">
           <CheckCircle2 className="w-8 h-8 text-white" strokeWidth={2.5} />
@@ -1114,7 +1020,6 @@ function SuccessScreen({
         ) : null}
       </div>
 
-      {/* v4 — booking-summary strip: location, duration, financial split */}
       <div className="rounded-xl border overflow-hidden bg-white">
         <p className="px-3.5 pt-3 pb-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
           Booking summary
@@ -1145,12 +1050,6 @@ function SuccessScreen({
         </div>
       </div>
 
-      {/* v6 — "who's working" (Quick Book redesign: confirmations must
-          visually show which providers are on this appointment). Previously
-          the confirmation only showed a leg/guest COUNT ("3 providers") with
-          no names — this lists every resolved provider with what they're
-          actually doing, built in handleBook from the primary assignment,
-          any add-on overrides, multi-provider legs, and group guests. */}
       {result.providersSummary.length > 0 && (
         <div className="rounded-xl border bg-white overflow-hidden">
           <p className="px-3.5 pt-3 pb-1.5 text-[10px] font-medium text-slate-400 uppercase tracking-wider">
@@ -1228,12 +1127,6 @@ function SuccessScreen({
         </div>
       )}
 
-      {/* NEW — the check-in code is shown here too, not just on the printed
-          ticket below. Front desk staff and clients frequently need to read
-          this off a screen (e.g. dictating it over the phone, or a client
-          screenshotting the confirmation), and print: is display:none until
-          print media actually activates — nothing before this made the code
-          visible on-screen at all. */}
       {checkInCodeDisplay && (
         <div className="rounded-xl border p-3.5 flex items-center justify-between gap-3 bg-slate-50">
           <div>
@@ -1244,11 +1137,6 @@ function SuccessScreen({
         </div>
       )}
 
-      {/* v8 — Share is now the PRIMARY action when the device supports it
-          (most mobile browsers) — reliably opens the native share sheet,
-          unlike window.print() which is frequently a silent no-op in
-          mobile webviews. Print stays available as a secondary action for
-          desktop / front-desk printer setups. */}
       <div className="grid grid-cols-2 gap-3">
         {canShare ? (
           <Button onClick={handleShare} variant="outline" className="h-10 text-xs">
@@ -1279,14 +1167,6 @@ function SuccessScreen({
       </div>
     </div>
 
-    {/* v8 — printable check-in ticket. Previously included a QR <img>
-        pointing at an external image-generation API — a real network
-        dependency that could fail to load (especially since this block is
-        display:none until print media activates, which is exactly the
-        kind of never-visible element some browsers defer loading
-        indefinitely, per the "Images loaded lazily" intervention). Replaced
-        with a self-contained short code derived straight from the existing
-        checkInToken — nothing to fetch, nothing that can fail to load. */}
     <div className="hidden print:block p-6">
       <div className="text-center space-y-1 mb-4">
         <p className="text-lg font-semibold">{result.clientName}</p>
@@ -1321,10 +1201,8 @@ export function QuickBookForm({
 }: Props) {
   const { toast } = useToast();
 
-  // ── Wizard step ─────────────────────────────────────────────────────────────
   const [step, setStep] = React.useState<1 | 2 | 3>(1);
 
-  // Step 1 — client
   const [clientSearch, setClientSearch] = React.useState('');
   const [selectedClient, setSelectedClient] = React.useState<any>(null);
   const [isNewClient, setIsNewClient] = React.useState(false);
@@ -1333,10 +1211,8 @@ export function QuickBookForm({
   const [newClientEmail, setNewClientEmail] = React.useState('');
   const [duplicateSuggestions, setDuplicateSuggestions] = React.useState<any[]>([]);
   const [showDuplicateWarning, setShowDuplicateWarning] = React.useState(false);
-  // Arrears interstitial — shown between step 1 and step 2
   const [showArrearsInterstitial, setShowArrearsInterstitial] = React.useState(false);
 
-  // Step 2 — service / time
   const [selectedService, setSelectedService] = React.useState('');
   const [addOnIds, setAddOnIds] = React.useState<string[]>([]);
   const [durationOffset, setDurationOffset] = React.useState(0);
@@ -1348,25 +1224,15 @@ export function QuickBookForm({
   const [isMultiProvider, setIsMultiProvider] = React.useState(false);
   const [providerLegs, setProviderLegs] = React.useState<ProviderLeg[]>([]);
   const [waitlistMode, setWaitlistMode] = React.useState(false);
-  // v5 — per-add-on provider assignment. Keyed by add-on serviceId; absence
-  // of a key means "same as primary provider" (the old, only behavior).
-  // Written into appointment.checkoutState.serviceStaffOverrides at booking
-  // time — the exact field AddAndConfigurePartsDialog / AppointmentDetailsSheet
-  // already read for post-booking add-on reassignment, so this is additive,
-  // not a new schema.
   const [addOnStaffOverrides, setAddOnStaffOverrides] = React.useState<Record<string, string>>({});
-  // v5 — recurring booking. Writes a shared recurrenceId across the primary
-  // appointment and however many future occurrences are requested — the
-  // Appointment type already has an (until now unused) recurrenceId field.
   const [isRecurring, setIsRecurring] = React.useState(false);
   const [recurrenceInterval, setRecurrenceInterval] = React.useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
-  const [recurrenceCount, setRecurrenceCount] = React.useState(4); // total occurrences, including the first
+  const [recurrenceCount, setRecurrenceCount] = React.useState(4);
 
-  // Step 3 — confirm
   const [sendLink, setSendLink] = React.useState(true);
   const [requestFiles, setRequestFiles] = React.useState(false);
-  const [clientNotes, setClientNotes] = React.useState('');       // goes to client in confirmation
-  const [internalNotes, setInternalNotes] = React.useState('');   // staff-only, never sent
+  const [clientNotes, setClientNotes] = React.useState('');
+  const [internalNotes, setInternalNotes] = React.useState('');
   const [redeemPackageId, setRedeemPackageId] = React.useState<string | null>(null);
   const [chargeNow, setChargeNow] = React.useState(true);
   const [chargeConfirmPending, setChargeConfirmPending] = React.useState(false);
@@ -1375,20 +1241,17 @@ export function QuickBookForm({
   const [promoChecking, setPromoChecking] = React.useState(false);
   const [reminderHours, setReminderHours] = React.useState('48');
 
-  // Arrears (step 3 banner — still present for cases that slip through interstitial)
   const [isChargingArrears, setIsChargingArrears] = React.useState(false);
   const [arrearsResolved, setArrearsResolved] = React.useState(false);
   const [arrearsOverrideReason, setArrearsOverrideReason] = React.useState('');
   const [arrearsOverrideDetail, setArrearsOverrideDetail] = React.useState('');
   const [showArrearsOverride, setShowArrearsOverride] = React.useState(false);
 
-  // Submit / result
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [successResult, setSuccessResult] = React.useState<BookingSuccess | null>(null);
   const [ledgerError, setLedgerError] = React.useState(false);
   const [slotConflict, setSlotConflict] = React.useState(false);
 
-  // ── Pending call-backs (interrupted call-in bookings) ────────────────────────
   const [callBackDrafts, setCallBackDrafts] = React.useState<CallBackDraft[]>([]);
   const [currentDraftId, setCurrentDraftId] = React.useState<string | null>(null);
   const [showSaveDraftModal, setShowSaveDraftModal] = React.useState(false);
@@ -1397,29 +1260,15 @@ export function QuickBookForm({
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
   const [discardingDraftId, setDiscardingDraftId] = React.useState<string | null>(null);
 
-  // Live consent form definitions (tenants/{tenantId}/consentForms) — the
-  // actual source of form names, fetched directly rather than relying solely
-  // on a prop that may never get passed.
   const [consentFormDefs, setConsentFormDefs] = React.useState<any[]>([]);
   const [namingFormId, setNamingFormId] = React.useState<string | null>(null);
   const [newFormTitle, setNewFormTitle] = React.useState('');
   const [isSavingFormName, setIsSavingFormName] = React.useState(false);
 
-  // Shift schedule (tenants/{tenantId}/shifts) — used for the call-in booking
-  // turn order so "Any available" only rotates among staff actually scheduled
-  // to work on the appointment's date.
   const [shifts, setShifts] = React.useState<any[]>([]);
 
   const searchRef = React.useRef<HTMLInputElement>(null);
 
-  // ── Derived ─────────────────────────────────────────────────────────────────
-  // "Recent clients" — derived from real appointment records rather than the
-  // client doc's `lastAppointment` field. That field gets stamped with the
-  // moment a booking was CREATED (see handleBook below: `lastAppointment: now`),
-  // not the appointment's actual date — so a client who just booked something
-  // three weeks out would jump to the top of "recent," ahead of someone who
-  // was genuinely serviced yesterday. This computes each client's true most
-  // recent PAST visit from startTime instead.
   const lastVisitByClientId = React.useMemo(() => {
     const map: Record<string, string> = {};
     const nowMs = Date.now();
@@ -1427,7 +1276,7 @@ export function QuickBookForm({
       if (!a.clientId || typeof a.startTime !== 'string') return;
       if (a.status === 'cancelled') return;
       const t = new Date(a.startTime).getTime();
-      if (Number.isNaN(t) || t >= nowMs) return; // only real past visits count as "recent"
+      if (Number.isNaN(t) || t >= nowMs) return;
       if (!map[a.clientId] || t > new Date(map[a.clientId]).getTime()) {
         map[a.clientId] = a.startTime;
       }
@@ -1443,9 +1292,6 @@ export function QuickBookForm({
       .slice(0, 6),
   [clients, lastVisitByClientId]);
 
-  // v5 — fills the otherwise-blank step 1 with something a receptionist can
-  // actually act on between calls: how much of today is left, derived from
-  // the same `appointments` prop already in hand, no new data source.
   const todaysRemainingCount = React.useMemo(() => {
     const todayStr2 = format(new Date(), 'yyyy-MM-dd');
     const nowMs2 = Date.now();
@@ -1469,20 +1315,17 @@ export function QuickBookForm({
 
   const selectedSvc = services.find((s: any) => s.id === selectedService);
 
-  // Resolve staff for pricing — when 'any', find first active staff
   const resolvedStaffForPrice = selectedStaff === 'any'
     ? staff.find((s: any) => s.active) ?? null
     : staff.find((s: any) => s.id === selectedStaff) ?? null;
 
   const svcPrice = selectedSvc ? getServicePrice(selectedSvc, resolvedStaffForPrice) : 0;
 
-  // Add-on total — correctly uses resolvedStaffForPrice
   const addOnTotal = addOnIds.reduce((acc, id) => {
     const svc = services.find((s: any) => s.id === id);
     return acc + (svc ? getServicePrice(svc, resolvedStaffForPrice) : 0);
   }, 0);
 
-  // Deposit: primary + legs total
   const primaryDepositCents = selectedSvc
     ? computeDepositCents({
         service: selectedSvc,
@@ -1491,7 +1334,6 @@ export function QuickBookForm({
       })
     : 0;
 
-  // Multi-provider schedule
   const primaryStartTimeForLegs = React.useMemo(
     () => new Date(`${aptDate}T${aptTime}:00`),
     [aptDate, aptTime],
@@ -1521,7 +1363,6 @@ export function QuickBookForm({
 
   const depositCents = primaryDepositCents + legDepositCents;
 
-  // Promo discount applied to deposit
   const discountCents = promoDiscount
     ? promoDiscount.type === 'pct'
       ? Math.round(depositCents * promoDiscount.amount / 100)
@@ -1549,15 +1390,11 @@ export function QuickBookForm({
   const hasUnresolvedArrears = outstandingBalance > 0 && !arrearsResolved;
   const canConfirmBooking = !hasUnresolvedArrears || !!arrearsOverrideReason;
 
-  // Active packages that match the selected service
   const activePackages: any[] = (selectedClient?.activePackages || []).filter(
     (p: any) => p.sessionsRemaining > 0 &&
       (!selectedService || p.serviceIds?.includes(selectedService) || p.packageId === selectedService),
   );
 
-  // v5 — package/membership nudges (Quick Book redesign #4). Both are
-  // entirely optional — if `packages`/`memberships` aren't passed in from
-  // the parent, these simply never trigger, no errors.
   const pastVisitsForSelectedService = React.useMemo(() => {
     if (!selectedClient?.id || !selectedService) return 0;
     return appointments.filter((a: any) =>
@@ -1573,7 +1410,6 @@ export function QuickBookForm({
     [packages, selectedService],
   );
   const clientHasMatchingPackage = !!activePackages.find((p: any) => p.packageId === matchingPackage?.id);
-  // Threshold of 3 full-price visits before nudging — tune freely.
   const showPackageNudge = !!matchingPackage && !clientHasMatchingPackage && pastVisitsForSelectedService >= 3;
 
   const cheapestMembership = React.useMemo(
@@ -1582,15 +1418,10 @@ export function QuickBookForm({
       : null,
     [memberships],
   );
-  // Light heuristic: client has no membership and has spent enough that one
-  // would likely have paid for itself by now. Tune the $250 threshold per
-  // your actual membership pricing.
   const showMembershipNudge = !!cheapestMembership &&
     !selectedClient?.activeMembershipId &&
     safeNumber(selectedClient?.lifetimeValue) > 250;
 
-  // v7 — eligible discounts auto-surfaced in step 3 instead of requiring a
-  // typed-in code. Computed from real visit history already in `appointments`.
   const clientVisitCount = React.useMemo(() => {
     if (!selectedClient?.id) return 0;
     return appointments.filter((a: any) => a.clientId === selectedClient.id && a.status !== 'cancelled').length;
@@ -1613,8 +1444,6 @@ export function QuickBookForm({
       if (d.applicableServiceIds?.length && selectedService && !d.applicableServiceIds.includes(selectedService)) return false;
       if (d.limitOnePerCustomer && selectedClient?.id && (d.usedByClientIds || []).includes(selectedClient.id)) return false;
       const trig = d.automation?.trigger || 'none';
-      // 'none' means manual-code-only by design — don't auto-surface those,
-      // only ones with a real automation trigger that actually matches.
       if (trig === 'none') return false;
       if (trig === 'new_client') return !selectedClient || clientVisitCount === 0;
       if (trig === 'birthday') return !!birthdayProximity(selectedClient?.birthday)?.isToday;
@@ -1624,21 +1453,10 @@ export function QuickBookForm({
     });
   }, [discounts, selectedService, selectedClient, clientVisitCount, daysSinceLastVisit]);
 
-  // v7 fix — these two were previously declared after the step 1/step 2/
-  // success-screen early `return`s, which only let them run when step === 3.
-  // A hook (readBackSentence's useMemo) being called conditionally like
-  // that violates React's Rules of Hooks and threw "Minified React error
-  // #310" the moment someone reached step 3. Moved here so both are
-  // computed unconditionally on every render, like every other hook in this
-  // component.
   const summaryStaff = selectedStaff === 'any'
     ? 'First available'
     : staff.find((s: any) => s.id === selectedStaff)?.name || '—';
 
-  // "Read this back to the client" sentence (Quick Book redesign:
-  // confirmation should feel like someone reading back every detail). Pure
-  // display, built entirely from values already in scope — doesn't change
-  // what gets booked, just how it's communicated before the final tap.
   const readBackSentence = React.useMemo(() => {
     const name = selectedClient?.name || newClientName.trim() || 'the client';
     const addOnNames = addOnIds.map(id => services.find((s: any) => s.id === id)?.name).filter(Boolean);
@@ -1663,7 +1481,6 @@ export function QuickBookForm({
     return `So that's ${servicePart}${addOnPart} for ${name}, ${providerPart}, on ${dateTimePart}${groupPart} — ${pricePart}${depositPart}.`;
   }, [selectedClient?.name, newClientName, addOnIds, services, selectedSvc, aptDate, aptTime, isMultiProvider, scheduledLegs.length, summaryStaff, isGroup, groupGuests.length, grandTotal, effectiveDepositCents]);
 
-  // Patch test status
   const patchTestDate: Date | null = selectedClient?.lastPatchTest
     ? new Date(selectedClient.lastPatchTest)
     : null;
@@ -1673,7 +1490,6 @@ export function QuickBookForm({
   const selectedSvcRequiresPatchTest = selectedSvc?.requiresPatchTest === true;
   const patchTestBlocking = selectedSvcRequiresPatchTest && patchTestExpired;
 
-  // Consent form statuses
   const formStatuses = requiredFormIds.map(fid => {
     const signed = selectedClient?.signedForms?.[fid];
     const signedAt = signed ? new Date(signed.signedAt) : null;
@@ -1684,17 +1500,12 @@ export function QuickBookForm({
   });
   const formsNeedingSignature = formStatuses.filter(f => !f.signed);
 
-  // Human-readable form names — see buildFormNameLookup for which sources it checks.
   const formNameLookup = React.useMemo(
     () => buildFormNameLookup(tenant, forms, consentFormDefs),
     [tenant, forms, consentFormDefs],
   );
   const getFormName = React.useCallback((id: string) => formNameLookup[id] || id, [formNameLookup]);
 
-  // Lets staff give an existing form id a real name on the spot, rather than
-  // needing to go set this up elsewhere first. Writes directly to the id the
-  // service already references, so nothing about the service's
-  // requiredFormIds needs to change.
   const handleSaveFormName = async (id: string) => {
     if (!newFormTitle.trim() || !firestore || !tenantId) return;
     setIsSavingFormName(true);
@@ -1714,11 +1525,8 @@ export function QuickBookForm({
     }
   };
 
-  // Smart availability
   const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-  // v6 — "how far out is this" indicator for the date-jump control. Pure
-  // display, doesn't affect booking logic.
   const aptDateOffsetLabel = React.useMemo(() => {
     const days = differenceInCalendarDays(new Date(`${aptDate}T00:00`), new Date(`${todayStr}T00:00`));
     if (days === 0) return 'Today';
@@ -1740,12 +1548,6 @@ export function QuickBookForm({
   });
   const hasNoSlots = selectedService && slots.length === 0;
 
-  // When the client said "any available," don't let the per-provider time
-  // grid become a menu the receptionist can pick a favorite from — merge it
-  // into one "anyone available" slot per time. The actual provider is
-  // decided by fair rotation (resolveAnyStaffId below), not by which named
-  // button looks most appealing. When a specific stylist is selected, this
-  // is just a pass-through of the real per-provider slots.
   const displaySlots = React.useMemo(() => {
     if (selectedStaff !== 'any') return slots;
     const byTime = new Map<string, typeof slots[number]>();
@@ -1759,19 +1561,12 @@ export function QuickBookForm({
     return Array.from(byTime.values()).sort((a, b) => a.time.localeCompare(b.time));
   }, [slots, selectedStaff]);
 
-  // Real per-time eligibility — which staff are genuinely free at the
-  // selected time, from the actual availability data (not just "on shift").
-  // Feeds resolveAnyStaffId so the rotation can't hand someone a booking
-  // that collides with an appointment they already have.
   const eligibleStaffIdsForAptTime = React.useMemo(() => {
     if (selectedStaff !== 'any' || !aptTime) return undefined;
     const ids = Array.from(new Set(slots.filter(s => s.time === aptTime && s.available).map(s => s.staffId)));
     return ids.length > 0 ? ids : undefined;
   }, [slots, aptTime, selectedStaff]);
 
-  // Staff date availability — how many appointments each provider already has on aptDate.
-  // Guard against non-string startTime values (e.g. un-normalized Firestore
-  // Timestamps) before calling .startsWith() on them.
   const staffDateLoad = React.useMemo(() => {
     const load: Record<string, number> = {};
     appointments.forEach((a: any) => {
@@ -1784,26 +1579,6 @@ export function QuickBookForm({
 
   const activeStaff = staff.filter((s: any) => s.active);
 
-  // ── "Any available" turn order for call-in bookings ───────────────────────
-  // Mirrors the fair-play rotation already used for walk-ins (AssignStaffDialog
-  // / WalkInLeaderboard, sorted by lastWalkInCompletedAt) — but kept as a
-  // separate counter (lastBookingAssignedAt) since a phone booking is a future
-  // reservation, not "who's free right now"; mixing the two would let every
-  // call-in booking skew who gets the next walk-in and vice versa.
-  //
-  // `exclude` lets a single booking with multiple "any" slots (e.g. a
-  // multi-provider booking) spread across different staff instead of handing
-  // every slot to the same person, since lastBookingAssignedAt won't reflect
-  // earlier picks in the same booking until it's written after commit.
-  //
-  // `eligibleStaffIds`, when provided, restricts the pool to staff who are
-  // actually free at the specific time being booked (derived from the real
-  // slot-availability data) — without this, the rotation could hand someone
-  // a booking that collides with an appointment they already have, since
-  // "most overdue + on shift" alone says nothing about a specific time slot.
-  // Not every "any" assignment has this available (multi-provider legs and
-  // group guests don't have per-slot availability data computed for them),
-  // so it's optional and falls back to the broader shift-based pool.
   const resolveAnyStaffId = React.useCallback((
     dateStr: string,
     exclude: string[] = [],
@@ -1816,20 +1591,17 @@ export function QuickBookForm({
     );
     const basePool = staff.filter((s: any) =>
       s.active &&
-      (s as any).acceptingWalkIns !== false && // reuses the walk-in opt-out flag; confirm the field name if call-in bookings need a separate one
+      (s as any).acceptingWalkIns !== false &&
       onShiftIds.has(s.id),
     );
     let pool = eligibleStaffIds
       ? basePool.filter((s: any) => eligibleStaffIds.includes(s.id))
       : basePool;
-    // If restricting to "free at this exact time" leaves nobody, widen back
-    // out rather than blocking the booking entirely — better to hand it to
-    // someone than fail the call.
     if (pool.length === 0) pool = basePool;
     if (pool.length === 0) pool = staff.filter((s: any) => s.active && onShiftIds.has(s.id));
-    if (pool.length === 0) pool = staff.filter((s: any) => s.active); // no shift data for that date at all
+    if (pool.length === 0) pool = staff.filter((s: any) => s.active);
     const excluding = pool.filter((s: any) => !exclude.includes(s.id));
-    const finalPool = excluding.length > 0 ? excluding : pool; // everyone already used this booking — allow a repeat
+    const finalPool = excluding.length > 0 ? excluding : pool;
     if (finalPool.length === 0) return null;
     const sorted = [...finalPool].sort((a: any, b: any) => {
       const aLast = a.lastBookingAssignedAt ? new Date(a.lastBookingAssignedAt).getTime() : 0;
@@ -1839,10 +1611,6 @@ export function QuickBookForm({
     return sorted[0]?.id || null;
   }, [staff, shifts]);
 
-  // Live preview shown to the receptionist — uses the exact same inputs
-  // handleBook will use, so what's displayed is genuinely what gets booked
-  // (barring a true simultaneous-booking race, same caveat as the walk-in
-  // rotation).
   const anyAvailablePreviewStaffId = selectedStaff === 'any' && aptTime
     ? resolveAnyStaffId(aptDate, [], eligibleStaffIdsForAptTime)
     : null;
@@ -1850,9 +1618,6 @@ export function QuickBookForm({
     ? staff.find((s: any) => s.id === anyAvailablePreviewStaffId)?.name
     : null;
 
-  // v4 — which staff member this exact client has most often seen for THIS
-  // exact service, derived from real appointment history (no schema change
-  // needed). Feeds the "Client's usual provider" transparency reason below.
   const preferredStaffIdForService = React.useMemo(() => {
     if (!selectedClient?.id || !selectedService) return null;
     const tally: Record<string, number> = {};
@@ -1865,11 +1630,6 @@ export function QuickBookForm({
     return top ? top[0] : null;
   }, [appointments, selectedClient?.id, selectedService]);
 
-  // v4 — the actual reasons behind the "any available" pick, so staff (and
-  // the client, if asked) get a real answer instead of "the computer picked
-  // them." `certifiedStaffIds` on the Service doc is optional — if your
-  // Service type doesn't have it yet, this reason simply never appears,
-  // nothing breaks.
   const anyAvailableReasons = React.useMemo(() => {
     if (!anyAvailablePreviewStaffId) return [];
     const reasons: string[] = [];
@@ -1891,16 +1651,12 @@ export function QuickBookForm({
     return reasons;
   }, [anyAvailablePreviewStaffId, eligibleStaffIdsForAptTime, preferredStaffIdForService, activeStaff, staffDateLoad, selectedSvc]);
 
-  // Presentational only — a rough "how solid is this pick" indicator, not a
-  // real ML confidence score. Capped well under 100 so it never overclaims.
   const anyAvailableMatchScore = anyAvailablePreviewStaffId
     ? Math.min(96, 58 + anyAvailableReasons.length * 12)
     : null;
 
-  // Client intelligence
   const intel = useClientIntelligence(selectedClient, appointments, services);
 
-  // ── Effects ──────────────────────────────────────────────────────────────────
   React.useEffect(() => {
     if (requiredFormIds.length > 0) setSendLink(true);
   }, [requiredFormIds.length]);
@@ -1910,7 +1666,6 @@ export function QuickBookForm({
   }, [step]);
 
   React.useEffect(() => {
-    // Reset all arrears state when client changes
     setArrearsResolved(false);
     setArrearsOverrideReason('');
     setArrearsOverrideDetail('');
@@ -1918,17 +1673,11 @@ export function QuickBookForm({
     setShowArrearsInterstitial(false);
   }, [selectedClient?.id]);
 
-  // Auto-apply same-day reminder when booking for today
   React.useEffect(() => {
     if (aptDate === todayStr) setReminderHours('1');
     else setReminderHours('48');
   }, [aptDate, todayStr]);
 
-  // Live subscription to pending call-back drafts — any staff member sees the
-  // same list in real time. Filtered client-side by createdAt rather than
-  // using orderBy in the query, so this doesn't need a composite Firestore
-  // index (the same kind of missing-index trap that broke the client stats
-  // bar elsewhere).
   React.useEffect(() => {
     if (!firestore || !tenantId) return;
     const draftsQuery = query(
@@ -1948,7 +1697,6 @@ export function QuickBookForm({
     return () => unsubscribe();
   }, [firestore, tenantId]);
 
-  // Live consent form definitions — the actual names behind requiredFormIds.
   React.useEffect(() => {
     if (!firestore || !tenantId) return;
     const formsQuery = collection(firestore, `tenants/${tenantId}/consentForms`);
@@ -1964,10 +1712,6 @@ export function QuickBookForm({
     return () => unsubscribe();
   }, [firestore, tenantId]);
 
-  // Shift schedule, today onward — used to keep "Any available" rotation
-  // scoped to staff actually working on the appointment's date. Filtered by
-  // date >= today rather than loading the whole history, and filtered
-  // further client-side by exact date to avoid needing a composite index.
   React.useEffect(() => {
     if (!firestore || !tenantId) return;
     const shiftsQuery = query(
@@ -2137,9 +1881,7 @@ export function QuickBookForm({
     </div>
   ) : null;
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const selectClient = (c: any) => {
-    // Block immediately if banned
     if (c.status === 'blocked') {
       toast({
         variant: 'destructive',
@@ -2152,7 +1894,6 @@ export function QuickBookForm({
     setSelectedClient(c);
     setIsNewClient(false);
     setClientSearch('');
-    // Reset step-2 state for new client
     setSelectedService('');
     setAddOnIds([]);
     setDurationOffset(0);
@@ -2167,7 +1908,6 @@ export function QuickBookForm({
 
     if (c.lastServiceId) setSelectedService(c.lastServiceId);
 
-    // Show arrears interstitial before proceeding to step 2
     if (safeNumber(c.outstandingBalance) > 0) {
       setShowArrearsInterstitial(true);
     } else {
@@ -2196,7 +1936,6 @@ export function QuickBookForm({
 
   const toggleAddOn = (serviceId: string) => {
     const svc = services.find((s: any) => s.id === serviceId);
-    // Compatibility check
     if (svc?.incompatibleWith?.includes(selectedService)) {
       toast({
         variant: 'destructive',
@@ -2208,14 +1947,9 @@ export function QuickBookForm({
     setAddOnIds(prev =>
       prev.includes(serviceId) ? prev.filter(id => id !== serviceId) : [...prev, serviceId],
     );
-    // Clear any provider override for an add-on the moment it's turned off
-    // — an override lingering for a removed add-on is harmless on its own
-    // (it's keyed by serviceId, so it just sits unused), but leaving it
-    // around risks resurrecting a stale assignment if the same add-on gets
-    // re-added later in the same booking without the receptionist noticing.
     setAddOnStaffOverrides(prev => {
       if (!(serviceId in prev)) return prev;
-      if (!addOnIds.includes(serviceId)) return prev; // being turned ON, nothing to clear
+      if (!addOnIds.includes(serviceId)) return prev;
       const next = { ...prev };
       delete next[serviceId];
       return next;
@@ -2246,10 +1980,6 @@ export function QuickBookForm({
     }
   };
 
-  // v7 — applies an already-known-eligible discount directly, no server
-  // round-trip needed since availableDiscounts already filtered for
-  // eligibility client-side. Still records the code on the appointment
-  // (promoCode field) for reporting consistency with the manual path.
   const applyListedDiscount = (d: any) => {
     setPromoCode(d.code || '');
     setPromoDiscount({
@@ -2283,11 +2013,6 @@ export function QuickBookForm({
       if (data.ok) {
         setArrearsResolved(true);
 
-        // BUG FIX: the charge succeeding previously only updated local state.
-        // The client's outstandingBalance field in Firestore was never
-        // cleared, so the balance kept showing as owed on every later call or
-        // visit. Persist it now, and update the in-memory client object so
-        // this session reflects it immediately too.
         try {
           await setDoc(
             doc(firestore, `tenants/${tenantId}/clients`, selectedClient.id),
@@ -2346,7 +2071,6 @@ export function QuickBookForm({
     }
   };
 
-  // ── Book ──────────────────────────────────────────────────────────────────
   const handleBook = async () => {
     const clientName = selectedClient?.name || newClientName.trim();
     if (!selectedService || !tenantId || !firestore) return;
@@ -2378,7 +2102,6 @@ export function QuickBookForm({
       return;
     }
 
-    // Charge confirmation guard — first tap sets pending, second tap executes
     if (willChargeNow && !chargeConfirmPending) {
       setChargeConfirmPending(true);
       setTimeout(() => setChargeConfirmPending(false), 4000);
@@ -2396,7 +2119,6 @@ export function QuickBookForm({
     const multiProviderGroupId = isMultiProvider && scheduledLegs.length > 0 ? _nanoid() : null;
 
     try {
-      // ── Resolve / create client ──────────────────────────────────────────
       let clientId = selectedClient?.id;
       const startTime = new Date(`${aptDate}T${aptTime}:00`);
       const totalDuration =
@@ -2404,15 +2126,7 @@ export function QuickBookForm({
         durationOffset +
         addOnIds.reduce((acc, id) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
       const endTime = addMinutes(startTime, totalDuration);
-      // Tracks staff resolved via "Any available" in this booking, so the
-      // turn-order counter only advances for actual any-available picks (not
-      // explicit by-name requests) and so multiple any-available slots in one
-      // booking don't all land on the same person.
       const anyAssignedStaffIds: string[] = [];
-      // v6 — accumulated as legs/add-ons/group guests get their staff
-      // resolved below, then baked into the success result so the
-      // confirmation screen can show exactly who's working this
-      // appointment instead of just a leg/guest count.
       const providersSummary: { name: string; detail: string }[] = [];
       const resolvedStaffId =
         selectedStaff === 'any'
@@ -2425,8 +2139,6 @@ export function QuickBookForm({
         detail: selectedSvc?.name || 'Primary service',
         avatarUrl: resolvedPrimaryStaffMember?.avatarUrl,
       });
-      // Add-on provider overrides — same staff as primary unless explicitly
-      // overridden via the per-add-on assignment UI in step 2.
       addOnIds.forEach((id) => {
         const overrideStaffId = addOnStaffOverrides[id];
         if (!overrideStaffId || overrideStaffId === resolvedStaffId) return;
@@ -2438,16 +2150,9 @@ export function QuickBookForm({
       });
       const aptId = _nanoid();
       const checkInToken = _nanoid();
-      // NEW — the permanent, unambiguous-alphabet code for front-desk
-      // lookup, generated alongside checkInToken. See lib/short-code.ts.
       const shortCode = generateShortCode();
-      // v5 — shared across the primary appointment and every future
-      // recurring occurrence created after the main batch commits below.
       const recurrenceId = isRecurring && recurrenceCount > 1 ? _nanoid() : null;
 
-      // ── Slot concurrency guard ───────────────────────────────────────────
-      // Use a Firestore transaction to atomically check + reserve the slot
-      // before committing the full appointment batch.
       if (resolvedStaffId) {
         try {
           await runTransaction(firestore, async (tx) => {
@@ -2466,9 +2171,6 @@ export function QuickBookForm({
               time: aptTime,
               aptId,
               reservedAt: now,
-              // TTL: the booking batch will delete this and replace with the
-              // actual appointment. If the batch fails, a Cloud Function
-              // cleans up locks older than 5 minutes.
               expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
             });
           });
@@ -2483,11 +2185,9 @@ export function QuickBookForm({
             setIsSubmitting(false);
             return;
           }
-          // Non-conflict transaction error — proceed anyway (best effort)
         }
       }
 
-      // ── If willChargeNow and new client, commit client first ──────────────
       if (willChargeNow && !selectedClient) {
         clientId = _nanoid();
         const clientBatch = writeBatch(firestore);
@@ -2506,7 +2206,6 @@ export function QuickBookForm({
         clientId = _nanoid();
       }
 
-      // ── Charge card on file ───────────────────────────────────────────────
       let effectiveSendLink = sendLink;
       let chargeResultForLedger: { paymentIntentId: string } | null = null;
       let chargeOutcome: ChargeOutcome = null;
@@ -2557,21 +2256,8 @@ export function QuickBookForm({
         }
       }
 
-      // ── Main batch ────────────────────────────────────────────────────────
       const batch = writeBatch(firestore);
 
-      // Client doc.
-      //
-      // v9 FIX: previously this block unconditionally wrote a "new client"
-      // doc whenever `!selectedClient`, even though the comment claimed it
-      // was the "non-charge path." When `willChargeNow` was also true, the
-      // client doc had *already* been committed a few lines above in its
-      // own pre-charge batch — so this fired a second, redundant write for
-      // the exact same document right after. Gating on `!willChargeNow`
-      // makes this block only run for the genuine non-charge new-client
-      // case, matching what it always claimed to do. The existing-client
-      // merge-update branch is untouched and still runs for any existing
-      // client regardless of whether a charge just happened.
       if (!selectedClient && !willChargeNow) {
         batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
           id: clientId,
@@ -2591,7 +2277,6 @@ export function QuickBookForm({
         }
       }
 
-      // Primary appointment
       const aptDoc = sanitizeForFirestore({
         id: aptId,
         tenantId,
@@ -2619,9 +2304,6 @@ export function QuickBookForm({
         recurrenceId: recurrenceId || undefined,
         promoCode: promoDiscount ? promoCode.trim() : undefined,
         promoDiscountCents: discountCents > 0 ? discountCents : undefined,
-        // v5 — per-add-on provider assignment, written into the same
-        // checkoutState.serviceStaffOverrides shape AddAndConfigurePartsDialog
-        // / AppointmentDetailsSheet already read post-booking.
         ...(Object.keys(addOnStaffOverrides).length > 0 ? {
           checkoutState: { serviceStaffOverrides: addOnStaffOverrides, concurrentServiceIds: [] },
         } : {}),
@@ -2648,7 +2330,6 @@ export function QuickBookForm({
       batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
       batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
 
-      // Client update
       batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
         lastServiceId: selectedService,
         lastAppointment: now,
@@ -2661,7 +2342,6 @@ export function QuickBookForm({
         } : {}),
       }), { merge: true });
 
-      // Delete slot lock
       if (resolvedStaffId) {
         batch.delete(doc(
           firestore,
@@ -2670,15 +2350,9 @@ export function QuickBookForm({
         ));
       }
 
-      // Multi-provider legs
       if (multiProviderGroupId && scheduledLegs.length > 0) {
         scheduledLegs.forEach((leg, idx) => {
           const legSvc = services.find((s: any) => s.id === leg.serviceId);
-          // No per-slot availability data exists for legs (unlike the primary
-          // booking time), so this can only check shift + active status, not
-          // whether this specific person is free at the leg's computed time —
-          // a real gap until multi-provider legs get their own availability
-          // check. Flagging rather than silently pretending it's covered.
           const legStaffId = leg.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : leg.staffId;
           if (leg.staffId === 'any' && legStaffId) anyAssignedStaffIds.push(legStaffId);
           const legStaffMemberForSummary = staff.find((s: any) => s.id === legStaffId);
@@ -2689,7 +2363,7 @@ export function QuickBookForm({
           });
           const legId = _nanoid();
           const legToken = _nanoid();
-          const legShortCode = generateShortCode(); // NEW — each leg is independently scannable
+          const legShortCode = generateShortCode();
           batch.set(doc(firestore, `tenants/${tenantId}/appointments`, legId), sanitizeForFirestore({
             id: legId, tenantId, clientId, clientName,
             serviceId: leg.serviceId,
@@ -2722,21 +2396,16 @@ export function QuickBookForm({
         });
       }
 
-      // Group guest appointments
       if (isGroup && groupGuests.length > 0) {
         for (const guest of groupGuests) {
           if (!guest.name.trim() || !guest.serviceId) continue;
-          // v6 — honor a linked existing client instead of always minting a
-          // duplicate. This was flagged as a known gap in GroupBookingPanel's
-          // header notes since v2 but never actually wired up here — every
-          // linked guest was still getting a brand-new client doc.
           const linkedGuestClient = guest.linkedClientId
             ? (clients || []).find((c: any) => c.id === guest.linkedClientId)
             : null;
           const gClientId = guest.linkedClientId || _nanoid();
           const gAptId = _nanoid();
           const gToken = _nanoid();
-          const gShortCode = generateShortCode(); // NEW — each group guest is independently scannable
+          const gShortCode = generateShortCode();
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
           const gStaffId = guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId;
           if (guest.staffId === 'any' && gStaffId) anyAssignedStaffIds.push(gStaffId);
@@ -2751,13 +2420,11 @@ export function QuickBookForm({
           const gEnd = addMinutes(startTime, (gSvc?.duration || 60) + gAddOnDuration);
 
           if (linkedGuestClient) {
-            // Real client — just bump their visit record, don't recreate them.
             batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
               lastServiceId: guest.serviceId,
               lastAppointment: now,
             }), { merge: true });
           } else {
-            // Create a minimal client record for the guest
             batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
               id: gClientId,
               name: guest.name,
@@ -2794,10 +2461,19 @@ export function QuickBookForm({
         }
       }
 
-      // Completion link
+      // Completion link — v6: reuses checkInToken instead of minting a
+      // second, independent token. Previously this created TWO tokens for
+      // the same appointment (checkInToken for day-of arrival/POS-scan/
+      // ticket, and a separate token here for forms/card/deposit), sent to
+      // the client as two different links pointing at two different pages
+      // (/check-in/{checkInToken} and /complete/{tenantId}/{token}). Now
+      // there's exactly one token and one link: /check-in/{checkInToken}
+      // itself gates on completion requirements before showing the arrival
+      // flow, so the same link works from the moment of booking through
+      // arrival, concierge, and post-visit review.
       let link: string | null = null;
       if (effectiveSendLink) {
-        const token = _nanoid();
+        const token = checkInToken;
         const expiryDays = safeNumber(tenant?.completionLinkExpiryDays) || 7;
         const expiresAt = new Date(Date.now() + expiryDays * 24 * 3600 * 1000).toISOString();
         batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
@@ -2827,20 +2503,11 @@ export function QuickBookForm({
           expiresAt,
         }));
         const origin = typeof window !== 'undefined' ? window.location.origin : '';
-        link = `${origin}/complete/${tenantId}/${token}`;
+        link = `${origin}/check-in/${token}`;
       }
 
       await batch.commit();
 
-      // ── Recurring occurrences (v5) ──────────────────────────────────────────
-      // Best-effort: unlike the primary booking, these don't run the
-      // slot-lock transaction or a per-slot availability check (same
-      // documented gap as multi-provider legs above) — far-future dates
-      // make a strict check impractical here, and a double-booked
-      // recurring slot is something staff can catch on the calendar same
-      // as any manually-created conflict. "Any available" occurrences each
-      // re-resolve independently per date via resolveAnyStaffId, including
-      // shift data for that date if it exists yet.
       if (recurrenceId && isRecurring && recurrenceCount > 1) {
         try {
           const recurBatch = writeBatch(firestore);
@@ -2858,7 +2525,7 @@ export function QuickBookForm({
               : selectedStaff;
             const occId = _nanoid();
             const occToken = _nanoid();
-            const occShortCode = generateShortCode(); // NEW — each occurrence is independently scannable
+            const occShortCode = generateShortCode();
             recurBatch.set(doc(firestore, `tenants/${tenantId}/appointments`, occId), sanitizeForFirestore({
               id: occId,
               tenantId,
@@ -2907,7 +2574,6 @@ export function QuickBookForm({
         }
       }
 
-      // ── Per-leg ledger entries ─────────────────────────────────────────────
       let ledgerFailed = false;
       if (chargeResultForLedger && multiProviderGroupId && scheduledLegs.length > 0) {
         try {
@@ -2944,7 +2610,6 @@ export function QuickBookForm({
         }
       }
 
-      // ── Send completion link notification ─────────────────────────────────
       let sendStatus: any = null;
       if (link) {
         const clientPhone = selectedClient?.phone || newClientPhone;
@@ -2964,8 +2629,6 @@ export function QuickBookForm({
         } catch { /* non-fatal */ }
       }
 
-      // Advance the call-in turn order for anyone assigned via "Any available" —
-      // explicit by-name requests don't consume rotation position.
       if (anyAssignedStaffIds.length > 0) {
         try {
           const turnBatch = writeBatch(firestore);
@@ -2981,7 +2644,6 @@ export function QuickBookForm({
         } catch { /* non-fatal — fairness ledger update, doesn't block the booking */ }
       }
 
-      // Resolve (delete) any pending call-back draft this booking originated from
       if (currentDraftId) {
         try {
           await deleteDoc(doc(firestore, `tenants/${tenantId}/callBackDrafts`, currentDraftId));
@@ -2989,7 +2651,6 @@ export function QuickBookForm({
         setCurrentDraftId(null);
       }
 
-      // ── Show success screen ───────────────────────────────────────────────
       const depositPaidDollars = chargeOutcome?.charged ? chargeOutcome.amountDollars : 0;
       setSuccessResult({
         appointmentId: aptId,
@@ -3064,7 +2725,6 @@ export function QuickBookForm({
     setCurrentDraftId(null);
   };
 
-  // ── Success screen ────────────────────────────────────────────────────────
   if (successResult) {
     return (
       <SuccessScreen
@@ -3075,9 +2735,7 @@ export function QuickBookForm({
     );
   }
 
-  // ── Step 1: Client ────────────────────────────────────────────────────────
   if (step === 1) {
-    // Arrears interstitial
     if (showArrearsInterstitial && selectedClient) {
       return (
         <div className="space-y-5">
@@ -3127,7 +2785,6 @@ export function QuickBookForm({
       );
     }
 
-    // Duplicate warning
     if (showDuplicateWarning && duplicateSuggestions.length > 0) {
       return (
         <div className="space-y-5">
@@ -3171,8 +2828,6 @@ export function QuickBookForm({
         {saveDraftModal}
         <CommandBar step={1} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
 
-        {/* v5 — fills the blank space between the search bar and recent
-            clients with something real, not decorative. */}
         {!clientSearch && !isNewClient && (
           <div className="rounded-xl border bg-white px-3.5 py-2.5 flex items-center gap-2.5">
             <CalendarCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
@@ -3184,7 +2839,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Pending call-backs — visible to every staff member, resumable from here */}
         {callBackDrafts.length > 0 && (
           <div className="rounded-xl border border-amber-200 bg-amber-50/60 overflow-hidden">
             <div className="px-3.5 py-2 flex items-center gap-2 border-b border-amber-200/60">
@@ -3397,14 +3051,12 @@ export function QuickBookForm({
     );
   }
 
-  // ── Step 2: Service + Provider + Time ─────────────────────────────────────
   if (step === 2) {
     return (
       <div className="space-y-5">
         {saveDraftModal}
         <CommandBar step={2} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
 
-        {/* Client profile — comprehensive, always expanded */}
         {selectedClient ? (
           <ClientDetailPanel
             client={selectedClient}
@@ -3443,7 +3095,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Intelligence panel */}
         <ClientIntelligencePanel
           intel={intel}
           staff={staff}
@@ -3457,8 +3108,6 @@ export function QuickBookForm({
           }}
         />
 
-        {/* v5 — package/membership nudges, dismissible by simply not acting
-            on them — non-blocking, never required to proceed. */}
         {showPackageNudge && matchingPackage && (
           <div className="rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-3 flex items-start gap-2.5">
             <Gift className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
@@ -3484,7 +3133,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Rebook shortcut */}
         {lastService && (
           <button
             onClick={() => setSelectedService(lastService.id)}
@@ -3508,7 +3156,6 @@ export function QuickBookForm({
           </button>
         )}
 
-        {/* Service list */}
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider">Service</p>
           <div className="rounded-xl border overflow-hidden bg-white divide-y">
@@ -3559,7 +3206,6 @@ export function QuickBookForm({
           </div>
         </div>
 
-        {/* Patch test warning */}
         {patchTestBlocking && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 flex items-start gap-2.5">
             <FlaskConical className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
@@ -3575,7 +3221,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Duration override */}
         {selectedSvc && (
           <div className="flex items-center gap-3 px-1">
             <p className="text-xs text-slate-500 flex-1">
@@ -3603,14 +3248,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* v5/v6 — direct date jump (Quick Book redesign: "schedule weeks or
-            months outward"). Previously the only way to move aptDate was
-            one day at a time via the no-slots "Try tomorrow" button or
-            whatever date-nav exists inside SmartAvailabilityGrid — there
-            was no way to jump straight to, say, six weeks from now. This is
-            always visible regardless of slot availability. v6 adds the
-            relative-distance label and back/Today controls so it's clear
-            how far out you've moved, with an easy way to step back. */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <p className="text-[10px] text-slate-400 uppercase tracking-wider">Date</p>
@@ -3669,7 +3306,6 @@ export function QuickBookForm({
           </div>
         </div>
 
-        {/* Provider chips */}
         <div className="space-y-2">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider">Provider</p>
           <div className="flex flex-wrap gap-2">
@@ -3718,7 +3354,6 @@ export function QuickBookForm({
           </div>
         </div>
 
-        {/* Smart availability grid */}
         {selectedService && !hasNoSlots && (
           <SmartAvailabilityGrid
             slots={displaySlots}
@@ -3726,10 +3361,6 @@ export function QuickBookForm({
             selectedTime={aptTime}
             onSelectTime={(time, staffId) => {
               setAptTime(time);
-              // "any" is a synthetic id from displaySlots — never let it pin
-              // a specific provider. Only a genuinely named staffId (i.e.
-              // selectedStaff was already a specific person, not "any")
-              // should ever switch the selection.
               if (staffId && staffId !== 'any' && staffId !== selectedStaff) setSelectedStaff(staffId);
             }}
             addOnIds={addOnIds}
@@ -3739,14 +3370,6 @@ export function QuickBookForm({
           />
         )}
 
-        {/* v5 — per-add-on provider assignment (Quick Book redesign #3).
-            Previously every add-on silently rode along with whichever
-            provider was selected for the primary service — there was no way
-            to say "color with Jessica, blowout add-on with Kylie" inside
-            Quick Book itself; that only existed post-booking via
-            AddAndConfigurePartsDialog. This writes into the same
-            checkoutState.serviceStaffOverrides shape that dialog already
-            reads, so nothing downstream needs to change. */}
         {addOnIds.length > 0 && (
           <div className="space-y-2">
             <p className="text-[10px] text-slate-400 uppercase tracking-wider">Add-on providers</p>
@@ -3793,8 +3416,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Any-available transparency note — the receptionist picks a time,
-            not a person; this is who the fair rotation currently resolves to. */}
         {selectedStaff === 'any' && aptTime && !hasNoSlots && (
           <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-3.5 py-3 space-y-2.5">
             <div className="flex items-center justify-between gap-3">
@@ -3832,7 +3453,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* No slots / waitlist */}
         {hasNoSlots && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-center">
             <CalendarOff className="w-7 h-7 text-slate-300 mx-auto" />
@@ -3857,7 +3477,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Slot conflict warning */}
         {slotConflict && (
           <div className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 flex items-center gap-2.5">
             <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
@@ -3865,7 +3484,6 @@ export function QuickBookForm({
           </div>
         )}
 
-        {/* Group booking */}
         <button
           type="button"
           onClick={() => {
@@ -3902,7 +3520,6 @@ export function QuickBookForm({
           />
         )}
 
-        {/* Multi-provider */}
         {!isGroup && selectedService && (
           <button
             type="button"
@@ -3960,15 +3577,11 @@ export function QuickBookForm({
     );
   }
 
-  // ── Step 3: Confirm ───────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
       {saveDraftModal}
       <CommandBar step={3} callerName={liveCallerName} serviceLabel={liveServiceLabel} onSaveDraft={openSaveDraftModal} />
 
-      {/* v7 — the read-back. Distinct styling from the itemized receipt
-          below (which is for staff's eyes / record-keeping) — this one is
-          meant to be spoken out loud to the caller before confirming. */}
       <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3.5 flex items-start gap-2.5">
         <MessageSquare className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
         <div>
@@ -3977,7 +3590,6 @@ export function QuickBookForm({
         </div>
       </div>
 
-      {/* Arrears banner (fallback for step 3) */}
       {hasUnresolvedArrears && (
         <ArrearsBanner
           outstandingBalance={outstandingBalance}
@@ -3996,7 +3608,6 @@ export function QuickBookForm({
         />
       )}
 
-      {/* Receipt summary */}
       <div className="rounded-xl border overflow-hidden bg-white">
         <div className="px-4 py-3 border-b">
           <p className="text-sm font-medium text-slate-900">
@@ -4056,7 +3667,6 @@ export function QuickBookForm({
         </div>
       </div>
 
-      {/* Consent form status */}
       {requiredFormIds.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -4127,7 +3737,6 @@ export function QuickBookForm({
         </div>
       )}
 
-      {/* Package redemption */}
       {activePackages.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -4158,10 +3767,6 @@ export function QuickBookForm({
         </div>
       )}
 
-      {/* v7 — eligible discounts (Quick Book redesign #4: "existing
-          discounts should be instantly available"). Tap to apply, no code
-          to remember. The manual field below still works for anything not
-          covered by an automation trigger. */}
       {availableDiscounts.length > 0 && (
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -4192,7 +3797,6 @@ export function QuickBookForm({
         </div>
       )}
 
-      {/* Promo code */}
       <div className="space-y-1.5">
         <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
           <Tag className="w-3 h-3" /> {availableDiscounts.length > 0 ? 'Other promo code' : 'Promo code'}
@@ -4216,7 +3820,6 @@ export function QuickBookForm({
         </div>
       </div>
 
-      {/* Charge card on file */}
       {canChargeOnFile && effectiveDepositCents > 0 && (
         <button
           type="button"
@@ -4247,7 +3850,6 @@ export function QuickBookForm({
         </button>
       )}
 
-      {/* Email */}
       {!selectedClient?.email && (
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider">
@@ -4269,12 +3871,6 @@ export function QuickBookForm({
         </div>
       )}
 
-      {/* v5 — recurring booking (Quick Book redesign #4). Writes a shared
-          recurrenceId across the primary appointment and N-1 future
-          occurrences in handleBook. Future legs are booked best-effort —
-          they don't run the slot-lock transaction or a full per-slot
-          availability check the way the primary booking does (same
-          documented gap as multi-provider legs elsewhere in this file). */}
       <button
         type="button"
         onClick={() => setIsRecurring(v => !v)}
@@ -4337,7 +3933,6 @@ export function QuickBookForm({
         </div>
       )}
 
-      {/* Reminder timing */}
       <div className="space-y-1.5">
         <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
           <Clock className="w-3 h-3" /> Reminder
@@ -4353,7 +3948,6 @@ export function QuickBookForm({
         </select>
       </div>
 
-      {/* Notes: client-visible */}
       <div className="space-y-1.5">
         <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
           <MessageSquare className="w-3 h-3" /> Note for client (included in confirmation)
@@ -4367,7 +3961,6 @@ export function QuickBookForm({
         />
       </div>
 
-      {/* Notes: internal only */}
       <div className="space-y-1.5">
         <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
           <ShieldCheck className="w-3 h-3" /> Internal note (staff only — not sent to client)
@@ -4381,7 +3974,6 @@ export function QuickBookForm({
         />
       </div>
 
-      {/* Completion link toggle */}
       {!(canChargeOnFile && chargeNow && effectiveDepositCents > 0) && (
         <button
           type="button"
@@ -4440,7 +4032,6 @@ export function QuickBookForm({
         </button>
       )}
 
-      {/* Confirm button */}
       <div className="flex gap-3 pt-1">
         <Button onClick={() => setStep(2)} variant="outline" className="h-11 px-4">
           <ChevronLeft className="w-4 h-4" />
