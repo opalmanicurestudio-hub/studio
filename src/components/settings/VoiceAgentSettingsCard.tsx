@@ -23,6 +23,13 @@
  *   voiceAgent.phoneNumber          → the Retell number assigned to this
  *                                     business, E.164 — this is how a call
  *                                     is matched to the right tenant
+ *   voiceAgent.bookingMode          → 'approval' (default) or 'instant'.
+ *                                     Either way the slot is CLAIMED the
+ *                                     moment a caller commits — approval
+ *                                     mode only holds the deposit link /
+ *                                     confirmation for staff review;
+ *                                     instant mode sends it within seconds
+ *                                     of hangup.
  *   voiceAgent.transferNumber       → optional. If set, callers who
  *                                     explicitly ask for a human during
  *                                     hours can be transferred. Complaints
@@ -70,6 +77,9 @@ export function VoiceAgentSettingsCard({
     va.includeServicePrices !== false,
   );
   const [phoneNumber, setPhoneNumber] = React.useState<string>(va.phoneNumber || '');
+  const [bookingMode, setBookingMode] = React.useState<'approval' | 'instant'>(
+    va.bookingMode === 'instant' ? 'instant' : 'approval',
+  );
   const [transferNumber, setTransferNumber] = React.useState<string>(va.transferNumber || '');
   const [isSaving, setIsSaving] = React.useState(false);
 
@@ -85,6 +95,7 @@ export function VoiceAgentSettingsCard({
             businessNiche: businessNiche.trim(),
             knowledgeBase: knowledgeBase.trim(),
             includeServicePrices,
+            bookingMode,
             phoneNumber: phoneNumber.trim(),
             transferNumber: transferNumber.trim(),
             updatedAt: new Date().toISOString(),
@@ -210,6 +221,46 @@ export function VoiceAgentSettingsCard({
             </div>
           </div>
         </button>
+
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider">
+            When a caller agrees to a time
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setBookingMode('approval')}
+              className={cn(
+                'rounded-xl border p-3 text-left transition-all',
+                bookingMode === 'approval' ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-slate-300',
+              )}
+            >
+              <p className="text-xs font-medium text-slate-900">Hold for my approval</p>
+              <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                The slot is held instantly; you approve before the deposit link
+                or confirmation goes out.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setBookingMode('instant')}
+              className={cn(
+                'rounded-xl border p-3 text-left transition-all',
+                bookingMode === 'instant' ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200 hover:border-slate-300',
+              )}
+            >
+              <p className="text-xs font-medium text-slate-900">Book instantly</p>
+              <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">
+                Deposit link texts within seconds of the call — the client's
+                deposit is the approval. You can still cancel anything.
+              </p>
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-400">
+            Either way, the calendar slot is protected the moment the caller
+            says yes — no one else can take it while paperwork is pending.
+          </p>
+        </div>
 
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
