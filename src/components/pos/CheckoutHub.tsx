@@ -1003,17 +1003,17 @@ export const CheckoutHub = ({
         </div>
       )}
 
-      {/* ── Itemized Cart ── */}
+      {/* ── Cart ── */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 px-1">
           <ShoppingCart className="w-4 h-4 text-primary" />
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Itemized Manifest</h3>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order Summary</h3>
         </div>
         {isCartEmpty ? (
           <div className="py-12 md:py-16 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
             <ShoppingCart className="w-10 h-10 md:w-12 md:h-12" />
             <div className="space-y-1 text-center">
-              <p className="text-sm font-black uppercase tracking-widest">Cart Idle</p>
+              <p className="text-sm font-black uppercase tracking-widest">Cart Empty</p>
               <p className="text-[10px] font-bold uppercase tracking-tight px-4 text-center leading-relaxed">Scan a ticket or select retail items from the catalog.</p>
             </div>
           </div>
@@ -1029,9 +1029,17 @@ export const CheckoutHub = ({
               const adjustments           = data.appointment.checkoutState?.adjustments;
               const additionalCharge      = safeNumber(data.appointment.checkoutState?.additionalCharge);
               const isWaived              = waivedAppointmentFees.has(data.appointment.id);
+              // Late-arrival fees live on the client record (client.unpaidFees), not on
+              // this appointment's checkoutState — but each fee carries the appointmentId
+              // it was generated from, so we can surface it here, attached to the service
+              // that actually caused it, instead of as an unrelated floating card.
+              const lateFeesForApt = Array.from(appliedAdjustments)
+                .map((id: any) => clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id))
+                .filter((fee: any) => fee && fee.appointmentId === data.appointment.id);
+              const hasAnySubItems = addOns.length > 0 || refreshmentsInSession.length > 0 || lateFeesForApt.length > 0 || (!isWaived && (adjustments || additionalCharge > 0)) || isWaived;
               return (
                 <Card key={data.appointment.id} className={cn('overflow-hidden rounded-[1.5rem] md:rounded-[2rem] border-2 shadow-sm transition-all', isRedeemed ? 'border-primary bg-primary/5 shadow-lg' : 'border-border/50 bg-muted/5')}>
-                  <CardContent className="p-4 md:p-5 space-y-3 md:space-y-4">
+                  <CardContent className="p-4 md:p-5 space-y-3">
                     <div className="flex justify-between items-start gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
@@ -1045,47 +1053,73 @@ export const CheckoutHub = ({
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive -mr-2" onClick={() => onSelectAppointment(data.appointment.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                       </div>
                     </div>
-                    {addOns.length > 0 && (
-                      <div className="space-y-2 pl-4 border-l-2 border-primary/10">
+
+                    {hasAnySubItems && (
+                      <div className="pt-3 border-t border-dashed space-y-1 pl-1">
                         {addOns.map((addon: any) => {
                           const addonStaffId = overrides[addon.id] || data.appointment.staffId;
                           const addonStaff   = staff.find((s: any) => s.id === addonStaffId);
                           const isAddonRedeemed = redeemedOffer?.itemId === addon.id;
                           return (
-                            <div key={addon.id} className="space-y-0.5">
-                              <div className="flex justify-between items-center">
-                                <div className="flex items-center gap-2"><span className={cn('text-[10px] font-bold uppercase tracking-tight', isAddonRedeemed ? 'text-primary' : 'text-muted-foreground')}>+ {addon.name}</span>{isAddonRedeemed && <Badge className="bg-primary text-white border-none text-[6px] h-3 font-black uppercase">REDEEMED</Badge>}</div>
-                                <span className={cn('text-[10px] font-black font-mono', isAddonRedeemed ? 'line-through text-muted-foreground opacity-40' : 'text-muted-foreground')}>${safeNumber(getServicePrice(addon, data.staff)).toFixed(2)}</span>
-                              </div>
-                              <span className="text-[8px] font-black uppercase text-primary tracking-widest opacity-60">{addonStaff?.name?.split(' ')[0] || 'Tech'}</span>
-                            </div>
+                            <LineItem
+                              key={addon.id}
+                              icon={Plus}
+                              label={addon.name}
+                              sub={addonStaff?.name?.split(' ')[0]}
+                              amount={safeNumber(getServicePrice(addon, data.staff))}
+                              tone={isAddonRedeemed ? 'primary' : 'muted'}
+                              strike={isAddonRedeemed}
+                            />
                           );
                         })}
-                      </div>
-                    )}
-                    {refreshmentsInSession.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-dashed">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Concierge Amenities</p>
-                        {refreshmentsInSession.map((item: any, idx: number) => { const qty = safeNumber(item.quantity || 1); return (<div key={idx} className="flex justify-between items-center"><div className="flex items-center gap-2"><Coffee className="w-3 h-3 text-primary opacity-40" /><span className="text-[10px] font-bold text-slate-600 uppercase">{item.name}</span>{qty > 1 && <Badge variant="secondary" className="h-3.5 px-1 text-[7px] border-none font-black bg-muted/50">x{qty}</Badge>}</div><span className="font-mono text-[10px] text-slate-900">${safeNumber(item.price) > 0 ? (safeNumber(item.price) * qty).toFixed(2) : '0.00'}</span></div>); })}
-                      </div>
-                    )}
-                    {!isWaived && (adjustments || additionalCharge > 0) && (
-                      <div className="pt-3 border-t border-dashed space-y-2">
-                        <p className="text-[8px] font-black uppercase text-muted-foreground opacity-40">Strategic Adjustments</p>
-                        {adjustments && (safeNumber(adjustments.rescheduleFee) > 0 || safeNumber(adjustments.timeOverage) > 0 || safeNumber(adjustments.materialOverage) > 0) ? (
-                          <div className="space-y-1.5">
-                            {safeNumber(adjustments.rescheduleFee) > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-amber-600">Protocol Recovery (Reschedule)</span><span className="font-black font-mono text-[10px] text-amber-600">+${safeNumber(adjustments.rescheduleFee).toFixed(2)}</span></div>}
-                            {safeNumber(adjustments.timeOverage) > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-primary">Time Foundation Overage</span><span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.timeOverage).toFixed(2)}</span></div>}
-                            {safeNumber(adjustments.materialOverage) > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-primary">Material Protocol Overage</span><span className="font-black font-mono text-[10px] text-primary">+${safeNumber(adjustments.materialOverage).toFixed(2)}</span></div>}
+
+                        {refreshmentsInSession.map((item: any, idx: number) => {
+                          const qty = safeNumber(item.quantity || 1);
+                          return (
+                            <LineItem
+                              key={`ref-${idx}`}
+                              icon={Coffee}
+                              label={qty > 1 ? `${item.name} ×${qty}` : item.name}
+                              amount={safeNumber(item.price) > 0 ? safeNumber(item.price) * qty : 0}
+                              tone="muted"
+                            />
+                          );
+                        })}
+
+                        {!isWaived && lateFeesForApt.map((fee: any) => (
+                          <div key={fee.feeId} className="flex items-center justify-between gap-2 py-0.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Clock className="w-3 h-3 shrink-0 text-amber-600" />
+                              <span className="text-[10px] font-bold uppercase tracking-tight truncate text-amber-600">{fee.reason}</span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-[10px] font-black font-mono text-amber-600">${safeNumber(fee.feeAmount).toFixed(2)}</span>
+                              <Button variant="ghost" size="icon" className="h-5 w-5 text-amber-600/50 hover:text-destructive" onClick={() => onApplyAdjustmentToggle(fee.feeId, false)}><X className="h-3 w-3" /></Button>
+                            </div>
                           </div>
-                        ) : (additionalCharge > 0 && <div className="flex justify-between items-center"><span className="text-[10px] font-black uppercase text-primary">Manual Session Adjustment</span><span className="font-black font-mono text-[10px] text-primary">+${additionalCharge.toFixed(2)}</span></div>)}
-                        {isOwnerOrAdmin && <Button variant="ghost" size="sm" className="h-6 px-2 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-1" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb Adjustments</Button>}
-                      </div>
-                    )}
-                    {isWaived && (
-                      <div className="pt-3 border-t border-dashed flex justify-between items-center bg-green-50/50 p-2 rounded-xl border border-green-100">
-                        <div className="flex items-center gap-2"><ShieldCheck className="w-3 h-3 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Fees Absorbed</span></div>
-                        <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button>
+                        ))}
+
+                        {!isWaived && adjustments && safeNumber(adjustments.rescheduleFee) > 0 && (
+                          <LineItem icon={AlertTriangle} label="Reschedule fee" amount={safeNumber(adjustments.rescheduleFee)} tone="warning" />
+                        )}
+                        {!isWaived && adjustments && safeNumber(adjustments.timeOverage) > 0 && (
+                          <LineItem icon={AlertTriangle} label="Extra time charge" amount={safeNumber(adjustments.timeOverage)} tone="warning" />
+                        )}
+                        {!isWaived && adjustments && safeNumber(adjustments.materialOverage) > 0 && (
+                          <LineItem icon={AlertTriangle} label="Extra materials charge" amount={safeNumber(adjustments.materialOverage)} tone="warning" />
+                        )}
+                        {!isWaived && !adjustments && additionalCharge > 0 && (
+                          <LineItem icon={AlertTriangle} label="Adjustment" amount={additionalCharge} tone="warning" />
+                        )}
+                        {!isWaived && isOwnerOrAdmin && (adjustments || additionalCharge > 0) && (
+                          <Button variant="ghost" size="sm" className="h-6 px-2 text-[8px] font-black uppercase text-amber-600 border border-amber-200 bg-amber-50 w-full mt-1" onClick={() => handleWaiveClick(data.appointment.id)}>Absorb Charges</Button>
+                        )}
+                        {isWaived && (
+                          <div className="flex justify-between items-center bg-green-50/50 p-2 rounded-xl border border-green-100">
+                            <div className="flex items-center gap-2"><CheckCircle className="w-3 h-3 text-green-600" /><span className="text-[10px] font-black uppercase text-green-700">Fees absorbed</span></div>
+                            <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[8px] font-black uppercase text-primary underline" onClick={() => onWaiveFeeToggle(data.appointment.id, false)}>Restore</Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -1106,14 +1140,20 @@ export const CheckoutHub = ({
                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleUpdateQuantity(item.id, 0)}><Trash2 className="w-4 h-4" /></Button>
               </div>
             ))}
-            {Array.from(appliedAdjustments).map((id: any) => {
+            {/* Fallback: any settled debt fee that isn't tied to an appointment in
+                THIS cart (e.g. old debt from a prior visit) still needs a home —
+                fees tied to an appointment above are already shown nested there. */}
+            {Array.from(appliedAdjustments).filter((id: any) => {
+              const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
+              return !fee || !appointmentsData.some((d: any) => d.appointment.id === fee.appointmentId);
+            }).map((id: any) => {
               const fee = clients.flatMap((c: any) => c.unpaidFees || []).find((f: any) => f.feeId === id);
               return (
-                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-destructive/20 bg-destructive/5 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 shadow-sm">
-                  <div className="p-2 bg-destructive/10 rounded-xl shadow-inner"><Wallet className="w-4 h-4 md:w-5 md:h-5 text-destructive" /></div>
-                  <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-destructive truncate">{fee?.reason}</p><p className="text-[9px] font-black text-destructive/60 uppercase tracking-widest">Protocol Debt</p></div>
-                  <p className="font-black font-mono text-sm tracking-tighter text-destructive">+${safeNumber(fee?.feeAmount).toFixed(2)}</p>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive shrink-0" onClick={() => onApplyAdjustmentToggle(id, false)}><XCircle className="h-4 w-4" /></Button>
+                <div key={id} className="p-3 md:p-4 rounded-2xl md:rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-center gap-3 md:gap-4 animate-in fade-in slide-in-from-left-2 shadow-sm">
+                  <div className="p-2 bg-amber-100 rounded-xl shadow-inner"><Clock className="w-4 h-4 md:w-5 md:h-5 text-amber-600" /></div>
+                  <div className="flex-1 min-w-0"><p className="font-black text-[11px] md:text-xs uppercase tracking-tight text-amber-700 truncate">{fee?.reason}</p><p className="text-[9px] font-black text-amber-600/70 uppercase tracking-widest">Outstanding balance</p></div>
+                  <p className="font-black font-mono text-sm tracking-tighter text-amber-700">${safeNumber(fee?.feeAmount).toFixed(2)}</p>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-600 shrink-0" onClick={() => onApplyAdjustmentToggle(id, false)}><XCircle className="h-4 w-4" /></Button>
                 </div>
               );
             })}
@@ -1470,24 +1510,24 @@ export const CheckoutHub = ({
       {/* ── Totals ── */}
       <div className="space-y-4 pt-4 border-t border-dashed">
         <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-          <p>Gross Manifest Value</p>
+          <p>Subtotal</p>
           <p className="font-mono text-[11px] md:text-xs">${safeNumber(subtotal).toFixed(2)}</p>
         </div>
         {finalTotal > 0 && (
           <div className="flex justify-between items-center text-muted-foreground font-bold uppercase text-[9px] tracking-widest opacity-60">
-            <p>Studio Tax (7%)</p>
+            <p>Sales Tax (7%)</p>
             <p className="font-mono text-[11px] md:text-xs">${(subtotal * 0.07).toFixed(2)}</p>
           </div>
         )}
         {totalDiscount > 0 && recoveryAmount === 0 && (
           <div className="flex justify-between items-center text-[10px] text-primary font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Promotion Delta</span>
+            <span className="flex items-center gap-2"><Percent className="w-3.5 h-3.5" /> Discount</span>
             <span className="font-mono text-[11px] md:text-xs">-${safeNumber(totalDiscount).toFixed(2)}</span>
           </div>
         )}
         {recoveryAmount > 0 && (
           <div className="flex justify-between items-center text-[10px] text-amber-600 font-black uppercase tracking-tighter">
-            <span className="flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" /> Service Recovery {recoveryReason ? `— ${recoveryReason.slice(0, 30)}${recoveryReason.length > 30 ? '...' : ''}` : ''}</span>
+            <span className="flex items-center gap-2"><ShieldAlert className="w-3.5 h-3.5" /> Recovery/Comp {recoveryReason ? `— ${recoveryReason.slice(0, 30)}${recoveryReason.length > 30 ? '...' : ''}` : ''}</span>
             <span className="font-mono text-[11px] md:text-xs shrink-0 ml-2">-${safeNumber(recoveryAmount).toFixed(2)}</span>
           </div>
         )}
@@ -1509,6 +1549,13 @@ export const CheckoutHub = ({
             <span className="font-mono text-[11px] md:text-xs">-${safeNumber(storeCreditApplied).toFixed(2)}</span>
           </div>
         )}
+      </div>
+
+      {/* ── Total & checkout ──────────────────────────────────────────────────
+          Sticky within the nearest scrolling ancestor (the parent's ScrollArea
+          / Sheet viewport) so the number that matters most doesn't require
+          scrolling past everything above it to see or act on. */}
+      <div className="sticky bottom-0 -mx-6 px-6 pt-4 pb-6 mt-2 space-y-4 bg-white/95 backdrop-blur-md border-t-4 border-primary/10 shadow-[0_-12px_30px_-15px_rgba(0,0,0,0.15)] z-30">
         <div className="flex justify-between items-center py-1 md:py-2">
           <p className="font-black uppercase font-bold text-[10px] tracking-[0.2em] text-muted-foreground">Gratuity</p>
           <div className="relative w-32 md:w-36">
@@ -1516,11 +1563,8 @@ export const CheckoutHub = ({
             <Input type="number" value={tipAmount || ''} onChange={(e) => handleTotalTipChange(parseFloat(e.target.value) || 0)} className="h-9 md:h-11 text-right pr-4 pl-9 font-black text-base md:text-xl border-2 rounded-xl md:rounded-2xl shadow-inner focus-visible:ring-primary/20 bg-muted/5" placeholder="0.00" />
           </div>
         </div>
-        <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-4 border-t border-border/50">
-          <div className="space-y-0.5">
-            <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Final Settlement</p>
-            <p className="text-[8px] md:text-[9px] font-bold uppercase text-primary/40">COLLECT UPON AUTHORIZE</p>
-          </div>
+        <div className="flex justify-between items-baseline font-black text-xl md:text-4xl text-primary tracking-tighter px-1 pt-3 border-t border-border/50">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-muted-foreground opacity-60">Total Due</p>
           <p className="font-mono text-2xl md:text-4xl">${safeNumber(isCardTab ? amountToCharge : finalTotal).toFixed(2)}</p>
         </div>
 
@@ -1546,8 +1590,8 @@ export const CheckoutHub = ({
               {isSubmitting
                 ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" />
                 : finalTotal <= 0
-                ? 'FINALIZE FREE SESSION'
-                : `AUTHORIZE $${safeNumber(finalTotal).toFixed(2)}`}
+                ? 'Finalize Free Session'
+                : `Charge $${safeNumber(finalTotal).toFixed(2)}`}
             </Button>
           )}
           {/* Card tab — show selector prompt when no sub-mode chosen */}
