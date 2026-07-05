@@ -28,6 +28,32 @@ export function verifyVoiceSecret(req: NextRequest): boolean {
   return req.headers.get('x-voice-secret') === secret;
 }
 
+// ── Retell tool-call envelope ────────────────────────────────────────────────
+
+/**
+ * Retell does NOT post tool arguments as a flat body — custom functions
+ * receive { call: {...}, name, args: {...} }. This unwraps tolerantly (flat
+ * bodies from curl smoke tests still work) and surfaces the call_id, which
+ * lets drafts and inbox items link back to their recording, and the live
+ * caller number as a fallback when the LLM forgets to pass phone.
+ */
+export function parseVoiceToolRequest(body: any): {
+  args: any;
+  retellCallId: string | null;
+  callerNumber: string | null;
+} {
+  const args =
+    body && typeof body === 'object' && body.args && typeof body.args === 'object'
+      ? body.args
+      : body || {};
+  const call = body?.call || {};
+  return {
+    args,
+    retellCallId: call.call_id || null,
+    callerNumber: call.from_number || null,
+  };
+}
+
 // ── Phone ────────────────────────────────────────────────────────────────────
 
 /** Strips to the last 10 digits — the stable core of a US number. */
