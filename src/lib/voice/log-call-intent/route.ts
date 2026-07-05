@@ -22,8 +22,12 @@
  *   event_quote — LOG ONLY. The AI never quotes custom prices; it's an
  *                 intake form with a voice. Structured eventInquiry payload
  *                 feeds your studioEvents funnel.
- *   message     — catch-all: complaints, transfer requests, anything the
- *                 agent shouldn't improvise on.
+ *   complaint   — LOG ONLY, and NEVER a live transfer: the business
+ *                 reviews the recording + this inbox item first, then
+ *                 decides how to handle the call-back. Pins to the top of
+ *                 the inbox.
+ *   message     — catch-all: transfer requests, vendor calls, anything
+ *                 the agent shouldn't improvise on.
  *
  * Admin SDK → bypasses Firestore rules for the WRITE. The panel's client-
  * side READ subscription needs a rules addition — see VoiceInboxPanel header.
@@ -64,7 +68,7 @@ import { loadTenantContext } from '@/lib/voice/server-availability';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const INTENTS = ['cancel', 'reschedule', 'late', 'event_quote', 'message'] as const;
+const INTENTS = ['cancel', 'reschedule', 'late', 'event_quote', 'complaint', 'message'] as const;
 type Intent = (typeof INTENTS)[number];
 const APPOINTMENT_INTENTS: Intent[] = ['cancel', 'reschedule', 'late'];
 
@@ -231,6 +235,8 @@ export async function POST(req: NextRequest) {
       late: `Got it — I've let them know you're running about ${minutesLate} minutes behind.`,
       event_quote:
         "I've got all the details down — someone will reach out with a quote.",
+      complaint:
+        "I'm sorry about that — I've written down everything you told me, and the owner will personally review it and call you back.",
       message: "I've taken your message and the team will get back to you.",
     };
 
