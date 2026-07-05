@@ -50,14 +50,14 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   XCircle, CalendarClock, Clock, PartyPopper, MessageSquare,
-  Bot, Check, Trash2, ExternalLink, Loader, Phone,
+  Bot, Check, Trash2, ExternalLink, Loader, Phone, AlertTriangle,
 } from 'lucide-react';
 
 type VoiceInboxItem = {
   id: string;
   tenantId: string;
   createdAt: string;
-  intent: 'cancel' | 'reschedule' | 'late' | 'event_quote' | 'message';
+  intent: 'cancel' | 'reschedule' | 'late' | 'event_quote' | 'complaint' | 'message';
   callerName: string;
   callerPhone?: string;
   clientId?: string | null;
@@ -104,6 +104,11 @@ const INTENT_CONFIG: Record<
     icon: PartyPopper,
     chipClass: 'bg-purple-50 text-purple-700 border-purple-200',
   },
+  complaint: {
+    label: 'Complaint',
+    icon: AlertTriangle,
+    chipClass: 'bg-rose-50 text-rose-700 border-rose-300',
+  },
   message: {
     label: 'Message',
     icon: MessageSquare,
@@ -149,6 +154,9 @@ function detailLine(item: VoiceInboxItem): string {
     ].filter(Boolean);
     return parts.length > 0 ? parts.join(' · ') : 'Event quote requested';
   }
+  if (item.intent === 'complaint') {
+    return item.details || item.callSummary || 'Complaint — listen to the recording before calling back';
+  }
   return item.details || item.callSummary || 'Left a message';
 }
 
@@ -180,10 +188,13 @@ export function VoiceInboxPanel({
       (snap: any) => {
         const list: VoiceInboxItem[] = [];
         snap.forEach((d: any) => list.push({ id: d.id, ...(d.data() as any) }));
-        list.sort(
-          (a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-        );
+        list.sort((a, b) => {
+          // Complaints pin to the top — review before anything else
+          const aC = a.intent === 'complaint' ? 1 : 0;
+          const bC = b.intent === 'complaint' ? 1 : 0;
+          if (aC !== bC) return bC - aC;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        });
         setItems(list);
       },
       () => { /* non-fatal — inbox is a convenience, not core booking */ },
