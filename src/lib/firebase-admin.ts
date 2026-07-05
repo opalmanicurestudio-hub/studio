@@ -18,14 +18,13 @@
 
 import { getApps, initializeApp, cert, type App } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getAuth, type Auth } from 'firebase-admin/auth';
 
 const APP_NAME = 'admin'; // must match the named app in the Stripe routes
 
 let cachedDb: Firestore | null = null;
 
-export function getAdminDb(): Firestore {
-  if (cachedDb) return cachedDb;
-
+export function getAdminApp(): App {
   let app: App | undefined = getApps().find((a) => a.name === APP_NAME);
   if (!app) {
     app = initializeApp(
@@ -41,6 +40,15 @@ export function getAdminDb(): Firestore {
     );
   }
 
-  cachedDb = getFirestore(app);
+  return app;
+}
+
+export function getAdminDb(): Firestore {
+  if (cachedDb) return cachedDb;
+  cachedDb = getFirestore(getAdminApp());
   return cachedDb;
+}
+
+export function getAdminAuth(): Auth {
+  return getAuth(getAdminApp());
 }
