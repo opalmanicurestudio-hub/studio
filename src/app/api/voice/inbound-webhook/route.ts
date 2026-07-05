@@ -39,37 +39,13 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import {
+  buildTenantVariables,
+  DEFAULT_AGENT_NAME,
+} from '@/lib/voice/tenant-variables';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const DEFAULT_AGENT_NAME = 'Chloe';
-
-function buildKnowledgeBase(tenant: any, services: any[]): string {
-  const parts: string[] = [];
-
-  const manual = (tenant?.voiceAgent?.knowledgeBase || '').trim();
-  if (manual) parts.push(manual);
-
-  if (tenant?.voiceAgent?.includeServicePrices !== false) {
-    const lines = services
-      .filter((s: any) => s.type === 'service' && s.name)
-      .map((s: any) => {
-        const price = Number(s.price) || 0;
-        const duration = Number(s.duration) || 0;
-        return `- ${s.name}: ${price > 0 ? `$${price}` : 'price varies'}${
-          duration > 0 ? `, about ${duration} minutes` : ''
-        }`;
-      });
-    if (lines.length > 0) {
-      parts.push(
-        `Current services and standard starting prices (specific techs may vary slightly):\n${lines.join('\n')}`,
-      );
-    }
-  }
-
-  return parts.join('\n\n') || 'No additional business details provided.';
-}
 
 export async function POST(req: NextRequest) {
   if (req.nextUrl.searchParams.get('secret') !== process.env.VOICE_AGENT_SECRET) {
@@ -98,6 +74,8 @@ export async function POST(req: NextRequest) {
           'This line is not fully configured yet. Take a message with the caller name and number and say the team will call back.',
         has_transfer: 'false',
         transfer_number: '',
+        call_direction: 'inbound',
+        outbound_task: '',
       },
       metadata: { tenantId: '' },
     },
@@ -122,27 +100,14 @@ export async function POST(req: NextRequest) {
     const tenant = tenantDoc.data() as any;
     const tenantId = tenantDoc.id;
 
-    const servicesSnap = await db
-      .collection(`tenants/${tenantId}/services`)
-      .get();
-    const services = servicesSnap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() as any),
-    }));
-
-    const va = tenant.voiceAgent || {};
-    const transferNumber = (va.transferNumber || '').trim();
+    const dynamicVariables = await buildTenantVariables(db, tenantId, tenant);
 
     return NextResponse.json({
       call_inbound: {
         dynamic_variables: {
-          tenant_id: tenantId,
-          agent_name: (va.agentName || '').trim() || DEFAULT_AGENT_NAME,
-          studio_name: tenant.name || tenant.locationName || 'the studio',
-          business_niche: (va.businessNiche || '').trim(),
-          knowledge_base: buildKnowledgeBase(tenant, services),
-          has_transfer: transferNumber ? 'true' : 'false',
-          transfer_number: transferNumber,
+          ...dynamicVariables,
+          call_direction: 'inbound',
+          outbound_task: '',
         },
         // Echoed back on every call-lifecycle webhook — how the call-events
         // route knows which tenant a recording/transcript belongs to.
