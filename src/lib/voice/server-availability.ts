@@ -1,36 +1,38 @@
 /**
- * server-availability — v1
+ * server-availability — v2
  *
- * Server-side port of the core of hooks/useSmartAvailability (v2) for the AI
- * receptionist routes, running against the Firebase ADMIN SDK instead of
- * client-context subscriptions. Faithfully carries over:
+ * v2 — SCHEDULE-PROFILE AWARENESS: v1 ported useSmartAvailability's
+ * hardcoded 8 AM–8 PM business hours, which the ONLINE booking page has
+ * never used — BookingSheet computes windows from the active
+ * scheduleProfile (per-day hours + bookingSlotInterval), per-staff
+ * availability.week overrides, and blocked studioEvents. A voice agent
+ * running on v1 could offer Monday 8 AM when the studio is closed Mondays.
+ * v2 adopts the online page's model as the authority:
+ *   - window per staff/day: staff.availability.week[day] if enabled; if
+ *     present-but-disabled the staff member is OFF that day; else the
+ *     active profile's day; else (no profile at all) 8 AM–8 PM fallback so
+ *     tenants without profiles keep working.
+ *   - '9:00 AM' / '17:00' wall-time strings parsed and converted in the
+ *     tenant's timezone.
+ *   - blocked studioEvents excluded (handles both evt.staffId string and
+ *     evt.staffIds array shapes found across the codebase).
+ *   - slot grid steps by profile.bookingSlotInterval (default 15) so voice
+ *     offers align with what the online page would offer.
+ *   (tightScheduling / morningAnchor / flashYield yield-optimizers are NOT
+ *    applied here — voice offers any genuinely open slot; can be added as
+ *    a flag later if a tenant wants yield rules on the phone channel too.)
  *
- *   - Slot generation: 30-min grid, 8 AM–8 PM business hours, full service
- *     footprint (duration + padBefore + padAfter) must fit before close.
- *   - Overlap blocking against appointments with status 'confirmed',
- *     'deposit_pending', or 'servicing' (same status list as the hook).
- *   - gapMinutesAfter computation (gap to the provider's next appointment).
- *   - Dedup semantics: one slot per provider per time (the staffId+time
- *     keying fix — providers never collide with each other).
- *   - "Any available" fairness rotation: same pool-narrowing chain as
- *     QuickBookForm.resolveAnyStaffId — active → acceptingWalkIns !== false →
- *     on-shift today (shifts collection, status not cancelled/draft) →
- *     eligible at the requested time — then oldest lastBookingAssignedAt
- *     wins. Note: this route only *offers* slots; it never writes
- *     lastBookingAssignedAt. The fairness ledger is only advanced when a
- *     booking is actually created (by staff confirming the call-back draft
- *     through QuickBookForm, which already handles it).
+ * v2 — UNIFIED FAIRNESS KEY: the codebase has TWO fairness fields —
+ * QuickBookForm writes lastBookingAssignedAt; BookingSheet and
+ * AddAppointmentDialog sort by lastServedTimestamp. This module sorts by
+ * the most recent of EITHER, and the booking engine writes BOTH — so every
+ * channel finally rotates off the same clock.
  *
- * Differences from the client hook, on purpose:
- *   - Timezone-explicit. The hook runs in the salon's browser so local Date
- *     math is implicitly salon-local; this runs on Vercel in UTC, so business
- *     hours are computed in the tenant's timezone (tenant doc `timezone`
- *     field, default America/New_York) via voice-utils.
- *   - No add-on upsell computation. A phone agent upselling from a gap model
- *     is a v2 problem; keep the call flow simple.
- *   - Returns only AVAILABLE slots (a voice agent has no use for blocked
- *     ones), pre-formatted for speech, sampled down to a few options spread
- *     across the day instead of a wall of 8:00/8:30/9:00.
+ * Carried over from v1: bookable-status blocking ('confirmed',
+ * 'deposit_pending', 'servicing'), service footprint (duration + pads),
+ * staffId+time dedup semantics, gapMinutesAfter, speech-ready output,
+ * even-spread sampling, and read-only fairness (the ENGINE advances the
+ * ledger on booking; offering slots never does).
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
@@ -44,22 +46,22 @@ import {
   speakList,
 } from './voice-utils';
 
-const BUSINESS_START_HOUR = 8;
-const BUSINESS_END_HOUR = 20;
-const SLOT_INTERVAL_MINUTES = 30;
-const BOOKABLE_STATUSES = ['confirmed', 'deposit_pending', 'servicing'];
+const FALLBACK_START_HOUR = 8;
+const FALLBACK_END_HOUR = 20;
+const DEFAULT_SLOT_INTERVAL = 15;
+export const BOOKABLE_STATUSES = ['confirmed', 'deposit_pending', 'servicing'];
 const DEFAULT_TIMEZONE = 'America/New_York';
 const MAX_RANGE_DAYS = 7;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type VoiceSlot = {
-  slotId: string; // '{yyyy-MM-dd}T{HH:mm}_{staffId}' — stable, parseable
-  date: string; // 'yyyy-MM-dd' (tenant-local)
-  time: string; // 'HH:mm' (tenant-local) — same shape as the hook's slot.time
-  startISO: string; // exact UTC instant, for create-callback-draft
-  spoken: string; // 'Tuesday, July 7 at 2:30 PM with Jessica'
-  spokenTime: string; // '2:30 PM'
+  slotId: string;
+  date: string;
+  time: string;
+  startISO: string;
+  spoken: string;
+  spokenTime: string;
   providerId: string;
   providerName: string;
   gapMinutesAfter: number;
@@ -68,13 +70,16 @@ export type VoiceSlot = {
 export type TenantContext = {
   timezone: string;
   tenantName: string;
+  tenant: any;
   services: any[];
   staff: any[];
+  scheduleProfile: any | null; // the active profile, if any
+  blockedEvents: any[]; // studioEvents with type === 'blocked'
 };
 
 type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 
-// ── Shared safe date parsing (same contract as the hook's safeDate) ──────────
+// ── Safe parsing ─────────────────────────────────────────────────────────────
 
 const safeDate = (val: any): Date | null => {
   if (!val) return null;
@@ -85,6 +90,7 @@ const safeDate = (val: any): Date | null => {
       return Number.isNaN(d.getTime()) ? null : d;
     }
     if (typeof val?.toDate === 'function') return val.toDate();
+    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
     const d = new Date(val);
     return Number.isNaN(d.getTime()) ? null : d;
   } catch {
@@ -92,38 +98,77 @@ const safeDate = (val: any): Date | null => {
   }
 };
 
+/** Parses '9:00 AM', '05:30 PM', or '17:00' into wall-clock hour/minute. */
+export function parseWallTime(str: any): { h: number; m: number } | null {
+  if (!str || typeof str !== 'string') return null;
+  const match = str.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return null;
+  let h = Number(match[1]);
+  const m = Number(match[2]);
+  const period = match[3]?.toUpperCase();
+  if (period === 'PM' && h < 12) h += 12;
+  if (period === 'AM' && h === 12) h = 0;
+  if (h > 23 || m > 59) return null;
+  return { h, m };
+}
+
+/** Lowercase weekday name ('monday') for a local date string in a timezone. */
+function weekdayName(dateStr: string, timeZone: string): string {
+  const noonUtc = wallTimeToUtc(dateStr, 12, 0, timeZone);
+  return new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'long' })
+    .format(noonUtc)
+    .toLowerCase();
+}
+
 // ── Tenant context ───────────────────────────────────────────────────────────
 
 export async function loadTenantContext(
   db: Firestore,
   tenantId: string,
 ): Promise<TenantContext> {
-  const [tenantSnap, servicesSnap, staffSnap] = await Promise.all([
-    db.doc(`tenants/${tenantId}`).get(),
-    db.collection(`tenants/${tenantId}/services`).get(),
-    db.collection(`tenants/${tenantId}/staff`).get(),
-  ]);
+  const [tenantSnap, servicesSnap, staffSnap, profilesSnap, eventsSnap] =
+    await Promise.all([
+      db.doc(`tenants/${tenantId}`).get(),
+      db.collection(`tenants/${tenantId}/services`).get(),
+      db.collection(`tenants/${tenantId}/staff`).get(),
+      db.collection(`tenants/${tenantId}/scheduleProfiles`).get().catch(() => null),
+      db.collection(`tenants/${tenantId}/studioEvents`).limit(500).get().catch(() => null),
+    ]);
+
   const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
+  const profiles = profilesSnap
+    ? profilesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+    : [];
+  const events = eventsSnap
+    ? eventsSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+    : [];
+
   return {
     timezone: tenant?.timezone || DEFAULT_TIMEZONE,
     tenantName: tenant?.name || tenant?.locationName || 'the studio',
+    tenant,
     services: servicesSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
     staff: staffSnap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })),
+    scheduleProfile: profiles.find((p: any) => p.isActive) || null,
+    blockedEvents: events.filter((e: any) => e.type === 'blocked'),
   };
 }
 
-// ── Entity resolution (id-or-fuzzy-name, for the voice agent's benefit) ──────
+// ── Entity resolution ────────────────────────────────────────────────────────
 
 export function resolveService(
   ctx: TenantContext,
   opts: { serviceId?: string; serviceName?: string },
 ): any | null {
   if (opts.serviceId) {
-    return ctx.services.find((s) => s.id === opts.serviceId) || null;
+    const byId = ctx.services.find((s) => s.id === opts.serviceId);
+    if (byId) return byId;
   }
-  const q = (opts.serviceName || '').trim().toLowerCase();
+  const q = (opts.serviceName || opts.serviceId || '').trim().toLowerCase();
   if (!q) return null;
-  const primaries = ctx.services.filter((s) => s.type === 'service');
+  const primaries = ctx.services.filter(
+    (s) => s.type === 'service' && s.isActive !== false,
+  );
   return (
     primaries.find((s) => s.name?.toLowerCase() === q) ||
     primaries.find((s) => s.name?.toLowerCase().includes(q)) ||
@@ -137,7 +182,8 @@ export function resolveProvider(
   opts: { providerId?: string; providerName?: string },
 ): any | null {
   if (opts.providerId && opts.providerId !== 'any') {
-    return ctx.staff.find((s) => s.id === opts.providerId) || null;
+    const byId = ctx.staff.find((s) => s.id === opts.providerId);
+    if (byId) return byId;
   }
   const q = (opts.providerName || '').trim().toLowerCase();
   if (!q || q === 'any' || q === 'anyone' || q === 'any available') return null;
@@ -149,46 +195,148 @@ export function resolveProvider(
   );
 }
 
-// ── Fairness rotation (port of QuickBookForm.resolveAnyStaffId) ──────────────
+// ── Schedule windows (the online page's model, server-side) ─────────────────
 
-function pickFairestProvider(
-  candidates: any[], // providers with an open slot at this exact time
-  allStaff: any[],
-  shifts: any[],
+/**
+ * The working window for one staff member on one local date, as UTC
+ * instants, or null if they're off. Mirrors BookingSheet: per-staff
+ * availability overrides the profile; present-but-disabled means OFF;
+ * no profile at all falls back to 8–20.
+ */
+export function staffWindowForDate(
+  staffMember: any,
+  ctx: TenantContext,
   dateStr: string,
-): any | null {
-  const onShiftIds = new Set(
-    shifts
-      .filter(
-        (s: any) =>
-          s.date === dateStr && s.status !== 'cancelled' && s.status !== 'draft',
-      )
-      .map((s: any) => s.staffId),
-  );
-  const eligibleIds = new Set(candidates.map((c) => c.id));
+): { start: Date; end: Date } | null {
+  const tz = ctx.timezone;
+  const dayName = weekdayName(dateStr, tz);
 
-  const basePool = allStaff.filter(
-    (s: any) =>
-      s.active && s.acceptingWalkIns !== false && onShiftIds.has(s.id),
-  );
-  let pool = basePool.filter((s: any) => eligibleIds.has(s.id));
-  if (pool.length === 0) pool = candidates.filter((c) => onShiftIds.has(c.id));
-  if (pool.length === 0) pool = candidates; // final fallback: anyone actually free
+  const staffDay = staffMember?.availability?.week?.[dayName];
+  let hours: any = null;
+  if (staffDay?.enabled) hours = staffDay;
+  else if (staffDay && staffDay.enabled === false) return null; // explicitly off
+  else hours = ctx.scheduleProfile?.week?.[dayName] || null;
 
-  if (pool.length === 0) return null;
-  const sorted = [...pool].sort((a: any, b: any) => {
-    const aLast = a.lastBookingAssignedAt
-      ? new Date(a.lastBookingAssignedAt).getTime()
-      : 0;
-    const bLast = b.lastBookingAssignedAt
-      ? new Date(b.lastBookingAssignedAt).getTime()
-      : 0;
-    return aLast - bLast;
-  });
-  return sorted[0] || null;
+  if (ctx.scheduleProfile && (!hours || hours.enabled === false)) return null;
+
+  const startParts = parseWallTime(hours?.start) || { h: FALLBACK_START_HOUR, m: 0 };
+  const endParts = parseWallTime(hours?.end) || { h: FALLBACK_END_HOUR, m: 0 };
+  const start = wallTimeToUtc(dateStr, startParts.h, startParts.m, tz);
+  const end = wallTimeToUtc(dateStr, endParts.h, endParts.m, tz);
+  if (end.getTime() <= start.getTime()) return null;
+  return { start, end };
 }
 
-// ── Even sampling — a caller can hold 3 options, not 24 ─────────────────────
+/** Blocked studioEvents intervals affecting one staff member on one local date. */
+function blockedIntervalsFor(
+  staffId: string,
+  ctx: TenantContext,
+  dayStart: Date,
+  dayEnd: Date,
+): { start: Date; end: Date }[] {
+  const out: { start: Date; end: Date }[] = [];
+  for (const evt of ctx.blockedEvents) {
+    const start = safeDate(evt.startTime);
+    const end = safeDate(evt.endTime) || (start ? new Date(start.getTime() + 60 * 60_000) : null);
+    if (!start || !end) continue;
+    if (end.getTime() <= dayStart.getTime() || start.getTime() >= dayEnd.getTime()) continue;
+    // Both shapes exist in the codebase: staffId (string|'all') and staffIds (array)
+    const appliesToAll =
+      !evt.staffId && !evt.staffIds
+        ? true
+        : evt.staffId === 'all' ||
+          (Array.isArray(evt.staffIds) && evt.staffIds.includes('all'));
+    const appliesToStaff =
+      evt.staffId === staffId ||
+      (Array.isArray(evt.staffIds) && evt.staffIds.includes(staffId));
+    if (appliesToAll || appliesToStaff) out.push({ start, end });
+  }
+  return out;
+}
+
+/** Fetch a day's blocking appointments (bookable statuses) for a tenant. */
+export async function fetchDayAppointments(
+  db: Firestore,
+  tenantId: string,
+  ctx: TenantContext,
+  dateStr: string,
+): Promise<any[]> {
+  const tz = ctx.timezone;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const nextDateStr = new Date(Date.UTC(y, m - 1, d + 1, 12)).toISOString().slice(0, 10);
+  const dayStartUtc = wallTimeToUtc(dateStr, 0, 0, tz);
+  const nextDayStartUtc = wallTimeToUtc(nextDateStr, 0, 0, tz);
+  const snap = await db
+    .collection(`tenants/${tenantId}/appointments`)
+    .where('startTime', '>=', dayStartUtc.toISOString())
+    .where('startTime', '<', nextDayStartUtc.toISOString())
+    .get();
+  return snap.docs
+    .map((doc) => ({ id: doc.id, ...(doc.data() as any) }))
+    .filter((a) => BOOKABLE_STATUSES.includes(a.status));
+}
+
+/** Unified fairness clock: most recent of the two fields used across the app. */
+export function lastAssignedMs(staffMember: any): number {
+  const a = staffMember?.lastBookingAssignedAt
+    ? new Date(staffMember.lastBookingAssignedAt).getTime()
+    : 0;
+  const b = staffMember?.lastServedTimestamp
+    ? new Date(staffMember.lastServedTimestamp).getTime()
+    : 0;
+  return Math.max(Number.isNaN(a) ? 0 : a, Number.isNaN(b) ? 0 : b);
+}
+
+// ── Authoritative single-slot verification (used by the booking engine) ──────
+
+export function verifySlotOpen(opts: {
+  staffMember: any;
+  service: any;
+  startUtc: Date;
+  ctx: TenantContext;
+  dayAppointments: any[]; // pre-fetched for the day
+}): { open: true } | { open: false; reason: string } {
+  const { staffMember, service, startUtc, ctx, dayAppointments } = opts;
+  const tz = ctx.timezone;
+  const dateStr = localDateStr(startUtc, tz);
+
+  const window = staffWindowForDate(staffMember, ctx, dateStr);
+  if (!window) return { open: false, reason: 'provider_off_that_day' };
+
+  const footprint =
+    (service.duration ?? 60) + (service.padBefore ?? 0) + (service.padAfter ?? 0);
+  const slotEnd = new Date(startUtc.getTime() + footprint * 60_000);
+  if (startUtc.getTime() < window.start.getTime() || slotEnd.getTime() > window.end.getTime()) {
+    return { open: false, reason: 'outside_business_hours' };
+  }
+
+  const blocked = blockedIntervalsFor(staffMember.id, ctx, window.start, window.end);
+  for (const b of blocked) {
+    if (startUtc.getTime() < b.end.getTime() && b.start.getTime() < slotEnd.getTime()) {
+      return { open: false, reason: 'blocked_event' };
+    }
+  }
+
+  for (const a of dayAppointments) {
+    if (a.staffId !== staffMember.id) continue;
+    const aStart = safeDate(a.startTime);
+    if (!aStart) continue;
+    const aSvc = ctx.services.find((s: any) => s.id === a.serviceId);
+    const aEnd =
+      safeDate(a.endTime) || new Date(aStart.getTime() + ((aSvc?.duration ?? 60) * 60_000));
+    const padded = {
+      start: new Date(aStart.getTime() - (aSvc?.padBefore ?? 0) * 60_000),
+      end: new Date(aEnd.getTime() + (aSvc?.padAfter ?? 0) * 60_000),
+    };
+    if (startUtc.getTime() < padded.end.getTime() && padded.start.getTime() < slotEnd.getTime()) {
+      return { open: false, reason: 'slot_taken' };
+    }
+  }
+
+  return { open: true };
+}
+
+// ── Day slot computation ─────────────────────────────────────────────────────
 
 function sampleSpread<T>(arr: T[], n: number): T[] {
   if (arr.length <= n) return arr;
@@ -213,161 +361,129 @@ function matchesTimeOfDay(hour: number, pref?: TimeOfDay): boolean {
   return hour >= 17;
 }
 
-// ── Single-day computation (the useSmartAvailability core) ───────────────────
-
 async function computeDaySlots(
   db: Firestore,
   tenantId: string,
   ctx: TenantContext,
   opts: {
-    date: string; // 'yyyy-MM-dd' tenant-local
+    date: string;
     service: any;
-    provider: any | null; // null = 'any available'
-    minStartUtc: Date; // lead-time floor (now + buffer)
+    provider: any | null;
+    minStartUtc: Date;
     timeOfDay?: TimeOfDay;
   },
 ): Promise<VoiceSlot[]> {
   const { date, service, provider, minStartUtc, timeOfDay } = opts;
   const tz = ctx.timezone;
-
-  const svcDuration: number =
+  const intervalMinutes =
+    Number(ctx.scheduleProfile?.bookingSlotInterval) || DEFAULT_SLOT_INTERVAL;
+  const intervalMs = intervalMinutes * 60_000;
+  const footprint =
     (service.duration ?? 60) + (service.padBefore ?? 0) + (service.padAfter ?? 0);
 
-  // Next calendar day string (UTC-noon arithmetic avoids DST edge cases)
-  const [y, m, d] = date.split('-').map(Number);
-  const nextDateStr = new Date(Date.UTC(y, m - 1, d + 1, 12))
-    .toISOString()
-    .slice(0, 10);
+  const dayApts = await fetchDayAppointments(db, tenantId, ctx, date);
 
-  const dayStartUtc = wallTimeToUtc(date, 0, 0, tz);
-  const nextDayStartUtc = wallTimeToUtc(nextDateStr, 0, 0, tz);
+  const candidateStaff = (provider ? [provider] : ctx.staff).filter(
+    (s: any) => s.active !== false,
+  );
 
-  // startTime is written client-side with toISOString(), so lexicographic
-  // string range === chronological range. Single-field range → no composite
-  // index required (deliberately — see the ClientStatsBar index saga).
-  const [aptsSnap, shiftsSnap] = await Promise.all([
-    db
-      .collection(`tenants/${tenantId}/appointments`)
-      .where('startTime', '>=', dayStartUtc.toISOString())
-      .where('startTime', '<', nextDayStartUtc.toISOString())
-      .get(),
-    db.collection(`tenants/${tenantId}/shifts`).where('date', '==', date).get(),
-  ]);
-
-  const dayApts = aptsSnap.docs
-    .map((doc) => ({ id: doc.id, ...(doc.data() as any) }))
-    .filter((a) => BOOKABLE_STATUSES.includes(a.status));
-  const shifts = shiftsSnap.docs.map((doc) => ({
-    id: doc.id,
-    ...(doc.data() as any),
-  }));
-
-  const candidateStaff = provider
-    ? [provider]
-    : ctx.staff.filter((s: any) => s.active !== false); // same filter as the hook
-
-  const businessEnd = wallTimeToUtc(date, BUSINESS_END_HOUR, 0, tz);
-  const intervalMs = SLOT_INTERVAL_MINUTES * 60_000;
-
-  // Per-provider open slots — keyed staffId+time by construction, so the
-  // "Any available" collision bug the hook fixed can't reappear here.
-  const openByTime = new Map<string, { slot: Omit<VoiceSlot, 'spoken' | 'spokenTime' | 'providerName'>; provider: any }[]>();
+  const openByTime = new Map<
+    string,
+    { slot: Omit<VoiceSlot, 'spoken' | 'spokenTime' | 'providerName'>; provider: any }[]
+  >();
 
   for (const staffMember of candidateStaff) {
+    const window = staffWindowForDate(staffMember, ctx, date);
+    if (!window) continue;
+
+    const blocked = blockedIntervalsFor(staffMember.id, ctx, window.start, window.end);
     const staffApts = dayApts
       .filter((a) => a.staffId === staffMember.id)
       .map((a) => {
         const start = safeDate(a.startTime);
         if (!start) return null;
-        const end = safeDate(a.endTime) ?? new Date(start.getTime() + 60 * 60_000);
-        return { start, end };
+        const aSvc = ctx.services.find((s: any) => s.id === a.serviceId);
+        const end =
+          safeDate(a.endTime) || new Date(start.getTime() + (aSvc?.duration ?? 60) * 60_000);
+        return {
+          start: new Date(start.getTime() - (aSvc?.padBefore ?? 0) * 60_000),
+          end: new Date(end.getTime() + (aSvc?.padAfter ?? 0) * 60_000),
+          rawEnd: end,
+        };
       })
-      .filter((a): a is { start: Date; end: Date } => a !== null)
+      .filter((a): a is { start: Date; end: Date; rawEnd: Date } => a !== null)
       .sort((a, b) => a.start.getTime() - b.start.getTime());
 
-    let cursor = wallTimeToUtc(date, BUSINESS_START_HOUR, 0, tz);
+    let cursor = new Date(window.start.getTime());
+    while (cursor.getTime() < window.end.getTime()) {
+      const slotEnd = new Date(cursor.getTime() + footprint * 60_000);
+      if (slotEnd.getTime() > window.end.getTime()) break;
 
-    while (cursor.getTime() < businessEnd.getTime()) {
-      const slotEnd = new Date(cursor.getTime() + svcDuration * 60_000);
-
-      if (cursor.getTime() < minStartUtc.getTime()) {
-        cursor = new Date(cursor.getTime() + intervalMs);
-        continue;
-      }
-      if (slotEnd.getTime() > businessEnd.getTime()) break;
-      if (!matchesTimeOfDay(localHour(cursor, tz), timeOfDay)) {
-        cursor = new Date(cursor.getTime() + intervalMs);
-        continue;
-      }
-
-      // Non-inclusive interval overlap — same semantics as the hook's
-      // areIntervalsOverlapping(..., { inclusive: false })
-      const blocked = staffApts.some(
-        (a) => cursor.getTime() < a.end.getTime() && a.start.getTime() < slotEnd.getTime(),
-      );
-
-      if (!blocked) {
-        const nextApt = staffApts.find((a) => a.start.getTime() >= slotEnd.getTime());
-        const gapEnd = nextApt ? nextApt.start : businessEnd;
-        const gapMinutesAfter = Math.max(
-          0,
-          Math.floor((gapEnd.getTime() - slotEnd.getTime()) / 60_000),
+      if (
+        cursor.getTime() >= minStartUtc.getTime() &&
+        matchesTimeOfDay(localHour(cursor, tz), timeOfDay)
+      ) {
+        const overlapsApt = staffApts.some(
+          (a) => cursor.getTime() < a.end.getTime() && a.start.getTime() < slotEnd.getTime(),
         );
-        const time = localTimeHHmm(cursor, tz);
-        const entry = {
-          slot: {
-            slotId: `${date}T${time}_${staffMember.id}`,
-            date,
-            time,
-            startISO: cursor.toISOString(),
-            providerId: staffMember.id,
-            gapMinutesAfter,
-          },
-          provider: staffMember,
-        };
-        const list = openByTime.get(time) || [];
-        list.push(entry);
-        openByTime.set(time, list);
-      }
+        const overlapsBlock = blocked.some(
+          (b) => cursor.getTime() < b.end.getTime() && b.start.getTime() < slotEnd.getTime(),
+        );
 
+        if (!overlapsApt && !overlapsBlock) {
+          const nextApt = staffApts.find((a) => a.start.getTime() >= slotEnd.getTime());
+          const gapEnd = nextApt ? nextApt.start : window.end;
+          const time = localTimeHHmm(cursor, tz);
+          const entry = {
+            slot: {
+              slotId: `${date}T${time}_${staffMember.id}`,
+              date,
+              time,
+              startISO: cursor.toISOString(),
+              providerId: staffMember.id,
+              gapMinutesAfter: Math.max(
+                0,
+                Math.floor((gapEnd.getTime() - slotEnd.getTime()) / 60_000),
+              ),
+            },
+            provider: staffMember,
+          };
+          const list = openByTime.get(time) || [];
+          list.push(entry);
+          openByTime.set(time, list);
+        }
+      }
       cursor = new Date(cursor.getTime() + intervalMs);
     }
   }
 
-  // Collapse to one offer per time. Specific provider: trivially one.
-  // 'Any available': fairness rotation picks who gets offered.
+  // One offer per time; 'any available' picks by unified fairness clock.
   const result: VoiceSlot[] = [];
   const times = Array.from(openByTime.keys()).sort((a, b) => a.localeCompare(b));
-
   for (const time of times) {
     const entries = openByTime.get(time)!;
     let chosen = entries[0];
     if (!provider && entries.length > 1) {
-      const fairest = pickFairestProvider(
-        entries.map((e) => e.provider),
-        ctx.staff,
-        shifts,
-        date,
-      );
-      if (fairest) {
-        chosen = entries.find((e) => e.provider.id === fairest.id) || entries[0];
-      }
+      const pool = entries
+        .map((e) => e.provider)
+        .filter((s: any) => s.acceptingWalkIns !== false);
+      const finalPool = pool.length > 0 ? pool : entries.map((e) => e.provider);
+      const fairest = [...finalPool].sort((a, b) => lastAssignedMs(a) - lastAssignedMs(b))[0];
+      if (fairest) chosen = entries.find((e) => e.provider.id === fairest.id) || entries[0];
     }
     const start = new Date(chosen.slot.startISO);
-    const providerFirstName =
-      (chosen.provider.name || chosen.provider.id).split(' ')[0];
+    const firstName = (chosen.provider.name || chosen.provider.id).split(' ')[0];
     result.push({
       ...chosen.slot,
       providerName: chosen.provider.name || chosen.provider.id,
-      spoken: `${speakDateTime(start, tz)} with ${providerFirstName}`,
+      spoken: `${speakDateTime(start, tz)} with ${firstName}`,
       spokenTime: speakTime(start, tz),
     });
   }
-
   return result;
 }
 
-// ── Public entry point: multi-day, sampled, speech-ready ─────────────────────
+// ── Public multi-day entry point (same signature as v1) ─────────────────────
 
 export async function computeAvailability(
   db: Firestore,
@@ -376,22 +492,20 @@ export async function computeAvailability(
   opts: {
     service: any;
     provider: any | null;
-    dateRangeStart: string; // 'yyyy-MM-dd'
+    dateRangeStart: string;
     dateRangeEnd?: string;
     timeOfDay?: TimeOfDay;
-    maxOptions?: number; // default 4, capped 6
-    minLeadMinutes?: number; // default 30 — no "can you be here in 10 minutes"
+    maxOptions?: number;
+    minLeadMinutes?: number;
   },
 ): Promise<{ slots: VoiceSlot[]; spokenSummary: string }> {
   const tz = ctx.timezone;
   const limit = Math.min(Math.max(opts.maxOptions ?? 4, 1), 6);
   const minStartUtc = new Date(Date.now() + (opts.minLeadMinutes ?? 30) * 60_000);
 
-  // Clamp the range: never before today (tenant-local), never > 7 days wide.
   const todayLocal = localDateStr(new Date(), tz);
-  let start = opts.dateRangeStart < todayLocal ? todayLocal : opts.dateRangeStart;
-  const end =
-    opts.dateRangeEnd && opts.dateRangeEnd >= start ? opts.dateRangeEnd : start;
+  const start = opts.dateRangeStart < todayLocal ? todayLocal : opts.dateRangeStart;
+  const end = opts.dateRangeEnd && opts.dateRangeEnd >= start ? opts.dateRangeEnd : start;
 
   const days: string[] = [];
   let cursor = start;
@@ -413,12 +527,9 @@ export async function computeAvailability(
     ),
   );
 
-  // First pass: an even sample from each day (earliest days first).
-  // Second pass: top up from remaining slots in day order until the limit.
   const perDayQuota = Math.max(1, Math.floor(limit / days.length));
   const picked: VoiceSlot[] = [];
   const pickedIds = new Set<string>();
-
   for (const daySlots of perDay) {
     if (picked.length >= limit) break;
     for (const slot of sampleSpread(daySlots, perDayQuota)) {
@@ -439,7 +550,6 @@ export async function computeAvailability(
       }
     }
   }
-
   picked.sort((a, b) => a.startISO.localeCompare(b.startISO));
 
   let spokenSummary: string;
