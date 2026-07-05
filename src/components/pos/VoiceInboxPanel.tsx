@@ -78,6 +78,7 @@ type VoiceInboxItem = {
   callSummary?: string;
   status: 'open' | 'handled' | 'dismissed';
   source?: string;
+  retellCallId?: string; // links this item to its recording in voiceCalls
 };
 
 const INTENT_CONFIG: Record<
@@ -165,12 +166,18 @@ export function VoiceInboxPanel({
   tenantId,
   currentStaffId,
   onOpenAppointment,
+  callsById,
   className,
 }: {
   firestore: any;
   tenantId: string;
   currentStaffId?: string;
   onOpenAppointment?: (appointmentId: string) => void;
+  /** Map of retellCallId → call record (from voiceCalls). When provided,
+   *  items expand with their own recording inline — listen to the exact
+   *  call before deciding, without leaving the inbox. VoiceCommandCenter
+   *  wires this automatically; standalone usage can omit it. */
+  callsById?: Record<string, { recordingUrl?: string; transcript?: string }>;
   className?: string;
 }) {
   const [items, setItems] = React.useState<VoiceInboxItem[]>([]);
@@ -238,7 +245,8 @@ export function VoiceInboxPanel({
           const Icon = config.icon;
           const isBusy = busyId === item.id;
           const isExpanded = expandedId === item.id;
-          const hasMore = !!(item.callSummary || item.eventInquiry?.servicesOfInterest || item.eventInquiry?.contactEmail);
+          const linkedCall = item.retellCallId ? callsById?.[item.retellCallId] : undefined;
+          const hasMore = !!(item.callSummary || item.eventInquiry?.servicesOfInterest || item.eventInquiry?.contactEmail || linkedCall?.recordingUrl);
           return (
             <div key={item.id} className="px-3.5 py-2.5">
               <div className="flex items-start justify-between gap-2">
@@ -268,7 +276,15 @@ export function VoiceInboxPanel({
                   </p>
                   <p className="text-[11px] text-slate-600 mt-0.5">{detailLine(item)}</p>
                   {isExpanded && (
-                    <div className="mt-1.5 space-y-1">
+                    <div className="mt-1.5 space-y-1.5">
+                      {linkedCall?.recordingUrl && (
+                        <audio
+                          controls
+                          preload="none"
+                          src={linkedCall.recordingUrl}
+                          className="w-full h-9"
+                        />
+                      )}
                       {item.eventInquiry?.servicesOfInterest && (
                         <p className="text-[11px] text-slate-500">
                           Interested in: {item.eventInquiry.servicesOfInterest}
