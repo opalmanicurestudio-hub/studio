@@ -22,6 +22,11 @@
  *   event_quote — LOG ONLY. The AI never quotes custom prices; it's an
  *                 intake form with a voice. Structured eventInquiry payload
  *                 feeds your studioEvents funnel.
+ *   consultation — LOG ONLY: the structured intake from a voice
+ *                 consultation (per-tenant question guide) — answers,
+ *                 services discussed, and any red flags the caller
+ *                 mentioned. Usually followed by a booking on the same
+ *                 call.
  *   complaint   — LOG ONLY, and NEVER a live transfer: the business
  *                 reviews the recording + this inbox item first, then
  *                 decides how to handle the call-back. Pins to the top of
@@ -69,7 +74,7 @@ import { loadTenantContext } from '@/lib/voice/server-availability';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const INTENTS = ['cancel', 'reschedule', 'late', 'event_quote', 'complaint', 'message'] as const;
+const INTENTS = ['cancel', 'reschedule', 'late', 'event_quote', 'complaint', 'consultation', 'message'] as const;
 type Intent = (typeof INTENTS)[number];
 const APPOINTMENT_INTENTS: Intent[] = ['cancel', 'reschedule', 'late'];
 
@@ -189,6 +194,25 @@ export async function POST(req: NextRequest) {
       autoApplied = true;
     }
 
+    // ── Consultation payload ────────────────────────────────────────────────
+    const consultation =
+      intent === 'consultation' && body.consultation
+        ? stripUndefined({
+            summary: (body.consultation.summary || '').trim() || undefined,
+            answers: Array.isArray(body.consultation.answers)
+              ? body.consultation.answers
+                  .filter((a: any) => a && (a.question || a.answer))
+                  .map((a: any) => ({
+                    question: String(a.question || ''),
+                    answer: String(a.answer || ''),
+                  }))
+              : undefined,
+            recommendedServices:
+              (body.consultation.recommendedServices || '').trim() || undefined,
+            redFlags: (body.consultation.redFlags || '').trim() || undefined,
+          })
+        : undefined;
+
     // ── Event inquiry payload ────────────────────────────────────────────────
     const eventInquiry =
       intent === 'event_quote' && body.eventInquiry
@@ -222,6 +246,7 @@ export async function POST(req: NextRequest) {
         minutesLate,
         autoApplied: autoApplied || undefined,
         eventInquiry,
+        consultation,
         details: (body.details || '').trim() || undefined,
         callSummary: (body.callSummary || '').trim() || undefined,
         status: 'open',
@@ -241,6 +266,8 @@ export async function POST(req: NextRequest) {
         "I've got all the details down — someone will reach out with a quote.",
       complaint:
         "I'm sorry about that — I've written down everything you told me, and the owner will personally review it and call you back.",
+      consultation:
+        "I've saved all of that so your provider has the full picture before you come in.",
       message: "I've taken your message and the team will get back to you.",
     };
 
