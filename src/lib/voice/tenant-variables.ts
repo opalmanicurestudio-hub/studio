@@ -12,6 +12,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
+import { compileKnowledgeBase } from './knowledge-compiler';
 
 export const DEFAULT_AGENT_NAME = 'Chloe';
 
@@ -46,9 +47,13 @@ export async function buildTenantVariables(
   tenantId: string,
   tenant: any,
 ): Promise<Record<string, string>> {
-  const servicesSnap = await db
-    .collection(`tenants/${tenantId}/services`)
-    .get();
+  // v3: knowledge_base now comes from the structured compiler (auto-derived
+  // hours/policies/team + voiceFaq + legacy freeform) instead of the raw
+  // textarea — see knowledge-compiler.ts.
+  const [knowledgeBase, servicesSnap] = await Promise.all([
+    compileKnowledgeBase(db, tenantId, tenant),
+    db.collection(`tenants/${tenantId}/services`).get(),
+  ]);
   const services = servicesSnap.docs.map((d) => ({
     id: d.id,
     ...(d.data() as any),
@@ -65,7 +70,7 @@ export async function buildTenantVariables(
     agent_name: (va.agentName || '').trim() || DEFAULT_AGENT_NAME,
     studio_name: tenant?.name || tenant?.locationName || 'the studio',
     business_niche: (va.businessNiche || '').trim(),
-    knowledge_base: buildKnowledgeBase(tenant, services),
+    knowledge_base: knowledgeBase,
     consultation_guide: (va.consultationGuide || '').trim(),
     paid_consultation_service: consultationService?.name || '',
     has_transfer: transferNumber ? 'true' : 'false',
