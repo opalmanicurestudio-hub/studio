@@ -12,7 +12,7 @@ import {
   Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
-  Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle,
+  Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -43,6 +43,7 @@ const DAILY_HUB = [
   { href: '/dashboard',   icon: LayoutDashboard, label: 'Dashboard'      },
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
   { href: '/pos',         icon: ListChecks,      label: 'Terminal (POS)' },
+  { href: '/voice',       icon: Bot,             label: 'AI Receptionist'},
   { href: '/my-schedule', icon: Clock,           label: 'My Schedule'    },
 ];
 
