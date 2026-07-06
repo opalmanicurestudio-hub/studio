@@ -45,12 +45,15 @@ import React from 'react';
 import {
   collection, query, where, onSnapshot, doc, setDoc,
 } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import {
   XCircle, CalendarClock, Clock, PartyPopper, MessageSquare,
   Bot, Check, Trash2, ExternalLink, Loader, Phone, AlertTriangle, ClipboardList,
+  CalendarClock as CalendarMove, XCircle as CancelIcon,
 } from 'lucide-react';
 
 type VoiceInboxItem = {
@@ -195,9 +198,78 @@ export function VoiceInboxPanel({
   callsById?: Record<string, { recordingUrl?: string; transcript?: string }>;
   className?: string;
 }) {
+  const { toast } = useToast();
   const [items, setItems] = React.useState<VoiceInboxItem[]>([]);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+
+  // One-click execution for cancel/reschedule rows — calls the staff-
+  // authenticated voice routes. On any failure the row stays and the toast
+  // points at Open (the appointment sheet) as the manual path.
+  const executeAction = async (
+    item: VoiceInboxItem,
+    kind: 'cancel' | 'reschedule',
+  ) => {
+    if (!firestore || !tenantId || !item.appointmentId) return;
+    setBusyId(item.id);
+    try {
+      const user = getAuth((firestore as any).app).currentUser;
+      if (!user) throw new Error('not_signed_in');
+      const token = await user.getIdToken();
+      const res = await fetch(
+        kind === 'cancel' ? '/api/voice/execute-cancel' : '/api/voice/execute-reschedule',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(
+            kind === 'cancel'
+              ? { tenantId, appointmentId: item.appointmentId, inboxItemId: item.id }
+              : {
+                  tenantId,
+                  appointmentId: item.appointmentId,
+                  newStartISO: item.requestedSlotISO,
+                  providerId: item.requestedProviderId,
+                  inboxItemId: item.id,
+                },
+          ),
+        },
+      );
+      const out = await res.json().catch(() => ({}));
+      if (out?.ok) {
+        toast({
+          title: kind === 'cancel' ? 'Cancelled — no fee charged' : 'Rescheduled ✓',
+          description:
+            kind === 'cancel'
+              ? `${item.callerName || 'The appointment'} is cancelled. Use the appointment sheet if a fee should apply.`
+              : `Moved to ${out.spoken || item.requestedSlotSpoken || 'the new time'}${out.providerChanged && out.providerName ? ` with ${out.providerName}` : ''}. A fresh reminder will go out.`,
+        });
+        // Row clears via the subscription (route marked it handled).
+      } else if (out?.error === 'slot_taken') {
+        toast({
+          variant: 'destructive',
+          title: 'That slot was just taken',
+          description: 'Open the appointment to pick a new time with the client.',
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: kind === 'cancel' ? 'Could not cancel' : 'Could not reschedule',
+          description: 'Use Open to handle it in the appointment sheet.',
+        });
+      }
+    } catch {
+      toast({
+        variant: 'destructive',
+        title: 'Action failed',
+        description: 'Use Open to handle it in the appointment sheet.',
+      });
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   React.useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -343,6 +415,33 @@ export function VoiceInboxPanel({
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {item.intent === 'reschedule' && item.appointmentId && item.requestedSlotISO && (
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={isBusy}
+                      onClick={() => executeAction(item, 'reschedule')}
+                      title={item.requestedSlotSpoken ? `Move to ${item.requestedSlotSpoken}` : 'Execute reschedule'}
+                    >
+                      {isBusy ? <Loader className="w-3 h-3 animate-spin" /> : (
+                        <><CalendarMove className="w-3 h-3 mr-1" /> Move ✓</>
+                      )}
+                    </Button>
+                  )}
+                  {item.intent === 'cancel' && item.appointmentId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs border-red-200 text-red-600 hover:bg-red-50"
+                      disabled={isBusy}
+                      onClick={() => executeAction(item, 'cancel')}
+                      title="Cancels without charging any fee — use Open if a fee applies"
+                    >
+                      {isBusy ? <Loader className="w-3 h-3 animate-spin" /> : (
+                        <><CancelIcon className="w-3 h-3 mr-1" /> Cancel · no fee</>
+                      )}
+                    </Button>
+                  )}
                   {item.appointmentId && onOpenAppointment && (
                     <Button
                       size="sm"
@@ -353,14 +452,16 @@ export function VoiceInboxPanel({
                       <ExternalLink className="w-3 h-3 mr-1" /> Open
                     </Button>
                   )}
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs"
-                    disabled={isBusy}
-                    onClick={() => setStatus(item.id, 'handled')}
-                  >
-                    {isBusy ? <Loader className="w-3 h-3 animate-spin" /> : 'Done'}
-                  </Button>
+                  {item.intent !== 'reschedule' && item.intent !== 'cancel' && (
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={isBusy}
+                      onClick={() => setStatus(item.id, 'handled')}
+                    >
+                      {isBusy ? <Loader className="w-3 h-3 animate-spin" /> : 'Done'}
+                    </Button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setStatus(item.id, 'dismissed')}
