@@ -72,10 +72,6 @@ export function VoiceAgentSettingsCard({
 
   const [agentName, setAgentName] = React.useState<string>(va.agentName || 'Chloe');
   const [businessNiche, setBusinessNiche] = React.useState<string>(va.businessNiche || '');
-  const [knowledgeBase, setKnowledgeBase] = React.useState<string>(va.knowledgeBase || '');
-  const [includeServicePrices, setIncludeServicePrices] = React.useState<boolean>(
-    va.includeServicePrices !== false,
-  );
   const [phoneNumber, setPhoneNumber] = React.useState<string>(va.phoneNumber || '');
   const [bookingMode, setBookingMode] = React.useState<'approval' | 'instant'>(
     va.bookingMode === 'instant' ? 'instant' : 'approval',
@@ -115,8 +111,6 @@ export function VoiceAgentSettingsCard({
           voiceAgent: sanitize({
             agentName: agentName.trim() || 'Chloe',
             businessNiche: businessNiche.trim(),
-            knowledgeBase: knowledgeBase.trim(),
-            includeServicePrices,
             bookingMode,
             voiceReminders,
             consultationServiceId,
@@ -145,8 +139,8 @@ export function VoiceAgentSettingsCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-900">AI voice assistant</p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Who answers your phone, what they know, and how they sound like
-            they work here.
+            Who answers your phone and how it behaves. What it knows lives in
+            the knowledge panel alongside this card.
           </p>
         </div>
       </div>
@@ -200,31 +194,6 @@ export function VoiceAgentSettingsCard({
 
         <div className="space-y-1.5">
           <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-            <BookOpen className="w-3 h-3" /> Knowledge base
-          </p>
-          <textarea
-            value={knowledgeBase}
-            onChange={(e) => setKnowledgeBase(e.target.value)}
-            rows={8}
-            placeholder={
-              'Everything the assistant may tell callers. Plain sentences work best:\n\n' +
-              'Hours: Tuesday to Saturday, 9am to 7pm. Closed Sunday and Monday.\n' +
-              'Location: 123 Main St, Burlington — free parking behind the building.\n' +
-              'Cancellations need 24 hours notice or a fee may apply.\n' +
-              'Deposits are required for services over $50.\n' +
-              'Q: Do you take walk-ins? A: Yes when there is an opening, but booking ahead is safer.'
-            }
-            className="w-full rounded-lg border px-3 py-2.5 text-xs resize-y outline-none focus:border-indigo-300 transition-colors bg-white leading-relaxed"
-          />
-          <p className="text-[10px] text-slate-400">
-            The assistant answers questions ONLY from what's written here (plus
-            your live price list below). Anything not covered becomes "let me
-            take a message" — so the more you add, the fewer callbacks.
-          </p>
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
             <BookOpen className="w-3 h-3" /> Consultation questions
             <span className="normal-case tracking-normal text-slate-300">(optional)</span>
           </p>
@@ -273,30 +242,6 @@ export function VoiceAgentSettingsCard({
             </p>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => setIncludeServicePrices((v) => !v)}
-          className={cn(
-            'w-full rounded-xl border p-3.5 text-left transition-all',
-            includeServicePrices ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200',
-          )}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-slate-700">
-                Share live service menu &amp; prices
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                Auto-pulled fresh from your services list on every call — never
-                stale, updates the moment you change a price.
-              </p>
-            </div>
-            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', includeServicePrices ? 'bg-indigo-500' : 'bg-slate-200')}>
-              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', includeServicePrices ? 'left-[22px]' : 'left-0.5')} />
-            </div>
-          </div>
-        </button>
 
         <button
           type="button"
