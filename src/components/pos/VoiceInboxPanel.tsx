@@ -50,14 +50,14 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   XCircle, CalendarClock, Clock, PartyPopper, MessageSquare,
-  Bot, Check, Trash2, ExternalLink, Loader, Phone, AlertTriangle,
+  Bot, Check, Trash2, ExternalLink, Loader, Phone, AlertTriangle, ClipboardList,
 } from 'lucide-react';
 
 type VoiceInboxItem = {
   id: string;
   tenantId: string;
   createdAt: string;
-  intent: 'cancel' | 'reschedule' | 'late' | 'event_quote' | 'complaint' | 'message';
+  intent: 'cancel' | 'reschedule' | 'late' | 'event_quote' | 'complaint' | 'consultation' | 'message';
   callerName: string;
   callerPhone?: string;
   clientId?: string | null;
@@ -76,6 +76,12 @@ type VoiceInboxItem = {
   };
   details?: string;
   callSummary?: string;
+  consultation?: {
+    summary?: string;
+    answers?: { question: string; answer: string }[];
+    recommendedServices?: string;
+    redFlags?: string;
+  };
   status: 'open' | 'handled' | 'dismissed';
   source?: string;
   retellCallId?: string; // links this item to its recording in voiceCalls
@@ -104,6 +110,11 @@ const INTENT_CONFIG: Record<
     label: 'Event inquiry',
     icon: PartyPopper,
     chipClass: 'bg-purple-50 text-purple-700 border-purple-200',
+  },
+  consultation: {
+    label: 'Consultation',
+    icon: ClipboardList,
+    chipClass: 'bg-teal-50 text-teal-700 border-teal-200',
   },
   complaint: {
     label: 'Complaint',
@@ -154,6 +165,10 @@ function detailLine(item: VoiceInboxItem): string {
       e.budgetRange,
     ].filter(Boolean);
     return parts.length > 0 ? parts.join(' · ') : 'Event quote requested';
+  }
+  if (item.intent === 'consultation') {
+    const flags = item.consultation?.redFlags;
+    return `${item.consultation?.summary || 'Consultation completed'}${flags ? ` · ⚠ ${flags}` : ''}`;
   }
   if (item.intent === 'complaint') {
     return item.details || item.callSummary || 'Complaint — listen to the recording before calling back';
@@ -246,7 +261,7 @@ export function VoiceInboxPanel({
           const isBusy = busyId === item.id;
           const isExpanded = expandedId === item.id;
           const linkedCall = item.retellCallId ? callsById?.[item.retellCallId] : undefined;
-          const hasMore = !!(item.callSummary || item.eventInquiry?.servicesOfInterest || item.eventInquiry?.contactEmail || linkedCall?.recordingUrl);
+          const hasMore = !!(item.callSummary || item.eventInquiry?.servicesOfInterest || item.eventInquiry?.contactEmail || linkedCall?.recordingUrl || item.consultation?.answers?.length);
           return (
             <div key={item.id} className="px-3.5 py-2.5">
               <div className="flex items-start justify-between gap-2">
@@ -284,6 +299,16 @@ export function VoiceInboxPanel({
                           src={linkedCall.recordingUrl}
                           className="w-full h-9"
                         />
+                      )}
+                      {item.consultation?.answers?.map((qa, i) => (
+                        <p key={i} className="text-[11px] text-slate-500">
+                          <span className="text-slate-400">{qa.question}</span> — {qa.answer}
+                        </p>
+                      ))}
+                      {item.consultation?.recommendedServices && (
+                        <p className="text-[11px] text-teal-700">
+                          Discussed: {item.consultation.recommendedServices}
+                        </p>
                       )}
                       {item.eventInquiry?.servicesOfInterest && (
                         <p className="text-[11px] text-slate-500">
