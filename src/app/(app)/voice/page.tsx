@@ -44,6 +44,7 @@ import { VoiceCallLog } from '@/components/pos/VoiceCallLog';
 import { VoiceBookingApprovalsPanel } from '@/components/pos/VoiceBookingApprovalsPanel';
 import { TimezoneSettingCard } from '@/components/settings/TimezoneSettingCard';
 import { VoiceAgentSettingsCard } from '@/components/settings/VoiceAgentSettingsCard';
+import { VoiceKnowledgeManager } from '@/components/settings/VoiceKnowledgeManager';
 
 // ── Editorial section label (house pattern) ─────────────────────────────────
 function SectionLabel({ children, count }: { children: React.ReactNode; count?: number }) {
@@ -90,7 +91,7 @@ export default function VoicePage() {
   const va = selectedTenant?.voiceAgent || {};
   const agentName: string = va.agentName || 'Your AI Receptionist';
   const hasName = !!va.agentName;
-  const hasKnowledge = !!(va.knowledgeBase || '').trim();
+  const hasKnowledge = !!(va.knowledgeBase || '').trim() || !!va.agentName; // auto-derived layer means knowledge exists once configured
   const hasNumber = !!(va.phoneNumber || '').trim();
   const isConfigured = hasNumber;
 
@@ -339,7 +340,7 @@ export default function VoicePage() {
                 <div className="flex items-center gap-4 flex-wrap px-1">
                   {[
                     { done: hasName, label: 'Name your assistant' },
-                    { done: hasKnowledge, label: 'Teach it your business' },
+                    { done: hasKnowledge, label: 'Review what it knows' },
                     { done: hasNumber, label: 'Connect a phone number' },
                   ].map((step) => (
                     <div key={step.label} className="flex items-center gap-1.5">
@@ -362,6 +363,11 @@ export default function VoicePage() {
                 <VoiceAgentSettingsCard firestore={firestore} tenantId={tenantId} tenant={selectedTenant} />
                 <TimezoneSettingCard firestore={firestore} tenantId={tenantId} tenant={selectedTenant} />
               </div>
+              <VoiceKnowledgeManager
+                firestore={firestore}
+                tenantId={tenantId}
+                tenant={selectedTenant}
+              />
             </div>
           </motion.section>
         )}
