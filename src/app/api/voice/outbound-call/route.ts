@@ -37,7 +37,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { verifyStaff } from '@/lib/voice/staff-auth';
 import { speakDateTime } from '@/lib/voice/voice-utils';
 import { buildTenantVariables } from '@/lib/voice/tenant-variables';
 import { placeRetellCall } from '@/lib/voice/retell-client';
@@ -47,33 +48,6 @@ export const dynamic = 'force-dynamic';
 
 const REASONS = ['cancel_notice', 'reschedule'] as const;
 type Reason = (typeof REASONS)[number];
-
-async function verifyStaff(
-  req: NextRequest,
-  tenantId: string,
-): Promise<{ ok: true; uid: string } | { ok: false; error: string }> {
-  const header = req.headers.get('authorization') || '';
-  const idToken = header.replace(/^Bearer\s+/i, '').trim();
-  if (!idToken) return { ok: false, error: 'missing_token' };
-
-  let uid: string;
-  try {
-    const decoded = await getAdminAuth().verifyIdToken(idToken);
-    uid = decoded.uid;
-  } catch {
-    return { ok: false, error: 'invalid_token' };
-  }
-
-  const db = getAdminDb();
-  const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
-  if (!tenantSnap.exists) return { ok: false, error: 'tenant_not_found' };
-  if ((tenantSnap.data() as any)?.userId === uid) return { ok: true, uid };
-
-  const staffSnap = await db.doc(`tenants/${tenantId}/staff/${uid}`).get();
-  if (staffSnap.exists) return { ok: true, uid };
-
-  return { ok: false, error: 'not_staff' };
-}
 
 export async function POST(req: NextRequest) {
   let body: any;
