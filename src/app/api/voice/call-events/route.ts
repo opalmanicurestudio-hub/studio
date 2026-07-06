@@ -3,6 +3,8 @@
  *
  * Retell's call-lifecycle webhook receiver. Two events matter:
  *
+ *   call_started  — fires the moment the call connects: powers the LIVE
+ *                   strip in VoiceCommandCenter (status: 'live')
  *   call_ended    — fires when the call hangs up: recording_url, full
  *                   transcript, timestamps, disconnection reason
  *   call_analyzed — fires ~seconds later: AI call summary, caller
@@ -38,7 +40,7 @@ import { stripUndefined } from '@/lib/voice/voice-utils';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const HANDLED_EVENTS = ['call_ended', 'call_analyzed'];
+const HANDLED_EVENTS = ['call_started', 'call_ended', 'call_analyzed'];
 
 export async function POST(req: NextRequest) {
   if (req.nextUrl.searchParams.get('secret') !== process.env.VOICE_AGENT_SECRET) {
@@ -75,15 +77,30 @@ export async function POST(req: NextRequest) {
     const endMs = Number(call.end_timestamp) || null;
     const analysis = call.call_analysis || {};
 
+    // call_started → live; call_ended → ended; call_analyzed only enriches
+    // (never touches status, since it arrives after ended).
+    const statusPatch =
+      event === 'call_started'
+        ? { status: 'live' }
+        : event === 'call_ended'
+          ? { status: 'ended' }
+          : {};
+
     await db.doc(`tenants/${tenantId}/voiceCalls/${callId}`).set(
       stripUndefined({
         id: callId,
         tenantId,
         source: 'retell',
+        ...statusPatch,
         direction: call.direction || 'inbound',
         fromNumber: call.from_number || undefined,
         toNumber: call.to_number || undefined,
-        startedAt: startMs ? new Date(startMs).toISOString() : undefined,
+        outboundReason: call?.metadata?.outboundReason || undefined,
+        startedAt: startMs
+          ? new Date(startMs).toISOString()
+          : event === 'call_started'
+            ? new Date().toISOString()
+            : undefined,
         endedAt: endMs ? new Date(endMs).toISOString() : undefined,
         durationSeconds:
           startMs && endMs ? Math.round((endMs - startMs) / 1000) : undefined,
@@ -101,6 +118,25 @@ export async function POST(req: NextRequest) {
       }),
       { merge: true }, // call_ended writes first, call_analyzed enriches
     );
+
+    // Virtual consultations: stamp the appointment when the session call
+    // actually completed (placement alone isn't conducting).
+    if (
+      event === 'call_ended' &&
+      call?.metadata?.outboundReason === 'virtual_consultation' &&
+      call?.metadata?.appointmentId
+    ) {
+      const durationOk = startMs && endMs ? endMs - startMs > 60_000 : false; // >1 min = a real session, not voicemail
+      if (durationOk) {
+        await db
+          .doc(`tenants/${tenantId}/appointments/${call.metadata.appointmentId}`)
+          .set(
+            { consultationConductedAt: new Date(endMs as number).toISOString() },
+            { merge: true },
+          )
+          .catch(() => {});
+      }
+    }
 
     return NextResponse.json({ received: true });
   } catch (e) {
