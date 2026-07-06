@@ -242,6 +242,7 @@ export async function POST(req: NextRequest) {
         appointmentId: appointment?.id,
         appointmentSpoken,
         requestedSlotISO: body.requestedSlotISO || undefined,
+        requestedProviderId: body.requestedProviderId || undefined,
         requestedSlotSpoken,
         minutesLate,
         autoApplied: autoApplied || undefined,
