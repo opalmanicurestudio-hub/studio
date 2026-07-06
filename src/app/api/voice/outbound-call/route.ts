@@ -40,11 +40,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { speakDateTime } from '@/lib/voice/voice-utils';
 import { buildTenantVariables } from '@/lib/voice/tenant-variables';
+import { placeRetellCall } from '@/lib/voice/retell-client';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const RETELL_CREATE_CALL_URL = 'https://api.retellai.com/v2/create-phone-call';
 const REASONS = ['cancel_notice', 'reschedule'] as const;
 type Reason = (typeof REASONS)[number];
 
@@ -168,42 +168,26 @@ export async function POST(req: NextRequest) {
 
     const dynamicVariables = await buildTenantVariables(db, tenantId, tenant);
 
-    const retellRes = await fetch(RETELL_CREATE_CALL_URL, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.RETELL_API_KEY}`,
-        'Content-Type': 'application/json',
+    const call = await placeRetellCall({
+      fromNumber,
+      toNumber,
+      dynamicVariables: {
+        ...dynamicVariables,
+        call_direction: 'outbound',
+        outbound_task: outboundTask,
       },
-      body: JSON.stringify({
-        from_number: fromNumber,
-        to_number: toNumber,
-        ...(process.env.RETELL_OUTBOUND_AGENT_ID
-          ? { override_agent_id: process.env.RETELL_OUTBOUND_AGENT_ID }
-          : {}),
-        retell_llm_dynamic_variables: {
-          ...dynamicVariables,
-          call_direction: 'outbound',
-          outbound_task: outboundTask,
-        },
-        metadata: { tenantId, appointmentId, outboundReason: reason, triggeredBy: auth.uid },
-      }),
+      metadata: { tenantId, appointmentId, outboundReason: reason, triggeredBy: auth.uid },
     });
-
-    const retellData: any = await retellRes.json().catch(() => ({}));
-    if (!retellRes.ok) {
-      console.error('[voice/outbound-call] retell error', retellRes.status, retellData);
-      return NextResponse.json({
-        ok: false,
-        error: 'retell_error',
-        reason: retellData?.message || `Retell responded ${retellRes.status}`,
-      });
+    if (!call.ok) {
+      console.error('[voice/outbound-call] retell error', call.error);
+      return NextResponse.json({ ok: false, error: 'retell_error', reason: call.error });
     }
 
     // The call-events webhook will store the recording/transcript when the
     // call ends (metadata.tenantId flows through), so nothing to write here.
     return NextResponse.json({
       ok: true,
-      callId: retellData?.call_id || null,
+      callId: call.callId || null,
       toNumber,
       task: reason,
     });
