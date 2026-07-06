@@ -53,7 +53,7 @@ import { Button } from '@/components/ui/button';
 import {
   XCircle, CalendarClock, Clock, PartyPopper, MessageSquare,
   Bot, Check, Trash2, ExternalLink, Loader, Phone, AlertTriangle, ClipboardList,
-  CalendarClock as CalendarMove, XCircle as CancelIcon,
+  CalendarClock as CalendarMove, XCircle as CancelIcon, GraduationCap,
 } from 'lucide-react';
 
 type VoiceInboxItem = {
@@ -296,6 +296,40 @@ export function VoiceInboxPanel({
     return () => unsubscribe();
   }, [firestore, tenantId]);
 
+  // "Teach": turn a missed question into a needs-answer knowledge entry —
+  // one tap here, answered later in the knowledge manager, live on the
+  // very next call.
+  const teachFromItem = async (item: VoiceInboxItem) => {
+    if (!firestore || !tenantId) return;
+    const question = (item.details || item.callSummary || '').trim();
+    if (!question) return;
+    setBusyId(item.id);
+    try {
+      const faqId = `faq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await setDoc(doc(firestore, `tenants/${tenantId}/voiceFaq`, faqId), {
+        question: question.slice(0, 200),
+        answer: '',
+        enabled: false,
+        needsAnswer: true,
+        source: 'missed_call',
+        createdAt: new Date().toISOString(),
+      });
+      await setDoc(
+        doc(firestore, `tenants/${tenantId}/voiceInbox`, item.id),
+        { status: 'handled', handledAt: new Date().toISOString(), handledBy: currentStaffId || null },
+        { merge: true },
+      );
+      toast({
+        title: 'Added to knowledge',
+        description: 'Answer it in "What the assistant knows" and it goes live on the next call.',
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not add — try again' });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const setStatus = async (id: string, status: 'handled' | 'dismissed') => {
     if (!firestore || !tenantId) return;
     setBusyId(id);
@@ -440,6 +474,18 @@ export function VoiceInboxPanel({
                       {isBusy ? <Loader className="w-3 h-3 animate-spin" /> : (
                         <><CancelIcon className="w-3 h-3 mr-1" /> Cancel · no fee</>
                       )}
+                    </Button>
+                  )}
+                  {item.intent === 'message' && !!(item.details || item.callSummary) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs border-teal-200 text-teal-700 hover:bg-teal-50"
+                      disabled={isBusy}
+                      onClick={() => teachFromItem(item)}
+                      title="Save this as a knowledge question to answer"
+                    >
+                      <GraduationCap className="w-3 h-3 mr-1" /> Teach
                     </Button>
                   )}
                   {item.appointmentId && onOpenAppointment && (
