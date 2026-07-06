@@ -56,6 +56,9 @@ export async function buildTenantVariables(
 
   const va = tenant?.voiceAgent || {};
   const transferNumber = (va.transferNumber || '').trim();
+  const consultationService = va.consultationServiceId
+    ? services.find((s: any) => s.id === va.consultationServiceId)
+    : null;
 
   return {
     tenant_id: tenantId,
@@ -63,6 +66,8 @@ export async function buildTenantVariables(
     studio_name: tenant?.name || tenant?.locationName || 'the studio',
     business_niche: (va.businessNiche || '').trim(),
     knowledge_base: buildKnowledgeBase(tenant, services),
+    consultation_guide: (va.consultationGuide || '').trim(),
+    paid_consultation_service: consultationService?.name || '',
     has_transfer: transferNumber ? 'true' : 'false',
     transfer_number: transferNumber,
   };
