@@ -47,6 +47,7 @@ type VoiceCall = {
   sentiment?: string; // Positive | Neutral | Negative
   callSuccessful?: boolean;
   disconnectionReason?: string;
+  status?: string;
 };
 
 const safeRelativeTime = (iso?: string): string => {
@@ -178,7 +179,17 @@ export function VoiceCallLog({
                         <PhoneIncoming className="w-2.5 h-2.5" />
                         {call.fromNumber || 'Unknown number'}
                       </span>
-                      <SentimentChip sentiment={call.sentiment} />
+                      {call.status === 'live' ? (
+                        <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500" />
+                          </span>
+                          Live
+                        </span>
+                      ) : (
+                        <SentimentChip sentiment={call.sentiment} />
+                      )}
                       {call.durationSeconds ? (
                         <span className="text-[10px] text-slate-400">
                           {formatDuration(call.durationSeconds)}
@@ -186,7 +197,7 @@ export function VoiceCallLog({
                       ) : null}
                     </div>
                     <p className="text-xs text-slate-700 mt-1.5 line-clamp-2">
-                      {call.summary || 'Summary processing…'}
+                      {call.status === 'live' ? 'Call in progress…' : call.summary || 'Summary processing…'}
                     </p>
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       {safeFormat(call.startedAt, 'EEE MMM d · h:mm a')} · {safeRelativeTime(call.startedAt)}
