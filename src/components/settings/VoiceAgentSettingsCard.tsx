@@ -42,7 +42,7 @@
  */
 
 import React from 'react';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,6 +80,28 @@ export function VoiceAgentSettingsCard({
   const [bookingMode, setBookingMode] = React.useState<'approval' | 'instant'>(
     va.bookingMode === 'instant' ? 'instant' : 'approval',
   );
+  const [voiceReminders, setVoiceReminders] = React.useState<boolean>(va.voiceReminders === true);
+  const [consultationServiceId, setConsultationServiceId] = React.useState<string>(va.consultationServiceId || '');
+  const [services, setServices] = React.useState<any[]>([]);
+
+  React.useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(
+      collection(firestore, `tenants/${tenantId}/services`),
+      (snap: any) => {
+        const list: any[] = [];
+        snap.forEach((d: any) => {
+          const data = { id: d.id, ...(d.data() as any) };
+          if (data.type === 'service' && data.isActive !== false) list.push(data);
+        });
+        list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setServices(list);
+      },
+      () => { /* non-fatal */ },
+    );
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const [consultationGuide, setConsultationGuide] = React.useState<string>(va.consultationGuide || '');
   const [transferNumber, setTransferNumber] = React.useState<string>(va.transferNumber || '');
   const [isSaving, setIsSaving] = React.useState(false);
 
@@ -96,6 +118,9 @@ export function VoiceAgentSettingsCard({
             knowledgeBase: knowledgeBase.trim(),
             includeServicePrices,
             bookingMode,
+            voiceReminders,
+            consultationServiceId,
+            consultationGuide: consultationGuide.trim(),
             phoneNumber: phoneNumber.trim(),
             transferNumber: transferNumber.trim(),
             updatedAt: new Date().toISOString(),
@@ -198,6 +223,57 @@ export function VoiceAgentSettingsCard({
           </p>
         </div>
 
+        <div className="space-y-1.5">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <BookOpen className="w-3 h-3" /> Consultation questions
+            <span className="normal-case tracking-normal text-slate-300">(optional)</span>
+          </p>
+          <textarea
+            value={consultationGuide}
+            onChange={(e) => setConsultationGuide(e.target.value)}
+            rows={5}
+            placeholder={
+              'If a caller is unsure what they need, the assistant walks these one at a time:\n\n' +
+              '1. What look are you going for — natural, glam, something in between?\n' +
+              '2. How are your natural nails right now — any lifting, peeling, or soreness?\n' +
+              '3. Any allergies or sensitivities to products?\n' +
+              '4. How long do you want the set to last?'
+            }
+            className="w-full rounded-lg border px-3 py-2.5 text-xs resize-y outline-none focus:border-indigo-300 transition-colors bg-white leading-relaxed"
+          />
+          <p className="text-[10px] text-slate-400">
+            The full Q&amp;A lands in your inbox before the visit. The assistant
+            never gives medical advice — anything concerning gets flagged for
+            your provider to review.
+          </p>
+          <div className="pt-1 space-y-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wider">
+              Paid virtual consultation service
+              <span className="normal-case tracking-normal text-slate-300 ml-1">(optional)</span>
+            </p>
+            <select
+              value={consultationServiceId}
+              onChange={(e) => setConsultationServiceId(e.target.value)}
+              className="w-full h-10 rounded-lg border text-xs px-3 bg-white"
+            >
+              <option value="">None — consultations stay a free quick chat</option>
+              {services.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{Number(s.price) > 0 ? ` — $${Number(s.price)}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-slate-400">
+              Pick a service (create one like "Virtual Consultation — 20 min")
+              and clients book &amp; pay for it like any appointment. The
+              assistant calls them AT the scheduled time, runs the questions
+              above as a full session, and offers to book their treatment on
+              the same call. Callers asking to "get a consultation" get offered
+              this instead of the free walkthrough.
+            </p>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={() => setIncludeServicePrices((v) => !v)}
@@ -218,6 +294,31 @@ export function VoiceAgentSettingsCard({
             </div>
             <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', includeServicePrices ? 'bg-indigo-500' : 'bg-slate-200')}>
               <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', includeServicePrices ? 'left-[22px]' : 'left-0.5')} />
+            </div>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setVoiceReminders((v) => !v)}
+          className={cn(
+            'w-full rounded-xl border p-3.5 text-left transition-all',
+            voiceReminders ? 'border-indigo-200 bg-indigo-50' : 'border-slate-200',
+          )}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-slate-700">
+                Voice appointment reminders
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                The assistant calls clients before their appointment (9am–8pm
+                only) — and if they can't make it, reschedules them on the
+                spot instead of losing the booking.
+              </p>
+            </div>
+            <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', voiceReminders ? 'bg-indigo-500' : 'bg-slate-200')}>
+              <div className={cn('absolute top-0.5 w-4.5 h-4.5 rounded-full bg-white shadow transition-all', voiceReminders ? 'left-[22px]' : 'left-0.5')} />
             </div>
           </div>
         </button>
