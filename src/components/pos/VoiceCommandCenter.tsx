@@ -44,7 +44,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
-  PhoneIncoming, CalendarCheck, AlertTriangle, Frown, Bot, ArrowRight,
+  PhoneIncoming, CalendarCheck, AlertTriangle, Frown, Bot, ArrowRight, Radio,
 } from 'lucide-react';
 import { VoiceInboxPanel } from '@/components/pos/VoiceInboxPanel';
 import { VoiceCallLog } from '@/components/pos/VoiceCallLog';
@@ -212,6 +212,21 @@ export function VoiceCommandCenter({
     return map;
   }, [calls]);
 
+  // Live calls: status 'live' from call_started, guarded against a missed
+  // call_ended by ignoring anything "live" for more than 2 hours. A gentle
+  // tick keeps the durations counting while any call is live.
+  const [, setTick] = React.useState(0);
+  const liveCalls = calls.filter((c) => {
+    if (c.status !== 'live' || typeof c.startedAt !== 'string') return false;
+    const age = Date.now() - new Date(c.startedAt).getTime();
+    return age >= 0 && age < 2 * 3600 * 1000;
+  });
+  React.useEffect(() => {
+    if (liveCalls.length === 0) return;
+    const t = setInterval(() => setTick((n) => n + 1), 15_000);
+    return () => clearInterval(t);
+  }, [liveCalls.length]);
+
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const callsToday = calls.filter(
     (c) => typeof c.startedAt === 'string' && c.startedAt.startsWith(todayStr),
@@ -223,6 +238,35 @@ export function VoiceCommandCenter({
 
   return (
     <div className={cn('space-y-4', className)}>
+      {liveCalls.length > 0 && (
+        <div className="rounded-xl border border-green-300 bg-green-50 px-3.5 py-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
+            </span>
+            <p className="text-[11px] font-semibold text-green-800 uppercase tracking-wide flex items-center gap-1.5">
+              <Radio className="w-3 h-3" /> {liveCalls.length === 1 ? 'Live call' : `${liveCalls.length} live calls`} in progress
+            </p>
+          </div>
+          <div className="mt-1.5 space-y-1">
+            {liveCalls.map((c) => {
+              const mins = Math.max(0, Math.floor((Date.now() - new Date(c.startedAt).getTime()) / 60_000));
+              return (
+                <p key={c.id} className="text-xs text-green-900">
+                  {c.direction === 'outbound' ? '→ Calling' : '←'} {c.fromNumber && c.direction !== 'outbound' ? c.fromNumber : c.toNumber || 'unknown number'}
+                  {c.outboundReason ? ` (${String(c.outboundReason).replace(/_/g, ' ')})` : ''}
+                  <span className="text-green-600"> · {mins < 1 ? 'just connected' : `${mins} min`}</span>
+                </p>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-green-700/70 mt-1">
+            Recording, transcript &amp; summary land below the moment each call ends.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatTile icon={PhoneIncoming} value={callsToday} label="Calls today" />
         <StatTile icon={CalendarCheck} value={pendingApprovals + aiDrafts.length} label="Bookings to confirm" accent="amber" />
