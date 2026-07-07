@@ -55,6 +55,11 @@ import {
   Unlock,
   RefreshCw,
   Info,
+  Bell,
+  Activity as ActivityIcon,
+  X,
+  UserPlus,
+  FileClock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -111,6 +116,10 @@ const AMENITY_OPTIONS = [
   'Parking',
   'Towel service',
 ];
+
+const LEASE_ALERT_WINDOW_DAYS = 14;
+const ACTIVITY_LOG_LIMIT = 40;
+const TOAST_LIFETIME_MS = 6000;
 
 // ─── Booth form ───────────────────────────────────────────────────────────────
 
@@ -497,6 +506,250 @@ function StatusPill({ status }: { status: Booth['status'] }) {
   );
 }
 
+// ─── Live pulse indicator ─────────────────────────────────────────────────────
+
+function LivePulse({ lastSync }: { lastSync: Date | null }) {
+  const [, forceTick] = useState(0);
+
+  // Re-render once a minute so the "updated Xm ago" label stays fresh
+  // without needing a per-second timer.
+  useEffect(() => {
+    const id = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const label = useMemo(() => {
+    if (!lastSync) return 'Connecting…';
+    const seconds = Math.max(0, Math.round((Date.now() - lastSync.getTime()) / 1000));
+    if (seconds < 5) return 'Updated just now';
+    if (seconds < 60) return `Updated ${seconds}s ago`;
+    const minutes = Math.round(seconds / 60);
+    return `Updated ${minutes}m ago`;
+  }, [lastSync]);
+
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="relative flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+      </span>
+      <span className="font-medium text-emerald-700">Live</span>
+      <span>· {label}</span>
+    </div>
+  );
+}
+
+// ─── Toast stack ──────────────────────────────────────────────────────────────
+
+interface ToastItem {
+  id: string;
+  message: string;
+  kind: 'booth' | 'lease' | 'renter';
+}
+
+const TOAST_ICON: Record<ToastItem['kind'], React.ElementType> = {
+  booth: Armchair,
+  lease: FileClock,
+  renter: UserPlus,
+};
+
+function ToastStack({
+  toasts,
+  onDismiss,
+}: {
+  toasts: ToastItem[];
+  onDismiss: (id: string) => void;
+}) {
+  if (toasts.length === 0) return null;
+  return (
+    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)]">
+      {toasts.map((t) => {
+        const Icon = TOAST_ICON[t.kind];
+        return (
+          <div
+            key={t.id}
+            className="bg-background border border-border shadow-lg rounded-lg p-3 flex items-start gap-2.5 animate-in slide-in-from-top-2 fade-in"
+          >
+            <div className="mt-0.5 h-6 w-6 rounded-md bg-muted flex items-center justify-center shrink-0">
+              <Icon className="h-3.5 w-3.5" />
+            </div>
+            <p className="text-xs leading-snug flex-1">{t.message}</p>
+            <button
+              onClick={() => onDismiss(t.id)}
+              className="text-muted-foreground hover:text-foreground shrink-0"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Command Center panel (alerts + activity) ─────────────────────────────────
+
+interface AlertItem {
+  id: string;
+  severity: 'danger' | 'warning' | 'info';
+  message: string;
+}
+
+interface ActivityItem {
+  id: string;
+  message: string;
+  time: string;
+  kind: 'booth' | 'lease' | 'renter';
+}
+
+const ALERT_STYLES: Record<
+  AlertItem['severity'],
+  { border: string; bg: string; icon: React.ElementType; iconClass: string }
+> = {
+  danger: {
+    border: 'border-red-200',
+    bg: 'bg-red-50',
+    icon: AlertTriangle,
+    iconClass: 'text-red-600',
+  },
+  warning: {
+    border: 'border-amber-200',
+    bg: 'bg-amber-50',
+    icon: AlertTriangle,
+    iconClass: 'text-amber-600',
+  },
+  info: {
+    border: 'border-sky-200',
+    bg: 'bg-sky-50',
+    icon: Info,
+    iconClass: 'text-sky-600',
+  },
+};
+
+function CommandCenterPanel({
+  open,
+  onOpenChange,
+  alerts,
+  activity,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  alerts: AlertItem[];
+  activity: ActivityItem[];
+}) {
+  const [tab, setTab] = useState<'alerts' | 'activity'>('alerts');
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ActivityIcon className="h-5 w-5" />
+            Command Center
+          </DialogTitle>
+          <DialogDescription>
+            Everything that needs your attention, and everything that just
+            happened — live.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex gap-1 border-b border-border">
+          <button
+            onClick={() => setTab('alerts')}
+            className={cn(
+              'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+              tab === 'alerts'
+                ? 'border-foreground text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Alerts {alerts.length > 0 && `(${alerts.length})`}
+          </button>
+          <button
+            onClick={() => setTab('activity')}
+            className={cn(
+              'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+              tab === 'activity'
+                ? 'border-foreground text-foreground'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Activity
+          </button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 -mx-1 px-1">
+          {tab === 'alerts' && (
+            <div className="space-y-2 py-3">
+              {alerts.length === 0 && (
+                <div className="text-center py-10 space-y-2">
+                  <CheckCircle2 className="h-8 w-8 mx-auto text-emerald-500" />
+                  <p className="text-sm text-muted-foreground">
+                    Nothing needs attention right now.
+                  </p>
+                </div>
+              )}
+              {alerts.map((a) => {
+                const style = ALERT_STYLES[a.severity];
+                const Icon = style.icon;
+                return (
+                  <div
+                    key={a.id}
+                    className={cn(
+                      'rounded-lg border p-3 flex items-start gap-2.5',
+                      style.border,
+                      style.bg
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', style.iconClass)} />
+                    <p className="text-sm">{a.message}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab === 'activity' && (
+            <div className="space-y-1 py-3">
+              {activity.length === 0 && (
+                <div className="text-center py-10 space-y-2">
+                  <FileClock className="h-8 w-8 mx-auto text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    Activity will appear here as things change.
+                  </p>
+                </div>
+              )}
+              {activity.map((entry) => {
+                const Icon = TOAST_ICON[entry.kind];
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex items-start gap-2.5 py-2 border-b border-border/50 last:border-0"
+                  >
+                    <div className="mt-0.5 h-6 w-6 rounded-md bg-muted flex items-center justify-center shrink-0">
+                      <Icon className="h-3.5 w-3.5" />
+                    </div>
+                    <p className="text-sm flex-1">{entry.message}</p>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      {entry.time}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Booth card on canvas ─────────────────────────────────────────────────────
 
 interface BoothCanvasCardProps {
@@ -768,6 +1021,17 @@ export default function BoothsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
 
+  // ── Command center state ────────────────────────────────────────────────────
+  const [commandCenterOpen, setCommandCenterOpen] = useState(false);
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [activityLog, setActivityLog] = useState<ActivityItem[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const prevBoothsMapRef = useRef<Map<string, Booth> | null>(null);
+  const prevLeasesMapRef = useRef<Map<string, Lease> | null>(null);
+  const prevRentersMapRef = useRef<Map<string, Renter> | null>(null);
+
   const dragRef = useRef<{
     boothId: string;
     mode: 'move' | 'resize';
@@ -788,6 +1052,12 @@ export default function BoothsPage() {
     (renters ?? []).forEach((r) => m.set(r.id, r));
     return m;
   }, [renters]);
+
+  const boothById = useMemo(() => {
+    const m = new Map<string, Booth>();
+    (booths ?? []).forEach((b) => m.set(b.id, b));
+    return m;
+  }, [booths]);
 
   const activeLeaseByBooth = useMemo(() => {
     const m = new Map<string, Lease>();
@@ -846,6 +1116,180 @@ export default function BoothsPage() {
       occupancyPct,
     };
   }, [booths, activeLeaseByBooth]);
+
+  // ── Alerts (computed live from current data) ────────────────────────────────
+
+  const alerts = useMemo<AlertItem[]>(() => {
+    const list: AlertItem[] = [];
+    const now = Date.now();
+
+    (leases ?? []).forEach((l) => {
+      if (l.status !== 'active' || !l.endDate) return;
+      const end = new Date(l.endDate).getTime();
+      if (Number.isNaN(end)) return;
+      const days = Math.ceil((end - now) / 86_400_000);
+      if (days < 0 || days > LEASE_ALERT_WINDOW_DAYS) return;
+      const booth = boothById.get(l.boothId);
+      const renter = renterById.get(l.renterId);
+      const who = renter ? `${renter.firstName} ${renter.lastName}` : 'a renter';
+      const where = booth?.name ?? 'a booth';
+      list.push({
+        id: `lease-exp-${l.id}`,
+        severity: days <= 3 ? 'danger' : 'warning',
+        message:
+          days === 0
+            ? `${where}'s lease with ${who} ends today`
+            : `${where}'s lease with ${who} ends in ${days} day${days === 1 ? '' : 's'}`,
+      });
+    });
+
+    (booths ?? []).forEach((b) => {
+      if (b.status === 'maintenance') {
+        list.push({
+          id: `maint-${b.id}`,
+          severity: 'warning',
+          message: `${b.name} is flagged for maintenance`,
+        });
+      }
+    });
+
+    if (metrics.vacant > 0) {
+      list.push({
+        id: 'vacancy-cost',
+        severity: 'info',
+        message: `${metrics.vacant} booth${metrics.vacant > 1 ? 's' : ''} vacant — ${formatCents(
+          metrics.vacancyCost
+        )}/mo uncollected`,
+      });
+    }
+
+    const severityRank: Record<AlertItem['severity'], number> = {
+      danger: 0,
+      warning: 1,
+      info: 2,
+    };
+    return list.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+  }, [leases, booths, boothById, renterById, metrics]);
+
+  const alertBadgeSeverity: AlertItem['severity'] | null =
+    alerts.find((a) => a.severity === 'danger')?.severity ??
+    alerts.find((a) => a.severity === 'warning')?.severity ??
+    (alerts.length > 0 ? 'info' : null);
+
+  // ── Activity feed + toasts (diffed off live Firestore snapshots) ───────────
+
+  const pushActivity = useCallback(
+    (message: string, kind: ActivityItem['kind']) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const time = new Date().toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      setActivityLog((prev) => [{ id, message, time, kind }, ...prev].slice(0, ACTIVITY_LOG_LIMIT));
+      setToasts((prev) => [...prev, { id, message, kind }]);
+      const timer = setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+        toastTimersRef.current.delete(id);
+      }, TOAST_LIFETIME_MS);
+      toastTimersRef.current.set(id, timer);
+    },
+    []
+  );
+
+  const dismissToast = useCallback((id: string) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer) clearTimeout(timer);
+    toastTimersRef.current.delete(id);
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      toastTimersRef.current.forEach((timer) => clearTimeout(timer));
+      toastTimersRef.current.clear();
+    };
+  }, []);
+
+  // Mark every incoming snapshot as a "live update" moment.
+  useEffect(() => {
+    if (booths || leases || renters) setLastSync(new Date());
+  }, [booths, leases, renters]);
+
+  // Diff booths → activity + toasts
+  useEffect(() => {
+    if (!booths) return;
+    const map = new Map(booths.map((b) => [b.id, b]));
+    const prev = prevBoothsMapRef.current;
+    if (prev) {
+      map.forEach((b, id) => {
+        const old = prev.get(id);
+        if (!old) {
+          pushActivity(`New booth added: ${b.name}`, 'booth');
+        } else if (old.status !== b.status) {
+          pushActivity(
+            `${b.name} changed from ${STATUS_CONFIG[old.status]?.label ?? old.status} to ${
+              STATUS_CONFIG[b.status]?.label ?? b.status
+            }`,
+            'booth'
+          );
+        }
+      });
+      prev.forEach((b, id) => {
+        if (!map.has(id)) pushActivity(`Booth removed: ${b.name}`, 'booth');
+      });
+    }
+    prevBoothsMapRef.current = map;
+  }, [booths, pushActivity]);
+
+  // Diff leases → activity + toasts
+  useEffect(() => {
+    if (!leases) return;
+    const map = new Map(leases.map((l) => [l.id, l]));
+    const prev = prevLeasesMapRef.current;
+    if (prev) {
+      map.forEach((l, id) => {
+        const boothName = boothById.get(l.boothId)?.name ?? 'a booth';
+        const renter = renterById.get(l.renterId);
+        const renterName = renter ? `${renter.firstName} ${renter.lastName}` : 'a renter';
+        const old = prev.get(id);
+        if (!old) {
+          pushActivity(`New lease: ${renterName} signed for ${boothName}`, 'lease');
+        } else if (old.status !== l.status) {
+          pushActivity(`Lease for ${boothName} (${renterName}) is now ${l.status}`, 'lease');
+        }
+      });
+      prev.forEach((l, id) => {
+        if (!map.has(id)) {
+          const boothName = boothById.get(l.boothId)?.name ?? 'a booth';
+          pushActivity(`Lease removed for ${boothName}`, 'lease');
+        }
+      });
+    }
+    prevLeasesMapRef.current = map;
+  }, [leases, boothById, renterById, pushActivity]);
+
+  // Diff renters → activity + toasts
+  useEffect(() => {
+    if (!renters) return;
+    const map = new Map(renters.map((r) => [r.id, r]));
+    const prev = prevRentersMapRef.current;
+    if (prev) {
+      map.forEach((r, id) => {
+        const old = prev.get(id);
+        if (!old) {
+          pushActivity(`New renter added: ${r.firstName} ${r.lastName}`, 'renter');
+        } else if (old.status !== r.status) {
+          pushActivity(
+            `${r.firstName} ${r.lastName} status changed to ${
+              RENTER_STATUS_LABELS[r.status] ?? r.status
+            }`,
+            'renter'
+          );
+        }
+      });
+    }
+    prevRentersMapRef.current = map;
+  }, [renters, pushActivity]);
 
   const effectiveBooth = useCallback(
     (booth: Booth) => {
@@ -1092,16 +1536,19 @@ export default function BoothsPage() {
 
   return (
     <div className="p-6 md:p-8 space-y-6">
+      <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <Armchair className="h-6 w-6" />
             Booths
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground mb-1.5">
             Your rentable chairs, booths, and suites — arranged the way your
             studio actually looks.
           </p>
+          <LivePulse lastSync={lastSync} />
         </div>
         <div className="flex gap-2 flex-wrap items-center">
           <div className="flex rounded-lg border border-border p-0.5">
@@ -1122,6 +1569,26 @@ export default function BoothsPage() {
               List
             </Button>
           </div>
+          <Button
+            variant="outline"
+            className="relative"
+            onClick={() => setCommandCenterOpen(true)}
+          >
+            <Bell className="h-4 w-4 mr-2" />
+            Command Center
+            {alertBadgeSeverity && (
+              <span
+                className={cn(
+                  'absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center text-white',
+                  alertBadgeSeverity === 'danger' && 'bg-red-500',
+                  alertBadgeSeverity === 'warning' && 'bg-amber-500',
+                  alertBadgeSeverity === 'info' && 'bg-sky-500'
+                )}
+              >
+                {alerts.length}
+              </span>
+            )}
+          </Button>
           <Button variant="outline" onClick={() => setPricingOpen(true)}>
             <Calculator className="h-4 w-4 mr-2" />
             Pricing Advisor
@@ -1531,6 +1998,13 @@ export default function BoothsPage() {
             baseRentFrequency: 'weekly',
           }))
         }
+      />
+
+      <CommandCenterPanel
+        open={commandCenterOpen}
+        onOpenChange={setCommandCenterOpen}
+        alerts={alerts}
+        activity={activityLog}
       />
     </div>
   );
