@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState } from 'react';
@@ -105,7 +104,11 @@ export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
     const { inventory, stockCorrections, locations, services, transactions, appointments, clients, staff, isLoading: isInventoryLoading } = useInventory();
     const { firestore } = useFirebase();
+    // FIX: tenantId was never derived from selectedTenant — handleProductUpdate
+    // referenced a bare `tenantId` that didn't exist, throwing a ReferenceError
+    // the moment anyone tried to edit a product from this page.
     const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
     const { toast } = useToast();
     const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
     const [isQrModalOpen, setIsQrModalOpen] = useState(false);
@@ -120,7 +123,8 @@ export default function ProductDetailPage() {
     const product = useMemo(() => inventory.find((p) => p.id === id), [inventory, id]);
 
     const handleProductUpdate = (updatedProduct: InventoryItem) => {
-        if (!firestore || !selectedTenant) return;
+        // FIX: guard on tenantId (derived above) instead of the undefined bare identifier
+        if (!firestore || !tenantId) return;
         const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', updatedProduct.id);
         updateDocumentNonBlocking(itemRef, updatedProduct);
         toast({ title: "Dossier Synchronized", description: "Record updates committed to ledger." });
@@ -239,6 +243,10 @@ export default function ProductDetailPage() {
     if (!product) return notFound();
 
     const stockValue = (product.totalStock || 0) * (product.costPerUnit || 0);
+
+    // FIX: product.batches was typed as required but has been observed missing on
+    // some Firestore docs (same root cause as the ProductCard crash) — guard here too.
+    const productBatches = product.batches ?? [];
 
     return (
         <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
@@ -597,7 +605,9 @@ export default function ProductDetailPage() {
                                                 </TableRow>
                                             </TableHeader>
                                             <TableBody>
-                                                {product.batches.sort((a,b) => safeDate(b.receivedDate).getTime() - safeDate(a.receivedDate).getTime()).map(batch => (
+                                                {/* FIX: product.batches.sort(...) crashed the whole page whenever batches
+                                                    was undefined. Using the guarded productBatches array instead. */}
+                                                {[...productBatches].sort((a,b) => safeDate(b.receivedDate).getTime() - safeDate(a.receivedDate).getTime()).map(batch => (
                                                     <TableRow key={batch.id} className="group hover:bg-primary/[0.02]">
                                                         <TableCell className="p-6 text-left">
                                                             <p className="font-black uppercase tracking-tight text-xs text-slate-900 text-left">{format(safeDate(batch.receivedDate), 'MMMM d, yyyy')}</p>
@@ -615,6 +625,13 @@ export default function ProductDetailPage() {
                                                         </TableCell>
                                                     </TableRow>
                                                 ))}
+                                                {productBatches.length === 0 && (
+                                                    <TableRow>
+                                                        <TableCell colSpan={3} className="py-16 text-center opacity-30 uppercase font-black tracking-widest text-xs">
+                                                            No logistics entries found
+                                                        </TableCell>
+                                                    </TableRow>
+                                                )}
                                             </TableBody>
                                         </Table>
                                     </CardContent>
