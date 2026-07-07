@@ -13,6 +13,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { compileKnowledgeBase } from './knowledge-compiler';
+import { nicheById } from './niches';
 
 export const DEFAULT_AGENT_NAME = 'Chloe';
 
@@ -65,13 +66,54 @@ export async function buildTenantVariables(
     ? services.find((s: any) => s.id === va.consultationServiceId)
     : null;
 
+  // Niche: preset id resolves to its spoken phrase; freeform text still wins
+  // for tenants who typed their own.
+  const niche = nicheById(va.businessNicheId);
+  const businessNiche =
+    (va.businessNiche || '').trim() || niche?.spoken || '';
+
+  // Consultation guide, three sources in priority order:
+  //   1. a consent/intake form from the form builder (consultationFormId) —
+  //      question-type fields become the script, options offered verbally
+  //   2. the structured question list (consultationQuestions: string[])
+  //   3. the legacy freeform consultationGuide text
+  let consultationGuide = '';
+  if (va.consultationSource === 'form' && va.consultationFormId) {
+    try {
+      const formSnap = await db
+        .doc(`tenants/${tenantId}/consentForms/${va.consultationFormId}`)
+        .get();
+      if (formSnap.exists) {
+        const form = formSnap.data() as any;
+        const questionTypes = ['short-text', 'long-text', 'multiple-choice', 'checkboxes'];
+        const lines = (form.fields || [])
+          .filter((f: any) => questionTypes.includes(f.type) && (f.label || '').trim())
+          .map((f: any, i: number) => {
+            const opts =
+              Array.isArray(f.options) && f.options.length > 0
+                ? ` (offer these options: ${f.options.join(', ')})`
+                : '';
+            return `${i + 1}. ${f.label.trim()}${opts}`;
+          });
+        consultationGuide = lines.join('\n');
+      }
+    } catch { /* fall through */ }
+  }
+  if (!consultationGuide && Array.isArray(va.consultationQuestions)) {
+    consultationGuide = va.consultationQuestions
+      .filter((q: any) => typeof q === 'string' && q.trim())
+      .map((q: string, i: number) => `${i + 1}. ${q.trim()}`)
+      .join('\n');
+  }
+  if (!consultationGuide) consultationGuide = (va.consultationGuide || '').trim();
+
   return {
     tenant_id: tenantId,
     agent_name: (va.agentName || '').trim() || DEFAULT_AGENT_NAME,
     studio_name: tenant?.name || tenant?.locationName || 'the studio',
-    business_niche: (va.businessNiche || '').trim(),
+    business_niche: businessNiche,
     knowledge_base: knowledgeBase,
-    consultation_guide: (va.consultationGuide || '').trim(),
+    consultation_guide: consultationGuide,
     paid_consultation_service: consultationService?.name || '',
     has_transfer: transferNumber ? 'true' : 'false',
     transfer_number: transferNumber,
