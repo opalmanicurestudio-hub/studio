@@ -19,14 +19,21 @@
  *                 appointment doc immediately (its value evaporates in a
  *                 queue), and still logs an inbox item (autoApplied: true)
  *                 so there's a visible record for the front desk.
- *   event_quote — LOG ONLY. The AI never quotes custom prices; it's an
- *                 intake form with a voice. Structured eventInquiry payload
- *                 feeds your studioEvents funnel.
- *   consultation — LOG ONLY: the structured intake from a voice
- *                 consultation (per-tenant question guide) — answers,
- *                 services discussed, and any red flags the caller
- *                 mentioned. Usually followed by a booking on the same
- *                 call.
+ *   event_quote — LOG ONLY, ROUTED TWICE: the inbox row (with the call
+ *                 recording) is the notification, AND a quoteRequests doc
+ *                 is written in the exact shape the public inquiry form
+ *                 uses — so voice leads land in the Quotes → Inquiries tab
+ *                 alongside web leads, entering the same quote lifecycle
+ *                 (viewed flags, priority, analytics). One pipeline, two
+ *                 front doors.
+ *   consultation — LOG ONLY, SHARED THREE WAYS: the inbox row carries the
+ *                 full Q&A; a lastVoiceConsultation summary is merged onto
+ *                 the CLIENT doc (so it travels to every future visit);
+ *                 and when an appointmentId is provided (scheduled paid
+ *                 consults pass it), the consultation is attached to that
+ *                 appointment's voiceMeta so the provider sees it in
+ *                 context. Optional appointmentId accepted for this
+ *                 intent (not required, unlike cancel/reschedule/late).
  *   complaint   — LOG ONLY, and NEVER a live transfer: the business
  *                 reviews the recording + this inbox item first, then
  *                 decides how to handle the call-back. Pins to the top of
@@ -227,7 +234,75 @@ export async function POST(req: NextRequest) {
           })
         : undefined;
 
+    // ── Routing beyond the inbox ────────────────────────────────────────────
     const now = new Date().toISOString();
+
+    // event_quote → quoteRequests (the Inquiries tab's collection), matching
+    // the public form's field shape so the existing UI needs zero changes.
+    if (intent === 'event_quote') {
+      const e = body.eventInquiry || {};
+      const nameParts = (callerName || 'Caller').split(' ');
+      const firstName = nameParts[0] || 'Caller';
+      const lastName = nameParts.slice(1).join(' ');
+      const guestCount = Number(e.headcount) || 0;
+      const qrId = nanoid();
+      await db.doc(`tenants/${tenantId}/quoteRequests/${qrId}`).set(
+        stripUndefined({
+          id: qrId,
+          tenantId,
+          status: 'new',
+          firstName,
+          lastName,
+          fullName: callerName || 'Caller',
+          email: (e.contactEmail || '').trim().toLowerCase() || null,
+          phone: callerPhone || null,
+          preferredContact: callerPhone ? 'phone' : 'email',
+          eventType: 'other',
+          eventName: `${firstName}'s ${(e.occasion || 'Event').trim()}`,
+          eventDate: e.eventDate || null,
+          guestCount,
+          partySize: guestCount,
+          interestedServiceIds: [],
+          interestedServices: [],
+          customServiceNote: (e.servicesOfInterest || '').trim() || null,
+          budgetRange: (e.budgetRange || '').trim() || null,
+          specialRequests: (body.details || '').trim() || null,
+          submittedAt: now,
+          source: 'ai_receptionist',
+          viewed: false,
+          priority: guestCount >= 20 ? 'high' : 'normal',
+          retellCallId: retellCallId || null,
+        }),
+      );
+    }
+
+    // consultation → client record (+ appointment when provided)
+    if (intent === 'consultation' && consultation) {
+      if (body.clientId) {
+        await db
+          .doc(`tenants/${tenantId}/clients/${body.clientId}`)
+          .set(
+            {
+              lastVoiceConsultation: stripUndefined({
+                summary: consultation.summary,
+                recommendedServices: consultation.recommendedServices,
+                redFlags: consultation.redFlags,
+                answersCount: consultation.answers?.length || 0,
+                at: now,
+              }),
+            },
+            { merge: true },
+          )
+          .catch(() => {});
+      }
+      if (body.appointmentId) {
+        await db
+          .doc(`tenants/${tenantId}/appointments/${body.appointmentId}`)
+          .set({ voiceMeta: { consultation } }, { merge: true })
+          .catch(() => {});
+      }
+    }
+
     const inboxId = nanoid();
 
     await db.doc(`tenants/${tenantId}/voiceInbox/${inboxId}`).set(
