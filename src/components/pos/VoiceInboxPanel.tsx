@@ -381,6 +381,11 @@ export function VoiceInboxPanel({
                     >
                       <Icon className="w-2.5 h-2.5" /> {config.label}
                     </span>
+                    {item.intent === 'event_quote' && (
+                      <span className="text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+                        Also in Quotes → Inquiries
+                      </span>
+                    )}
                     {item.autoApplied && (
                       <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <Check className="w-2.5 h-2.5" /> Auto-noted on appointment
