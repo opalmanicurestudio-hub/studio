@@ -32,6 +32,7 @@
 
 import React from 'react';
 import { doc, setDoc, collection, onSnapshot } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -101,6 +102,43 @@ export function VoiceAgentSettingsCard({
   const [phoneNumber, setPhoneNumber] = React.useState<string>(va.phoneNumber || '');
   const [transferNumber, setTransferNumber] = React.useState<string>(va.transferNumber || '');
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isProvisioning, setIsProvisioning] = React.useState(false);
+
+  // One-tap number provisioning — the hands-off onboarding path. The
+  // server buys the number from Retell, attaches the right agent variant,
+  // and saves it to the tenant doc itself; we just reflect the result.
+  const provisionNumber = async () => {
+    if (!firestore || !tenantId) return;
+    setIsProvisioning(true);
+    try {
+      const user = getAuth((firestore as any).app).currentUser;
+      if (!user) throw new Error('not_signed_in');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/voice/provision-number', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tenantId }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (out?.ok && out.phoneNumber) {
+        setPhoneNumber(out.phoneNumber);
+        toast({
+          title: out.alreadyProvisioned ? 'Number already active' : 'Your number is live',
+          description: `${out.phoneNumber} — forward your studio line to it whenever you're ready.`,
+        });
+      } else {
+        toast({
+          variant: 'destructive',
+          title: 'Could not get a number',
+          description: out?.reason || 'Try again, or paste a number manually below.',
+        });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not get a number', description: 'Try again in a moment.' });
+    } finally {
+      setIsProvisioning(false);
+    }
+  };
 
   const [services, setServices] = React.useState<any[]>([]);
   const [forms, setForms] = React.useState<any[]>([]);
@@ -543,12 +581,35 @@ export function VoiceAgentSettingsCard({
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <FieldLabel icon={Phone}>Assistant phone number</FieldLabel>
-            <Input
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="+13365551234"
-              className="h-10 text-xs font-mono"
-            />
+            {!phoneNumber.trim() ? (
+              <div className="space-y-1.5">
+                <Button
+                  type="button"
+                  className="w-full h-10 text-[10px] font-black uppercase tracking-widest"
+                  disabled={isProvisioning}
+                  onClick={provisionNumber}
+                >
+                  {isProvisioning ? (
+                    <Loader className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Get my number</>
+                  )}
+                </Button>
+                <Input
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  placeholder="…or paste one you already have: +1336…"
+                  className="h-9 text-xs font-mono"
+                />
+              </div>
+            ) : (
+              <Input
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                placeholder="+13365551234"
+                className="h-10 text-xs font-mono"
+              />
+            )}
           </div>
           <div className="space-y-1.5">
             <FieldLabel icon={PhoneForwarded} optional>Human transfer number</FieldLabel>
