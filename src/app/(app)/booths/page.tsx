@@ -495,13 +495,14 @@ function MetricCard({
 // ─── Status pill ──────────────────────────────────────────────────────────────
 
 function StatusPill({ status }: { status: Booth['status'] }) {
-  const c = BOOTH_STATUS_COLORS[status];
+  const c = BOOTH_STATUS_COLORS[status] ?? BOOTH_STATUS_COLORS.vacant;
+  const label = BOOTH_STATUS_LABELS[status] ?? status ?? 'Unknown';
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
       style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}` }}
     >
-      {BOOTH_STATUS_LABELS[status]}
+      {label}
     </span>
   );
 }
@@ -773,7 +774,7 @@ function BoothCanvasCard({
   onResizeMouseDown,
   onClick,
 }: BoothCanvasCardProps) {
-  const colors = BOOTH_STATUS_COLORS[booth.status];
+  const colors = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
 
   const monthlyRent = useMemo(() => {
     if (!lease) return 0;
@@ -919,7 +920,7 @@ function DetailPanel({
             <p className="text-xs text-muted-foreground">{renter.specialty}</p>
           )}
           <p className="text-xs text-muted-foreground">{renter.email}</p>
-          <Badge className="text-[10px]">{RENTER_STATUS_LABELS[renter.status]}</Badge>
+          <Badge className="text-[10px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
         </div>
       )}
 
@@ -929,7 +930,7 @@ function DetailPanel({
           <p className="text-sm font-medium">{formatCents(monthlyRent)} / mo</p>
           <p className="text-xs text-muted-foreground">
             {formatCents(lease.rentAmountCents)} /{' '}
-            {FREQUENCY_LABELS[lease.frequency].toLowerCase()}
+            {(FREQUENCY_LABELS[lease.frequency] ?? lease.frequency ?? 'period').toLowerCase()}
           </p>
           {lease.scheduleSlot && (
             <p className="text-xs text-muted-foreground">
@@ -939,7 +940,7 @@ function DetailPanel({
           <p className="text-xs text-muted-foreground">
             {lease.endDate ? `Ends ${lease.endDate}` : 'Month-to-month'}
           </p>
-          {lease.perks.length > 0 && (
+          {(lease.perks?.length ?? 0) > 0 && (
             <p className="text-xs text-muted-foreground">
               {lease.perks.length} perk{lease.perks.length > 1 ? 's' : ''}
             </p>
@@ -947,7 +948,7 @@ function DetailPanel({
         </div>
       )}
 
-      {booth.amenities.length > 0 && (
+      {(booth.amenities?.length ?? 0) > 0 && (
         <div>
           <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Amenities</p>
           <div className="flex flex-wrap gap-1">
@@ -1672,7 +1673,7 @@ export default function BoothsPage() {
                     className="h-2.5 w-2.5 rounded-sm"
                     style={{ background: c.bg, border: `1.5px solid ${c.border}` }}
                   />
-                  {BOOTH_STATUS_LABELS[status]}
+                  {BOOTH_STATUS_LABELS[status] ?? status}
                 </span>
               ))}
             </div>
@@ -1757,7 +1758,7 @@ export default function BoothsPage() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="text-xs max-w-[200px]">
                           <p className="font-medium">{b.name}</p>
-                          {b.amenities.length > 0 && (
+                          {(b.amenities?.length ?? 0) > 0 && (
                             <p className="text-muted-foreground">
                               {b.amenities.join(', ')}
                             </p>
@@ -1807,7 +1808,7 @@ export default function BoothsPage() {
                     {formatCents(booth.baseRentCents)}
                     <span className="text-sm font-normal text-muted-foreground">
                       {' '}
-                      / {FREQUENCY_LABELS[booth.baseRentFrequency].toLowerCase()}
+                      / {(FREQUENCY_LABELS[booth.baseRentFrequency] ?? booth.baseRentFrequency ?? 'period').toLowerCase()}
                     </span>
                   </p>
                   {booth.description && (
