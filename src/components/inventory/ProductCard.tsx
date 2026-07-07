@@ -1,7 +1,6 @@
-
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -57,9 +56,11 @@ export const ProductCard = ({
     onSelect: () => void, 
     isOrdered: boolean 
 }) => {
-    
+    const [imageFailed, setImageFailed] = useState(false);
+
     const stockStatus = useMemo(() => {
-        const hasExpiredBatch = item.batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
+        const batches = item.batches ?? [];
+        const hasExpiredBatch = batches.some(b => b.expirationDate && isPast(parseISO(b.expirationDate)) && b.stock > 0);
         if (hasExpiredBatch) return { label: 'EXPIRED', className: 'bg-destructive text-white border-none animate-pulse' };
         if (safeNumber(item.totalStock) <= 0 && safeNumber(item.partialContainerUses) <= 0 && safeNumber(item.partialContainerSize) <= 0 ) return { label: 'OUT OF STOCK', className: 'bg-slate-900 text-white border-none' };
         if (item.reorderPoint && safeNumber(item.totalStock) <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
@@ -98,6 +99,7 @@ export const ProductCard = ({
     }, [item.type]);
 
     const isRefreshment = item.type === 'refreshment';
+    const showImage = Boolean(item.imageUrl) && !imageFailed;
 
     return (
         <Card className={cn(
@@ -117,8 +119,14 @@ export const ProductCard = ({
                         />
                         <Link href={detailHref} className="relative shrink-0" onClick={e => e.stopPropagation()}>
                             <div className="w-16 h-16 md:w-20 md:h-20 border-4 border-background shadow-xl rounded-[1.5rem] md:rounded-[2rem] overflow-hidden bg-muted/20 flex items-center justify-center transition-transform group-hover:scale-105 duration-500">
-                                {item.imageUrl ? (
-                                    <Image src={item.imageUrl} alt={item.name} fill className='object-cover' />
+                                {showImage ? (
+                                    <Image
+                                        src={item.imageUrl as string}
+                                        alt={item.name}
+                                        fill
+                                        className="object-cover"
+                                        onError={() => setImageFailed(true)}
+                                    />
                                 ) : (
                                     <TypeIcon className="w-8 h-8 md:w-10 md:h-10 text-muted-foreground/30" />
                                 )}
