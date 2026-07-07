@@ -1,54 +1,76 @@
 /**
- * Replenishment & Staff Allocation System
- * -----------------------------------------
- * Extends the existing InventoryItem model (totalStock, batches,
- * partialContainerSize/Uses, costingMethod) with staff custody tracking,
- * bulk station allocations, and manager-gated replenishment that
- * atomically deducts from main stock.
+ * Staff Replenishment & Custody System
+ * -------------------------------------
+ * Extends the existing InventoryItem model (totalStock, batches, size,
+ * estimatedUses, partialContainerSize/Uses, costingMethod) with staff
+ * custody tracking (serialized equipment), bulk station allocations, and
+ * manager-gated replenishment that atomically deducts from main stock.
+ *
+ * Integration notes:
+ * - Reuses your existing `stockCorrections` collection as the audit log
+ *   (same pattern as "Manual Use Log" / "Write-off: ..."), rather than a
+ *   parallel log table. See stockCorrection returned by each function.
+ * - Reuses Staff.role ('admin' | 'owner') for the manager-approval gate,
+ *   same pattern as handleUnlockVault in ProductDetailPage.
+ * - Reuses Location as the "station" concept — StationAllocation.stationId
+ *   points directly at Location.id.
+ * - Add `trackingMode?: 'serialized' | 'bulk'` to InventoryItem in
+ *   lib/data.ts. Undefined = legacy item, not yet migrated; fall back to
+ *   the old direct-deduction behavior (handleLogUseConfirm) for these.
  */
 
-import { type InventoryItem } from '@/lib/data';
+import { type InventoryItem, type Staff, type StockCorrection } from '@/lib/data';
 import { safeNumber } from '@/lib/utils';
-import { isPast, parseISO } from 'date-fns';
+import { nanoid } from 'nanoid';
 
-// ---------- New types ----------
+// ---------- New types (add alongside RefreshmentRequest in lib/data.ts) ----------
 
 export type TrackingMode = 'serialized' | 'bulk';
 
 /** A single physical, individually tracked piece of equipment (e.g. Shears #1) */
-export interface AssetUnit {
+export type AssetUnit = {
   id: string;
-  itemId: string; // links back to InventoryItem (the "shears" product record)
-  serial: string; // human-readable, printed on the fixed label
+  tenantId: string;
+  itemId: string; // InventoryItem.id
+  serial: string; // printed on the fixed label — never reprinted on reassignment
   status: 'active' | 'damaged' | 'missing' | 'retired';
   assignedToStaffId: string | null;
   lastScannedAt: string | null;
   lastScannedByStaffId: string | null;
   conditionNotes?: string;
-}
+};
 
-export interface AssetScanEvent {
+export type AssetScanEvent = {
   id: string;
+  tenantId: string;
   assetUnitId: string;
   staffId: string;
   action: 'checked_out' | 'checked_in' | 'reported_damaged' | 'reported_missing';
   timestamp: string;
   note?: string;
-}
+};
 
-/** Quantity of a bulk consumable currently sitting at a staff's station */
-export interface StationAllocation {
-  itemId: string;
-  staffId: string;
-  stationId: string;
-  quantity: number;
-}
-
-/** Manager-gated request to top up a station's bulk allocation */
-export interface ReplenishmentRequest {
+/** Quantity of a bulk consumable currently sitting at a staff member's station */
+export type StationAllocation = {
   id: string;
-  itemId: string;
+  tenantId: string;
+  itemId: string; // InventoryItem.id
   staffId: string;
+  stationId: string; // Location.id
+  quantity: number;
+};
+
+/**
+ * Manager-gated request to top up a station's bulk allocation.
+ * Same shape/spirit as RefreshmentRequest but for staff, not guests.
+ */
+export type StaffReplenishmentRequest = {
+  id: string;
+  tenantId: string;
+  itemId: string;
+  itemName: string;
+  staffId: string;
+  staffName: string;
   stationId: string;
   quantityRequested: number;
   status: 'pending' | 'approved' | 'denied';
@@ -56,32 +78,56 @@ export interface ReplenishmentRequest {
   approvedByStaffId?: string;
   approvedAt?: string;
   deniedReason?: string;
-}
+};
 
-export interface StockDeductionResult {
+/**
+ * Created whenever a station runs short mid-service and the shortfall was
+ * pulled directly from main stock. Stays unresolved until a manager
+ * reviews it; unresolved flags block that staff member's next
+ * replenishment approval (see getUnresolvedOverflowsForStaff).
+ */
+export type OverflowEvent = {
+  id: string;
+  tenantId: string;
+  itemId: string;
+  staffId: string;
+  stationId: string;
+  quantityOverflowed: number;
+  timestamp: string;
+  resolved: boolean;
+  resolvedByStaffId?: string;
+  resolvedAt?: string;
+  resolutionNote?: string; // e.g. "legit high demand", "damaged product", "investigate"
+};
+
+export type StockDeductionResult = {
   success: boolean;
-  deductedFromTotalStock: number; // whole units pulled from totalStock
+  deductedFromTotalStock: number;
   updatedTotalStock: number;
   updatedPartialContainerSize?: number;
   updatedPartialContainerUses?: number;
   updatedBatches?: InventoryItem['batches'];
   error?: string;
+};
+
+// ---------- Permission helper (matches handleUnlockVault's pattern) ----------
+
+export function isManager(staff: Staff): boolean {
+  return staff.role === 'admin' || staff.role === 'owner';
 }
 
-// ---------- Core deduction logic ----------
+// ---------- Core deduction logic (main stock only — never touches allocations) ----------
 
 /**
  * Deducts `quantity` from an item's main stock, respecting its costingMethod
- * (whole-unit, size-based partial container, or uses-based partial container)
- * and depleting batches FIFO by expiration date where applicable.
+ * (whole-unit, size-based partial container via item.size, or uses-based
+ * partial container via item.estimatedUses) and depleting batches FIFO by
+ * expiration date where applicable.
  *
- * This does NOT mutate `item` — it returns the new values so the caller
- * can persist them inside the same transaction as the replenishment approval.
+ * Does NOT mutate `item` — returns new values so the caller persists them
+ * inside the same Firestore transaction as the approval/usage write.
  */
-export function deductMainStock(
-  item: InventoryItem,
-  quantity: number
-): StockDeductionResult {
+export function deductMainStock(item: InventoryItem, quantity: number): StockDeductionResult {
   if (quantity <= 0) {
     return {
       success: false,
@@ -93,21 +139,19 @@ export function deductMainStock(
 
   const currentTotalStock = safeNumber(item.totalStock);
 
-  // --- Size-based partial container items (e.g. ml poured from a bulk bottle) ---
+  // --- Size-based partial container (e.g. ml poured from a bulk bottle) ---
   if (item.costingMethod === 'size') {
     let remaining = quantity;
     let partial = safeNumber(item.partialContainerSize);
     let unitsOpened = 0;
-    const containerSize = safeNumber((item as any).containerSize) || partial || 0;
+    const containerSize = safeNumber(item.size) || partial || 0;
 
-    // Use up the currently open container first
     if (partial > 0) {
       const used = Math.min(partial, remaining);
       partial -= used;
       remaining -= used;
     }
 
-    // Crack open new whole units from totalStock as needed
     let stockLeft = currentTotalStock;
     while (remaining > 0) {
       if (stockLeft <= 0) {
@@ -120,9 +164,8 @@ export function deductMainStock(
       }
       stockLeft -= 1;
       unitsOpened += 1;
-      const freshAmount = containerSize; // size of a newly opened unit
-      const used = Math.min(freshAmount, remaining);
-      partial = freshAmount - used;
+      const used = Math.min(containerSize, remaining);
+      partial = containerSize - used;
       remaining -= used;
     }
 
@@ -134,12 +177,12 @@ export function deductMainStock(
     };
   }
 
-  // --- Uses-based partial container items (e.g. 40 uses per container) ---
+  // --- Uses-based partial container (e.g. 40 uses per container) ---
   if (item.costingMethod === 'uses') {
     let remaining = quantity;
     let partial = safeNumber(item.partialContainerUses);
     let unitsOpened = 0;
-    const usesPerContainer = safeNumber((item as any).usesPerContainer) || partial || 0;
+    const usesPerContainer = safeNumber(item.estimatedUses) || partial || 0;
 
     if (partial > 0) {
       const used = Math.min(partial, remaining);
@@ -172,8 +215,9 @@ export function deductMainStock(
     };
   }
 
-  // --- Whole-unit items with expiration batches: deplete FIFO by expiration ---
-  if (item.batches && item.batches.length > 0) {
+  // --- Whole-unit items with expiration batches: deplete FIFO ---
+  const batches = item.batches ?? []; // guard — batches has been missing on some docs
+  if (batches.length > 0) {
     if (currentTotalStock < quantity) {
       return {
         success: false,
@@ -183,14 +227,14 @@ export function deductMainStock(
       };
     }
 
-    const sortedBatches = [...item.batches].sort((a, b) => {
-      const aTime = a.expirationDate ? parseISO(a.expirationDate).getTime() : Infinity;
-      const bTime = b.expirationDate ? parseISO(b.expirationDate).getTime() : Infinity;
+    const sorted = [...batches].sort((a, b) => {
+      const aTime = a.expirationDate ? new Date(a.expirationDate).getTime() : Infinity;
+      const bTime = b.expirationDate ? new Date(b.expirationDate).getTime() : Infinity;
       return aTime - bTime;
     });
 
     let remaining = quantity;
-    const updatedBatches = sortedBatches.map((batch) => {
+    const updatedBatches = sorted.map((batch) => {
       if (remaining <= 0) return batch;
       const take = Math.min(batch.stock, remaining);
       remaining -= take;
@@ -231,40 +275,48 @@ export function deductMainStock(
   };
 }
 
-// ---------- Approval flow ----------
+// ---------- Replenishment approval flow ----------
 
-export interface ApproveReplenishmentParams {
-  request: ReplenishmentRequest;
+export type ApproveReplenishmentParams = {
+  request: StaffReplenishmentRequest;
   item: InventoryItem;
   currentAllocation: StationAllocation | null;
-  approvedByStaffId: string;
-  /** Pass this staff member's unresolved overflow events — approval is blocked if any exist. */
+  approvingManager: Staff;
+  /** Unresolved overflow events for request.staffId — approval blocked if any exist. */
   unresolvedOverflows?: OverflowEvent[];
-}
+};
 
-export interface ApproveReplenishmentResult {
+export type ApproveReplenishmentResult = {
   success: boolean;
   updatedItem?: Partial<InventoryItem>;
   updatedAllocation?: StationAllocation;
-  updatedRequest: ReplenishmentRequest;
+  updatedRequest: StaffReplenishmentRequest;
+  /** Write this into stockCorrections, same pattern as write-offs/manual use logs. */
+  stockCorrection?: Omit<StockCorrection, 'id'>;
   error?: string;
-}
+};
 
 /**
  * Approves a replenishment request and atomically:
- *   1. Deducts the requested quantity from main stock (respecting costing method)
+ *   1. Deducts the requested quantity from main stock
  *   2. Increases the staff's station allocation
- *   3. Marks the request approved with an audit trail (who/when)
+ *   3. Marks the request approved with an audit trail
+ *   4. Produces a stockCorrections entry consistent with your existing ledger
  *
- * IMPORTANT: Persist `updatedItem`, `updatedAllocation`, and `updatedRequest`
- * together in a single DB transaction (e.g. a Firestore batch/transaction).
- * Never write the allocation increase without the stock deduction succeeding,
- * and never mark the request approved unless both writes commit.
+ * Persist updatedItem / updatedAllocation / updatedRequest / stockCorrection
+ * together in a single Firestore transaction or writeBatch — never write
+ * the allocation increase without the stock deduction succeeding.
  */
-export function approveReplenishment(
-  params: ApproveReplenishmentParams
-): ApproveReplenishmentResult {
-  const { request, item, currentAllocation, approvedByStaffId, unresolvedOverflows } = params;
+export function approveReplenishment(params: ApproveReplenishmentParams): ApproveReplenishmentResult {
+  const { request, item, currentAllocation, approvingManager, unresolvedOverflows } = params;
+
+  if (!isManager(approvingManager)) {
+    return {
+      success: false,
+      updatedRequest: request,
+      error: 'Only admin or owner roles can approve replenishment requests.',
+    };
+  }
 
   if (request.status !== 'pending') {
     return {
@@ -278,19 +330,14 @@ export function approveReplenishment(
     return {
       success: false,
       updatedRequest: request,
-      error: `Cannot approve: ${request.staffId} has ${unresolvedOverflows.length} unresolved overflow flag(s). Resolve them first.`,
+      error: `Cannot approve: ${request.staffName} has ${unresolvedOverflows.length} unresolved overflow flag(s). Resolve them first.`,
     };
   }
 
   const deduction = deductMainStock(item, request.quantityRequested);
 
   if (!deduction.success) {
-    // Do not approve — surface the stock shortfall to the manager.
-    return {
-      success: false,
-      updatedRequest: request,
-      error: deduction.error,
-    };
+    return { success: false, updatedRequest: request, error: deduction.error };
   }
 
   const updatedItem: Partial<InventoryItem> = {
@@ -307,91 +354,78 @@ export function approveReplenishment(
   const updatedAllocation: StationAllocation = currentAllocation
     ? { ...currentAllocation, quantity: currentAllocation.quantity + request.quantityRequested }
     : {
+        id: `alloc-${nanoid()}`,
+        tenantId: request.tenantId,
         itemId: request.itemId,
         staffId: request.staffId,
         stationId: request.stationId,
         quantity: request.quantityRequested,
       };
 
-  const updatedRequest: ReplenishmentRequest = {
+  const updatedRequest: StaffReplenishmentRequest = {
     ...request,
     status: 'approved',
-    approvedByStaffId,
+    approvedByStaffId: approvingManager.id,
     approvedAt: new Date().toISOString(),
   };
 
-  return {
-    success: true,
-    updatedItem,
-    updatedAllocation,
-    updatedRequest,
+  const stockCorrection: Omit<StockCorrection, 'id'> = {
+    productId: request.itemId,
+    date: new Date().toISOString(),
+    change: -request.quantityRequested,
+    unit: item.unit || item.useUnit || 'units',
+    reason: `Replenished to ${request.staffName}'s station, approved by ${approvingManager.name}`,
   };
+
+  return { success: true, updatedItem, updatedAllocation, updatedRequest, stockCorrection };
 }
 
 /** Manager denies a request — no stock movement, just an audit trail. */
 export function denyReplenishment(
-  request: ReplenishmentRequest,
+  request: StaffReplenishmentRequest,
+  denyingManager: Staff,
   reason: string
-): ReplenishmentRequest {
+): StaffReplenishmentRequest {
   return {
     ...request,
     status: 'denied',
-    deniedReason: reason,
+    approvedByStaffId: denyingManager.id,
     approvedAt: new Date().toISOString(),
+    deniedReason: reason,
   };
 }
 
 // ---------- Service usage: deduct from staff float, not main stock ----------
 
-/**
- * Logged whenever a station runs short during service and the shortfall
- * had to be pulled directly from main stock. Stays "unresolved" until a
- * manager reviews it — and unresolved flags block that staff member's
- * next replenishment approval.
- */
-export interface OverflowEvent {
-  id: string;
-  itemId: string;
-  staffId: string;
-  stationId: string;
-  quantityOverflowed: number;
-  timestamp: string;
-  resolved: boolean;
-  resolvedByStaffId?: string;
-  resolvedAt?: string;
-  resolutionNote?: string; // e.g. "legit high demand", "damaged product", "investigate"
-}
-
-export interface LogServiceUsageResult {
+export type LogServiceUsageResult = {
   success: boolean;
   updatedAllocation: StationAllocation;
   updatedItem?: Partial<InventoryItem>; // only set if overflow pulled from main stock
   overflowEvent?: OverflowEvent;
+  stockCorrection?: Omit<StockCorrection, 'id'>; // only set if overflow occurred
   error?: string;
-}
+};
 
 /**
  * Deducts consumed product for a completed service from the staff's
  * station allocation first. If the station doesn't have enough, the
- * shortfall is pulled directly from main stock (service is never blocked)
- * and an OverflowEvent is created for manager review.
+ * shortfall is pulled directly from main stock (the service is never
+ * blocked) and an OverflowEvent + stockCorrection entry are created for
+ * manager review.
  */
 export function logServiceUsage(params: {
   item: InventoryItem;
   allocation: StationAllocation;
+  staffName: string;
   quantityUsed: number;
 }): LogServiceUsageResult {
-  const { item, allocation, quantityUsed } = params;
+  const { item, allocation, staffName, quantityUsed } = params;
 
   if (quantityUsed <= 0) {
-    return {
-      success: false,
-      updatedAllocation: allocation,
-      error: 'quantityUsed must be greater than zero.',
-    };
+    return { success: false, updatedAllocation: allocation, error: 'quantityUsed must be greater than zero.' };
   }
 
-  // Enough in the station float — simple case, main stock untouched.
+  // Station float covers it — main stock untouched.
   if (allocation.quantity >= quantityUsed) {
     return {
       success: true,
@@ -404,8 +438,6 @@ export function logServiceUsage(params: {
   const deduction = deductMainStock(item, shortfall);
 
   if (!deduction.success) {
-    // Even main stock can't cover it — this is a hard stop worth surfacing loudly,
-    // since it means real inventory (not just the station float) is out.
     return {
       success: false,
       updatedAllocation: allocation,
@@ -427,7 +459,8 @@ export function logServiceUsage(params: {
   };
 
   const overflowEvent: OverflowEvent = {
-    id: crypto.randomUUID(),
+    id: `overflow-${nanoid()}`,
+    tenantId: allocation.tenantId,
     itemId: item.id,
     staffId: allocation.staffId,
     stationId: allocation.stationId,
@@ -436,12 +469,15 @@ export function logServiceUsage(params: {
     resolved: false,
   };
 
-  return {
-    success: true,
-    updatedAllocation,
-    updatedItem,
-    overflowEvent,
+  const stockCorrection: Omit<StockCorrection, 'id'> = {
+    productId: item.id,
+    date: new Date().toISOString(),
+    change: -shortfall,
+    unit: item.unit || item.useUnit || 'units',
+    reason: `Overflow: ${staffName}'s station ran short, pulled from main stock`,
   };
+
+  return { success: true, updatedAllocation, updatedItem, overflowEvent, stockCorrection };
 }
 
 /**
@@ -449,29 +485,26 @@ export function logServiceUsage(params: {
  * unresolved overflow events must have them addressed before their next
  * replenishment request can be approved.
  */
-export function getUnresolvedOverflowsForStaff(
-  overflowEvents: OverflowEvent[],
-  staffId: string
-): OverflowEvent[] {
+export function getUnresolvedOverflowsForStaff(overflowEvents: OverflowEvent[], staffId: string): OverflowEvent[] {
   return overflowEvents.filter((e) => e.staffId === staffId && !e.resolved);
 }
 
 /** Manager resolves an overflow flag — required before approving that staff's next request. */
 export function resolveOverflowEvent(
   event: OverflowEvent,
-  resolvedByStaffId: string,
+  resolvingManager: Staff,
   resolutionNote: string
 ): OverflowEvent {
   return {
     ...event,
     resolved: true,
-    resolvedByStaffId,
+    resolvedByStaffId: resolvingManager.id,
     resolvedAt: new Date().toISOString(),
     resolutionNote,
   };
 }
 
-// ---------- Asset custody (serialized items) ----------
+// ---------- Asset custody (serialized items — shears, clippers, etc.) ----------
 
 /** Records a scan event and updates the unit's assignment/status accordingly. */
 export function recordAssetScan(
@@ -480,7 +513,7 @@ export function recordAssetScan(
 ): { updatedUnit: AssetUnit; scanEvent: AssetScanEvent } {
   const scanEvent: AssetScanEvent = {
     ...event,
-    id: crypto.randomUUID(),
+    id: `scan-${nanoid()}`,
     timestamp: new Date().toISOString(),
   };
 
