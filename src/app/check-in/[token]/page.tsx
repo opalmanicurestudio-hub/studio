@@ -155,13 +155,76 @@ const CancelledView = ({ reason }: { reason?: string }) => (
     </ViewContainer>
 );
 
+// v7 — NEW: for an appointment whose time has clearly passed with no
+// resolution — never checked in, never explicitly cancelled, never marked
+// completed or no-show. Previously a stale link like this fell straight
+// through to the normal arrival flow ("Hello! I Have Arrived / En Route /
+// Running Late"), which is wrong and mildly harmful: tapping "I Have
+// Arrived" on a week-old appointment would falsely flag it as arrived
+// TODAY, corrupting whatever no-show/attendance reporting reads that
+// field. This is a read-only, dead-end view — it doesn't write anything,
+// just stops the client from taking an action that no longer makes sense.
+const StaleAppointmentView = ({ tenantName, tenantPhone }: { tenantName?: string; tenantPhone?: string }) => (
+    <ViewContainer>
+        <ViewHeader title="Appointment Has Passed" subtitle="This link is no longer actionable" icon={Clock} />
+        <CardContent className="p-10 md:p-16 text-center space-y-8">
+            <div className="w-24 h-24 bg-muted/40 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-60">
+                <Clock className="w-12 h-12 text-muted-foreground" />
+            </div>
+            <div className="space-y-2 text-center">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">This appointment time has passed</h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
+                    If you still need this service, please book a new time{tenantName ? ` with ${tenantName}` : ''} or give us a call.
+                </p>
+            </div>
+            <div className="space-y-3">
+                <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
+                    <Link href="/">Browse Availability</Link>
+                </Button>
+                {tenantPhone && (
+                    <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
+                        <a href={`tel:${tenantPhone}`}><Phone className="w-4 h-4 mr-2" /> Call {tenantPhone}</a>
+                    </Button>
+                )}
+            </div>
+        </CardContent>
+    </ViewContainer>
+);
+
+// v8 — NEW: the mirror image of StaleAppointmentView. Nothing previously
+// stopped a client from tapping "I Have Arrived" days before their actual
+// appointment date — the arrival buttons showed regardless of how far out
+// the booking was. Same read-only, dead-end pattern: doesn't write
+// anything, just replaces the arrival flow with a clear "come back on the
+// day" message whenever the appointment isn't today. Same-day arrivals are
+// never blocked here regardless of how many hours early — someone showing
+// up 3 hours before a 2pm slot is normal and shouldn't be stopped.
+const TooEarlyView = ({ startTime, serviceName }: { startTime: string; serviceName?: string }) => (
+    <ViewContainer>
+        <ViewHeader title="Not Quite Yet" subtitle="Check-in opens on the day of your visit" icon={CalendarIcon} />
+        <CardContent className="p-10 md:p-16 text-center space-y-8">
+            <div className="w-24 h-24 bg-primary/5 rounded-[2.5rem] flex items-center justify-center mx-auto">
+                <CalendarIcon className="w-12 h-12 text-primary opacity-60" />
+            </div>
+            <div className="space-y-2 text-center">
+                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">You're all set</h3>
+                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
+                    {serviceName ? `${serviceName} is` : 'Your appointment is'} scheduled for{' '}
+                    <strong className="text-slate-900">{format(safeDate(startTime), 'EEEE, MMMM d')}</strong>.
+                    Come back to this link on the day to check in.
+                </p>
+            </div>
+        </CardContent>
+    </ViewContainer>
+);
+
 const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
     const { firestore } = useFirebase();
     const { toast } = useToast();
     const [rating, setRating] = useState(0);
     const [reviewText, setReviewText] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitted, setSubmitted] = useState(false);
+    const [submitted, setSubmitted] = useState(!!appointment.reviewSubmittedAt);
 
     const handleReviewSubmit = async () => {
         if (rating === 0 || !firestore || !tenant || !client) return;
@@ -184,6 +247,19 @@ const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenan
                 createdAt: new Date().toISOString()
             };
             await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/reviews`, reviewId), review, {});
+            // v7 — FIX: previously nothing recorded that a review had been
+            // submitted anywhere the appointment itself could be checked —
+            // `submitted` was pure local component state. Reopening the
+            // same link later always re-showed the rating form, with no
+            // guard against submitting a second (or third) review for the
+            // same visit. This timestamp is checked on load below.
+            try {
+                await setDoc(
+                    doc(firestore, `tenants/${tenant.id}/appointments/${appointment.id}`),
+                    { reviewSubmittedAt: new Date().toISOString() },
+                    { merge: true },
+                );
+            } catch { /* best-effort — the review doc above is the record of truth */ }
             toast({ title: "Feedback Archived", description: "Thank you for sharing your story." });
             setSubmitted(true);
         } catch (e) {
@@ -1736,7 +1812,39 @@ export default function CheckInPage() {
             />
         );
     }
-    
+
+    // v7 — NEW: stale/past-due appointment check. Only reached if none of
+    // the above matched — status isn't cancelled/completed, and the client
+    // never checked in or started service. If the appointment's own end
+    // time (or start time, if end time is missing) is more than 3 hours in
+    // the past, treat this as a dead link rather than showing the normal
+    // arrival flow. The 3-hour buffer intentionally still allows the
+    // legitimate "running very late same-day" case to tap "I Have Arrived"
+    // — this only catches genuinely stale appointments (yesterday, last
+    // week, etc.) that nothing ever explicitly resolved.
+    const referenceEnd = appointmentData?.endTime || appointmentData?.startTime;
+    const isStaleUnresolved = referenceEnd
+        ? (Date.now() - safeDate(referenceEnd).getTime()) > 3 * 60 * 60 * 1000
+        : false;
+
+    if (isStaleUnresolved) {
+        return <StaleAppointmentView tenantName={tenant?.name} tenantPhone={tenant?.twilioPhoneNumber} />;
+    }
+
+    // v8 — NEW: the mirror check. isSameDay rather than an hours-based
+    // threshold deliberately — someone arriving 3 hours before a 2pm slot
+    // is completely normal and shouldn't be blocked, but any DIFFERENT
+    // calendar day (a week out, tomorrow, whenever) should not show live
+    // arrival buttons at all.
+    const isTooEarly = appointmentData?.startTime
+        ? !isSameDay(safeDate(appointmentData.startTime), new Date())
+            && safeDate(appointmentData.startTime).getTime() > Date.now()
+        : false;
+
+    if (isTooEarly) {
+        return <TooEarlyView startTime={appointmentData!.startTime} serviceName={service?.name} />;
+    }
+
     return (
         <AnimatePresence mode="wait">
             {!entered ? (
