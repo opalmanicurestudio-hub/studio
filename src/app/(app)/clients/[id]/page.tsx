@@ -55,7 +55,14 @@ import {
     Sparkles,
     MessageSquare,
     HeartHandshake,
-    Gift
+    Gift,
+    FileSignature,
+    FileImage,
+    FileText,
+    Maximize2,
+    ChevronLeft,
+    ChevronRight,
+    Camera
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, useParams, useRouter } from 'next/navigation';
@@ -272,6 +279,14 @@ export default function ClientDetailPage() {
   }, [firestore, tenantId, clientId]);
   const { data: clientTransactions } = useCollection<any>(clientTxnQuery);
 
+  // v6 — signed consent forms, for the new Documents tab. Same pattern as
+  // every other client-scoped collection query on this page.
+  const signedConsentsQuery = useMemoFirebase(() => {
+      if (!firestore || !tenantId || !clientId) return null;
+      return collection(firestore, `tenants/${tenantId}/clients/${clientId}/signedConsents`);
+  }, [firestore, tenantId, clientId]);
+  const { data: signedConsents } = useCollection<any>(signedConsentsQuery);
+
   const { toast } = useToast();
   const [isEditClientOpen, setIsEditClientOpen] = useState(false);
   const [isAddFormulaOpen, setIsAddFormulaOpen] = useState(false);
@@ -280,6 +295,18 @@ export default function ClientDetailPage() {
   const [isSettleProcessing, setIsSettleProcessing] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
   const [isRecoveryDialogOpen, setIsRecoveryDialogOpen] = useState(false);
+  // v6 — lightbox for the Documents tab gallery (persistToProfile uploads,
+  // e.g. Photo ID). Same multi-image prev/next pattern already built into
+  // AppointmentDetailsSheet, kept local to this page since it's a separate
+  // component/file.
+  const [docExpandedImage, setDocExpandedImage] = useState<string | null>(null);
+  const [docLightboxImages, setDocLightboxImages] = useState<{ url: string; name: string }[]>([]);
+  const [docLightboxIndex, setDocLightboxIndex] = useState(0);
+  const openDocLightbox = (images: { url: string; name: string }[], index: number) => {
+    setDocLightboxImages(images);
+    setDocLightboxIndex(index);
+    setDocExpandedImage(images[index]?.url || null);
+  };
 
   const handleRebook = (apt: any) => {
     const params = new URLSearchParams({
@@ -536,6 +563,14 @@ export default function ClientDetailPage() {
                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max text-left">
                   <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
                   <TabsTrigger value="preferences" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Preferences</TabsTrigger>
+                  <TabsTrigger value="documents" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md flex items-center gap-1.5">
+                    <FileText className="w-3 h-3" /> Documents
+                    {((signedConsents?.length || 0) + (client.profileDocuments?.length || 0)) > 0 && (
+                      <span className="ml-1 text-[7px] font-black bg-primary text-white px-1.5 py-0.5 rounded-full leading-none">
+                        {(signedConsents?.length || 0) + (client.profileDocuments?.length || 0)}
+                      </span>
+                    )}
+                  </TabsTrigger>
                   <TabsTrigger value="history" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">History</TabsTrigger>
                   <TabsTrigger value="hospitality" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
                   <TabsTrigger value="archive" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Formulas</TabsTrigger>
@@ -680,6 +715,117 @@ export default function ClientDetailPage() {
                     <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><History className="w-4 h-4 text-primary opacity-40" />Service History Notes</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.history ? `"${client.notes.history}"` : "No historical context archived."}</p></CardContent></Card>
                     <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Ear className="w-4 h-4 text-primary opacity-40" />Sensory & Environment</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.sensoryNeeds ? `"${client.sensoryNeeds}"` : "No sensory preferences recorded."}</p></CardContent></Card>
                   </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="documents" className="m-0 space-y-8 animate-in fade-in duration-500 text-left">
+                <div className="space-y-4 text-left">
+                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
+                    <FileSignature className="w-5 h-5" />Signed Consent Forms
+                  </h3>
+                  {signedConsents && signedConsents.length > 0 ? (
+                    <div className="rounded-[2rem] border-2 bg-white shadow-sm overflow-hidden divide-y">
+                      {signedConsents.map((sc: any) => (
+                        <div key={sc.formId} className="p-5 flex items-start justify-between gap-4 text-left">
+                          <div className="min-w-0 flex-1 text-left">
+                            <p className="font-black text-xs uppercase tracking-tight text-slate-900 text-left">{sc.formTitle || sc.formId}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1 opacity-60 text-left">
+                              Signed {sc.signedAt ? format(safeDate(sc.signedAt), 'MMM d, yyyy · h:mm a') : 'Unknown date'}
+                              {sc.appointmentId ? ' · via appointment' : ''}
+                            </p>
+                            {sc.guardianName && (
+                              <div className="mt-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-left">
+                                <p className="text-[8px] font-black uppercase text-amber-700 tracking-widest">Guardian Consent</p>
+                                <p className="text-[10px] font-bold text-amber-900 mt-0.5">{sc.guardianName} — {sc.guardianRelationship || 'Guardian'}</p>
+                              </div>
+                            )}
+                          </div>
+                          <Badge
+                            variant="secondary"
+                            className={cn(
+                              'font-black text-[8px] h-5 px-2 border-none shrink-0',
+                              sc.source === 'client_self_service' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600',
+                            )}
+                          >
+                            {sc.source === 'client_self_service' ? 'Self-Service' : 'Staff Witnessed'}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
+                      <FileSignature className="w-10 h-10" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">No forms signed yet</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-dashed text-left">
+                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
+                    <Camera className="w-5 h-5" />Marketing &amp; Photo Consent
+                  </h3>
+                  {client.marketingConsent ? (
+                    <div className={cn(
+                      "p-5 rounded-[2rem] border-2 flex items-center justify-between",
+                      client.marketingConsent.consented ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
+                    )}>
+                      <div>
+                        <p className={cn("font-black text-xs uppercase tracking-tight", client.marketingConsent.consented ? "text-green-700" : "text-slate-600")}>
+                          {client.marketingConsent.consented ? 'Agreed to marketing use' : 'Declined marketing use'}
+                        </p>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1 opacity-60">
+                          {client.marketingConsent.consentedAt ? format(safeDate(client.marketingConsent.consentedAt), 'MMM d, yyyy') : ''}
+                        </p>
+                      </div>
+                      {client.marketingConsent.consented ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : <Ban className="w-5 h-5 text-slate-400" />}
+                    </div>
+                  ) : (
+                    <div className="py-8 text-center border-4 border-dashed rounded-[2rem] opacity-30">
+                      <p className="text-[10px] font-black uppercase tracking-widest">Not yet asked</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-4 pt-6 border-t border-dashed text-left">
+                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-primary flex items-center gap-3 text-left px-1">
+                    <FileImage className="w-5 h-5" />Documents on File
+                  </h3>
+                  {client.profileDocuments && client.profileDocuments.length > 0 ? (
+                    <div className="space-y-4">
+                      {client.profileDocuments.map((pd: any) => {
+                        const images = (pd.files || []).map((f: any) => ({ url: f.url, name: f.name }));
+                        return (
+                          <div key={pd.requirementId} className="space-y-2">
+                            <div className="flex items-center justify-between text-[10px] font-black uppercase">
+                              <span className="flex items-center gap-2 text-muted-foreground">{pd.label}</span>
+                              <span className="text-[9px] font-bold text-muted-foreground opacity-60">
+                                Added {pd.uploadedAt ? format(safeDate(pd.uploadedAt), 'MMM d, yyyy') : ''}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                              {images.map((im: any, i: number) => (
+                                <button
+                                  key={i}
+                                  onClick={() => openDocLightbox(images, i)}
+                                  className="group relative aspect-square rounded-xl overflow-hidden border-2 bg-muted/5 cursor-zoom-in"
+                                >
+                                  <img src={im.url} alt={im.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                                    <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center border-4 border-dashed rounded-[2rem] opacity-30 flex flex-col items-center gap-3">
+                      <FileImage className="w-10 h-10" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">No documents on file</p>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
 
@@ -1058,6 +1204,39 @@ export default function ClientDetailPage() {
             <Button className="w-full h-16 rounded-2xl text-xl font-black uppercase shadow-3xl shadow-primary/30" onClick={handleQuickSettle} disabled={isSettleProcessing}>{isSettleProcessing ? <Loader className="animate-spin" /> : 'Authorize Charge'}</Button>
             <Button variant="ghost" onClick={() => setIsQuickSettleOpen(false)} className="w-full font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* v6 — Documents tab gallery lightbox, same multi-image prev/next
+          pattern already built into AppointmentDetailsSheet. */}
+      <Dialog open={!!docExpandedImage} onOpenChange={(val) => !val && setDocExpandedImage(null)}>
+        <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
+          <DialogHeader className="sr-only">
+            <DialogTitle>Document Preview</DialogTitle>
+            <DialogDescription>Full screen preview{docLightboxImages.length > 1 ? ', use the on-screen buttons to browse' : ''}</DialogDescription>
+          </DialogHeader>
+          <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]">
+            {docExpandedImage && <img src={docExpandedImage} alt={docLightboxImages[docLightboxIndex]?.name || 'Document'} className="block max-w-full max-h-[90vh] object-contain" />}
+            {docLightboxImages.length > 1 && (
+              <>
+                <button
+                  onClick={() => { const p = (docLightboxIndex - 1 + docLightboxImages.length) % docLightboxImages.length; setDocLightboxIndex(p); setDocExpandedImage(docLightboxImages[p].url); }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => { const n = (docLightboxIndex + 1) % docLightboxImages.length; setDocLightboxIndex(n); setDocExpandedImage(docLightboxImages[n].url); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/50 rounded-full px-3 py-1">
+                  <p className="text-[10px] font-bold text-white">{docLightboxIndex + 1} / {docLightboxImages.length}</p>
+                </div>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
