@@ -231,6 +231,32 @@ const buildTimelineEvents = (opts: {
   if (auto.balanceNotifiedAt) push(auto.balanceNotifiedAt, Bell, 'Outstanding balance notice sent');
   if (appointment.healthDisclosedAt) push(appointment.healthDisclosedAt, HeartPulse, 'Health disclosure completed');
 
+  // v4 — the client's own self-service journey through the check-in link:
+  // when they first opened it, and when they submitted whatever was
+  // requested. Previously none of this was visible anywhere — staff had no
+  // way to tell from the appointment record whether a client had even
+  // looked at the link, let alone acted on it.
+  if (appointment.completionLinkFirstViewedAt) push(appointment.completionLinkFirstViewedAt, ExternalLink, 'Client opened check-in link');
+  if (appointment.completionConsentsAt) {
+    const formNames = (appointment.signedForms || []).map((f: any) => f.formTitle).filter(Boolean);
+    const fileLabels = (appointment.requirementFiles || []).map((f: any) => f.label).filter(Boolean);
+    const parts = [
+      formNames.length ? `Signed: ${formNames.join(', ')}` : null,
+      fileLabels.length ? `Uploaded: ${fileLabels.join(', ')}` : null,
+    ].filter(Boolean);
+    push(appointment.completionConsentsAt, FileSignature, 'Completed requirements online', parts.join(' · ') || undefined, 'good');
+  }
+  if (appointment.marketingConsentAnsweredAt) push(
+    appointment.marketingConsentAnsweredAt, Camera,
+    `Marketing consent — ${appointment.marketingConsentAnswer ? 'agreed' : 'declined'}`,
+  );
+  if (appointment.emergencyContactCapturedAt) push(appointment.emergencyContactCapturedAt, Phone, 'Emergency contact added');
+  if (appointment.cardUpdatedViaLinkAt) push(appointment.cardUpdatedViaLinkAt, CreditCard, 'Card updated via check-in link', undefined, 'good');
+  if (appointment.acknowledgedAt) push(
+    appointment.acknowledgedAt, Info, 'Confirmed pre-appointment instructions',
+    (appointment.acknowledgedItems || []).length > 0 ? (appointment.acknowledgedItems || []).join(' · ') : undefined,
+  );
+
   // Provider assignments — both booking-time add-on assignments and
   // mid-session handoffs, each carrying its own real timestamp so the
   // timeline can reconstruct who actually worked the session and when,
@@ -1209,6 +1235,13 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   // defaults (service.requiredFormIds) are still always included regardless.
   const [selectedExtraFormIds, setSelectedExtraFormIds] = useState<string[]>([]);
   const [customFileLabel, setCustomFileLabel] = useState('');
+  // v4 — new request types
+  const [requestPhotoId, setRequestPhotoId] = useState(false);
+  const [persistCustomFile, setPersistCustomFile] = useState(false);
+  const [requestMarketingConsent, setRequestMarketingConsent] = useState(false);
+  const [requestEmergencyContact, setRequestEmergencyContact] = useState(false);
+  const [requestAcknowledgment, setRequestAcknowledgment] = useState(false);
+  const [acknowledgmentText, setAcknowledgmentText] = useState('Please arrive with clean, dry hair and no polish on your nails.');
   const [reqLink, setReqLink] = useState<string | null>(null);
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);
@@ -1548,15 +1581,43 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       // deduplicated. Ad-hoc picks are NOT limited to what the service
       // mandates — this is what lets staff request a one-off consultation
       // form or a form the service itself never lists.
-      const requiredFormIds = Array.from(new Set([...(service.requiredFormIds || []), ...selectedExtraFormIds]));
+      // v3 — FIX: previously this always included every one of the
+      // service's default requiredFormIds, regardless of whether the
+      // client had already satisfied them. That meant "request from
+      // client" could bundle in forms already on file just because the
+      // service happens to list them, which isn't "only what was
+      // requested." Now only service defaults that are ACTUALLY still
+      // pending (per complianceInfo, which already respects the
+      // requiresEveryAppointment override) get included automatically.
+      // Ad-hoc picks from the new picker below are still always included
+      // regardless of satisfaction status — staff explicitly chose to ask
+      // for those again, which is a deliberate override, not a default.
+      const pendingDefaultFormIds = (complianceInfo.pendingForms || []).map((f: any) => f.id);
+      const requiredFormIds = Array.from(new Set([...pendingDefaultFormIds, ...selectedExtraFormIds]));
       const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
       const fileRequirements: any[] = [];
       if (requestPhotos) {
         fileRequirements.push({ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] });
       }
-      if (customFileLabel.trim()) {
-        fileRequirements.push({ id: `custom_${nanoid()}`, type: 'file_upload', label: customFileLabel.trim(), required: true, prompt: customFileLabel.trim(), minCount: 1, maxCount: 5, acceptedTypes: ['image/*', 'application/pdf'] });
+      // v4 — Photo ID preset. persistToProfile: true so this saves onto the
+      // client's permanent record and doesn't get re-requested next visit —
+      // unlike inspiration photos, which are genuinely appointment-specific.
+      if (requestPhotoId) {
+        fileRequirements.push({ id: 'photo_id', type: 'file_upload', label: 'Photo ID', required: true, prompt: 'Please upload a photo of your ID', minCount: 1, maxCount: 2, acceptedTypes: ['image/*'], persistToProfile: true });
       }
+      if (customFileLabel.trim()) {
+        fileRequirements.push({ id: `custom_${nanoid()}`, type: 'file_upload', label: customFileLabel.trim(), required: true, prompt: customFileLabel.trim(), minCount: 1, maxCount: 5, acceptedTypes: ['image/*', 'application/pdf'], persistToProfile: persistCustomFile });
+      }
+      // v4 — treat an on-file card that's already expired the same as no
+      // card at all: skipCardStep should be false so the client is routed
+      // through Stripe to add a fresh one, rather than silently treating
+      // the appointment as "card already secured" with a card that can no
+      // longer actually be charged.
+      const cardExp = client?.cardOnFile?.expMonth && client?.cardOnFile?.expYear
+        ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
+        : null;
+      const cardIsExpired = !!cardExp && cardExp < new Date();
+      const hasUsableCard = !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token) && !cardIsExpired;
       const batch = writeBatch(firestore);
       // merge: true — an appointment may already have a bookingCompletions
       // doc from booking time (e.g. deposit still pending); this must add
@@ -1565,16 +1626,27 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         token, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name,
         clientEmail: String(client.email).toLowerCase().trim(), serviceId: service.id, serviceName: service.name,
         depositAmountCents: depositCents, requiredConsentFormIds: requiredFormIds,
-        skipCardStep: !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token),
-        cardAlreadyOnFile: !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token),
+        skipCardStep: hasUsableCard,
+        cardAlreadyOnFile: hasUsableCard,
         fileRequirements,
+        // v4 — the three new non-form, non-file request types
+        requestMarketingConsent: requestMarketingConsent || undefined,
+        requestEmergencyContact: requestEmergencyContact || undefined,
+        acknowledgments: requestAcknowledgment && acknowledgmentText.trim()
+          ? [{ id: `ack_${nanoid()}`, text: acknowledgmentText.trim() }]
+          : undefined,
         status: 'pending', createdAt: new Date().toISOString(), expiresAt,
       }, { merge: true });
       batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents });
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/completionRequests`));
       batch.set(auditRef, {
         id: auditRef.id, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name, token,
-        requested: { deposit: depositCents > 0, card: true, consentForms: requiredFormIds.length, extraFormIds: selectedExtraFormIds, photos: requestPhotos, customFile: customFileLabel.trim() || null },
+        requested: {
+          deposit: depositCents > 0, card: !hasUsableCard, consentForms: requiredFormIds.length,
+          extraFormIds: selectedExtraFormIds, photos: requestPhotos, photoId: requestPhotoId,
+          customFile: customFileLabel.trim() || null, marketingConsent: requestMarketingConsent,
+          emergencyContact: requestEmergencyContact, acknowledgment: requestAcknowledgment ? acknowledgmentText.trim() : null,
+        },
         depositAmountCents: depositCents, channel: 'link', status: 'sent',
         source: 'appointment_details', requestedBy: currentUser?.uid || null,
         requestedAt: new Date().toISOString(), expiresAt,
@@ -2124,22 +2196,57 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                     </div>
                   )}
 
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><FileImage className="w-3.5 h-3.5 text-primary shrink-0" /> Inspo photos</span>
+                    </button>
+                    <button type="button" onClick={() => setRequestPhotoId(v => !v)} className={cn('flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotoId ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-primary shrink-0" /> Photo ID</span>
+                    </button>
+                  </div>
+
                   <div className="space-y-1.5">
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Request a specific file (optional)</p>
                     <Input
                       value={customFileLabel}
                       onChange={(e) => setCustomFileLabel(e.target.value)}
-                      placeholder="e.g. Photo ID, doctor's note..."
+                      placeholder="e.g. Doctor's note, referral..."
                       className="h-10 rounded-xl border-2 text-[11px]"
                     />
+                    {customFileLabel.trim() && (
+                      <label className="flex items-center gap-2 ml-1 cursor-pointer">
+                        <input type="checkbox" checked={persistCustomFile} onChange={(e) => setPersistCustomFile(e.target.checked)} className="h-3.5 w-3.5 rounded border-2 accent-primary" />
+                        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide">Save to client profile (don't ask again)</span>
+                      </label>
+                    )}
                   </div>
 
-                  <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
-                    <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><FileImage className="w-3.5 h-3.5 text-primary" /> Request inspo photos</span>
-                    <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestPhotos ? 'bg-primary' : 'bg-slate-200')}>
-                      <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', requestPhotos ? 'left-[18px]' : 'left-0.5')} />
-                    </div>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => setRequestMarketingConsent(v => !v)} className={cn('p-3 rounded-xl border-2 text-left transition-all', requestMarketingConsent ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><Camera className="w-3.5 h-3.5 text-primary shrink-0" /> Marketing consent</span>
+                    </button>
+                    <button type="button" onClick={() => setRequestEmergencyContact(v => !v)} className={cn('p-3 rounded-xl border-2 text-left transition-all', requestEmergencyContact ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"><Phone className="w-3.5 h-3.5 text-primary shrink-0" /> Emergency contact</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <button type="button" onClick={() => setRequestAcknowledgment(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestAcknowledgment ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
+                      <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><Info className="w-3.5 h-3.5 text-primary" /> Pre-appointment acknowledgment</span>
+                      <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestAcknowledgment ? 'bg-primary' : 'bg-slate-200')}>
+                        <div className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', requestAcknowledgment ? 'left-[18px]' : 'left-0.5')} />
+                      </div>
+                    </button>
+                    {requestAcknowledgment && (
+                      <textarea
+                        value={acknowledgmentText}
+                        onChange={(e) => setAcknowledgmentText(e.target.value)}
+                        rows={2}
+                        className="w-full rounded-xl border-2 px-3 py-2 text-[11px] resize-none"
+                      />
+                    )}
+                  </div>
+
                   <Button onClick={handleSendRequirements} disabled={reqSending} className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
                     {reqSending ? <Loader className="w-4 h-4 animate-spin" /> : 'Generate & Send Link'}
                   </Button>
