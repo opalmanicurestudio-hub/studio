@@ -82,6 +82,8 @@ import {
     ShieldCheck,
     Upload,
     Image as ImageIcon,
+    Ban,
+    Phone,
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
@@ -1018,6 +1020,199 @@ const CompletionGateView = ({
     );
 };
 
+// ── v3 — NEW: CancelGateView ──────────────────────────────────────────────
+// Folds the standalone /cancel/[tenantId]/[appointmentId] page's flow into
+// the unified check-in link. Reuses the exact same /api/appointments/
+// self-cancel route (GET for fee preview, POST to actually cancel) — no
+// server-side changes needed, just a client-side entry point that doesn't
+// require a separate URL/token. tenantId and appointmentId are both already
+// resolved on this page by the time a client reaches the arrival screen
+// (appointmentData.id is the appointmentId — it's on every appointment doc,
+// including the mirrored appointmentCheckIns copy this page reads from).
+const CLIENT_REASON_OPTIONS = [
+    { value: 'schedule_conflict', label: 'Schedule Conflict' },
+    { value: 'changed_mind', label: 'Changed Mind' },
+    { value: 'found_alternative', label: 'Found Alternative' },
+    { value: 'price_concern', label: 'Price Concern' },
+    { value: 'health_or_childcare', label: 'Health / Childcare' },
+    { value: 'other', label: 'Other' },
+];
+
+const CancelGateView = ({
+    tenantId,
+    appointmentId,
+    onBack,
+}: {
+    tenantId: string;
+    appointmentId: string;
+    onBack: () => void;
+}) => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [details, setDetails] = useState<any>(null);
+    const [reason, setReason] = useState('schedule_conflict');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [result, setResult] = useState<any>(null);
+
+    useEffect(() => {
+        if (!tenantId || !appointmentId) return;
+        fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.ok) { setError(data.error || 'This appointment could not be found.'); setDetails(data); return; }
+                setDetails(data);
+            })
+            .catch(() => setError('Something went wrong loading your appointment.'))
+            .finally(() => setIsLoading(false));
+    }, [tenantId, appointmentId]);
+
+    const handleCancel = async () => {
+        setIsSubmitting(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/appointments/self-cancel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason }),
+            });
+            const data = await res.json();
+            if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
+            setResult(data);
+        } catch {
+            setError('Something went wrong. Please call the studio directly.');
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <ViewContainer>
+                <div className="p-16 flex flex-col items-center justify-center gap-4">
+                    <Loader className="h-8 w-8 animate-spin text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Loading your appointment…</p>
+                </div>
+            </ViewContainer>
+        );
+    }
+
+    if (error && !result) {
+        return (
+            <ViewContainer>
+                <ViewHeader title="Can't Cancel Online" subtitle="This link is no longer actionable" icon={AlertTriangle} />
+                <CardContent className="p-10 md:p-16 text-center space-y-8">
+                    <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
+                        <AlertTriangle className="w-12 h-12 text-destructive" />
+                    </div>
+                    <div className="space-y-2 text-center">
+                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{error}</h3>
+                    </div>
+                    {details?.studioPhone && (
+                        <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
+                            <a href={`tel:${details.studioPhone}`}><Phone className="w-4 h-4 mr-2" /> Call {details.studioPhone}</a>
+                        </Button>
+                    )}
+                    <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
+                </CardContent>
+            </ViewContainer>
+        );
+    }
+
+    if (result) {
+        return (
+            <ViewContainer>
+                <ViewHeader title={result.alreadyCancelled ? 'Already Cancelled' : 'Session Voided'} subtitle="Cancellation confirmed" icon={CheckCircle2} />
+                <CardContent className="p-10 md:p-16 text-center space-y-8">
+                    <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
+                        <CheckCircle2 className="w-12 h-12 text-green-500" />
+                    </div>
+                    <div className="space-y-2 text-center">
+                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Cancelled</h3>
+                        {!result.alreadyCancelled && (
+                            <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
+                                {result.feeCharged
+                                    ? `Since this is within the studio's ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.`
+                                    : "No cancellation fee applies — thanks for the advance notice."}
+                            </p>
+                        )}
+                    </div>
+                </CardContent>
+            </ViewContainer>
+        );
+    }
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Cancel Appointment" subtitle="Confirm your cancellation below" icon={Ban} />
+            <CardContent className="p-8 md:p-12 space-y-10 text-left">
+                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
+                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
+                    <div className="space-y-1.5 text-center">
+                        <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">{details?.studioName}</p>
+                        <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{details?.appointment?.serviceName}</h3>
+                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+                            {details?.appointment?.startTime ? format(safeDate(details.appointment.startTime), 'EEEE, MMM d @ h:mm a') : ''}
+                        </p>
+                    </div>
+                </div>
+
+                <AnimatePresence mode="wait">
+                    {details?.isLate ? (
+                        <motion.div key="late" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
+                                This is within the {details.windowHours}-hour cancellation window. A <span className="font-mono">${Number(details.estimatedFee).toFixed(2)}</span> cancellation fee will apply.
+                            </p>
+                        </motion.div>
+                    ) : (
+                        <motion.div key="ontime" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-green-200 bg-green-50">
+                            <p className="text-xs font-bold text-green-700 uppercase tracking-tight">No cancellation fee — thanks for the advance notice.</p>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {details?.cancellationPolicyText && (
+                    <p className="text-[10px] text-muted-foreground leading-relaxed italic px-2">{details.cancellationPolicyText}</p>
+                )}
+
+                <div className="space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reason (optional)</Label>
+                    <select
+                        value={reason}
+                        onChange={e => setReason(e.target.value)}
+                        className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner"
+                    >
+                        {CLIENT_REASON_OPTIONS.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                    </select>
+                </div>
+
+                {error && <p className="text-xs font-bold text-destructive text-center">{error}</p>}
+
+                <Button
+                    onClick={handleCancel}
+                    disabled={isSubmitting}
+                    variant="destructive"
+                    className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 group"
+                >
+                    {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : (
+                        <>Confirm Cancellation <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>
+                    )}
+                </Button>
+
+                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my appointment</Button>
+
+                {details?.studioPhone && (
+                    <p className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                        Prefer to talk to someone? <a href={`tel:${details.studioPhone}`} className="text-primary">{details.studioPhone}</a>
+                    </p>
+                )}
+            </CardContent>
+        </ViewContainer>
+    );
+};
+
 export default function CheckInPage() {
     const params = useParams();
     const token = params.token as string;
@@ -1025,6 +1220,7 @@ export default function CheckInPage() {
     const { firestore } = useFirebase();
 
     const [entered, setEntered] = useState(false);
+    const [showCancelFlow, setShowCancelFlow] = useState(false);
     // v2 -- once the completion gate is submitted, we don't want the
     // still-cached-in-memory `completion` doc (which may not have refreshed
     // yet) to flash the gate again before Firestore's snapshot updates.
@@ -1190,6 +1386,19 @@ export default function CheckInPage() {
         );
     }
     
+    // v3 — NEW: cancellation flow. Reachable via a "Can't make it?" link on
+    // the arrival screen further down. Uses the appointmentId + tenantId
+    // already resolved on this page — no separate URL/token needed.
+    if (showCancelFlow && tenantId && appointmentData?.id) {
+        return (
+            <CancelGateView
+                tenantId={tenantId}
+                appointmentId={appointmentData.id}
+                onBack={() => setShowCancelFlow(false)}
+            />
+        );
+    }
+
     // IMMERSIVE TRANSITION CHECK
     const isArrivedOrServicing = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
 
@@ -1304,13 +1513,20 @@ export default function CheckInPage() {
                             )}
                         </div>
                         
-                        <div className="pt-6 border-t border-dashed">
+                        <div className="pt-6 border-t border-dashed space-y-3">
                             <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
                                 <Link href={`/portal/${tenantId}/${clientId}`}>
                                     <LayoutDashboard className="w-4 h-4 mr-3 opacity-40" />
                                     Access Private Dashboard
                                 </Link>
                             </Button>
+                            <button
+                                type="button"
+                                onClick={() => setShowCancelFlow(true)}
+                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
+                            >
+                                Can't make it? Cancel appointment
+                            </button>
                         </div>
                     </CardContent>
                 </ViewContainer>
