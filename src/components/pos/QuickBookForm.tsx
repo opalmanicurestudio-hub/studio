@@ -904,6 +904,96 @@ function ClientDetailPanel({
   );
 }
 
+// v9 — real, in-browser QR code generator. Previously the confirmation
+// screen's "QR" was just the decorative `QrCode` Lucide icon next to the
+// check-in code — never an actual scannable image. This generates a real
+// one via the `qrcode` npm package (dynamic import, renders to canvas, no
+// network call — same approach already used for the technician ticket),
+// encoding the full check-in URL so scanning it lands on exactly the same
+// page as typing the short code manually.
+function QRCodeCanvas({ value, size = 88 }: { value: string; size?: number }) {
+  const [dataUrl, setDataUrl] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!value) return;
+    (async () => {
+      try {
+        const QRCode = (await import('qrcode')).default;
+        const url = await QRCode.toDataURL(value, {
+          width: size * 2, // 2× for print sharpness
+          margin: 1,
+          color: { dark: '#0f172a', light: '#ffffff' },
+        });
+        if (!cancelled) setDataUrl(url);
+      } catch {
+        // qrcode package not installed — falls back to rendering nothing,
+        // the surrounding UI still shows the text code either way.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [value, size]);
+
+  if (!dataUrl) return null;
+  return (
+    <img
+      src={dataUrl}
+      alt="Scan to check in"
+      width={size}
+      height={size}
+      className="rounded-lg border border-slate-100"
+      style={{ imageRendering: 'pixelated' }}
+    />
+  );
+}
+
+// v9 — opens the print-only ticket block in a fresh, chrome-free window and
+// auto-prints it. Fixes the "blank ticket" bug: SuccessScreen previously
+// called bare `window.print()` on the live app window, which is unreliable
+// (frequently a silent no-op or produces a blank page) whenever this form
+// is rendered inside a Sheet/Dialog, which it typically is in POS. A clean
+// new window has no portal wrapper, no overlapping app chrome, nothing for
+// the print CSS to fight with — same fix already applied to the technician
+// ticket in PrintTicket.tsx, now applied here too.
+function printElementInNewWindow(elementId: string, title: string) {
+  const el = typeof document !== 'undefined' ? document.getElementById(elementId) : null;
+  const html = el?.innerHTML || '';
+  if (!html) {
+    // Fallback — still better than nothing if the element wasn't found.
+    if (typeof window !== 'undefined') window.print();
+    return;
+  }
+  const doc = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${title}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: white; color: #0f172a; }
+    @media print { body { margin: 0; } }
+  </style>
+</head>
+<body>
+  ${html}
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () { window.print(); }, 400);
+    });
+  </script>
+</body>
+</html>`;
+  const blob = new Blob([doc], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) {
+    // Pop-up blocked — the person still has Share as the primary action.
+    window.print();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
 // ── Success screen ────────────────────────────────────────────────────────────
 function SuccessScreen({
   result,
@@ -931,11 +1021,11 @@ function SuccessScreen({
 
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
+  // v9 — FIX: previously called bare window.print(), unreliable inside a
+  // Sheet/Dialog wrapper (see printElementInNewWindow above for why).
   const handlePrint = () => {
     toast({ title: 'Opening print preview…' });
-    if (typeof window !== 'undefined') {
-      setTimeout(() => window.print(), 50);
-    }
+    printElementInNewWindow('quickbook-ticket-print-area', `${result.clientName} — ${result.serviceName}`);
   };
 
   const checkInUrl = typeof window !== 'undefined' && result.checkInToken
@@ -1132,8 +1222,9 @@ function SuccessScreen({
           <div>
             <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Check-in code</p>
             <p className="font-mono font-bold text-lg tracking-[0.2em] text-slate-900">{checkInCodeDisplay}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Scan or type at the front desk</p>
           </div>
-          <QrCode className="w-5 h-5 text-slate-300 shrink-0" />
+          {checkInUrl ? <QRCodeCanvas value={checkInUrl} size={56} /> : <QrCode className="w-5 h-5 text-slate-300 shrink-0" />}
         </div>
       )}
 
@@ -1167,7 +1258,7 @@ function SuccessScreen({
       </div>
     </div>
 
-    <div className="hidden print:block p-6">
+    <div id="quickbook-ticket-print-area" className="hidden print:block p-6">
       <div className="text-center space-y-1 mb-4">
         <p className="text-lg font-semibold">{result.clientName}</p>
         <p className="text-sm text-slate-600">{result.serviceName}</p>
@@ -1177,9 +1268,10 @@ function SuccessScreen({
         <p className="text-xs text-slate-500">{result.locationName}</p>
       </div>
       {checkInCodeDisplay && (
-        <div className="flex flex-col items-center gap-1.5 my-4">
+        <div className="flex flex-col items-center gap-2 my-4">
           <p className="text-[10px] uppercase tracking-widest text-slate-400">Check-in code</p>
           <p className="text-3xl font-mono font-bold tracking-widest text-slate-900">{checkInCodeDisplay}</p>
+          {checkInUrl && <QRCodeCanvas value={checkInUrl} size={120} />}
           {checkInUrl && <p className="text-[10px] text-slate-400 break-all mt-1">{checkInUrl}</p>}
         </div>
       )}
