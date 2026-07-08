@@ -13,7 +13,7 @@ import {
   Calendar, Camera, UserX, Globe, Receipt, Send, Bell, Copy, Check,
   Printer, StickyNote, TrendingUp, Gift, ChevronRight, Star, ExternalLink,
   PenLine, ImagePlus, Expand, X, Hash, Info, BadgePercent, ArrowUpRight,
-  BarChart2, Repeat2, UserCheck, Clock3, Activity,
+  BarChart2, Repeat2, UserCheck, Clock3, Activity, ChevronLeft, Download,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -236,6 +236,10 @@ const buildTimelineEvents = (opts: {
   // requested. Previously none of this was visible anywhere — staff had no
   // way to tell from the appointment record whether a client had even
   // looked at the link, let alone acted on it.
+  // v5 — "request sent" is its own distinct moment from "client opened it"
+  // and "client finished it" — all three matter for staff to see at a
+  // glance whether a stalled request needs a nudge.
+  if (appointment.lastRequirementsRequestedAt) push(appointment.lastRequirementsRequestedAt, Send, 'Requirements requested — link sent to client');
   if (appointment.completionLinkFirstViewedAt) push(appointment.completionLinkFirstViewedAt, ExternalLink, 'Client opened check-in link');
   if (appointment.completionConsentsAt) {
     const formNames = (appointment.signedForms || []).map((f: any) => f.formTitle).filter(Boolean);
@@ -244,8 +248,13 @@ const buildTimelineEvents = (opts: {
       formNames.length ? `Signed: ${formNames.join(', ')}` : null,
       fileLabels.length ? `Uploaded: ${fileLabels.join(', ')}` : null,
     ].filter(Boolean);
-    push(appointment.completionConsentsAt, FileSignature, 'Completed requirements online', parts.join(' · ') || undefined, 'good');
+    push(appointment.completionConsentsAt, FileSignature, 'Forms/files submitted online', parts.join(' · ') || undefined, 'good');
   }
+  // v5 — the definitive "request received" signal: everything requested
+  // (forms, files, card/deposit) is now actually done — not just the forms
+  // portion. Set once, in CompletionGateView, on whichever path finishes
+  // last (skip-card branch or the Stripe onComplete callback).
+  if (appointment.requirementsCompletedAt) push(appointment.requirementsCompletedAt, CheckCircle2, 'All requested items completed', undefined, 'good');
   if (appointment.marketingConsentAnsweredAt) push(
     appointment.marketingConsentAnsweredAt, Camera,
     `Marketing consent — ${appointment.marketingConsentAnswer ? 'agreed' : 'declined'}`,
@@ -1224,6 +1233,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [elapsedTime, setElapsedTime] = useState<string | null>(null);
   const [isRunningOver, setIsRunningOver] = useState(false);
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
+  // v5 — proper gallery lightbox: tracks the WHOLE set of images in whatever
+  // group was opened, plus the current position, so the viewer can page
+  // through every photo in that requirement (or the inspiration set)
+  // without closing and re-clicking a tiny thumbnail each time.
+  const [lightboxImages, setLightboxImages] = useState<{ url: string; name: string }[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const openLightbox = (images: { url: string; name: string }[], index: number) => {
+    setLightboxImages(images);
+    setLightboxIndex(index);
+    setExpandedImage(images[index]?.url || null);
+  };
   const [isMarkupOpen, setIsMarkupOpen] = useState(false);
   const [isEscalating, setIsEscalating] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
@@ -1637,7 +1657,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           : undefined,
         status: 'pending', createdAt: new Date().toISOString(), expiresAt,
       }, { merge: true });
-      batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents });
+      batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents, lastRequirementsRequestedAt: new Date().toISOString() });
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/completionRequests`));
       batch.set(auditRef, {
         id: auditRef.id, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name, token,
@@ -2133,23 +2153,47 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <LinkIcon className="w-3 h-3 mr-2" /> Dispatch Guest Link
               </Button>
             </div>
-            {reqFiles.map((rf: any) => (
-              <div key={rf.requirementId} className="space-y-2 pt-2">
-                <div className="flex items-center justify-between text-[10px] font-black uppercase">
-                  <span className="flex items-center gap-2 text-muted-foreground"><FileImage className="w-3 h-3 opacity-40" /> {rf.label || 'Files'}</span>
-                  <span className="text-green-600">{(rf.files || []).length} received</span>
-                </div>
-                {(rf.files || []).length > 0 && (
-                  <div className="grid grid-cols-4 gap-2">
-                    {(rf.files || []).map((f: any, i: number) =>
-                      /\.(png|jpe?g|gif|webp)$/i.test(f.name || '')
-                        ? <button key={i} onClick={() => setExpandedImage(f.url)} className="relative aspect-square rounded-lg overflow-hidden border bg-muted/5 cursor-zoom-in"><img src={f.url} alt={f.name} className="w-full h-full object-cover" /></button>
-                        : <a key={i} href={f.url} target="_blank" rel="noreferrer" className="flex items-center justify-center aspect-square rounded-lg border bg-muted/5 text-[8px] p-1 text-center text-muted-foreground break-all">{f.name}</a>
-                    )}
+            {reqFiles.map((rf: any) => {
+              const imageFiles = (rf.files || []).filter((f: any) => /\.(png|jpe?g|gif|webp)$/i.test(f.name || ''));
+              const otherFiles = (rf.files || []).filter((f: any) => !/\.(png|jpe?g|gif|webp)$/i.test(f.name || ''));
+              return (
+                <div key={rf.requirementId} className="space-y-2 pt-2">
+                  <div className="flex items-center justify-between text-[10px] font-black uppercase">
+                    <span className="flex items-center gap-2 text-muted-foreground"><FileImage className="w-3 h-3 opacity-40" /> {rf.label || 'Files'}</span>
+                    <span className="text-green-600">{(rf.files || []).length} received</span>
                   </div>
-                )}
-              </div>
-            ))}
+                  {imageFiles.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {imageFiles.map((f: any, i: number) => (
+                        <button
+                          key={i}
+                          onClick={() => openLightbox(imageFiles.map((im: any) => ({ url: im.url, name: im.name })), i)}
+                          className="group relative aspect-square rounded-xl overflow-hidden border-2 bg-muted/5 cursor-zoom-in"
+                        >
+                          <img src={f.url} alt={f.name} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+                            <Maximize2 className="w-5 h-5 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                          <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <p className="text-[8px] text-white font-bold truncate">{f.name}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {otherFiles.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {otherFiles.map((f: any, i: number) => (
+                        <a key={i} href={f.url} target="_blank" rel="noreferrer" className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl border-2 bg-muted/5 hover:border-primary/30 transition-colors p-2 text-center">
+                          <FileText className="w-5 h-5 text-muted-foreground opacity-40" />
+                          <p className="text-[8px] text-muted-foreground break-all line-clamp-2">{f.name}</p>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             {!reqLink ? (
               !isRequestOpen ? (
                 <Button variant="ghost" className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest text-primary hover:bg-primary/5 border border-primary/10 mt-1" onClick={() => setIsRequestOpen(true)}>
@@ -2275,7 +2319,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 <Edit className="w-3 h-3 mr-1.5" /> Markup Tool
               </Button>
             </div>
-            <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in" onClick={() => setExpandedImage(appointment.inspirationPhotoUrl)}>
+            <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in" onClick={() => openLightbox([{ url: appointment.inspirationPhotoUrl, name: 'Inspiration reference' }], 0)}>
               <NextImage src={appointment.inspirationPhotoUrl} alt="Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                 <Maximize2 className="w-8 h-8 text-white" />
@@ -2302,7 +2346,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
               {appointment.incident.photoUrls?.length > 0 && (
                 <div className="grid grid-cols-4 gap-2 pt-1">
                   {appointment.incident.photoUrls.map((url: string, i: number) => (
-                    <button key={i} onClick={() => setExpandedImage(url)} className="relative aspect-square rounded-lg overflow-hidden border bg-white cursor-zoom-in">
+                    <button key={i} onClick={() => openLightbox(appointment.incident.photoUrls.map((u: string) => ({ url: u, name: 'Incident documentation' })), i)} className="relative aspect-square rounded-lg overflow-hidden border bg-white cursor-zoom-in">
                       <img src={url} alt="Incident documentation" className="w-full h-full object-cover" />
                     </button>
                   ))}
@@ -2686,10 +2730,51 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         <DialogContent className="max-w-fit p-0 border-none bg-transparent shadow-none overflow-hidden flex items-center justify-center">
           <DialogHeader className="sr-only">
             <DialogTitle>Full Size Image</DialogTitle>
-            <DialogDescription>Full screen preview</DialogDescription>
+            <DialogDescription>Full screen preview{lightboxImages.length > 1 ? ', use arrow keys or the on-screen buttons to browse' : ''}</DialogDescription>
           </DialogHeader>
-          <div className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]">
-            {expandedImage && <img src={expandedImage} alt="Expanded" className="block max-w-full max-h-[90vh] object-contain" />}
+          <div
+            className="relative rounded-[2.5rem] overflow-hidden border-4 border-white/20 shadow-2xl bg-black/40 backdrop-blur-xl max-w-[95vw] max-h-[95vh]"
+            onKeyDown={(e) => {
+              if (lightboxImages.length <= 1) return;
+              if (e.key === 'ArrowRight') { const next = (lightboxIndex + 1) % lightboxImages.length; setLightboxIndex(next); setExpandedImage(lightboxImages[next].url); }
+              if (e.key === 'ArrowLeft') { const prev = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length; setLightboxIndex(prev); setExpandedImage(lightboxImages[prev].url); }
+            }}
+            tabIndex={0}
+          >
+            {expandedImage && <img src={expandedImage} alt={lightboxImages[lightboxIndex]?.name || 'Expanded'} className="block max-w-full max-h-[90vh] object-contain" />}
+
+            {lightboxImages.length > 1 && (
+              <>
+                <button
+                  onClick={() => { const prev = (lightboxIndex - 1 + lightboxImages.length) % lightboxImages.length; setLightboxIndex(prev); setExpandedImage(lightboxImages[prev].url); }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => { const next = (lightboxIndex + 1) % lightboxImages.length; setLightboxIndex(next); setExpandedImage(lightboxImages[next].url); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/50 rounded-full px-3 py-1">
+                  <p className="text-[10px] font-bold text-white">{lightboxIndex + 1} / {lightboxImages.length}</p>
+                </div>
+              </>
+            )}
+
+            {expandedImage && (
+              <a
+                href={expandedImage}
+                download={lightboxImages[lightboxIndex]?.name || undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="absolute bottom-3 right-3 w-9 h-9 rounded-full bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-colors"
+                title="Download"
+              >
+                <Download className="w-4 h-4" />
+              </a>
+            )}
           </div>
         </DialogContent>
       </Dialog>
