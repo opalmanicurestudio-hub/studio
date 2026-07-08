@@ -1204,6 +1204,11 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const [resolutionNote, setResolutionNote] = useState('');
   const [isRequestOpen, setIsRequestOpen] = useState(false);
   const [requestPhotos, setRequestPhotos] = useState(false);
+  // v2 — ad-hoc extras beyond the service's own default requirements. Staff
+  // pick specific additional forms/files for THIS appointment; the service
+  // defaults (service.requiredFormIds) are still always included regardless.
+  const [selectedExtraFormIds, setSelectedExtraFormIds] = useState<string[]>([]);
+  const [customFileLabel, setCustomFileLabel] = useState('');
   const [reqLink, setReqLink] = useState<string | null>(null);
   const [reqSending, setReqSending] = useState(false);
   const [reqCopied, setReqCopied] = useState(false);
@@ -1317,10 +1322,30 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     const requiredIds = service.requiredFormIds || [];
     const requiredForms = (consentForms || []).filter(f => requiredIds.includes(f.id));
     const aptSignedIds = (appointment?.signedForms || []).map((f: any) => f.formId);
-    const pendingForms = requiredForms.filter(rf => !signedConsents?.some(sc => sc.formId === rf.id) && !aptSignedIds.includes(rf.id));
+    // v2 — per-form override: `requiresEveryAppointment` (optional, defaults
+    // to false/undefined) means a client-level signature from a past visit
+    // does NOT satisfy this form for the current appointment — it must be
+    // signed again for THIS specific visit. Everything else keeps the
+    // existing "sign once, valid forever" behavior unchanged: any prior
+    // signedConsents entry satisfies the requirement with no expiry.
+    const isFormSatisfied = (formId: string, requiresEveryAppointment?: boolean) => {
+      if (aptSignedIds.includes(formId)) return true; // always satisfied if signed for this visit
+      if (requiresEveryAppointment) return false; // history doesn't count — must re-sign
+      return !!signedConsents?.some(sc => sc.formId === formId);
+    };
+    const pendingForms = requiredForms.filter(rf => !isFormSatisfied(rf.id, (rf as any).requiresEveryAppointment));
     const healthPendingForms = pendingForms.filter(f => f.category === 'Intake');
     const otherPendingForms = pendingForms.filter(f => f.category !== 'Intake');
-    return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0 };
+    // v2 — every form in the tenant's library, tagged with whether it's
+    // already satisfied for THIS appointment. Feeds the new "request
+    // additional forms" picker so staff can request something beyond the
+    // service's own defaults, and see at a glance which forms don't need
+    // asking for again.
+    const allFormsWithStatus = (consentForms || []).map(f => ({
+      ...f,
+      isSatisfied: isFormSatisfied(f.id, (f as any).requiresEveryAppointment),
+    }));
+    return { requiredForms, pendingForms, healthPendingForms, otherPendingForms, allCertified: pendingForms.length === 0, allFormsWithStatus };
   }, [service, consentForms, signedConsents, appointment?.signedForms]);
 
   const { availableCredits, totalAvailable: totalStoreCreditAvailable } = useStoreCredit(client);
@@ -1507,34 +1532,55 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   const handleSendRequirements = async () => {
     if (!firestore || !tenantId || !appointment?.id || !service) return;
     if (!client?.email) { toast({ variant: 'destructive', title: 'Email needed', description: 'Add an email to this client first.' }); return; }
+    if (!appointment.checkInToken) { toast({ variant: 'destructive', title: 'Missing check-in token', description: 'This appointment has no check-in link to attach requirements to.' }); return; }
     setReqSending(true);
     try {
-      const token = nanoid();
+      // v2 — FIX: reuse the appointment's existing checkInToken instead of
+      // minting a new, independent nanoid. Previously this created a SECOND
+      // token/link for the same appointment, pointing at the old separate
+      // /complete/{tenantId}/{token} page — the exact bug already fixed in
+      // QuickBookForm. Now it's the same token, same /check-in/ link, for
+      // the whole lifecycle of the appointment.
+      const token = appointment.checkInToken;
       const price = service.serviceTiers?.find((t: any) => t.tierId === (staff || []).find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service.price ?? 0;
       const depositCents = (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
-      const requiredFormIds = service.requiredFormIds || [];
+      // v2 — service defaults + whatever staff picked ad-hoc for this visit,
+      // deduplicated. Ad-hoc picks are NOT limited to what the service
+      // mandates — this is what lets staff request a one-off consultation
+      // form or a form the service itself never lists.
+      const requiredFormIds = Array.from(new Set([...(service.requiredFormIds || []), ...selectedExtraFormIds]));
       const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+      const fileRequirements: any[] = [];
+      if (requestPhotos) {
+        fileRequirements.push({ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] });
+      }
+      if (customFileLabel.trim()) {
+        fileRequirements.push({ id: `custom_${nanoid()}`, type: 'file_upload', label: customFileLabel.trim(), required: true, prompt: customFileLabel.trim(), minCount: 1, maxCount: 5, acceptedTypes: ['image/*', 'application/pdf'] });
+      }
       const batch = writeBatch(firestore);
+      // merge: true — an appointment may already have a bookingCompletions
+      // doc from booking time (e.g. deposit still pending); this must add
+      // to it, not silently overwrite whatever's already in progress there.
       batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), {
         token, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name,
         clientEmail: String(client.email).toLowerCase().trim(), serviceId: service.id, serviceName: service.name,
         depositAmountCents: depositCents, requiredConsentFormIds: requiredFormIds,
         skipCardStep: !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token),
         cardAlreadyOnFile: !!(client?.cardOnFile?.paymentMethodId || client?.cardOnFile?.token),
-        fileRequirements: requestPhotos ? [{ id: 'inspo', type: 'file_upload', label: 'Inspiration photos', required: true, prompt: 'Share your inspiration photos', minCount: 1, maxCount: 5, acceptedTypes: ['image/*'] }] : [],
+        fileRequirements,
         status: 'pending', createdAt: new Date().toISOString(), expiresAt,
-      });
+      }, { merge: true });
       batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents });
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/completionRequests`));
       batch.set(auditRef, {
         id: auditRef.id, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name, token,
-        requested: { deposit: depositCents > 0, card: true, consentForms: requiredFormIds.length, photos: requestPhotos },
+        requested: { deposit: depositCents > 0, card: true, consentForms: requiredFormIds.length, extraFormIds: selectedExtraFormIds, photos: requestPhotos, customFile: customFileLabel.trim() || null },
         depositAmountCents: depositCents, channel: 'link', status: 'sent',
         source: 'appointment_details', requestedBy: currentUser?.uid || null,
         requestedAt: new Date().toISOString(), expiresAt,
       });
       await batch.commit();
-      const link = `${window.location.origin}/complete/${tenantId}/${token}`;
+      const link = `${window.location.origin}/check-in/${token}`;
       setReqLink(link);
       try {
         await fetch('/api/notifications/send-completion-link', {
@@ -2039,6 +2085,55 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                 </Button>
               ) : (
                 <div className="space-y-3 pt-2">
+                  {/* v2 — ad-hoc extra forms. Lists every form in the
+                      tenant's library, not just this service's defaults, so
+                      staff can request a one-off consultation form. Forms
+                      already satisfied (per complianceInfo.allFormsWithStatus
+                      — signed once and not flagged requiresEveryAppointment)
+                      show "On file" and are collapsed out of the way by
+                      default rather than inviting staff to needlessly
+                      re-request something that's already fine. */}
+                  {(complianceInfo.allFormsWithStatus || []).length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Additional forms for this visit</p>
+                      <div className="rounded-xl border-2 divide-y overflow-hidden max-h-40 overflow-y-auto">
+                        {(complianceInfo.allFormsWithStatus || [])
+                          .filter((f: any) => !(service?.requiredFormIds || []).includes(f.id)) // service defaults are already always included — no need to double-list them here
+                          .map((f: any) => {
+                            const isChecked = selectedExtraFormIds.includes(f.id);
+                            return (
+                              <button
+                                key={f.id}
+                                type="button"
+                                onClick={() => setSelectedExtraFormIds(prev => isChecked ? prev.filter(id => id !== f.id) : [...prev, f.id])}
+                                className={cn('w-full flex items-center justify-between px-3 py-2 text-left transition-colors', isChecked ? 'bg-primary/5' : 'bg-white hover:bg-muted/10')}
+                              >
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <div className={cn('w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center', isChecked ? 'bg-primary border-primary' : 'border-slate-300')}>
+                                    {isChecked && <Check className="w-2.5 h-2.5 text-white" />}
+                                  </div>
+                                  <span className="text-[10px] font-bold truncate">{f.title || f.name}</span>
+                                </span>
+                                {f.isSatisfied && !isChecked && (
+                                  <span className="text-[8px] font-black uppercase text-green-600 shrink-0 ml-2">On file</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Request a specific file (optional)</p>
+                    <Input
+                      value={customFileLabel}
+                      onChange={(e) => setCustomFileLabel(e.target.value)}
+                      placeholder="e.g. Photo ID, doctor's note..."
+                      className="h-10 rounded-xl border-2 text-[11px]"
+                    />
+                  </div>
+
                   <button type="button" onClick={() => setRequestPhotos(v => !v)} className={cn('w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all', requestPhotos ? 'border-primary bg-primary/5' : 'border-border bg-white')}>
                     <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2"><FileImage className="w-3.5 h-3.5 text-primary" /> Request inspo photos</span>
                     <div className={cn('w-9 h-5 rounded-full relative transition-colors shrink-0', requestPhotos ? 'bg-primary' : 'bg-slate-200')}>
