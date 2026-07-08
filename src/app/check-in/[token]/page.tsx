@@ -84,6 +84,7 @@ import {
     Image as ImageIcon,
     Ban,
     Phone,
+    Camera,
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
@@ -723,6 +724,14 @@ const CompletionGateView = ({
     const [error, setError] = useState<string | null>(null);
     const [clientSecret, setClientSecret] = useState<string | null>(null);
     const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+    // v4 — guardian info per form that requires it (formId -> fields).
+    // Kept separate from `answers` since it's not part of the form's own
+    // field schema — it's a structural requirement (a second signer) that
+    // applies on top of whatever the form itself asks.
+    const [guardianInfo, setGuardianInfo] = useState<Record<string, { name: string; relationship: string; accepted: boolean }>>({});
+    const [marketingConsent, setMarketingConsent] = useState<boolean | null>(null);
+    const [emergencyContact, setEmergencyContact] = useState({ name: '', phone: '', relationship: '' });
+    const [acknowledged, setAcknowledged] = useState<Record<string, boolean>>({});
 
     const stripePromise = useMemo(() => {
         const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
@@ -741,6 +750,22 @@ const CompletionGateView = ({
             return v !== undefined && v !== null && v !== '';
         })
     );
+
+    // v4 — guardian consent: forms flagged `requiresGuardianSignature` need
+    // a second signer's name + relationship + their own affirmation,
+    // collected alongside (not instead of) the minor's own form answers.
+    const guardianRequiredForms = forms.filter((f: any) => f.requiresGuardianSignature);
+    const allGuardianComplete = guardianRequiredForms.every((f: any) => {
+        const g = guardianInfo[f.id];
+        return !!g?.name?.trim() && !!g?.relationship?.trim() && g?.accepted;
+    });
+
+    const acknowledgments: any[] = completion?.acknowledgments || [];
+    const allAcknowledged = acknowledgments.every((a: any) => acknowledged[a.id]);
+
+    const marketingConsentComplete = !completion?.requestMarketingConsent || marketingConsent !== null;
+    const emergencyContactComplete = !completion?.requestEmergencyContact ||
+        (!!emergencyContact.name.trim() && !!emergencyContact.phone.trim());
 
     const fileReqs: any[] = completion?.fileRequirements || [];
     const fileCfg = (fr: any) => fr.file || fr;
@@ -781,7 +806,11 @@ const CompletionGateView = ({
         setError(null);
         if (!skipCardStep && !accepted) { setError('Please accept the policy and authorization to continue.'); return; }
         if (!allConsentsComplete) { setError('Please complete and sign all forms before continuing.'); return; }
+        if (!allGuardianComplete) { setError('A parent or guardian needs to provide their name, relationship, and confirmation before continuing.'); return; }
         if (!allFilesComplete) { setError('Please add the requested photos/files before continuing.'); return; }
+        if (!allAcknowledged) { setError('Please confirm you\'ve read everything before continuing.'); return; }
+        if (!marketingConsentComplete) { setError('Please let us know your marketing preference before continuing.'); return; }
+        if (!emergencyContactComplete) { setError('Please add an emergency contact before continuing.'); return; }
         if (uploading) { setError('Please wait for uploads to finish.'); return; }
         if (!firestore) { setError('Connection problem — please try again.'); return; }
 
@@ -819,6 +848,123 @@ const CompletionGateView = ({
                     );
                 }
             } catch { /* public write may be restricted -- audit record is source of truth */ }
+
+            // v3 — FIX: previously a signed form only ever got written onto
+            // THIS appointment (signedForms above) and into the audit log —
+            // never onto the client's permanent record. Since
+            // AppointmentDetailsSheet's "already on file" check reads
+            // exclusively from clients/{clientId}/signedConsents, a form
+            // signed here could never satisfy the "sign once, valid
+            // forever" rule at any FUTURE appointment — the client would be
+            // asked to sign the exact same form again next time, every
+            // time. This closes that gap. Keyed by formId so a later
+            // re-sign (e.g. a requiresEveryAppointment form) simply
+            // overwrites the prior record with the newer signature.
+            if (completion?.clientId && forms.length > 0) {
+                try {
+                    await Promise.all(forms.map((f: any) => {
+                        const guardian = f.requiresGuardianSignature ? guardianInfo[f.id] : null;
+                        return setDoc(
+                            doc(firestore, `tenants/${tenantId}/clients/${completion.clientId}/signedConsents`, f.id),
+                            {
+                                formId: f.id,
+                                formTitle: f.title,
+                                signedAt: nowISO,
+                                formData: answers[f.id] || {},
+                                source: 'client_self_service',
+                                appointmentId: completion?.appointmentId || null,
+                                // v4 — guardian consent, only present on forms flagged
+                                // requiresGuardianSignature. A separate signer's name/
+                                // relationship recorded alongside the minor's own answers,
+                                // not instead of them.
+                                ...(guardian ? {
+                                    guardianName: guardian.name.trim(),
+                                    guardianRelationship: guardian.relationship.trim(),
+                                    guardianSignedAt: nowISO,
+                                } : {}),
+                            },
+                            { merge: true },
+                        );
+                    }));
+                } catch { /* best-effort -- the appointment-level record and audit log above are the fallback of record */ }
+            }
+
+            // v4 — persistToProfile files (e.g. Photo ID): in addition to the
+            // per-appointment requirementFiles record above, save a durable
+            // copy onto the client's own profile so it isn't re-requested at
+            // a future visit. Files WITHOUT this flag (e.g. one-off
+            // inspiration photos) intentionally stay scoped to this
+            // appointment only — see fileCfg().persistToProfile on the
+            // requirement definition, set by staff when requesting it.
+            const persistentFileReqs = fileReqs.filter((fr: any) => fileCfg(fr).persistToProfile);
+            if (completion?.clientId && persistentFileReqs.length > 0) {
+                try {
+                    await setDoc(
+                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
+                        {
+                            profileDocuments: persistentFileReqs.map((fr: any) => ({
+                                requirementId: fr.id,
+                                label: fileCfg(fr).prompt || fr.label || 'Document',
+                                files: uploads[fr.id] || [],
+                                uploadedAt: nowISO,
+                            })),
+                        },
+                        { merge: true },
+                    );
+                } catch { /* best-effort -- appointment-level requirementFiles is the fallback of record */ }
+            }
+
+            // v4 — marketing/photo consent and emergency contact are
+            // permanent CLIENT attributes, not per-appointment data — they
+            // get written straight to the client doc, plus a timestamp on
+            // the appointment purely so the activity timeline can show when
+            // each was captured.
+            if (completion?.clientId && completion?.requestMarketingConsent && marketingConsent !== null) {
+                try {
+                    await setDoc(
+                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
+                        { marketingConsent: { consented: marketingConsent, consentedAt: nowISO, source: 'client_self_service' } },
+                        { merge: true },
+                    );
+                    if (completion?.appointmentId) {
+                        await setDoc(
+                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
+                            { marketingConsentAnsweredAt: nowISO, marketingConsentAnswer: marketingConsent },
+                            { merge: true },
+                        );
+                    }
+                } catch { /* best-effort */ }
+            }
+            if (completion?.clientId && completion?.requestEmergencyContact && emergencyContactComplete) {
+                try {
+                    await setDoc(
+                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
+                        { emergencyContact: { name: emergencyContact.name.trim(), phone: emergencyContact.phone.trim(), relationship: emergencyContact.relationship.trim() || null } },
+                        { merge: true },
+                    );
+                    if (completion?.appointmentId) {
+                        await setDoc(
+                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
+                            { emergencyContactCapturedAt: nowISO },
+                            { merge: true },
+                        );
+                    }
+                } catch { /* best-effort */ }
+            }
+
+            // v4 — acknowledgments (e.g. "please arrive with clean, dry
+            // hair") don't collect data — they're just a confirmed-read
+            // checkbox. Recorded onto the appointment for the timeline;
+            // nothing client-profile-level to persist here.
+            if (completion?.appointmentId && acknowledgments.length > 0) {
+                try {
+                    await setDoc(
+                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
+                        { acknowledgedAt: nowISO, acknowledgedItems: acknowledgments.map((a: any) => a.text) },
+                        { merge: true },
+                    );
+                } catch { /* best-effort */ }
+            }
 
             if (skipCardStep) {
                 try {
@@ -870,7 +1016,20 @@ const CompletionGateView = ({
                     </p>
                     <div className="bg-white rounded-2xl border-2 shadow-sm p-2 sm:p-4 min-h-[300px]">
                         {stripePromise
-                            ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => onDone(completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false) }}>
+                            ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => {
+                                // v4 — record the moment for timeline visibility. Best-
+                                // effort and fire-and-forget: onDone() below already
+                                // navigates the client onward regardless of whether this
+                                // write lands.
+                                if (completion?.appointmentId) {
+                                    setDoc(
+                                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
+                                        { cardUpdatedViaLinkAt: new Date().toISOString() },
+                                        { merge: true },
+                                    ).catch(() => {});
+                                }
+                                onDone(completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false);
+                            } }}>
                                 <EmbeddedCheckout />
                             </EmbeddedCheckoutProvider>
                             : <div className="p-8 text-center text-sm text-slate-500">Payment can't load right now — please contact {studioName}.</div>}
@@ -916,6 +1075,9 @@ const CompletionGateView = ({
                         <div className="flex items-center gap-2 pb-3 border-b">
                             <FileSignature className="w-4 h-4 text-primary" />
                             <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{form.title}</h2>
+                            {form.requiresGuardianSignature && (
+                                <span className="text-[9px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full ml-auto">Guardian signature required</span>
+                            )}
                         </div>
                         <div className="space-y-6">
                             {(form.fields || []).map((field: any) => (
@@ -927,6 +1089,34 @@ const CompletionGateView = ({
                                 />
                             ))}
                         </div>
+                        {form.requiresGuardianSignature && (
+                            <div className="pt-4 border-t border-dashed space-y-3 bg-amber-50/40 -mx-6 -mb-6 px-6 pb-6 rounded-b-2xl">
+                                <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Parent / Guardian Information</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input
+                                        value={guardianInfo[form.id]?.name || ''}
+                                        onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: e.target.value, relationship: prev[form.id]?.relationship || '', accepted: prev[form.id]?.accepted || false } }))}
+                                        placeholder="Guardian full name"
+                                        className="h-10 rounded-xl border-2 px-3 text-xs"
+                                    />
+                                    <input
+                                        value={guardianInfo[form.id]?.relationship || ''}
+                                        onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: e.target.value, accepted: prev[form.id]?.accepted || false } }))}
+                                        placeholder="Relationship to client"
+                                        className="h-10 rounded-xl border-2 px-3 text-xs"
+                                    />
+                                </div>
+                                <label className="flex items-start gap-2.5 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={!!guardianInfo[form.id]?.accepted}
+                                        onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: prev[form.id]?.relationship || '', accepted: e.target.checked } }))}
+                                        className="mt-0.5 h-4 w-4 rounded border-2 shrink-0 accent-amber-600"
+                                    />
+                                    <span className="text-xs font-medium text-slate-700">I am this client's parent or legal guardian and I consent to this form on their behalf.</span>
+                                </label>
+                            </div>
+                        )}
                     </div>
                 ))}
 
@@ -972,6 +1162,93 @@ const CompletionGateView = ({
                     );
                 })}
 
+                {/* v4 — acknowledgments: lightweight "confirm you've read this"
+                    items with no data collection, e.g. prep instructions.
+                    Text is fully staff-configured — see the request panel
+                    in AppointmentDetailsSheet. */}
+                {acknowledgments.map((ack: any) => (
+                    <div key={ack.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-3">
+                        <div className="flex items-center gap-2 pb-2 border-b">
+                            <Info className="w-4 h-4 text-primary" />
+                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Please Confirm</h2>
+                        </div>
+                        <p className="text-sm text-slate-600 leading-relaxed">{ack.text}</p>
+                        <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+                            <input
+                                type="checkbox"
+                                checked={!!acknowledged[ack.id]}
+                                onChange={e => setAcknowledged(prev => ({ ...prev, [ack.id]: e.target.checked }))}
+                                className="mt-0.5 h-5 w-5 rounded border-2 shrink-0 accent-primary"
+                            />
+                            <span className="text-xs font-medium text-slate-700">I have read and understand this.</span>
+                        </label>
+                    </div>
+                ))}
+
+                {/* v4 — marketing/photo consent: a permanent client
+                    preference, not a per-visit form. Two explicit buttons
+                    rather than a checkbox so "no" is a real, equally
+                    easy-to-select answer, not just an unchecked default. */}
+                {completion?.requestMarketingConsent && (
+                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                        <div className="flex items-center gap-2 pb-2 border-b">
+                            <Camera className="w-4 h-4 text-primary" />
+                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Photo & Marketing Consent</h2>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                            Can {studioName} share before/after photos or mention your visit on social media or in marketing materials? You can change your answer anytime by asking the studio.
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setMarketingConsent(true)}
+                                className={cn('h-12 rounded-xl border-2 text-xs font-black uppercase tracking-wide transition-colors', marketingConsent === true ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
+                            >
+                                Yes, that's fine
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setMarketingConsent(false)}
+                                className={cn('h-12 rounded-xl border-2 text-xs font-black uppercase tracking-wide transition-colors', marketingConsent === false ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
+                            >
+                                No, please don't
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* v4 — emergency contact: a permanent client profile field,
+                    not appointment-specific — captured once, then it's just
+                    on file like phone/email. */}
+                {completion?.requestEmergencyContact && (
+                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
+                        <div className="flex items-center gap-2 pb-2 border-b">
+                            <Phone className="w-4 h-4 text-primary" />
+                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Emergency Contact</h2>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input
+                                value={emergencyContact.name}
+                                onChange={e => setEmergencyContact(prev => ({ ...prev, name: e.target.value }))}
+                                placeholder="Full name"
+                                className="h-11 rounded-xl border-2 px-3 text-sm"
+                            />
+                            <input
+                                value={emergencyContact.phone}
+                                onChange={e => setEmergencyContact(prev => ({ ...prev, phone: e.target.value }))}
+                                placeholder="Phone number"
+                                className="h-11 rounded-xl border-2 px-3 text-sm"
+                            />
+                        </div>
+                        <input
+                            value={emergencyContact.relationship}
+                            onChange={e => setEmergencyContact(prev => ({ ...prev, relationship: e.target.value }))}
+                            placeholder="Relationship (optional)"
+                            className="w-full h-11 rounded-xl border-2 px-3 text-sm"
+                        />
+                    </div>
+                )}
+
                 {!skipCardStep && (
                     <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
                         <div className="flex items-center gap-2">
@@ -1000,7 +1277,7 @@ const CompletionGateView = ({
 
                 <Button
                     onClick={handleSubmit}
-                    disabled={submitting || uploading}
+                    disabled={submitting || uploading || !allGuardianComplete || !allAcknowledged || !marketingConsentComplete || !emergencyContactComplete}
                     className="w-full h-16 rounded-[2rem] text-sm md:text-lg font-black uppercase tracking-widest shadow-3xl shadow-primary/30"
                 >
                     {submitting
@@ -1288,6 +1565,21 @@ export default function CheckInPage() {
         const hasFileReqs = (completion.fileRequirements || []).length > 0;
         return !(skipCardStep && !hasForms && !hasFileReqs);
     }, [completion, requiredForms]);
+
+    // v4 — one-time "client opened the link" tracking, purely for the
+    // activity timeline. Guarded on the appointment doc's own field so it
+    // only ever writes once, no matter how many times the client re-opens
+    // the same link. Fires unconditionally on mount (before any early
+    // return) — same Rules-of-Hooks discipline as every other hook here.
+    useEffect(() => {
+        if (!firestore || !tenantId || !appointmentData?.id) return;
+        if (appointmentData.completionLinkFirstViewedAt) return; // already recorded
+        setDoc(
+            doc(firestore, `tenants/${tenantId}/appointments/${appointmentData.id}`),
+            { completionLinkFirstViewedAt: new Date().toISOString() },
+            { merge: true },
+        ).catch(() => {}); // best-effort — never block the client's experience on this
+    }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
 
     const updateStatus = async (status: string, lateMinutes?: number) => {
         if (!firestore || !token || !appointmentData) return;
