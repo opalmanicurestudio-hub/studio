@@ -1642,7 +1642,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       // merge: true — an appointment may already have a bookingCompletions
       // doc from booking time (e.g. deposit still pending); this must add
       // to it, not silently overwrite whatever's already in progress there.
-      batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), {
+      // v5 — FIX: this write was the one place in the whole file that
+      // wasn't wrapped in sanitizeForFirestore. requestMarketingConsent,
+      // requestEmergencyContact, and acknowledgments all fall back to a
+      // literal `undefined` when their toggle is off — and Firestore's
+      // set()/update() reject undefined outright (unlike null, which is
+      // fine), throwing "Function WriteBatch.set() called with invalid
+      // data. Unsupported field value: undefined" the moment any one of
+      // those three toggles was left off. sanitizeForFirestore strips
+      // undefined keys before the write reaches Firestore, exactly like
+      // every other batch.set/update in this file already does.
+      batch.set(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), sanitizeForFirestore({
         token, tenantId, appointmentId: appointment.id, clientId: client.id, clientName: client.name,
         clientEmail: String(client.email).toLowerCase().trim(), serviceId: service.id, serviceName: service.name,
         depositAmountCents: depositCents, requiredConsentFormIds: requiredFormIds,
@@ -1656,7 +1666,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           ? [{ id: `ack_${nanoid()}`, text: acknowledgmentText.trim() }]
           : undefined,
         status: 'pending', createdAt: new Date().toISOString(), expiresAt,
-      }, { merge: true });
+      }), { merge: true });
       batch.update(doc(firestore, `tenants/${tenantId}/appointments`, appointment.id), { completionStatus: 'pending', depositAmountCents: depositCents, lastRequirementsRequestedAt: new Date().toISOString() });
       const auditRef = doc(collection(firestore, `tenants/${tenantId}/completionRequests`));
       batch.set(auditRef, {
