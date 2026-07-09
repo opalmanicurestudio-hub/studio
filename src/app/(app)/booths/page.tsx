@@ -5,31 +5,54 @@
  * leases (previously three separate concerns split across Booths and
  * Renters pages).
  *
- * MERGE NOTES:
- *   1. Data access now goes through useBoothRentalCollections() +
- *      useBoothIndex() / useOccupyingLeaseByRenter() — the location-scoped
- *      hooks the Renters page was already using — instead of the old
- *      per-tenant-only useMemoFirebase/useCollection queries this page
- *      used before. This means booths are now expected to carry a
- *      locationId field, same as renters/leases already do. Existing
- *      booth docs without one will need a backfill migration, or they
- *      won't appear once a location filter is applied — I don't have
- *      visibility into that hook's exact query, so if booths still show
- *      up unfiltered today, treat this as the thing to verify first.
- *   2. Renter/lease writes route through the same service-layer
- *      functions (createRenter, createLease, endLease) already
- *      established on the Renters page, for the same reasons documented
- *      there (atomic multi-doc writes, canonical occupancy status,
- *      correct currentLeaseId resolution on shared-booth handoff).
- *   3. Booth create/update/delete stay direct Firestore calls, matching
- *      how this page always handled booths and how the Renters page
- *      treats single-document, no-side-effect writes.
- *   4. The floor plan's occupancy lookup (activeLeaseByBooth) still uses
- *      its own local ['active','on_leave'] filter rather than the
- *      canonical OCCUPYING_LEASE_STATUSES definition, because that
- *      hook is keyed by renterId, not boothId. Worth asking for a
- *      booth-keyed equivalent if you want the two to be guaranteed
- *      consistent rather than just currently-equivalent.
+ * MERGE NOTES (updated after checking against the real
+ * booth-rental-hooks.ts and booth-rental-service.ts):
+ *
+ *   1. CONFIRMED: useBoothRentalCollections() does apply
+ *      `where('locationId', '==', locationId)` to every query when a
+ *      locationId is passed. Booths genuinely need a locationId field
+ *      backfilled onto every existing doc, or they will NOT appear once
+ *      this page is live — this isn't a maybe anymore, it's how the
+ *      hook is actually written.
+ *   2. Renter/lease writes route through createRenter/createLease/
+ *      endLease. createLease and endLease's real signatures match what
+ *      this page calls exactly. createRenter's signature also matches —
+ *      BUT see blocker (a) below.
+ *   3. Booth creation now goes through the real createBooth() service
+ *      function (confirmed to exist) instead of a raw addDoc, matching
+ *      how renters/leases are created. Booth edit/delete remain direct
+ *      updateDoc/deleteDoc calls, per booth-rental-service.ts's own
+ *      convention ("only creation-with-required-new-fields or
+ *      multi-effect operations get a service function").
+ *   4. RESOLVED: useOccupyingLeaseByBooth() does exist in the real hooks
+ *      file and is boothId-keyed using the canonical
+ *      OCCUPYING_LEASE_STATUSES list — the floor plan's occupancy lookup
+ *      now uses this instead of a local approximation, so it can no
+ *      longer disagree with the renters view about what "occupied"
+ *      means.
+ *   5. CONFIRMED BUG (pre-existing, not introduced by this merge):
+ *      booth-rental-service.ts states outright that the real Booth type
+ *      has no `description` field — it has `type` (an enum) and an
+ *      optional `notes` string. The booth form's "Description" field has
+ *      been renamed to write `notes`, which is confirmed to exist. The
+ *      `type` field is NOT yet handled here — I don't have
+ *      booth-rental-types.ts, so I don't know Booth['type']'s actual enum
+ *      values and won't guess at them. createBooth() requires `type` as
+ *      input; until this is wired up, booth creation through this page
+ *      will not compile. This is the single biggest remaining blocker.
+ *
+ * KNOWN BLOCKERS — outside this page's control, stated directly in the
+ * source files' own comments:
+ *   (a) createRenter() is written against a Renter shape from a
+ *       still-unmerged booth-rental-types.additions.ts (authUid,
+ *       portalInviteStatus, locationId). It will not compile against
+ *       today's real Renter type until that merge lands.
+ *   (b) The location layer this whole page assumes (useLocations(),
+ *       createLocation(), BOOTH_RENTAL_COLLECTIONS.locations()) depends
+ *       on a locations collection helper that "does not exist yet in the
+ *       real booth-rental-types.ts" per booth-rental-hooks.ts's own
+ *       comment. If that hasn't landed, useLocation() (the context this
+ *       page calls) may not be fully functional yet either.
  *
  * BUILD FIX (carried over from the Renters page): this page reads live,
  * per-user Firestore data scoped to whoever is signed in, so it must
@@ -40,10 +63,8 @@ export const dynamic = 'force-dynamic';
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   doc,
-  addDoc,
   updateDoc,
   deleteDoc,
-  collection,
 } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFirebase } from '@/firebase';
@@ -151,9 +172,11 @@ import {
 import {
   useBoothRentalCollections,
   useBoothIndex,
+  useRenterIndex,
   useOccupyingLeaseByRenter,
+  useOccupyingLeaseByBooth,
 } from '@/lib/booth-rental-hooks';
-import { createRenter, createLease, endLease } from '@/lib/booth-rental-service';
+import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -228,7 +251,13 @@ function toNumber(value: string): number {
 
 interface BoothFormState {
   name: string;
-  description: string;
+  // TEMPORARY: Booth['type'] is a real, required enum field per
+  // booth-rental-service.ts, but its actual values are unknown without
+  // booth-rental-types.ts. Free-text input for now — replace with a
+  // proper <Select> once the real options are confirmed, and remove the
+  // `as Booth['type']` cast at the call site.
+  typeValue: string;
+  notes: string;
   baseRentDollars: string;
   baseRentFrequency: RentFrequency;
   status: BoothStatus;
@@ -237,7 +266,8 @@ interface BoothFormState {
 
 const EMPTY_FORM: BoothFormState = {
   name: '',
-  description: '',
+  typeValue: '',
+  notes: '',
   baseRentDollars: '',
   baseRentFrequency: 'weekly',
   status: 'vacant',
@@ -1281,25 +1311,13 @@ export default function BoothsPage() {
     Record<string, { x: number; y: number; w: number; h: number }>
   >({});
 
-  const renterById = useMemo(() => {
-    const m = new Map<string, Renter>();
-    (renters.data ?? []).forEach((r) => m.set(r.id, r));
-    return m;
-  }, [renters.data]);
+  const renterById = useRenterIndex(renters.data);
 
-  // NOTE: kept as a local, booth-keyed occupancy definition (see the
-  // MERGE NOTES comment at the top of this file) rather than the
-  // renter-keyed canonical hook, since the floor plan needs to look this
-  // up by boothId.
-  const activeLeaseByBooth = useMemo(() => {
-    const m = new Map<string, Lease>();
-    (leases.data ?? []).forEach((l) => {
-      if (l.status === 'active' || l.status === 'on_leave') {
-        if (!m.has(l.boothId)) m.set(l.boothId, l);
-      }
-    });
-    return m;
-  }, [leases.data]);
+  // Canonical, boothId-keyed occupancy — confirmed via booth-rental-hooks.ts
+  // to use OCCUPYING_LEASE_STATUSES (active, on_leave, pending_signature),
+  // the same definition occupyingLeaseByRenter already uses. Replaces the
+  // page's previous local ['active','on_leave'] approximation.
+  const activeLeaseByBooth = useOccupyingLeaseByBooth(leases.data);
 
   const sortedBooths = useMemo(() => {
     const list = booths.data ? [...booths.data] : [];
@@ -1715,7 +1733,8 @@ export default function BoothsPage() {
     setEditingId(booth.id);
     setForm({
       name: booth.name,
-      description: booth.description ?? '',
+      typeValue: (booth.type as string) ?? '',
+      notes: booth.notes ?? '',
       baseRentDollars: (booth.baseRentCents / 100).toString(),
       baseRentFrequency: booth.baseRentFrequency,
       status: booth.status,
@@ -1737,35 +1756,36 @@ export default function BoothsPage() {
     if (!form.name.trim() || !tenantId || !selectedLocationId) return;
     setSaving(true);
     const now = new Date().toISOString();
-    const payload = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      baseRentCents: Math.round(toNumber(form.baseRentDollars) * 100),
-      baseRentFrequency: form.baseRentFrequency,
-      status: form.status,
-      amenities: form.amenities,
-      updatedAt: now,
-    };
     try {
       if (editingId) {
         await updateDoc(
           doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), editingId),
-          payload
-        );
-      } else {
-        await addDoc(
-          collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)),
           {
-            ...payload,
-            locationId: selectedLocationId,
-            currentLeaseId: null,
-            canvasX: 0,
-            canvasY: 0,
-            canvasW: DEFAULT_W,
-            canvasH: DEFAULT_H,
-            createdAt: now,
+            name: form.name.trim(),
+            type: form.typeValue.trim() as Booth['type'],
+            notes: form.notes.trim(),
+            baseRentCents: Math.round(toNumber(form.baseRentDollars) * 100),
+            baseRentFrequency: form.baseRentFrequency,
+            status: form.status,
+            amenities: form.amenities,
+            updatedAt: now,
           }
         );
+      } else {
+        // createBooth() always creates as 'vacant' (hardcoded in the
+        // service function) — the Status selector is hidden for new
+        // booths in the dialog below for exactly this reason; form.status
+        // is only meaningful when editing.
+        await createBooth(firestore, {
+          tenantId,
+          locationId: selectedLocationId,
+          name: form.name.trim(),
+          type: form.typeValue.trim() as Booth['type'],
+          notes: form.notes.trim() || undefined,
+          baseRentCents: Math.round(toNumber(form.baseRentDollars) * 100),
+          baseRentFrequency: form.baseRentFrequency,
+          amenities: form.amenities,
+        });
       }
       setDialogOpen(false);
     } finally {
@@ -2326,9 +2346,9 @@ export default function BoothsPage() {
                       / {(FREQUENCY_LABELS[booth.baseRentFrequency] ?? booth.baseRentFrequency ?? 'period').toLowerCase()}
                     </span>
                   </p>
-                  {booth.description && (
+                  {booth.notes && (
                     <p className="text-sm text-muted-foreground line-clamp-2">
-                      {booth.description}
+                      {booth.notes}
                     </p>
                   )}
                   {booth.amenities?.length > 0 && (
@@ -2489,6 +2509,28 @@ export default function BoothsPage() {
               />
             </div>
 
+            <div className="space-y-1">
+              <Label htmlFor="booth-type" className="flex items-center gap-1.5">
+                Type
+                <span className="text-[10px] font-normal text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                  TEMP: free text
+                </span>
+              </Label>
+              <Input
+                id="booth-type"
+                placeholder="e.g. chair, suite, station — exact value TBD"
+                value={form.typeValue}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, typeValue: e.target.value }))
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                Required by the backend but its real allowed values aren't
+                confirmed yet — this is a placeholder text field, not a
+                validated selector.
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="booth-rent">Base rent ($)</Label>
@@ -2538,26 +2580,28 @@ export default function BoothsPage() {
               Not sure what to charge? Open the Pricing Advisor
             </Button>
 
-            <div className="space-y-1">
-              <Label>Status</Label>
-              <Select
-                value={form.status}
-                onValueChange={(value) =>
-                  setForm((prev) => ({ ...prev, status: value as BoothStatus }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="vacant">Vacant</SelectItem>
-                  <SelectItem value="occupied">Occupied</SelectItem>
-                  <SelectItem value="partial">Partial (shared)</SelectItem>
-                  <SelectItem value="maintenance">Maintenance</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {editingId && (
+              <div className="space-y-1">
+                <Label>Status</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({ ...prev, status: value as BoothStatus }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="vacant">Vacant</SelectItem>
+                    <SelectItem value="occupied">Occupied</SelectItem>
+                    <SelectItem value="partial">Partial (shared)</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Included with this booth</Label>
@@ -2582,13 +2626,13 @@ export default function BoothsPage() {
             </div>
 
             <div className="space-y-1">
-              <Label htmlFor="booth-desc">Description (optional)</Label>
+              <Label htmlFor="booth-notes">Notes (optional)</Label>
               <Textarea
-                id="booth-desc"
+                id="booth-notes"
                 placeholder="Window seat, private suite with door, near reception…"
-                value={form.description}
+                value={form.notes}
                 onChange={(e) =>
-                  setForm((prev) => ({ ...prev, description: e.target.value }))
+                  setForm((prev) => ({ ...prev, notes: e.target.value }))
                 }
               />
             </div>
@@ -2598,7 +2642,7 @@ export default function BoothsPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
+            <Button onClick={handleSave} disabled={saving || !form.name.trim() || !form.typeValue.trim()}>
               {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add booth'}
             </Button>
           </DialogFooter>
