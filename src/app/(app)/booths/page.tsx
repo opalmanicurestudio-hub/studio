@@ -1251,6 +1251,21 @@ export default function BoothsPage() {
   const prevLeasesMapRef = useRef<Map<string, Lease> | null>(null);
   const prevRentersMapRef = useRef<Map<string, Renter> | null>(null);
 
+  // Reset the diff baselines whenever the tenant or location changes.
+  // Without this, switching locations swaps in a whole new booths/
+  // renters/leases data set, and the diff effects below — seeing every
+  // id as unfamiliar — would report the entire new location as "new"
+  // activity and fire a toast per record. Setting the refs back to null
+  // makes the next data arrival re-seed the baseline silently instead.
+  useEffect(() => {
+    prevBoothsMapRef.current = null;
+    prevLeasesMapRef.current = null;
+    prevRentersMapRef.current = null;
+    toastTimersRef.current.forEach((timer) => clearTimeout(timer));
+    toastTimersRef.current.clear();
+    setToasts([]);
+  }, [tenantId, selectedLocationId]);
+
   const dragRef = useRef<{
     boothId: string;
     mode: 'move' | 'resize';
