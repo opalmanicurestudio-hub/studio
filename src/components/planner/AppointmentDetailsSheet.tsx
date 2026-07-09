@@ -62,6 +62,27 @@ import { useDepositCredit } from '@/hooks/useDepositCredit';
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
 
+// v7 — FIX: this was called (3 times, all in handleSendRequirements) but
+// never actually defined or imported anywhere in this file — a hard
+// ReferenceError ("Can't find variable: sanitizeForFirestore") the moment
+// that function ran, unrelated to any document/consent-status logic. I'd
+// wrongly assumed this helper already existed here since it's a
+// locally-defined pattern in several other files in this codebase
+// (QuickBookForm.tsx, TechnicianReviewDialog.tsx) — but never verified it
+// for this specific file before using it. Same standard implementation as
+// everywhere else: strips undefined values (which Firestore's set()/
+// update() reject outright) before a write.
+const sanitizeForFirestore = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj._methodName !== undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitizeForFirestore(v)]),
+  );
+};
+
 const safeDate = (val: any): Date => {
   if (!val) return new Date();
   if (val instanceof Date) return val;
