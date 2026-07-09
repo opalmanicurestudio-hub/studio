@@ -1,21 +1,61 @@
 'use client';
 
+/**
+ * BoothsPage — now the single unified surface for booths, renters, and
+ * leases (previously three separate concerns split across Booths and
+ * Renters pages).
+ *
+ * MERGE NOTES:
+ *   1. Data access now goes through useBoothRentalCollections() +
+ *      useBoothIndex() / useOccupyingLeaseByRenter() — the location-scoped
+ *      hooks the Renters page was already using — instead of the old
+ *      per-tenant-only useMemoFirebase/useCollection queries this page
+ *      used before. This means booths are now expected to carry a
+ *      locationId field, same as renters/leases already do. Existing
+ *      booth docs without one will need a backfill migration, or they
+ *      won't appear once a location filter is applied — I don't have
+ *      visibility into that hook's exact query, so if booths still show
+ *      up unfiltered today, treat this as the thing to verify first.
+ *   2. Renter/lease writes route through the same service-layer
+ *      functions (createRenter, createLease, endLease) already
+ *      established on the Renters page, for the same reasons documented
+ *      there (atomic multi-doc writes, canonical occupancy status,
+ *      correct currentLeaseId resolution on shared-booth handoff).
+ *   3. Booth create/update/delete stay direct Firestore calls, matching
+ *      how this page always handled booths and how the Renters page
+ *      treats single-document, no-side-effect writes.
+ *   4. The floor plan's occupancy lookup (activeLeaseByBooth) still uses
+ *      its own local ['active','on_leave'] filter rather than the
+ *      canonical OCCUPYING_LEASE_STATUSES definition, because that
+ *      hook is keyed by renterId, not boothId. Worth asking for a
+ *      booth-keyed equivalent if you want the two to be guaranteed
+ *      consistent rather than just currently-equivalent.
+ *
+ * BUILD FIX (carried over from the Renters page): this page reads live,
+ * per-user Firestore data scoped to whoever is signed in, so it must
+ * never be statically prerendered.
+ */
+export const dynamic = 'force-dynamic';
+
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
-  collection,
   doc,
   addDoc,
   updateDoc,
   deleteDoc,
+  collection,
 } from 'firebase/firestore';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { useLocation } from '@/context/LocationContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -38,7 +78,18 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Armchair,
+  Users,
   Plus,
   Pencil,
   Trash2,
@@ -60,21 +111,49 @@ import {
   X,
   UserPlus,
   FileClock,
+  FileText,
+  FileSignature,
+  CalendarDays,
+  LogOut,
+  ChevronRight,
+  ChevronLeft,
+  Upload,
+  AlertCircle,
+  Gift,
+  Clock,
+  Pause,
+  MapPin,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Booth,
   BoothStatus,
   Renter,
+  RenterStatus,
   Lease,
+  LeasePerk,
+  PerkType,
+  PerkTrigger,
   RentFrequency,
+  WeekDay,
   BOOTH_RENTAL_COLLECTIONS,
   BOOTH_STATUS_LABELS,
   BOOTH_STATUS_COLORS,
   RENTER_STATUS_LABELS,
   FREQUENCY_LABELS,
+  PERK_TYPE_LABELS,
+  PERK_TRIGGER_LABELS,
+  WEEKDAY_LABELS,
   formatCents,
+  toIsoDate,
+  slotsOverlap,
 } from '@/lib/booth-rental-types';
+import {
+  useBoothRentalCollections,
+  useBoothIndex,
+  useOccupyingLeaseByRenter,
+} from '@/lib/booth-rental-hooks';
+import { createRenter, createLease, endLease } from '@/lib/booth-rental-service';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -106,6 +185,16 @@ const STATUS_CONFIG: Record <
   inactive: { label: 'Inactive', badgeClass: 'bg-slate-100 text-slate-500' },
 };
 
+const RENTER_STATUS_CONFIG: Record<RenterStatus, { label: string; badgeClass: string }> = {
+  prospective:     { label: 'Prospective',    badgeClass: 'bg-sky-100 text-sky-800' },
+  active:          { label: 'Active',          badgeClass: 'bg-emerald-100 text-emerald-800' },
+  on_leave:        { label: 'On leave',        badgeClass: 'bg-amber-100 text-amber-800' },
+  maternity_leave: { label: 'Maternity leave', badgeClass: 'bg-pink-100 text-pink-800' },
+  subletting:      { label: 'Subletting',      badgeClass: 'bg-violet-100 text-violet-800' },
+  past:            { label: 'Past',            badgeClass: 'bg-slate-200 text-slate-700' },
+  archived:        { label: 'Archived',        badgeClass: 'bg-slate-100 text-slate-500' },
+};
+
 const AMENITY_OPTIONS = [
   'Backbar product',
   'Laundry',
@@ -117,9 +206,23 @@ const AMENITY_OPTIONS = [
   'Towel service',
 ];
 
+const WEEKDAY_OPTIONS: { value: WeekDay; label: string }[] = [
+  { value: 1, label: 'Mon' }, { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' }, { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' }, { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+];
+
+const WIZARD_STEPS = ['Booth & rent', 'Deposit & fees', 'Perks', 'Review'] as const;
+
 const LEASE_ALERT_WINDOW_DAYS = 14;
 const ACTIVITY_LOG_LIMIT = 40;
 const TOAST_LIFETIME_MS = 6000;
+
+function toNumber(value: string): number {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+}
 
 // ─── Booth form ───────────────────────────────────────────────────────────────
 
@@ -140,6 +243,44 @@ const EMPTY_FORM: BoothFormState = {
   status: 'vacant',
   amenities: [],
 };
+
+// ─── Renter form ──────────────────────────────────────────────────────────────
+
+interface RenterFormState {
+  firstName: string; lastName: string; email: string; phone: string;
+  businessName: string; specialty: string; notes: string;
+}
+const EMPTY_RENTER_FORM: RenterFormState = {
+  firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
+};
+
+// ─── Lease form ───────────────────────────────────────────────────────────────
+
+interface LeaseFormState {
+  boothId: string; rentDollars: string; frequency: RentFrequency;
+  dueDay: string; firstChargeDate: string; startDate: string; endDate: string;
+  autoRenew: boolean; noticeDays: string;
+  isShared: boolean; scheduleDays: WeekDay[]; scheduleStartTime: string;
+  scheduleEndTime: string; scheduleLabel: string;
+  depositDollars: string; depositRefundable: boolean; depositConditions: string;
+  lateFeeEnabled: boolean; lateFeeGraceDays: string; lateFeeType: 'flat' | 'percent';
+  lateFeeAmountDollars: string; lateFeePercent: string;
+  perks: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>[];
+  houseRules: string; signedFile: File | null;
+}
+
+function buildEmptyLeaseForm(): LeaseFormState {
+  const today = toIsoDate(new Date());
+  return {
+    boothId: '', rentDollars: '', frequency: 'weekly', dueDay: '1',
+    firstChargeDate: today, startDate: today, endDate: '', autoRenew: true, noticeDays: '30',
+    isShared: false, scheduleDays: [], scheduleStartTime: '', scheduleEndTime: '', scheduleLabel: '',
+    depositDollars: '', depositRefundable: true, depositConditions: '',
+    lateFeeEnabled: true, lateFeeGraceDays: '3', lateFeeType: 'flat',
+    lateFeeAmountDollars: '25', lateFeePercent: '5',
+    perks: [], houseRules: '', signedFile: null,
+  };
+}
 
 // ─── Pricing Advisor ──────────────────────────────────────────────────────────
 
@@ -168,11 +309,6 @@ const EMPTY_PRICING: PricingInputs = {
   renterAvgTicket: '',
   renterTakeHomeGoal: '',
 };
-
-function toNumber(value: string): number {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? n : 0;
-}
 
 interface PricingResult {
   costPerBoothMonthly: number;
@@ -260,7 +396,7 @@ function PricingAdvisor(props: {
             <h4 className="text-sm font-semibold mb-3">
               Step 1 — Your monthly fixed costs
             </h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="pa-lease">Lease / mortgage</Label>
                 <Input
@@ -328,7 +464,7 @@ function PricingAdvisor(props: {
             <h4 className="text-sm font-semibold mb-3">
               Step 2 — Spread across your booths
             </h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="pa-count">Number of rentable booths</Label>
                 <Input
@@ -356,7 +492,7 @@ function PricingAdvisor(props: {
             <h4 className="text-sm font-semibold mb-3">
               Step 3 — Can a renter thrive here?
             </h4>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="pa-ticket">Typical service ticket ($)</Label>
                 <Input
@@ -512,8 +648,6 @@ function StatusPill({ status }: { status: Booth['status'] }) {
 function LivePulse({ lastSync }: { lastSync: Date | null }) {
   const [, forceTick] = useState(0);
 
-  // Re-render once a minute so the "updated Xm ago" label stays fresh
-  // without needing a per-second timer.
   useEffect(() => {
     const id = setInterval(() => forceTick((n) => n + 1), 30_000);
     return () => clearInterval(id);
@@ -563,7 +697,10 @@ function ToastStack({
 }) {
   if (toasts.length === 0) return null;
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)]">
+    <div
+      className="fixed left-4 right-4 top-4 sm:left-auto sm:right-4 sm:w-80 z-[100] flex flex-col gap-2"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       {toasts.map((t) => {
         const Icon = TOAST_ICON[t.kind];
         return (
@@ -649,8 +786,8 @@ function CommandCenterPanel({
             Command Center
           </DialogTitle>
           <DialogDescription>
-            Everything that needs your attention, and everything that just
-            happened — live.
+            Everything that needs your attention across booths, renters, and
+            leases — and everything that just happened, live.
           </DialogDescription>
         </DialogHeader>
 
@@ -759,8 +896,8 @@ interface BoothCanvasCardProps {
   lease?: Lease;
   selected: boolean;
   locked: boolean;
-  onMouseDown: (e: React.MouseEvent, id: string) => void;
-  onResizeMouseDown: (e: React.MouseEvent, id: string) => void;
+  onDragStart: (e: React.PointerEvent, id: string) => void;
+  onResizeStart: (e: React.PointerEvent, id: string) => void;
   onClick: (id: string) => void;
 }
 
@@ -770,8 +907,8 @@ function BoothCanvasCard({
   lease,
   selected,
   locked,
-  onMouseDown,
-  onResizeMouseDown,
+  onDragStart,
+  onResizeStart,
   onClick,
 }: BoothCanvasCardProps) {
   const colors = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
@@ -791,8 +928,9 @@ function BoothCanvasCard({
         top: booth.canvasY,
         width: booth.canvasW,
         height: booth.canvasH,
+        touchAction: locked ? undefined : 'none',
       }}
-      onMouseDown={(e) => !locked && onMouseDown(e, booth.id)}
+      onPointerDown={(e) => !locked && onDragStart(e, booth.id)}
       onClick={() => onClick(booth.id)}
     >
       <div
@@ -855,10 +993,10 @@ function BoothCanvasCard({
 
       {!locked && (
         <div
-          className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-0 group-hover:opacity-100 transition-opacity"
-          onMouseDown={(e) => {
+          className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity touch-none"
+          onPointerDown={(e) => {
             e.stopPropagation();
-            onResizeMouseDown(e, booth.id);
+            onResizeStart(e, booth.id);
           }}
           style={{
             background: `linear-gradient(135deg, transparent 50%, ${colors.border} 50%)`,
@@ -893,7 +1031,11 @@ function DetailPanel({
   }, [lease]);
 
   return (
-    <div className="absolute right-4 top-4 w-64 bg-background border border-border rounded-xl shadow-lg p-4 space-y-3 z-50">
+    <div
+      className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-auto w-full sm:w-64 max-h-[75vh] sm:max-h-none overflow-y-auto bg-background border border-border rounded-t-2xl sm:rounded-xl shadow-lg p-4 space-y-3 z-50"
+      style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+    >
+      <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-border sm:hidden" />
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-sm">{booth.name}</p>
@@ -901,7 +1043,8 @@ function DetailPanel({
         </div>
         <button
           onClick={onClose}
-          className="text-muted-foreground hover:text-foreground text-lg leading-none"
+          className="text-muted-foreground hover:text-foreground text-xl leading-none h-8 w-8 flex items-center justify-center -mt-1 -mr-1 shrink-0"
+          aria-label="Close"
         >
           ×
         </button>
@@ -977,47 +1120,122 @@ function DetailPanel({
   );
 }
 
+// ─── Perk row (lease wizard) ──────────────────────────────────────────────────
+
+function PerkRow({
+  perk, onChange, onRemove,
+}: {
+  perk: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>;
+  onChange: (u: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-lg border p-3 space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label>Perk type</Label>
+          <Select value={perk.type} onValueChange={(v) => onChange({ ...perk, type: v as PerkType })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERK_TYPE_LABELS) as PerkType[]).map((t) => (
+                <SelectItem key={t} value={t}>{PERK_TYPE_LABELS[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label>When</Label>
+          <Select value={perk.trigger} onValueChange={(v) => onChange({ ...perk, trigger: v as PerkTrigger })}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(Object.keys(PERK_TRIGGER_LABELS) as PerkTrigger[]).map((t) => (
+                <SelectItem key={t} value={t}>{PERK_TRIGGER_LABELS[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label>Label (visible on receipt)</Label>
+          <Input placeholder="e.g. Sign-up bonus week" value={perk.label}
+            onChange={(e) => onChange({ ...perk, label: e.target.value })} />
+        </div>
+        {(perk.type === 'product_credit' || perk.type === 'custom') && (
+          <div className="space-y-1">
+            <Label>Value ($)</Label>
+            <Input type="number" min={0}
+              value={perk.valueCents !== undefined ? (perk.valueCents / 100).toString() : ''}
+              onChange={(e) => onChange({ ...perk, valueCents: Math.round(toNumber(e.target.value) * 100) })} />
+          </div>
+        )}
+        {perk.type === 'rent_discount' && (
+          <div className="space-y-1">
+            <Label>Discount (%)</Label>
+            <Input type="number" min={0} max={100} value={perk.valuePercent ?? ''}
+              onChange={(e) => onChange({ ...perk, valuePercent: toNumber(e.target.value) })} />
+          </div>
+        )}
+      </div>
+      <Button variant="ghost" size="sm" onClick={onRemove} className="text-destructive hover:text-destructive">
+        Remove perk
+      </Button>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function BoothsPage() {
-  const { firestore } = useFirebase();
+  const { firebaseApp, firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
 
-  const boothsRef = useMemoFirebase(
-    () =>
-      firestore && tenantId
-        ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId))
-        : null,
-    [firestore, tenantId]
-  );
-  const rentersRef = useMemoFirebase(
-    () =>
-      firestore && tenantId
-        ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.renters(tenantId))
-        : null,
-    [firestore, tenantId]
-  );
-  const leasesRef = useMemoFirebase(
-    () =>
-      firestore && tenantId
-        ? collection(firestore, BOOTH_RENTAL_COLLECTIONS.leases(tenantId))
-        : null,
-    [firestore, tenantId]
+  const { selectedLocation, selectedLocationId, locations, isLoading: locationsLoading } =
+    useLocation();
+
+  const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
+
+  const { booths, renters, leases } = useBoothRentalCollections(
+    tenantId,
+    selectedLocationId
   );
 
-  const { data: booths, isLoading } = useCollection<Booth>(boothsRef);
-  const { data: renters } = useCollection<Renter>(rentersRef);
-  const { data: leases } = useCollection<Lease>(leasesRef);
+  const boothById = useBoothIndex(booths.data);
+  const occupyingLeaseByRenter = useOccupyingLeaseByRenter(leases.data);
 
-  const [view, setView] = useState<'floor' | 'list'>('floor');
+  const [view, setView] = useState<'floor' | 'list' | 'renters'>('floor');
 
+  // ── Booth dialog state ──────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<BoothFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
+  // ── Renter dialog state ─────────────────────────────────────────────────────
+  const [renterDialogOpen, setRenterDialogOpen] = useState(false);
+  const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
+  const [renterForm, setRenterForm] = useState<RenterFormState>(EMPTY_RENTER_FORM);
+  const [renterError, setRenterError] = useState<string | null>(null);
+  const [savingRenter, setSavingRenter] = useState(false);
+
+  // ── Lease wizard state ──────────────────────────────────────────────────────
+  const [leaseDialogOpen, setLeaseDialogOpen] = useState(false);
+  const [leaseRenterId, setLeaseRenterId] = useState<string | null>(null);
+  const [leaseStep, setLeaseStep] = useState(0);
+  const [leaseForm, setLeaseForm] = useState<LeaseFormState>(buildEmptyLeaseForm());
+  const [leaseError, setLeaseError] = useState<string | null>(null);
+  const [savingLease, setSavingLease] = useState(false);
+
+  const [statusTarget, setStatusTarget] = useState<Renter | null>(null);
+  const [newStatus, setNewStatus] = useState<RenterStatus>('on_leave');
+  const [savingStatus, setSavingStatus] = useState(false);
+
+  const [endLeaseTarget, setEndLeaseTarget] = useState<Renter | null>(null);
+  const [savingEndLease, setSavingEndLease] = useState(false);
+
+  // ── Floor plan layout state ─────────────────────────────────────────────────
   const [locked, setLocked] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
@@ -1050,37 +1268,63 @@ export default function BoothsPage() {
 
   const renterById = useMemo(() => {
     const m = new Map<string, Renter>();
-    (renters ?? []).forEach((r) => m.set(r.id, r));
+    (renters.data ?? []).forEach((r) => m.set(r.id, r));
     return m;
-  }, [renters]);
+  }, [renters.data]);
 
-  const boothById = useMemo(() => {
-    const m = new Map<string, Booth>();
-    (booths ?? []).forEach((b) => m.set(b.id, b));
-    return m;
-  }, [booths]);
-
+  // NOTE: kept as a local, booth-keyed occupancy definition (see the
+  // MERGE NOTES comment at the top of this file) rather than the
+  // renter-keyed canonical hook, since the floor plan needs to look this
+  // up by boothId.
   const activeLeaseByBooth = useMemo(() => {
     const m = new Map<string, Lease>();
-    (leases ?? []).forEach((l) => {
+    (leases.data ?? []).forEach((l) => {
       if (l.status === 'active' || l.status === 'on_leave') {
         if (!m.has(l.boothId)) m.set(l.boothId, l);
       }
     });
     return m;
-  }, [leases]);
+  }, [leases.data]);
 
   const sortedBooths = useMemo(() => {
-    const list = booths ? [...booths] : [];
+    const list = booths.data ? [...booths.data] : [];
     list.sort(
       (a, b) =>
         (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name)
     );
     return list;
-  }, [booths]);
+  }, [booths.data]);
+
+  const availableBooths = useMemo(
+    () => (booths.data ?? []).filter((b) => b.status === 'vacant' || b.status === 'partial'),
+    [booths.data]
+  );
+
+  const sortedRenters = useMemo(() => {
+    const list = renters.data ? [...renters.data] : [];
+    const order: Record<RenterStatus, number> = {
+      active: 0, on_leave: 1, maternity_leave: 2, subletting: 3,
+      prospective: 4, past: 5, archived: 6,
+    };
+    list.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || a.lastName.localeCompare(b.lastName));
+    return list;
+  }, [renters.data]);
+
+  const conflictingSlots = useMemo(() => {
+    if (!leaseForm.boothId || !leaseForm.isShared) return [];
+    return (leases.data ?? [])
+      .filter((l) => l.boothId === leaseForm.boothId && l.scheduleSlot && l.status === 'active')
+      .map((l) => l.scheduleSlot!);
+  }, [leases.data, leaseForm.boothId, leaseForm.isShared]);
+
+  const hasSlotConflict = useMemo(() => {
+    if (!leaseForm.isShared || leaseForm.scheduleDays.length === 0) return false;
+    const proposed = { days: leaseForm.scheduleDays };
+    return conflictingSlots.some((existing) => slotsOverlap(proposed, existing));
+  }, [leaseForm.isShared, leaseForm.scheduleDays, conflictingSlots]);
 
   const metrics = useMemo(() => {
-    const allBooths = (booths ?? []).filter((b) => b.status !== 'inactive');
+    const allBooths = (booths.data ?? []).filter((b) => b.status !== 'inactive');
     const total = allBooths.length;
     const occupied = allBooths.filter(
       (b) => b.status === 'occupied' || b.status === 'partial'
@@ -1106,6 +1350,7 @@ export default function BoothsPage() {
       }
     });
 
+    const activeRenters = (renters.data ?? []).filter((r) => r.status === 'active').length;
     const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
     return {
       total,
@@ -1115,8 +1360,9 @@ export default function BoothsPage() {
       vacancyCost,
       potentialMonthly,
       occupancyPct,
+      activeRenters,
     };
-  }, [booths, activeLeaseByBooth]);
+  }, [booths.data, activeLeaseByBooth, renters.data]);
 
   // ── Alerts (computed live from current data) ────────────────────────────────
 
@@ -1124,7 +1370,7 @@ export default function BoothsPage() {
     const list: AlertItem[] = [];
     const now = Date.now();
 
-    (leases ?? []).forEach((l) => {
+    (leases.data ?? []).forEach((l) => {
       if (l.status !== 'active' || !l.endDate) return;
       const end = new Date(l.endDate).getTime();
       if (Number.isNaN(end)) return;
@@ -1144,7 +1390,7 @@ export default function BoothsPage() {
       });
     });
 
-    (booths ?? []).forEach((b) => {
+    (booths.data ?? []).forEach((b) => {
       if (b.status === 'maintenance') {
         list.push({
           id: `maint-${b.id}`,
@@ -1170,7 +1416,7 @@ export default function BoothsPage() {
       info: 2,
     };
     return list.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
-  }, [leases, booths, boothById, renterById, metrics]);
+  }, [leases.data, booths.data, boothById, renterById, metrics]);
 
   const alertBadgeSeverity: AlertItem['severity'] | null =
     alerts.find((a) => a.severity === 'danger')?.severity ??
@@ -1211,15 +1457,14 @@ export default function BoothsPage() {
     };
   }, []);
 
-  // Mark every incoming snapshot as a "live update" moment.
   useEffect(() => {
-    if (booths || leases || renters) setLastSync(new Date());
-  }, [booths, leases, renters]);
+    if (booths.data || leases.data || renters.data) setLastSync(new Date());
+  }, [booths.data, leases.data, renters.data]);
 
   // Diff booths → activity + toasts
   useEffect(() => {
-    if (!booths) return;
-    const map = new Map(booths.map((b) => [b.id, b]));
+    if (!booths.data) return;
+    const map = new Map(booths.data.map((b) => [b.id, b]));
     const prev = prevBoothsMapRef.current;
     if (prev) {
       map.forEach((b, id) => {
@@ -1240,12 +1485,12 @@ export default function BoothsPage() {
       });
     }
     prevBoothsMapRef.current = map;
-  }, [booths, pushActivity]);
+  }, [booths.data, pushActivity]);
 
   // Diff leases → activity + toasts
   useEffect(() => {
-    if (!leases) return;
-    const map = new Map(leases.map((l) => [l.id, l]));
+    if (!leases.data) return;
+    const map = new Map(leases.data.map((l) => [l.id, l]));
     const prev = prevLeasesMapRef.current;
     if (prev) {
       map.forEach((l, id) => {
@@ -1267,12 +1512,12 @@ export default function BoothsPage() {
       });
     }
     prevLeasesMapRef.current = map;
-  }, [leases, boothById, renterById, pushActivity]);
+  }, [leases.data, boothById, renterById, pushActivity]);
 
   // Diff renters → activity + toasts
   useEffect(() => {
-    if (!renters) return;
-    const map = new Map(renters.map((r) => [r.id, r]));
+    if (!renters.data) return;
+    const map = new Map(renters.data.map((r) => [r.id, r]));
     const prev = prevRentersMapRef.current;
     if (prev) {
       map.forEach((r, id) => {
@@ -1290,7 +1535,7 @@ export default function BoothsPage() {
       });
     }
     prevRentersMapRef.current = map;
-  }, [renters, pushActivity]);
+  }, [renters.data, pushActivity]);
 
   const effectiveBooth = useCallback(
     (booth: Booth) => {
@@ -1302,13 +1547,13 @@ export default function BoothsPage() {
     [localPos]
   );
 
-  // ── Drag handlers ───────────────────────────────────────────────────────────
+  // ── Drag handlers (pointer events → works for mouse & touch) ───────────────
 
   const beginDrag = useCallback(
-    (e: React.MouseEvent, boothId: string, mode: 'move' | 'resize') => {
+    (e: React.PointerEvent, boothId: string, mode: 'move' | 'resize') => {
       if (locked) return;
       e.preventDefault();
-      const booth = (booths ?? []).find((b) => b.id === boothId);
+      const booth = (booths.data ?? []).find((b) => b.id === boothId);
       if (!booth) return;
       const lp = localPos[boothId];
       dragRef.current = {
@@ -1322,22 +1567,23 @@ export default function BoothsPage() {
         startBoothH: lp?.h ?? booth.canvasH,
       };
       setSelectedId(boothId);
+      (e.target as Element)?.setPointerCapture?.(e.pointerId);
     },
-    [locked, booths, localPos]
+    [locked, booths.data, localPos]
   );
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent, boothId: string) => beginDrag(e, boothId, 'move'),
+  const handleDragStart = useCallback(
+    (e: React.PointerEvent, boothId: string) => beginDrag(e, boothId, 'move'),
     [beginDrag]
   );
 
-  const handleResizeMouseDown = useCallback(
-    (e: React.MouseEvent, boothId: string) => beginDrag(e, boothId, 'resize'),
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent, boothId: string) => beginDrag(e, boothId, 'resize'),
     [beginDrag]
   );
 
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       const d = dragRef.current;
       if (!d) return;
       const dx = e.clientX - d.startMouseX;
@@ -1366,7 +1612,7 @@ export default function BoothsPage() {
       }
     };
 
-    const handleMouseUp = async () => {
+    const handlePointerUp = async () => {
       const d = dragRef.current;
       if (!d || !tenantId) {
         dragRef.current = null;
@@ -1398,17 +1644,19 @@ export default function BoothsPage() {
       }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
     };
   }, [firestore, tenantId, localPos]);
 
   const autoArrangeBooths = async () => {
     if (!tenantId) return;
-    const unplaced = (booths ?? []).filter(
+    const unplaced = (booths.data ?? []).filter(
       (b) => (b.canvasX ?? 0) === 0 && (b.canvasY ?? 0) === 0
     );
     if (unplaced.length === 0) return;
@@ -1440,7 +1688,7 @@ export default function BoothsPage() {
     }
   };
 
-  // ── CRUD handlers ───────────────────────────────────────────────────────────
+  // ── Booth CRUD ───────────────────────────────────────────────────────────────
 
   const openCreate = () => {
     setEditingId(null);
@@ -1471,7 +1719,7 @@ export default function BoothsPage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim() || !tenantId) return;
+    if (!form.name.trim() || !tenantId || !selectedLocationId) return;
     setSaving(true);
     const now = new Date().toISOString();
     const payload = {
@@ -1494,6 +1742,7 @@ export default function BoothsPage() {
           collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)),
           {
             ...payload,
+            locationId: selectedLocationId,
             currentLeaseId: null,
             canvasX: 0,
             canvasY: 0,
@@ -1517,6 +1766,203 @@ export default function BoothsPage() {
     if (selectedId === boothId) setSelectedId(null);
   };
 
+  // ── Renter CRUD ──────────────────────────────────────────────────────────────
+
+  const openCreateRenter = () => {
+    setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true);
+  };
+  const openEditRenter = (renter: Renter) => {
+    setEditingRenterId(renter.id);
+    setRenterForm({ firstName: renter.firstName, lastName: renter.lastName, email: renter.email,
+      phone: renter.phone ?? '', businessName: renter.businessName ?? '',
+      specialty: renter.specialty ?? '', notes: renter.notes ?? '' });
+    setRenterError(null); setRenterDialogOpen(true);
+  };
+  const handleRenterDialogOpenChange = (open: boolean) => {
+    if (!open) { setEditingRenterId(null); setRenterError(null); }
+    setRenterDialogOpen(open);
+  };
+
+  const handleSaveRenter = async () => {
+    if (!renterForm.firstName.trim() || !renterForm.email.trim() || !selectedLocationId || !tenantId) return;
+    setSavingRenter(true); setRenterError(null);
+    const now = new Date().toISOString();
+    try {
+      if (editingRenterId) {
+        await updateDoc(
+          doc(firestore, 'tenants', tenantId, 'renters', editingRenterId),
+          {
+            firstName: renterForm.firstName.trim(),
+            lastName: renterForm.lastName.trim(),
+            email: renterForm.email.trim(),
+            phone: renterForm.phone.trim(),
+            businessName: renterForm.businessName.trim(),
+            specialty: renterForm.specialty.trim(),
+            notes: renterForm.notes.trim(),
+            updatedAt: now,
+          }
+        );
+      } else {
+        await createRenter(firestore, {
+          tenantId,
+          locationId: selectedLocationId,
+          firstName: renterForm.firstName.trim(),
+          lastName: renterForm.lastName.trim(),
+          email: renterForm.email.trim(),
+          phone: renterForm.phone.trim() || undefined,
+          businessName: renterForm.businessName.trim() || undefined,
+          specialty: renterForm.specialty.trim() || undefined,
+          notes: renterForm.notes.trim() || undefined,
+        });
+      }
+      setRenterDialogOpen(false); setEditingRenterId(null);
+    } catch (err) {
+      setRenterError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally { setSavingRenter(false); }
+  };
+
+  // ── Lease wizard ─────────────────────────────────────────────────────────────
+
+  const openLeaseWizard = (renterId: string) => {
+    setLeaseRenterId(renterId); setLeaseForm(buildEmptyLeaseForm());
+    setLeaseStep(0); setLeaseError(null); setLeaseDialogOpen(true);
+  };
+  const handleLeaseDialogOpenChange = (open: boolean) => {
+    if (!open) { setLeaseStep(0); setLeaseForm(buildEmptyLeaseForm()); setLeaseError(null); }
+    setLeaseDialogOpen(open);
+  };
+  const handleBoothSelect = (boothId: string) => {
+    const booth = boothById.get(boothId);
+    setLeaseForm((prev) => ({
+      ...prev, boothId,
+      rentDollars: booth ? (booth.baseRentCents / 100).toString() : prev.rentDollars,
+      frequency: booth ? booth.baseRentFrequency : prev.frequency, dueDay: '1',
+    }));
+  };
+  const toggleScheduleDay = (day: WeekDay) => {
+    setLeaseForm((prev) => ({
+      ...prev,
+      scheduleDays: prev.scheduleDays.includes(day)
+        ? prev.scheduleDays.filter((d) => d !== day)
+        : [...prev.scheduleDays, day],
+    }));
+  };
+  const addPerk = () => {
+    setLeaseForm((prev) => ({
+      ...prev,
+      perks: [...prev.perks, { id: crypto.randomUUID(), type: 'free_week', label: 'Free week',
+        trigger: 'on_signup', valueCents: undefined, valuePercent: undefined }],
+    }));
+  };
+  const updatePerk = (id: string, updated: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>) =>
+    setLeaseForm((prev) => ({ ...prev, perks: prev.perks.map((p) => p.id === id ? updated : p) }));
+  const removePerk = (id: string) =>
+    setLeaseForm((prev) => ({ ...prev, perks: prev.perks.filter((p) => p.id !== id) }));
+
+  const step0Valid =
+    Boolean(leaseForm.boothId && toNumber(leaseForm.rentDollars) > 0) &&
+    !hasSlotConflict &&
+    (!leaseForm.isShared || leaseForm.scheduleDays.length > 0);
+  const step1Valid = (() => {
+    if (!leaseForm.lateFeeEnabled) return true;
+    if (leaseForm.lateFeeType === 'flat' && toNumber(leaseForm.lateFeeAmountDollars) <= 0) return false;
+    if (leaseForm.lateFeeType === 'percent' && toNumber(leaseForm.lateFeePercent) <= 0) return false;
+    return true;
+  })();
+  const wizardCanAdvance = leaseStep === 0 ? step0Valid : leaseStep === 1 ? step1Valid : true;
+
+  const handleCreateLease = async () => {
+    if (!leaseRenterId || !leaseForm.boothId || !selectedLocationId || !tenantId) return;
+    setSavingLease(true); setLeaseError(null);
+    try {
+      let signedDocumentUrl: string | null = null;
+      if (leaseForm.signedFile) {
+        const path = `tenants/${tenantId}/leases/${Date.now()}-${leaseForm.signedFile.name}`;
+        const fileRef = storageRef(storage, path);
+        await uploadBytes(fileRef, leaseForm.signedFile);
+        signedDocumentUrl = await getDownloadURL(fileRef);
+      }
+      const booth = boothById.get(leaseForm.boothId);
+      const depositCents = Math.round(toNumber(leaseForm.depositDollars) * 100);
+      const scheduleSlot = leaseForm.isShared && leaseForm.scheduleDays.length > 0
+        ? { days: leaseForm.scheduleDays,
+            startTime: leaseForm.scheduleStartTime || undefined,
+            endTime: leaseForm.scheduleEndTime || undefined,
+            label: leaseForm.scheduleLabel || undefined }
+        : null;
+
+      await createLease(firestore, {
+        tenantId,
+        locationId: booth?.locationId ?? selectedLocationId,
+        boothId: leaseForm.boothId,
+        renterId: leaseRenterId,
+        rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
+        frequency: leaseForm.frequency,
+        dueDay: parseInt(leaseForm.dueDay, 10) || 1,
+        firstChargeDate: leaseForm.firstChargeDate,
+        startDate: leaseForm.startDate,
+        endDate: leaseForm.endDate || null,
+        autoRenew: leaseForm.autoRenew,
+        earlyTerminationNoticeDays: parseInt(leaseForm.noticeDays, 10) || 30,
+        deposit: depositCents > 0 ? {
+          amountCents: depositCents,
+          refundable: leaseForm.depositRefundable,
+          refundConditions: leaseForm.depositConditions.trim(),
+          collectedLedgerEntryId: null,
+          refundedLedgerEntryId: null,
+        } : null,
+        lateFeePolicy: {
+          enabled: leaseForm.lateFeeEnabled,
+          graceDays: parseInt(leaseForm.lateFeeGraceDays, 10) || 0,
+          type: leaseForm.lateFeeType,
+          ...(leaseForm.lateFeeType === 'flat'
+            ? { amountCents: Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100) }
+            : { percent: toNumber(leaseForm.lateFeePercent) }),
+        },
+        scheduleSlot,
+        perks: leaseForm.perks,
+        includedAmenities: booth?.amenities ?? [],
+        houseRules: leaseForm.houseRules.trim(),
+        signedDocumentUrl,
+        isShared: leaseForm.isShared,
+      });
+
+      setLeaseDialogOpen(false);
+    } catch (err) {
+      setLeaseError(err instanceof Error ? err.message : 'Failed to create lease.');
+    } finally { setSavingLease(false); }
+  };
+
+  const handleEndLease = async () => {
+    if (!endLeaseTarget || !tenantId) return;
+    const lease = occupyingLeaseByRenter.get(endLeaseTarget.id);
+    if (!lease) return;
+    setSavingEndLease(true);
+    try {
+      await endLease(firestore, tenantId, lease, endLeaseTarget.id, leases.data ?? []);
+    } finally { setSavingEndLease(false); setEndLeaseTarget(null); }
+  };
+
+  const handleStatusChange = async () => {
+    if (!statusTarget || !tenantId) return;
+    setSavingStatus(true);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', statusTarget.id),
+        { status: newStatus, updatedAt: new Date().toISOString() });
+      const lease = occupyingLeaseByRenter.get(statusTarget.id);
+      if (lease && (newStatus === 'on_leave' || newStatus === 'maternity_leave')) {
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
+          { status: 'on_leave', updatedAt: new Date().toISOString() });
+      }
+      if (lease && newStatus === 'active') {
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
+          { status: 'active', updatedAt: new Date().toISOString() });
+      }
+    } finally { setSavingStatus(false); setStatusTarget(null); }
+  };
+
+  // ── Loading / empty states ───────────────────────────────────────────────────
+
   if (!tenantId) {
     return (
       <div className="p-8 text-sm text-muted-foreground">
@@ -1525,8 +1971,25 @@ export default function BoothsPage() {
     );
   }
 
+  if (!locationsLoading && locations.length === 0) {
+    return (
+      <div className="p-8 space-y-3">
+        <p className="font-medium">No locations set up yet</p>
+        <p className="text-sm text-muted-foreground">
+          Add at least one location before managing booths, renters, and
+          leases — every booth, renter, and lease belongs to a specific
+          location.
+        </p>
+      </div>
+    );
+  }
+
+  if (locationsLoading || !selectedLocationId) {
+    return <div className="p-8 text-sm text-muted-foreground">Loading location…</div>;
+  }
+
   const selectedBooth = selectedId
-    ? (booths ?? []).find((b) => b.id === selectedId)
+    ? (booths.data ?? []).find((b) => b.id === selectedId)
     : null;
   const selectedLease = selectedBooth
     ? activeLeaseByBooth.get(selectedBooth.id)
@@ -1534,9 +1997,10 @@ export default function BoothsPage() {
   const selectedRenter = selectedLease
     ? renterById.get(selectedLease.renterId)
     : undefined;
+  const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
   return (
-    <div className="p-6 md:p-8 space-y-6">
+    <div className="p-4 sm:p-6 md:p-8 space-y-6">
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1545,63 +2009,92 @@ export default function BoothsPage() {
             <Armchair className="h-6 w-6" />
             Booths
           </h1>
-          <p className="text-sm text-muted-foreground mb-1.5">
-            Your rentable chairs, booths, and suites — arranged the way your
-            studio actually looks.
+          <p className="text-sm text-muted-foreground mb-1.5 flex items-center gap-1.5 flex-wrap">
+            Booths, renters, and leases — all in one place.
+            {selectedLocation && (
+              <span className="inline-flex items-center gap-1 text-xs bg-muted px-2 py-0.5 rounded-full">
+                <MapPin className="h-3 w-3" />{selectedLocation.name}
+              </span>
+            )}
           </p>
           <LivePulse lastSync={lastSync} />
         </div>
-        <div className="flex gap-2 flex-wrap items-center">
-          <div className="flex rounded-lg border border-border p-0.5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="grid grid-cols-3 sm:flex rounded-lg border border-border p-0.5 gap-0.5 sm:gap-0">
             <Button
               variant={view === 'floor' ? 'default' : 'ghost'}
               size="sm"
+              className="w-full sm:w-auto"
               onClick={() => setView('floor')}
             >
               <LayoutGrid className="h-4 w-4 mr-1.5" />
-              Floor plan
+              <span className="sm:hidden">Floor</span>
+              <span className="hidden sm:inline">Floor plan</span>
             </Button>
             <Button
               variant={view === 'list' ? 'default' : 'ghost'}
               size="sm"
+              className="w-full sm:w-auto"
               onClick={() => setView('list')}
             >
               <List className="h-4 w-4 mr-1.5" />
               List
             </Button>
+            <Button
+              variant={view === 'renters' ? 'default' : 'ghost'}
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => setView('renters')}
+            >
+              <Users className="h-4 w-4 mr-1.5" />
+              Renters
+            </Button>
           </div>
-          <Button
-            variant="outline"
-            className="relative"
-            onClick={() => setCommandCenterOpen(true)}
-          >
-            <Bell className="h-4 w-4 mr-2" />
-            Command Center
-            {alertBadgeSeverity && (
-              <span
-                className={cn(
-                  'absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center text-white',
-                  alertBadgeSeverity === 'danger' && 'bg-red-500',
-                  alertBadgeSeverity === 'warning' && 'bg-amber-500',
-                  alertBadgeSeverity === 'info' && 'bg-sky-500'
-                )}
-              >
-                {alerts.length}
-              </span>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:gap-2">
+            <Button
+              variant="outline"
+              className="relative w-full sm:w-auto"
+              onClick={() => setCommandCenterOpen(true)}
+            >
+              <Bell className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
+              <span className="sm:hidden">Alerts</span>
+              <span className="hidden sm:inline">Command Center</span>
+              {alertBadgeSeverity && (
+                <span
+                  className={cn(
+                    'absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center text-white',
+                    alertBadgeSeverity === 'danger' && 'bg-red-500',
+                    alertBadgeSeverity === 'warning' && 'bg-amber-500',
+                    alertBadgeSeverity === 'info' && 'bg-sky-500'
+                  )}
+                >
+                  {alerts.length}
+                </span>
+              )}
+            </Button>
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPricingOpen(true)}>
+              <Calculator className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
+              <span className="sm:hidden">Pricing</span>
+              <span className="hidden sm:inline">Pricing Advisor</span>
+            </Button>
+            {view === 'renters' ? (
+              <Button className="w-full sm:w-auto" onClick={openCreateRenter}>
+                <UserPlus className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
+                <span className="sm:hidden">Add</span>
+                <span className="hidden sm:inline">Add renter</span>
+              </Button>
+            ) : (
+              <Button className="w-full sm:w-auto" onClick={openCreate}>
+                <Plus className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
+                <span className="sm:hidden">Add</span>
+                <span className="hidden sm:inline">Add booth</span>
+              </Button>
             )}
-          </Button>
-          <Button variant="outline" onClick={() => setPricingOpen(true)}>
-            <Calculator className="h-4 w-4 mr-2" />
-            Pricing Advisor
-          </Button>
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4 mr-2" />
-            Add booth
-          </Button>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <MetricCard
           label="Monthly revenue"
           value={formatCents(metrics.monthlyRevenue)}
@@ -1634,13 +2127,20 @@ export default function BoothsPage() {
           icon={Calculator}
           accent="#5B4A8A"
         />
+        <MetricCard
+          label="Active renters"
+          value={String(metrics.activeRenters)}
+          sub={`${sortedRenters.length} total`}
+          icon={Users}
+          accent="#B23A6B"
+        />
       </div>
 
-      {isLoading && (
-        <p className="text-sm text-muted-foreground">Loading booths…</p>
+      {(booths.isLoading || renters.isLoading) && (
+        <p className="text-sm text-muted-foreground">Loading…</p>
       )}
 
-      {!isLoading && sortedBooths.length === 0 && (
+      {view === 'floor' && !booths.isLoading && sortedBooths.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center space-y-3">
             <DoorOpen className="h-10 w-10 mx-auto text-muted-foreground" />
@@ -1673,7 +2173,7 @@ export default function BoothsPage() {
                     className="h-2.5 w-2.5 rounded-sm"
                     style={{ background: c.bg, border: `1.5px solid ${c.border}` }}
                   />
-                  {BOOTH_STATUS_LABELS[status] ?? status}
+                  {BOOTH_STATUS_LABELS[status]}
                 </span>
               ))}
             </div>
@@ -1720,7 +2220,7 @@ export default function BoothsPage() {
           )}
 
           <div className="relative">
-            <div className="h-[600px] overflow-auto rounded-xl border border-border bg-muted/30">
+            <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
               <div
                 className="relative"
                 style={{
@@ -1750,8 +2250,8 @@ export default function BoothsPage() {
                               lease={lease}
                               selected={selectedId === b.id}
                               locked={locked}
-                              onMouseDown={handleMouseDown}
-                              onResizeMouseDown={handleResizeMouseDown}
+                              onDragStart={handleDragStart}
+                              onResizeStart={handleResizeStart}
                               onClick={setSelectedId}
                             />
                           </span>
@@ -1851,6 +2351,107 @@ export default function BoothsPage() {
         </div>
       )}
 
+      {view === 'renters' && (
+        <div className="space-y-4">
+          {!renters.isLoading && sortedRenters.length === 0 && (
+            <Card>
+              <CardContent className="py-12 text-center space-y-3">
+                <Users className="h-10 w-10 mx-auto text-muted-foreground" />
+                <p className="font-medium">No renters yet</p>
+                <p className="text-sm text-muted-foreground">Add a renter, then set up their lease with schedule, deposit, and perks.</p>
+                <Button onClick={openCreateRenter}><UserPlus className="h-4 w-4 mr-2" />Add your first renter</Button>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {sortedRenters.map((renter) => {
+              const sc = RENTER_STATUS_CONFIG[renter.status] ?? RENTER_STATUS_CONFIG.prospective;
+              const lease = occupyingLeaseByRenter.get(renter.id);
+              const booth = lease ? boothById.get(lease.boothId) : undefined;
+              return (
+                <Card key={renter.id}>
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <CardTitle className="text-base">{renter.firstName} {renter.lastName}</CardTitle>
+                        {renter.businessName && <p className="text-sm text-muted-foreground">{renter.businessName}</p>}
+                      </div>
+                      <Badge className={sc.badgeClass}>{sc.label}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="text-sm text-muted-foreground space-y-1">
+                      <p>{renter.email}</p>
+                      {renter.phone && <p>{renter.phone}</p>}
+                      {renter.specialty && <p>Specialty: {renter.specialty}</p>}
+                    </div>
+                    {lease && (
+                      <div className="rounded-lg border p-3 space-y-1.5">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <FileText className="h-4 w-4" />{booth ? booth.name : 'Lease'}
+                          {lease.scheduleSlot && <Badge variant="outline" className="text-[10px]">Shared</Badge>}
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <CircleDollarSign className="h-4 w-4" />
+                          {formatCents(lease.rentAmountCents)} / {(FREQUENCY_LABELS[lease.frequency] ?? lease.frequency ?? 'period').toLowerCase()}
+                        </div>
+                        {lease.scheduleSlot && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Clock className="h-4 w-4" />
+                            {lease.scheduleSlot.label ?? lease.scheduleSlot.days.map((d) => WEEKDAY_LABELS[d]).join(', ')}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <CalendarDays className="h-4 w-4" />
+                          {lease.endDate ? `Through ${lease.endDate}` : 'Month-to-month'}
+                        </div>
+                        {(lease.perks?.length ?? 0) > 0 && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Gift className="h-4 w-4" />{lease.perks.length} perk{lease.perks.length > 1 ? 's' : ''}
+                          </div>
+                        )}
+                        {lease.signedDocumentUrl && (
+                          <a href={lease.signedDocumentUrl} target="_blank" rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-sm underline underline-offset-2">
+                            <FileSignature className="h-4 w-4" />Signed agreement
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button variant="outline" size="sm" onClick={() => openEditRenter(renter)}>
+                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
+                      </Button>
+                      {!lease && (
+                        <Button size="sm" onClick={() => openLeaseWizard(renter.id)}>
+                          <DoorOpen className="h-3.5 w-3.5 mr-1.5" />Set up lease
+                        </Button>
+                      )}
+                      {(renter.status === 'active' || renter.status === 'on_leave' || renter.status === 'maternity_leave') && (
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setStatusTarget(renter);
+                          setNewStatus(renter.status === 'active' ? 'on_leave' : 'active');
+                        }}>
+                          <Pause className="h-3.5 w-3.5 mr-1.5" />
+                          {renter.status === 'active' ? 'Put on leave' : 'Return from leave'}
+                        </Button>
+                      )}
+                      {lease && (
+                        <Button variant="ghost" size="sm" onClick={() => setEndLeaseTarget(renter)}>
+                          <LogOut className="h-3.5 w-3.5 mr-1.5" />End lease
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Booth dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1873,7 +2474,7 @@ export default function BoothsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="booth-rent">Base rent ($)</Label>
                 <Input
@@ -1988,6 +2589,334 @@ export default function BoothsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Renter dialog */}
+      <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingRenterId ? 'Edit renter' : 'Add renter'}</DialogTitle>
+            <DialogDescription>Their independent business — your records.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
+                <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="r-last">Last name</Label>
+                <Input id="r-last" value={renterForm.lastName} onChange={(e) => setRenterForm((p) => ({ ...p, lastName: e.target.value }))} /></div>
+            </div>
+            <div className="space-y-1"><Label htmlFor="r-email">Email</Label>
+              <Input id="r-email" type="email" value={renterForm.email} onChange={(e) => setRenterForm((p) => ({ ...p, email: e.target.value }))} /></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label htmlFor="r-phone">Phone</Label>
+                <Input id="r-phone" value={renterForm.phone} onChange={(e) => setRenterForm((p) => ({ ...p, phone: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="r-specialty">Specialty</Label>
+                <Input id="r-specialty" placeholder="Nails, hair, lashes…" value={renterForm.specialty} onChange={(e) => setRenterForm((p) => ({ ...p, specialty: e.target.value }))} /></div>
+            </div>
+            <div className="space-y-1"><Label htmlFor="r-business">Business name (optional)</Label>
+              <Input id="r-business" value={renterForm.businessName} onChange={(e) => setRenterForm((p) => ({ ...p, businessName: e.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="r-notes">Notes (private)</Label>
+              <Textarea id="r-notes" value={renterForm.notes} onChange={(e) => setRenterForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            {renterError && (
+              <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 shrink-0" />{renterError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleRenterDialogOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleSaveRenter} disabled={savingRenter || !renterForm.firstName.trim() || !renterForm.email.trim()}>
+              {savingRenter ? 'Saving…' : editingRenterId ? 'Save changes' : 'Add renter'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lease wizard */}
+      <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Set up lease</DialogTitle>
+            <DialogDescription>Step {leaseStep + 1} of {WIZARD_STEPS.length}: {WIZARD_STEPS[leaseStep]}</DialogDescription>
+          </DialogHeader>
+
+          {leaseStep === 0 && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label>Booth</Label>
+                <Select value={leaseForm.boothId} onValueChange={handleBoothSelect}>
+                  <SelectTrigger><SelectValue placeholder="Choose a booth" /></SelectTrigger>
+                  <SelectContent>
+                    {availableBooths.length === 0 && <SelectItem value="none" disabled>No available booths</SelectItem>}
+                    {availableBooths.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name} ({b.status === 'partial' ? 'shared' : 'vacant'}) — {formatCents(b.baseRentCents)} / {(FREQUENCY_LABELS[b.baseRentFrequency] ?? b.baseRentFrequency ?? 'period').toLowerCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Shared / part-time booth</p>
+                  <p className="text-xs text-muted-foreground">Multiple renters share on different days</p>
+                </div>
+                <Switch checked={leaseForm.isShared}
+                  onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, isShared: c, scheduleDays: [] }))} />
+              </div>
+
+              {leaseForm.isShared && (
+                <div className="rounded-lg border p-3 space-y-3">
+                  <div className="space-y-2">
+                    <Label>Days of access</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      {WEEKDAY_OPTIONS.map((opt) => {
+                        const taken = conflictingSlots.some((s) => s.days.includes(opt.value));
+                        const checked = leaseForm.scheduleDays.includes(opt.value);
+                        return (
+                          <button key={opt.value} type="button"
+                            disabled={taken && !checked}
+                            onClick={() => !taken && toggleScheduleDay(opt.value)}
+                            className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                              checked ? 'bg-primary text-primary-foreground border-primary'
+                              : taken ? 'opacity-40 cursor-not-allowed border-border'
+                              : 'border-border hover:bg-muted'
+                            }`}>
+                            {opt.label}{taken && !checked && <span className="ml-1 text-[10px] text-destructive">taken</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {hasSlotConflict && <p className="text-xs text-destructive">Selected days conflict with an existing lease.</p>}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1"><Label>Start time (optional)</Label>
+                      <Input type="time" value={leaseForm.scheduleStartTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleStartTime: e.target.value }))} /></div>
+                    <div className="space-y-1"><Label>End time (optional)</Label>
+                      <Input type="time" value={leaseForm.scheduleEndTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleEndTime: e.target.value }))} /></div>
+                  </div>
+                  <div className="space-y-1"><Label>Slot label (optional)</Label>
+                    <Input placeholder="e.g. Tuesday / Thursday mornings" value={leaseForm.scheduleLabel}
+                      onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleLabel: e.target.value }))} /></div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="l-rent">Rent ($)</Label>
+                  <Input id="l-rent" type="number" value={leaseForm.rentDollars} onChange={(e) => setLeaseForm((p) => ({ ...p, rentDollars: e.target.value }))} /></div>
+                <div className="space-y-1">
+                  <Label>Frequency</Label>
+                  <Select value={leaseForm.frequency} onValueChange={(v) => setLeaseForm((p) => ({ ...p, frequency: v as RentFrequency, dueDay: '1' }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="l-start">Lease start</Label>
+                  <Input id="l-start" type="date" value={leaseForm.startDate} onChange={(e) => setLeaseForm((p) => ({ ...p, startDate: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="l-end">End (blank = month-to-month)</Label>
+                  <Input id="l-end" type="date" min={leaseForm.startDate} value={leaseForm.endDate} onChange={(e) => setLeaseForm((p) => ({ ...p, endDate: e.target.value }))} /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="l-fc">First charge date</Label>
+                  <Input id="l-fc" type="date" min={toIsoDate(new Date())} value={leaseForm.firstChargeDate} onChange={(e) => setLeaseForm((p) => ({ ...p, firstChargeDate: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="l-notice">Notice days</Label>
+                  <Input id="l-notice" type="number" value={leaseForm.noticeDays} onChange={(e) => setLeaseForm((p) => ({ ...p, noticeDays: e.target.value }))} /></div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div><p className="text-sm font-medium">Auto-renew</p>
+                  <p className="text-xs text-muted-foreground">Continues unless either party gives notice</p></div>
+                <Switch checked={leaseForm.autoRenew} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, autoRenew: c }))} />
+              </div>
+            </div>
+          )}
+
+          {leaseStep === 1 && (
+            <div className="space-y-4">
+              <div className="space-y-1"><Label htmlFor="l-deposit">Security deposit ($)</Label>
+                <Input id="l-deposit" type="number" placeholder="0 for none" value={leaseForm.depositDollars}
+                  onChange={(e) => setLeaseForm((p) => ({ ...p, depositDollars: e.target.value }))} /></div>
+              {toNumber(leaseForm.depositDollars) > 0 && (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Deposit is refundable</p>
+                    <Switch checked={leaseForm.depositRefundable} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, depositRefundable: c }))} />
+                  </div>
+                  <div className="space-y-1"><Label htmlFor="l-depcond">Refund conditions</Label>
+                    <Textarea id="l-depcond" placeholder="Returned within 14 days of move-out…" value={leaseForm.depositConditions}
+                      onChange={(e) => setLeaseForm((p) => ({ ...p, depositConditions: e.target.value }))} /></div>
+                </div>
+              )}
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <div><p className="text-sm font-medium">Late fees</p>
+                    <p className="text-xs text-muted-foreground">Applied after grace period</p></div>
+                  <Switch checked={leaseForm.lateFeeEnabled} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, lateFeeEnabled: c }))} />
+                </div>
+                {leaseForm.lateFeeEnabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1"><Label>Grace days</Label>
+                      <Input type="number" min={0} value={leaseForm.lateFeeGraceDays} onChange={(e) => setLeaseForm((p) => ({ ...p, lateFeeGraceDays: e.target.value }))} /></div>
+                    <div className="space-y-1"><Label>Type</Label>
+                      <Select value={leaseForm.lateFeeType} onValueChange={(v) => setLeaseForm((p) => ({ ...p, lateFeeType: v as 'flat' | 'percent' }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="flat">Flat $</SelectItem>
+                          <SelectItem value="percent">% of rent</SelectItem>
+                        </SelectContent>
+                      </Select></div>
+                    <div className="space-y-1"><Label>{leaseForm.lateFeeType === 'flat' ? 'Fee ($)' : 'Fee (%)'}</Label>
+                      <Input type="number" min={0.01}
+                        value={leaseForm.lateFeeType === 'flat' ? leaseForm.lateFeeAmountDollars : leaseForm.lateFeePercent}
+                        onChange={(e) => setLeaseForm((p) => p.lateFeeType === 'flat'
+                          ? { ...p, lateFeeAmountDollars: e.target.value }
+                          : { ...p, lateFeePercent: e.target.value })} /></div>
+                  </div>
+                )}
+                {leaseForm.lateFeeEnabled && !step1Valid && <p className="text-xs text-destructive">Enter a fee amount greater than 0.</p>}
+              </div>
+              <div className="space-y-1"><Label htmlFor="l-rules">House rules (optional)</Label>
+                <Textarea id="l-rules" placeholder="Shared space expectations, product policies…" value={leaseForm.houseRules}
+                  onChange={(e) => setLeaseForm((p) => ({ ...p, houseRules: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="l-doc">Signed agreement (PDF, optional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input id="l-doc" type="file" accept="application/pdf"
+                    onChange={(e) => setLeaseForm((p) => ({ ...p, signedFile: e.target.files?.[0] ?? null }))} />
+                  <Upload className="h-4 w-4 text-muted-foreground" />
+                </div></div>
+            </div>
+          )}
+
+          {leaseStep === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Perks are incentives attached to this lease — free weeks, discounts, or credits. They appear on receipts.
+              </p>
+              {leaseForm.perks.map((perk) => (
+                <PerkRow key={perk.id} perk={perk}
+                  onChange={(u) => updatePerk(perk.id, u)}
+                  onRemove={() => removePerk(perk.id)} />
+              ))}
+              <Button variant="outline" onClick={addPerk}><Gift className="h-4 w-4 mr-2" />Add perk</Button>
+              {leaseForm.perks.length === 0 && <p className="text-xs text-muted-foreground">No perks — skip to Review if not needed.</p>}
+            </div>
+          )}
+
+          {leaseStep === 3 && (
+            <div className="space-y-3">
+              <div className="rounded-lg border p-4 space-y-2 text-sm">
+                <p><span className="text-muted-foreground">Booth:</span>{' '}
+                  <span className="font-medium">{selectedLeaseBooth?.name ?? '—'}</span>
+                  {leaseForm.isShared && <Badge variant="outline" className="ml-2 text-[10px]">Shared</Badge>}</p>
+                {leaseForm.isShared && leaseForm.scheduleDays.length > 0 && (
+                  <p><span className="text-muted-foreground">Schedule:</span>{' '}
+                    <span className="font-medium">
+                      {leaseForm.scheduleLabel || leaseForm.scheduleDays.map((d) => WEEKDAY_LABELS[d]).join(', ')}
+                      {leaseForm.scheduleStartTime && ` · ${leaseForm.scheduleStartTime}`}
+                      {leaseForm.scheduleEndTime && `–${leaseForm.scheduleEndTime}`}
+                    </span></p>
+                )}
+                <p><span className="text-muted-foreground">Rent:</span>{' '}
+                  <span className="font-medium">{formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} / {(FREQUENCY_LABELS[leaseForm.frequency] ?? leaseForm.frequency ?? 'period').toLowerCase()}</span></p>
+                <p><span className="text-muted-foreground">First charge:</span>{' '}<span className="font-medium">{leaseForm.firstChargeDate}</span></p>
+                <p><span className="text-muted-foreground">Term:</span>{' '}
+                  <span className="font-medium">{leaseForm.startDate} — {leaseForm.endDate || 'month-to-month'}{leaseForm.autoRenew ? ' (auto-renews)' : ''}</span></p>
+                <p><span className="text-muted-foreground">Deposit:</span>{' '}
+                  <span className="font-medium">{toNumber(leaseForm.depositDollars) > 0
+                    ? `${formatCents(Math.round(toNumber(leaseForm.depositDollars) * 100))} (${leaseForm.depositRefundable ? 'refundable' : 'non-refundable'})`
+                    : 'None'}</span></p>
+                <p><span className="text-muted-foreground">Late fee:</span>{' '}
+                  <span className="font-medium">{leaseForm.lateFeeEnabled
+                    ? leaseForm.lateFeeType === 'flat'
+                      ? `${formatCents(Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100))} after ${leaseForm.lateFeeGraceDays} grace days`
+                      : `${leaseForm.lateFeePercent}% after ${leaseForm.lateFeeGraceDays} grace days`
+                    : 'None'}</span></p>
+                <p><span className="text-muted-foreground">Perks:</span>{' '}
+                  <span className="font-medium">{leaseForm.perks.length > 0 ? leaseForm.perks.map((p) => p.label).join(', ') : 'None'}</span></p>
+                <p><span className="text-muted-foreground">Agreement:</span>{' '}
+                  <span className="font-medium">{leaseForm.signedFile ? leaseForm.signedFile.name : 'Not uploaded'}</span></p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Creating this lease marks the booth {leaseForm.isShared ? 'as shared (partial)' : 'occupied'} and the renter active.
+              </p>
+              {leaseError && (
+                <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />{leaseError}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            {leaseStep > 0 && (
+              <Button variant="outline" onClick={() => setLeaseStep((s) => s - 1)} disabled={savingLease}>
+                <ChevronLeft className="h-4 w-4 mr-1" />Back
+              </Button>
+            )}
+            {leaseStep < WIZARD_STEPS.length - 1 && (
+              <Button onClick={() => setLeaseStep((s) => s + 1)} disabled={!wizardCanAdvance}>
+                Next<ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            )}
+            {leaseStep === WIZARD_STEPS.length - 1 && (
+              <Button onClick={handleCreateLease} disabled={savingLease}>
+                {savingLease ? 'Creating…' : 'Create lease'}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renter status change */}
+      <Dialog open={Boolean(statusTarget)} onOpenChange={(open) => { if (!open) setStatusTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change renter status</DialogTitle>
+            <DialogDescription>Leave and maternity leave pause billing while keeping the lease active.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>New status</Label>
+            <Select value={newStatus} onValueChange={(v) => setNewStatus(v as RenterStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(['active', 'on_leave', 'maternity_leave', 'subletting'] as RenterStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>{RENTER_STATUS_LABELS[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusTarget(null)}>Cancel</Button>
+            <Button onClick={handleStatusChange} disabled={savingStatus}>{savingStatus ? 'Updating…' : 'Update status'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* End lease */}
+      <AlertDialog open={Boolean(endLeaseTarget)} onOpenChange={(open) => { if (!open) setEndLeaseTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End lease?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This ends <strong>{endLeaseTarget?.firstName} {endLeaseTarget?.lastName}</strong>'s lease immediately,
+              frees the booth, and marks them as Past. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingEndLease}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleEndLease} disabled={savingEndLease}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {savingEndLease ? 'Ending…' : 'End lease'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PricingAdvisor
         open={pricingOpen}
