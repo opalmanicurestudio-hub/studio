@@ -44,7 +44,9 @@ import {
     Gamepad2,
     MessageSquare,
     Coffee,
-    Award
+    Award,
+    Hash,
+    Pipette
 } from 'lucide-react';
 import { cn, safeNumber } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
@@ -72,10 +74,10 @@ const colors = [
     { name: 'Black', value: '#000000' },   
 ];
 
-type ToolType = 'pencil' | 'text' | 'magnifier' | 'select' | 'pan' | 'sticker';
+type ToolType = 'pencil' | 'text' | 'magnifier' | 'select' | 'pan' | 'sticker' | 'zone';
 type TextSize = 'sm' | 'md' | 'lg';
 type PenStyle = 'solid' | 'dashed' | 'highlighter';
-type StickerType = 'arrow' | 'star' | 'alert' | 'check' | 'cross' | 'target';
+type StickerType = 'arrow' | 'star' | 'alert' | 'check' | 'cross' | 'target' | 'number';
 
 interface BaseAnnotation {
     id: string;
@@ -95,10 +97,24 @@ interface TextAnnotation extends BaseAnnotation {
 interface StickerAnnotation extends BaseAnnotation {
     type: 'sticker';
     stickerType: StickerType;
+    // v2 — only set when stickerType === 'number'. Fixed at creation time,
+    // not recomputed live from position-in-array — deleting an earlier
+    // numbered sticker shouldn't silently renumber every sticker after it.
+    number?: number;
 }
 
 interface MagnifierLens extends BaseAnnotation {
     type: 'lens';
+    r: number;
+}
+
+// v2 — NEW: a "zone" — an outlined circle marking an area, distinct from
+// the fixed-size stickers (which mark a POINT) and the magnifier lens
+// (which shows a zoomed crop). Sized by drag distance from where the
+// gesture started, same interaction pattern nail techs already expect from
+// "circle the area you mean" markup on a reference photo.
+interface ZoneAnnotation extends BaseAnnotation {
+    type: 'zone';
     r: number;
 }
 
@@ -110,7 +126,7 @@ interface Path {
     style: PenStyle;
 }
 
-type Annotation = TextAnnotation | StickerAnnotation | MagnifierLens;
+type Annotation = TextAnnotation | StickerAnnotation | MagnifierLens | ZoneAnnotation;
 
 export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   open,
@@ -132,6 +148,15 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   const [brushSize, setBrushSize] = useState(3);
   const [textSize, setTextSize] = useState<TextSize>('md');
   const [penStyle, setPenStyle] = useState<PenStyle>('solid');
+  // v2 — which sticker gets placed next. Previously hardcoded to 'arrow'
+  // with no picker UI at all — none of the other 5 defined sticker types
+  // (star/alert/check/cross/target) were actually reachable from the
+  // toolbar. Fixed alongside adding the new 'number' type.
+  const [stickerType, setStickerType] = useState<StickerType>('arrow');
+  // v2 — the in-progress zone circle while dragging to size it. Not part
+  // of `annotations` until the drag completes — same reasoning as not
+  // wanting half-drawn state polluting undo history.
+  const [drawingZone, setDrawingZone] = useState<ZoneAnnotation | null>(null);
   
   // Spatial State
   const [viewTransform, setViewTransform] = useState({ scale: 1, x: 0, y: 0 });
@@ -219,6 +244,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
               ctx.moveTo(0, -size); ctx.lineTo(0, size);
               ctx.stroke();
               break;
+          case 'number':
+              // Filled badge circle, matching the visual weight of the
+              // filled 'star' case above rather than the outlined ones —
+              // a sequence number needs to read clearly at a glance.
+              ctx.beginPath();
+              ctx.arc(0, 0, size * 0.85, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.font = `900 ${size}px Figtree, sans-serif`;
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillStyle = '#ffffff';
+              ctx.fillText(String(s.number ?? ''), 0, 1);
+              break;
       }
       ctx.restore();
   };
@@ -273,6 +311,26 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.restore();
     });
 
+    // Zones — outlined circles marking an area, distinct from the lens
+    // (which shows a zoomed crop) and stickers (which mark a point).
+    // Rendered before paths/stickers/text so hand-drawn marks and stickers
+    // always sit visually on top of a zone outline, never hidden by it.
+    const drawZoneCircle = (z: { x: number; y: number; r: number; color: string }, dashed: boolean) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(z.x, z.y, Math.max(1, z.r), 0, Math.PI * 2);
+        ctx.strokeStyle = z.color;
+        ctx.lineWidth = 3;
+        ctx.setLineDash(dashed ? [6, 6] : []);
+        ctx.stroke();
+        ctx.restore();
+    };
+    annotations.filter(a => a.type === 'zone').forEach(zone => {
+        const z = zone as ZoneAnnotation;
+        drawZoneCircle(z, selectedId === z.id);
+    });
+    if (drawingZone) drawZoneCircle(drawingZone, true);
+
     // Paths
     paths.forEach(path => {
         if (path.points.length < 2) return;
@@ -322,7 +380,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         ctx.fillText(text.text.toUpperCase(), 0, 0);
         ctx.restore();
     });
-  }, [annotations, paths, selectedId, viewTransform]);
+  }, [annotations, paths, selectedId, viewTransform, drawingZone]);
 
   // --- COORDINATE UTILS ---
 
@@ -390,6 +448,14 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
         }
         if (a.type === 'sticker') return Math.hypot(x - a.x, y - a.y) < (30 * a.scale);
         if (a.type === 'lens') return Math.hypot(x - a.x, y - a.y) < (a as MagnifierLens).r;
+        if (a.type === 'zone') {
+            // Hit the outline ring, not the whole filled area — a zone is
+            // meant to circle something without blocking taps on what's
+            // inside it, so only the stroke itself (±8px tolerance) counts.
+            const z = a as ZoneAnnotation;
+            const dist = Math.hypot(x - z.x, y - z.y);
+            return Math.abs(dist - z.r) < 8;
+        }
         return false;
     });
 
@@ -417,10 +483,26 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     }
     if (tool === 'sticker') { 
         saveToHistory();
-        const newSticker: StickerAnnotation = { id: nanoid(), type: 'sticker', stickerType: 'arrow', x, y, color, rotation: 0, scale: 1 };
+        // v2 — FIX: previously hardcoded stickerType: 'arrow' regardless of
+        // what was selected — none of the other 5 defined sticker types
+        // were ever actually reachable. Now uses the picker state.
+        const isNumbered = stickerType === 'number';
+        const nextNumber = isNumbered
+            ? annotations.filter(a => a.type === 'sticker' && (a as StickerAnnotation).stickerType === 'number').length + 1
+            : undefined;
+        const newSticker: StickerAnnotation = { id: nanoid(), type: 'sticker', stickerType, x, y, color, rotation: 0, scale: 1, ...(isNumbered ? { number: nextNumber } : {}) };
         setAnnotations(prev => [...prev, newSticker]); 
         setSelectedId(newSticker.id);
         setTool('select');
+        return;
+    }
+    if (tool === 'zone') {
+        // v2 — NEW: drag-to-size, unlike stickers/lens which place at a
+        // fixed size on tap. Not pushed into `annotations` until the drag
+        // completes in handleMouseUp — see drawingZone state.
+        saveToHistory();
+        setDrawingZone({ id: nanoid(), type: 'zone', x, y, r: 1, color, rotation: 0, scale: 1 });
+        return;
     }
     
     setSelectedId(null);
@@ -485,6 +567,11 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             return [...prev.slice(0, -1), { ...last, points: [...last.points, coords] }];
         });
     }
+
+    if (drawingZone) {
+        const r = Math.hypot(coords.x - drawingZone.x, coords.y - drawingZone.y);
+        setDrawingZone(prev => prev ? { ...prev, r } : prev);
+    }
   };
 
   const handleMouseUp = () => {
@@ -493,6 +580,42 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     setIsPanning(false); 
     setLastPinchDist(null);
     setLastPinchAngle(null);
+    if (drawingZone) {
+        // A near-zero-radius zone means it was a tap, not a drag — treat
+        // it as an accidental placement rather than committing an
+        // invisible zone the person would have no way to select later.
+        if (drawingZone.r >= 8) {
+            const finalZone = drawingZone;
+            setAnnotations(prev => [...prev, finalZone]);
+            setSelectedId(finalZone.id);
+            setTool('select');
+        }
+        setDrawingZone(null);
+    }
+  };
+
+  // v2 — NEW: scroll-wheel zoom for desktop/mouse+trackpad users. Pinch-
+  // zoom previously only worked via touch gestures — anyone on a mouse had
+  // no way to zoom in for precision work at all. Centered on the cursor
+  // position, same math as the pinch-zoom handler above (zoom toward
+  // wherever the cursor is, not the canvas center).
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const pX = e.clientX - rect.left;
+    const pY = e.clientY - rect.top;
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    setViewTransform(prev => {
+        const newScale = Math.min(5, Math.max(1, prev.scale * zoomFactor));
+        const actualFactor = newScale / prev.scale;
+        return {
+            scale: newScale,
+            x: pX - (pX - prev.x) * actualFactor,
+            y: pY - (pY - prev.y) * actualFactor,
+        };
+    });
   };
 
   // --- LIFECYCLE ---
@@ -539,6 +662,27 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
   useEffect(() => {
     if (!isLoading) drawAll();
   }, [isLoading, annotations, paths, selectedId, viewTransform, color, drawAll]);
+
+  // v2 — NEW: samples a color directly FROM the reference photo (or
+  // anywhere on screen — that's how the native API works), rather than
+  // only offering the 6 fixed presets or a generic color wheel. Genuinely
+  // useful here specifically: matching an exact shade from the client's
+  // inspiration photo. Gracefully degrades on browsers without support
+  // (Safari/Firefox as of this writing) — the custom color wheel below
+  // still works everywhere as the fallback.
+  const handleEyedropper = async () => {
+    if (!('EyeDropper' in window)) {
+        toast({ variant: 'destructive', title: 'Not supported in this browser', description: 'Try the color wheel next to it instead.' });
+        return;
+    }
+    try {
+        const eyeDropper = new (window as any).EyeDropper();
+        const result = await eyeDropper.open();
+        if (result?.sRGBHex) setColor(result.sRGBHex);
+    } catch {
+        // Person pressed Escape / cancelled the picker — not an error.
+    }
+  };
 
   const handleTextSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -587,6 +731,35 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                     style={{ backgroundColor: c.value }}
                                 />
                             ))}
+                            {/* v2 — custom color wheel: any color, not just
+                                the 6 presets. Works everywhere, unlike the
+                                eyedropper next to it. */}
+                            <label
+                                className="relative w-7 h-7 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer overflow-hidden shrink-0"
+                                title="Custom color"
+                                style={!colors.some(c => c.value === color) ? { backgroundColor: color, borderStyle: 'solid', borderColor: 'var(--primary)' } : undefined}
+                            >
+                                {colors.some(c => c.value === color) && <Palette className="w-3 h-3 text-slate-400" />}
+                                <input
+                                    type="color"
+                                    value={color}
+                                    onChange={(e) => setColor(e.target.value)}
+                                    className="absolute inset-0 opacity-0 cursor-pointer"
+                                />
+                            </label>
+                            {/* v2 — eyedropper: samples an exact color from
+                                the photo itself (e.g. matching a shade),
+                                rather than eyeballing it on a color wheel. */}
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <button onClick={handleEyedropper} className="w-7 h-7 rounded-full border-2 border-slate-200 bg-white flex items-center justify-center shrink-0 hover:border-primary/40 transition-colors active:scale-90">
+                                            <Pipette className="w-3.5 h-3.5 text-slate-500" />
+                                        </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="font-black uppercase text-[9px] border-2">Sample from photo</TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
                         </div>
                         <Separator orientation="vertical" className="h-8 mx-2" />
                         <div className="flex items-center gap-1.5 md:gap-2">
@@ -595,6 +768,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 <Tooltip><TooltipTrigger asChild><Button variant={tool === 'text' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('text')} className="h-10 w-10 rounded-xl"><TypeIcon className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Notes</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={tool === 'magnifier' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('magnifier')} className="h-10 w-10 rounded-xl text-indigo-600"><ZoomIn className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Lens</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={tool === 'sticker' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('sticker')} className="h-10 w-10 rounded-xl"><Target className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Stickers</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><Button variant={tool === 'zone' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('zone')} className="h-10 w-10 rounded-xl"><Circle className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Zone (drag to size)</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={tool === 'select' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('select')} className="h-10 w-10 rounded-xl"><MousePointer2 className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Transform</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><Button variant={tool === 'pan' ? 'default' : 'ghost'} size="icon" onClick={() => setTool('pan')} className="h-10 w-10 rounded-xl"><Hand className="w-4 h-4" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Pan / Zoom</TooltipContent></Tooltip>
                             </TooltipProvider>
@@ -612,6 +786,19 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                                 <Button variant={textSize === 'sm' ? 'secondary' : 'ghost'} size="sm" onClick={() => setTextSize('sm')} className="h-8 px-3 rounded-lg font-black text-[9px] uppercase">Small</Button>
                                 <Button variant={textSize === 'md' ? 'secondary' : 'ghost'} size="sm" onClick={() => setTextSize('md')} className="h-8 px-3 rounded-lg font-black text-[9px] uppercase">Medium</Button>
                                 <Button variant={textSize === 'lg' ? 'secondary' : 'ghost'} size="sm" onClick={() => setTextSize('lg')} className="h-8 px-3 rounded-lg font-black text-[9px] uppercase">Large</Button>
+                            </div>
+                        )}
+                        {tool === 'sticker' && (
+                            <div className="flex items-center gap-1 animate-in slide-in-from-left-2">
+                                <TooltipProvider>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'arrow' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('arrow')} className="h-8 w-8 rounded-lg"><ArrowUpRight className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Arrow</TooltipContent></Tooltip>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'star' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('star')} className="h-8 w-8 rounded-lg"><Star className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Star</TooltipContent></Tooltip>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'alert' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('alert')} className="h-8 w-8 rounded-lg"><AlertCircle className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Alert</TooltipContent></Tooltip>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'check' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('check')} className="h-8 w-8 rounded-lg"><Check className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Check</TooltipContent></Tooltip>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'cross' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('cross')} className="h-8 w-8 rounded-lg"><X className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Cross</TooltipContent></Tooltip>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'target' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('target')} className="h-8 w-8 rounded-lg"><Target className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Target</TooltipContent></Tooltip>
+                                    <Tooltip><TooltipTrigger asChild><Button variant={stickerType === 'number' ? 'secondary' : 'ghost'} size="icon" onClick={() => setStickerType('number')} className="h-8 w-8 rounded-lg"><Hash className="w-3.5 h-3.5" /></Button></TooltipTrigger><TooltipContent className="font-black uppercase text-[9px] border-2">Numbered sequence</TooltipContent></Tooltip>
+                                </TooltipProvider>
                             </div>
                         )}
                         <div className="flex gap-2 ml-auto">
@@ -639,6 +826,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                     onTouchStart={handleMouseDown}
                     onTouchMove={handleMouseMove}
                     onTouchEnd={handleMouseUp}
+                    onWheel={handleWheel}
                     className={cn("shadow-2xl rounded-2xl bg-white border-2 cursor-crosshair", isLoading ? "opacity-0" : "opacity-100")}
                 />
                 {textInput && (
