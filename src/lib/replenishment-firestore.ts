@@ -40,9 +40,27 @@ import {
 // ---------- Submitting a request (staff-facing) ----------
 
 /**
+ * Solo providers have no one else to approve their own requests — the
+ * approval queue becomes pointless friction, not a safeguard, when the
+ * requester and the only possible approver are the same person. Rather
+ * than a separate code path, solo tenants auto-approve through the exact
+ * same approveReplenishment() logic — same validation, same stock
+ * deduction, same stockCorrection audit entry — just without a human
+ * waiting in a queue first.
+ */
+export function shouldAutoApprove(tenant: { subscriptionTier?: string }): boolean {
+  return tenant.subscriptionTier === 'solo';
+}
+
+/**
  * Staff member submits a replenishment request. No stock movement here —
  * just creates the pending request document. A plain write, not a
  * transaction, since nothing else is read/written alongside it.
+ *
+ * If the tenant is solo-tier, call approveReplenishmentRequestTx()
+ * immediately after this returns, using the requester themself as the
+ * approvingManager — see submitAndAutoApproveIfSolo() below for the
+ * combined helper.
  */
 export async function submitReplenishmentRequest(
   firestore: Firestore,
