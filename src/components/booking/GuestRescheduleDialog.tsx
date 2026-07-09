@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -151,42 +150,30 @@ export const GuestRescheduleDialog = ({
     const handleNextWeek = () => setRescheduleDate(prev => addWeeks(prev, 1));
     const handleDateSelect = (day: Date) => setRescheduleDate(day);
 
-    // POLICY LOGIC
-    const isWithinCancellationWindow = useMemo(() => {
-        if (!appointment || !tenant?.cancellationWindowHours) return false;
-        const startTime = safeDate(appointment.startTime);
-        const hoursUntil = differenceInHours(startTime, new Date());
-        const requiredWindow = service.cancellationWindowHours || tenant.cancellationWindowHours || 24;
-        return hoursUntil < requiredWindow;
-    }, [appointment, tenant, service]);
-
-    const recoveryFee = useMemo(() => {
-        if (!isWithinCancellationWindow) return 0;
-        if (!tenant?.tmhr || !service) return 0;
-        
-        const mode = service.cancellationFeeMode || tenant.defaultCancellationMode || 'matrix';
-        
-        if (mode === 'percentage') {
-            return service.price * (safeNumber(tenant.cancellationFeePercent || 50) / 100);
-        } else if (mode === 'flat') {
-            return service.customCancellationFee || tenant.cancellationFee || 0;
-        } else {
-            // Matrix Calculation (Time + Materials)
-            const totalDuration = (service.duration || 60) + (service.padBefore || 0) + (service.padAfter || 0);
-            const overhead = (totalDuration / 60) * tenant.tmhr;
-            const materialCost = (service.products || []).reduce((acc, p) => {
-                const product = inventory.find(i => i.id === p.id);
-                let cpu = 0;
-                if (product) {
-                    if (product.costingMethod === 'size' && product.size) cpu = (product.costPerUnit || 0) / product.size;
-                    else if (product.costingMethod === 'uses' && product.estimatedUses) cpu = (product.costPerUnit || 0) / product.estimatedUses;
-                    else cpu = product.costPerUnit || 0;
-                }
-                return acc + (cpu * (p.quantityUsed || 1));
-            }, 0);
-            return Number((overhead + materialCost).toFixed(2));
-        }
-    }, [isWithinCancellationWindow, tenant, service, inventory]);
+    // v2 — FIX: previously computed via the CANCELLATION fee machinery
+    // (tenant.cancellationWindowHours, service.cancellationFeeMode —
+    // percentage/flat/matrix time+materials cost). That's the same math
+    // used to charge someone for cancelling outright, applied here to
+    // someone just MOVING their appointment — a client rescheduling
+    // through this dialog could be charged the full service price (under
+    // 'percentage' mode) or a full time+materials cost (under 'matrix'
+    // mode), while a staff member moving the identical appointment via
+    // RescheduleAppointmentDialog applies a separate, deliberately lenient,
+    // opt-in-only fee. Same action, wildly different possible cost
+    // depending only on who initiates it — and a harsh fee here actively
+    // works against the studio, since a client facing it will often just
+    // cancel outright instead of rescheduling, which is strictly worse.
+    // Now uses the exact same tenant.rescheduleFee / rescheduleFeeWindowHours
+    // fields as the staff dialog, so a reschedule costs the same regardless
+    // of who initiates it.
+    const rescheduleFee = safeNumber(tenant?.rescheduleFee || 0);
+    const rescheduleWindowHours = safeNumber(tenant?.rescheduleFeeWindowHours || 0);
+    const hoursUntilOriginal = useMemo(
+        () => differenceInHours(safeDate(appointment.startTime), new Date()),
+        [appointment],
+    );
+    const isWithinCancellationWindow = rescheduleFee > 0 && rescheduleWindowHours > 0 && hoursUntilOriginal < rescheduleWindowHours;
+    const recoveryFee = isWithinCancellationWindow ? rescheduleFee : 0;
 
     const timeSlots = useMemo(() => {
         if (!service || !rescheduleDate || !publicScheduleProfile || !staff || !services) return [];
@@ -270,14 +257,14 @@ export const GuestRescheduleDialog = ({
                                 <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                                     <Alert variant="destructive" className="border-4 border-destructive/20 bg-destructive/[0.02] rounded-[2.5rem] p-6 shadow-2xl">
                                         <AlertTriangle className="h-6 w-6 text-destructive" />
-                                        <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Protocol Notice</AlertTitle>
+                                        <AlertTitle className="text-sm font-black uppercase tracking-tight mb-2">Short-Notice Reschedule</AlertTitle>
                                         <AlertDescription className="text-xs font-bold leading-relaxed opacity-80 uppercase text-left">
-                                            This session is within the <strong>{service.cancellationWindowHours || tenant?.cancellationWindowHours || 24}h</strong> notice window.
+                                            This move is within the <strong>{rescheduleWindowHours}h</strong> reschedule window.
                                         </AlertDescription>
                                     </Alert>
 
                                     <div className="p-6 rounded-[2.5rem] border-4 border-primary/10 bg-primary/[0.02] shadow-inner space-y-6 text-center">
-                                        <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest leading-none">Operational Recovery Fee</p>
+                                        <p className="text-[10px] font-black uppercase text-primary/60 tracking-widest leading-none">Short-Notice Reschedule Fee</p>
                                         <p className="text-5xl font-black text-primary tracking-tighter font-mono">${recoveryFee.toFixed(2)}</p>
                                         
                                         <div className="space-y-4 text-left">
