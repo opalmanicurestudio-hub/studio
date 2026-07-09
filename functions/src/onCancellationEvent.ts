@@ -225,59 +225,79 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         const chargeId: string | null =
           latestCharge && typeof latestCharge === 'object' ? latestCharge.id : (latestCharge || null);
 
+        // v2 — FIX: chargeStatus is set the moment the charge itself
+        // succeeds — BEFORE any of the follow-up writes below. Previously
+        // the ledger-write and notification-write shared the same try block
+        // as the charge, so if either of THOSE threw (permissions blip,
+        // network hiccup — nothing to do with Stripe), the outer catch set
+        // chargeStatus: 'failed' and told staff to "collect manually," even
+        // though the card had genuinely already been charged. That's a real
+        // double-charge risk if staff don't think to check Stripe directly
+        // first. The card being charged and the ledger being written are
+        // now two independent facts — a follow-up write failing degrades to
+        // a flagged, fixable bookkeeping gap, never a false "declined."
         updates.chargeStatus = 'charged';
         updates.stripeChargeId = chargeId || paymentIntent.id;
         updates.stripeChargeAmountCents = amountCents;
 
-        // Record the cancellation-fee REVENUE line. taxBucket:'revenue' +
-        // stripeChargeId are exactly what the webhook's charge.succeeded
-        // back-fill looks for, so it will attach stripeNetAmountDollars /
-        // stripeFeeAmountDollars to this row once the fee posts. The matching
-        // fee EXPENSE line is written by the webhook, not here.
-        const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        await txRef.set({
-          id: txRef.id,
-          tenantId,
-          date: new Date().toISOString(),
-          appointmentId: data.appointmentId,
-          clientId: data.clientId,
-          clientName: data.clientName,
-          clientOrVendor: data.clientName,
-          type: 'income',
-          context: 'Business',
-          category: 'Cancellation Fee',
-          taxBucket: 'revenue',
-          amount: data.feeAmount,
-          amountCents,
-          stripeChargeId: chargeId,
-          stripePaymentIntentId: paymentIntent.id,
-          stripePaymentMethodId: data.stripePaymentMethodId,
-          status: 'succeeded',
-          reason: data.reason,
-          actorType: data.cancellationAudit?.actorType,
-          createdAt: new Date().toISOString(),
-        });
-
-        // Notify owner/admin that card was charged
-        const adminsSnap = await db
-          .collection(`tenants/${tenantId}/staff`)
-          .where('role', 'in', ['admin', 'owner'])
-          .get();
-
-        const notifBatch = db.batch();
-        adminsSnap.docs.forEach(d => {
-          const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-          notifBatch.set(notifRef, {
-            id: notifRef.id,
-            userId: d.id,
-            type: 'cancellation_charge',
-            message: `$${data.feeAmount.toFixed(2)} cancellation fee charged to ${data.clientName}`,
-            link: `/clients/${data.clientId}`,
+        try {
+          // Record the cancellation-fee REVENUE line. taxBucket:'revenue' +
+          // stripeChargeId are exactly what the webhook's charge.succeeded
+          // back-fill looks for, so it will attach stripeNetAmountDollars /
+          // stripeFeeAmountDollars to this row once the fee posts. The matching
+          // fee EXPENSE line is written by the webhook, not here.
+          const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await txRef.set({
+            id: txRef.id,
+            tenantId,
+            date: new Date().toISOString(),
+            appointmentId: data.appointmentId,
+            clientId: data.clientId,
+            clientName: data.clientName,
+            clientOrVendor: data.clientName,
+            type: 'income',
+            context: 'Business',
+            category: 'Cancellation Fee',
+            taxBucket: 'revenue',
+            amount: data.feeAmount,
+            amountCents,
+            stripeChargeId: chargeId,
+            stripePaymentIntentId: paymentIntent.id,
+            stripePaymentMethodId: data.stripePaymentMethodId,
+            status: 'succeeded',
+            reason: data.reason,
+            actorType: data.cancellationAudit?.actorType,
             createdAt: new Date().toISOString(),
-            read: false,
           });
-        });
-        await notifBatch.commit();
+
+          // Notify owner/admin that card was charged
+          const adminsSnap = await db
+            .collection(`tenants/${tenantId}/staff`)
+            .where('role', 'in', ['admin', 'owner'])
+            .get();
+
+          const notifBatch = db.batch();
+          adminsSnap.docs.forEach(d => {
+            const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+            notifBatch.set(notifRef, {
+              id: notifRef.id,
+              userId: d.id,
+              type: 'cancellation_charge',
+              message: `$${data.feeAmount.toFixed(2)} cancellation fee charged to ${data.clientName}`,
+              link: `/clients/${data.clientId}`,
+              createdAt: new Date().toISOString(),
+              read: false,
+            });
+          });
+          await notifBatch.commit();
+        } catch (ledgerErr: any) {
+          // The charge succeeded — chargeStatus above already reflects
+          // that and is not touched here. This only flags that the
+          // bookkeeping/notification side of it needs a manual look.
+          console.error('Cancellation charge succeeded but ledger/notification write failed:', ledgerErr);
+          updates.ledgerWriteFailed = true;
+          updates.ledgerErrorMessage = ledgerErr?.message || 'Ledger write failed after successful charge';
+        }
 
       } catch (stripeErr: any) {
         console.error('Stripe charge failed:', stripeErr);
@@ -303,7 +323,16 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
       updates.chargeStatus = 'waived';
     } else if (data.paymentMethod === 'add_to_balance') {
       updates.chargeStatus = 'balance';
-      // Balance was already incremented by the route; log the transaction here
+      // v2 — FIX: previously written with type: 'cancellation_fee', which
+      // the client ledger's rendering logic doesn't recognize — anything
+      // that isn't literally 'income' or 'reversal' renders as a red,
+      // minus-sign EXPENSE line. Money the studio is owed was displaying as
+      // money going out. Now uses type: 'income' with taxBucket: 'revenue'
+      // (matching the successful-charge branch above) plus an explicit
+      // status: 'balance_owed' so it's still distinguishable as
+      // not-yet-collected — the outstandingBalance/unpaidFees fields
+      // already written by the route are the actual source of truth for
+      // "still owed"; this is just its ledger-visible line item.
       const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
       await txRef.set({
         id: txRef.id,
@@ -311,9 +340,13 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         appointmentId: data.appointmentId,
         clientId: data.clientId,
         clientName: data.clientName,
-        type: 'cancellation_fee',
+        clientOrVendor: data.clientName,
+        type: 'income',
+        context: 'Business',
         category: 'Cancellation Fee',
+        taxBucket: 'revenue',
         amount: data.feeAmount,
+        amountCents: Math.round(data.feeAmount * 100),
         status: 'balance_owed',
         reason: data.reason,
         actorType: data.cancellationAudit?.actorType,
@@ -327,6 +360,8 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
       // no ledger line — the fee vanished silently. Record it as owed, add it
       // to the client's balance, and flag staff so nothing is ever lost again.
       updates.chargeStatus = 'uncollected';
+      // v2 — FIX: same type mismatch as the add_to_balance branch above —
+      // corrected the same way.
       const txRef = db.collection(`tenants/${tenantId}/transactions`).doc();
       await txRef.set({
         id: txRef.id,
@@ -334,9 +369,13 @@ export const onCancellationEvent = functions.firestore.onDocumentCreated(
         appointmentId: data.appointmentId,
         clientId: data.clientId,
         clientName: data.clientName,
-        type: 'cancellation_fee',
+        clientOrVendor: data.clientName,
+        type: 'income',
+        context: 'Business',
         category: 'Cancellation Fee',
+        taxBucket: 'revenue',
         amount: data.feeAmount,
+        amountCents: Math.round(data.feeAmount * 100),
         status: 'balance_owed',
         reason: data.reason,
         actorType: data.cancellationAudit?.actorType,
