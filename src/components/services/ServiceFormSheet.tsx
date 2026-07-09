@@ -76,6 +76,22 @@ const schema = z.object({
   })).optional(),
   confirmationMessage: z.string().optional(),
   requiredFormIds: z.array(z.string()).optional(),
+  // v2 — NEW: document/file requirements configured once at the service
+  // level, mirroring requiredFormIds above. Previously the only place
+  // "Photo ID" or similar could be requested was ad-hoc, per-booking, in
+  // AppointmentDetailsSheet's request panel or QuickBookForm's single
+  // hardcoded "inspiration photos" toggle — nothing tied a requirement to
+  // WHICH service was booked, so nobody (least of all an automated
+  // booking agent with no human judgment to fall back on) had a reliable
+  // way to know a given treatment always needs a photo ID without
+  // remembering it case by case.
+  requiredFileRequirements: z.array(z.object({
+    id: z.string(),
+    label: z.string().min(1),
+    minCount: z.coerce.number().min(1).optional(),
+    maxCount: z.coerce.number().optional(),
+    persistToProfile: z.boolean().optional(),
+  })).optional(),
   cancellationWindowHours: z.coerce.number().optional(),
   customCancellationFee: z.coerce.number().optional(),
 }).superRefine((data, ctx) => {
@@ -270,6 +286,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [newFileReqLabel, setNewFileReqLabel] = useState('');
+  const [newFileReqPersist, setNewFileReqPersist] = useState(false);
 
   const { data: consentForms }   = useCollection<ConsentForm>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/consentForms`), [firestore, selectedTenant]));
   const { data: pricingTiers }   = useCollection<PricingTier>(useMemoFirebase(() => !firestore || !selectedTenant ? null : collection(firestore, `tenants/${selectedTenant.id}/pricingTiers`), [firestore, selectedTenant]));
@@ -280,6 +298,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       type: initialType, isAddon: initialType === 'addon',
       depositType: 'none', products: [], requiredResourceIds: [],
       compatibleAddOnIds: [], serviceTiers: [], requiredFormIds: [],
+      requiredFileRequirements: [],
       price: 0, padBefore: 0, padAfter: 0,
     },
   });
@@ -304,6 +323,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
         depositType: service.depositType || 'none', depositSubType: service.depositSubType,
         depositAmount: service.depositAmount, confirmationMessage: service.confirmationMessage || '',
         requiredFormIds: service.requiredFormIds || [], capacity: service.capacity,
+        requiredFileRequirements: (service as any).requiredFileRequirements || [],
         cancellationWindowHours: service.cancellationWindowHours,
         customCancellationFee: service.customCancellationFee,
       });
@@ -311,7 +331,8 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       reset({
         type: initialType, isAddon: initialType === 'addon', depositType: 'none',
         products: [], requiredResourceIds: [], compatibleAddOnIds: [],
-        serviceTiers: [], requiredFormIds: [], price: 0, padBefore: 0, padAfter: 0,
+        serviceTiers: [], requiredFormIds: [], requiredFileRequirements: [],
+        price: 0, padBefore: 0, padAfter: 0,
       });
     }
   }, [open, serviceId, mode]);
@@ -353,6 +374,7 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
   const selectedResourceIds = watch('requiredResourceIds') || [];
   const selectedAddOnIds    = watch('compatibleAddOnIds') || [];
   const selectedFormIds     = watch('requiredFormIds') || [];
+  const fileRequirements    = watch('requiredFileRequirements') || [];
   const serviceTiers        = watch('serviceTiers') || [];
 
   const toggleProduct = useCallback((id: string) => {
@@ -393,6 +415,25 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
       : [...selectedFormIds, id];
     setValue('requiredFormIds', next, { shouldDirty: true });
   }, [selectedFormIds, setValue]);
+
+  // v2 — file requirements are custom, ad-hoc entries (not picked from an
+  // existing list like consent forms are), so these build/edit the array
+  // directly rather than toggling membership in a fixed source list.
+  const addFileRequirement = useCallback((label: string, persistToProfile: boolean) => {
+    if (!label.trim()) return;
+    setValue('requiredFileRequirements', [
+      ...fileRequirements,
+      { id: `filereq_${nanoid()}`, label: label.trim(), minCount: 1, maxCount: 5, persistToProfile },
+    ], { shouldDirty: true });
+  }, [fileRequirements, setValue]);
+
+  const removeFileRequirement = useCallback((id: string) => {
+    setValue('requiredFileRequirements', fileRequirements.filter((f: any) => f.id !== id), { shouldDirty: true });
+  }, [fileRequirements, setValue]);
+
+  const updateFileRequirement = useCallback((id: string, patch: Record<string, any>) => {
+    setValue('requiredFileRequirements', fileRequirements.map((f: any) => f.id === id ? { ...f, ...patch } : f), { shouldDirty: true });
+  }, [fileRequirements, setValue]);
 
   const toggleTier = (tierId: string, checked: boolean) => {
     if (checked) {
@@ -784,6 +825,88 @@ export const ServiceFormSheet: React.FC<ServiceFormSheetProps> = ({
                   <span className="font-bold uppercase text-[10px] text-slate-700 flex-1 truncate">{(item as any).title || item.name || 'Untitled form'}</span>
                 )}
               />
+            </section>
+
+            <Separator />
+
+            {/* v2 — NEW: Required Documents. Mirrors the consent-forms
+                section above, but these are custom, ad-hoc entries rather
+                than picks from an existing library — a service just needs
+                "Photo ID" or "Doctor's note," not a reference to a shared
+                document definition. Configured once here, every booking
+                path (staff call-in, self-service, and any automated
+                booking agent) can read requiredFileRequirements directly
+                off the service instead of a human needing to remember to
+                ask case by case. persistToProfile mirrors the same field
+                already used in bookingCompletions.fileRequirements — "On
+                File" means signed/uploaded once, valid for future visits;
+                "Every Time" means re-requested at every booking. */}
+            <section className="space-y-3">
+              <SectionLabel>Required Documents</SectionLabel>
+              <div className="space-y-2">
+                {fileRequirements.length === 0 && (
+                  <p className="text-center py-4 text-[10px] font-black uppercase text-slate-400">No documents required for this service</p>
+                )}
+                {fileRequirements.map((fr: any) => (
+                  <div key={fr.id} className="flex items-center gap-3 p-3 rounded-xl border-2 border-slate-100 bg-white">
+                    <FileText className="w-4 h-4 text-primary/40 shrink-0" />
+                    <p className="flex-1 min-w-0 font-bold uppercase text-[11px] text-slate-700 truncate">{fr.label}</p>
+                    <button
+                      type="button"
+                      onClick={() => updateFileRequirement(fr.id, { persistToProfile: !fr.persistToProfile })}
+                      className={cn(
+                        'h-7 px-2.5 rounded-lg text-[8px] font-black uppercase border-2 shrink-0 transition-colors',
+                        fr.persistToProfile ? 'border-primary/30 bg-primary/5 text-primary' : 'border-slate-200 text-slate-400',
+                      )}
+                    >
+                      {fr.persistToProfile ? 'On File' : 'Every Time'}
+                    </button>
+                    <button type="button" onClick={() => removeFileRequirement(fr.id)} className="text-destructive shrink-0 p-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button" variant="outline" size="sm"
+                  onClick={() => addFileRequirement('Photo ID', true)}
+                  disabled={fileRequirements.some((f: any) => f.label === 'Photo ID')}
+                  className="h-8 rounded-xl border-2 font-black uppercase text-[9px] tracking-tight bg-white shadow-sm"
+                >
+                  <Plus className="w-3 h-3 mr-1" /> Photo ID
+                </Button>
+              </div>
+
+              <div className="flex gap-2 items-center">
+                <Input
+                  value={newFileReqLabel}
+                  onChange={e => setNewFileReqLabel(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { addFileRequirement(newFileReqLabel, newFileReqPersist); setNewFileReqLabel(''); setNewFileReqPersist(false); } }}
+                  placeholder="e.g. Doctor's note, referral..."
+                  className="h-10 rounded-xl border-2 text-[11px] flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={() => setNewFileReqPersist(v => !v)}
+                  title="Save to client profile — don't ask again"
+                  className={cn(
+                    'h-10 px-3 rounded-xl border-2 text-[8px] font-black uppercase shrink-0 transition-colors',
+                    newFileReqPersist ? 'border-primary/30 bg-primary/5 text-primary' : 'border-slate-200 text-slate-400',
+                  )}
+                >
+                  On File
+                </button>
+                <Button
+                  type="button"
+                  onClick={() => { addFileRequirement(newFileReqLabel, newFileReqPersist); setNewFileReqLabel(''); setNewFileReqPersist(false); }}
+                  disabled={!newFileReqLabel.trim()}
+                  className="h-10 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0"
+                >
+                  Add
+                </Button>
+              </div>
             </section>
 
             <Separator />
