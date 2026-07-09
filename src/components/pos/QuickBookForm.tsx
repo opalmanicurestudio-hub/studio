@@ -1474,6 +1474,25 @@ export function QuickBookForm({
   };
 
   const requiredFormIds: string[] = selectedSvc?.requiredFormIds || [];
+  // v6 — service-level required documents (Photo ID, etc.), configured
+  // once on the service in ServiceFormSheet rather than remembered ad-hoc
+  // per booking. Mirrors requiredFormIds' pattern exactly. A requirement
+  // only counts as still outstanding if it's flagged "Every Time"
+  // (persistToProfile: false — always re-request), or it's "On File" but
+  // this client's profile doesn't have a matching entry yet. Matched by
+  // the requirement's own stable id (not a fresh one per booking) so
+  // "already on file" is actually checkable across visits — the same id
+  // gets reused below when writing into bookingCompletions.fileRequirements,
+  // and that same id is what ends up on client.profileDocuments once
+  // fulfilled.
+  const pendingServiceFileReqs = useMemo(() => {
+    const reqs: any[] = (selectedSvc as any)?.requiredFileRequirements || [];
+    const profileDocs: any[] = selectedClient?.profileDocuments || [];
+    return reqs.filter((fr: any) => {
+      if (!fr.persistToProfile) return true;
+      return !profileDocs.some((pd: any) => pd.requirementId === fr.id);
+    });
+  }, [selectedSvc, selectedClient?.profileDocuments]);
   const alreadyHasCard = !!selectedClient?.cardOnFile?.token || !!selectedClient?.cardOnFile?.paymentMethodId;
   const canChargeOnFile = !!selectedClient?.cardOnFile?.customerId && !!selectedClient?.cardOnFile?.paymentMethodId;
   const clientEmail = selectedClient?.email || newClientEmail;
@@ -1750,8 +1769,8 @@ export function QuickBookForm({
   const intel = useClientIntelligence(selectedClient, appointments, services);
 
   React.useEffect(() => {
-    if (requiredFormIds.length > 0) setSendLink(true);
-  }, [requiredFormIds.length]);
+    if (requiredFormIds.length > 0 || pendingServiceFileReqs.length > 0) setSendLink(true);
+  }, [requiredFormIds.length, pendingServiceFileReqs.length]);
 
   React.useEffect(() => {
     if (step === 1) setTimeout(() => searchRef.current?.focus(), 80);
@@ -2580,16 +2599,36 @@ export function QuickBookForm({
           requiredConsentFormIds: formsNeedingSignature.map(f => f.id),
           skipCardStep: alreadyHasCard,
           cardAlreadyOnFile: alreadyHasCard,
-          fileRequirements: requestFiles ? [{
-            id: 'inspo',
-            type: 'file_upload',
-            label: 'Inspiration photos',
-            required: true,
-            prompt: 'Share your inspiration photos',
-            minCount: 1,
-            maxCount: 5,
-            acceptedTypes: ['image/*'],
-          }] : [],
+          fileRequirements: [
+            ...(requestFiles ? [{
+              id: 'inspo',
+              type: 'file_upload',
+              label: 'Inspiration photos',
+              required: true,
+              prompt: 'Share your inspiration photos',
+              minCount: 1,
+              maxCount: 5,
+              acceptedTypes: ['image/*'],
+            }] : []),
+            // v6 — service-configured documents (Photo ID, etc.) that
+            // aren't already satisfied for this client. Reuses the SAME id
+            // from the service's requiredFileRequirements — not a fresh
+            // one — so once fulfilled, client.profileDocuments carries
+            // that same id and pendingServiceFileReqs above can correctly
+            // recognize it as already-on-file at the client's next
+            // booking of this service.
+            ...pendingServiceFileReqs.map((fr: any) => ({
+              id: fr.id,
+              type: 'file_upload',
+              label: fr.label,
+              required: true,
+              prompt: fr.label,
+              minCount: fr.minCount || 1,
+              maxCount: fr.maxCount || 5,
+              acceptedTypes: ['image/*', 'application/pdf'],
+              persistToProfile: !!fr.persistToProfile,
+            })),
+          ],
           status: 'pending',
           createdAt: now,
           expiresAt,
@@ -4088,13 +4127,16 @@ export function QuickBookForm({
                 Send secure completion link
               </p>
               <p className="text-[11px] text-slate-400">
-                {alreadyHasCard && formsNeedingSignature.length === 0
-                  ? 'Card already on file — link optional.'
-                  : effectiveDepositCents > 0
-                    ? `Client pays $${(effectiveDepositCents / 100).toFixed(2)} deposit${formsNeedingSignature.length > 0 ? ` + signs ${formsNeedingSignature.length} form${formsNeedingSignature.length > 1 ? 's' : ''}` : ''}.`
-                    : formsNeedingSignature.length > 0
-                      ? `Client signs ${formsNeedingSignature.length} consent form${formsNeedingSignature.length > 1 ? 's' : ''}.`
-                      : 'Client adds card on file before arrival.'}
+                {(() => {
+                  const parts: string[] = [];
+                  if (effectiveDepositCents > 0) parts.push(`pays $${(effectiveDepositCents / 100).toFixed(2)} deposit`);
+                  if (formsNeedingSignature.length > 0) parts.push(`signs ${formsNeedingSignature.length} form${formsNeedingSignature.length > 1 ? 's' : ''}`);
+                  if (pendingServiceFileReqs.length > 0) parts.push(`uploads ${pendingServiceFileReqs.map((f: any) => f.label).join(', ')}`);
+                  if (parts.length === 0) {
+                    return alreadyHasCard ? 'Card already on file — link optional.' : 'Client adds card on file before arrival.';
+                  }
+                  return `Client ${parts.join(' + ')}.`;
+                })()}
               </p>
             </div>
             <div className={cn('w-10 h-5.5 rounded-full shrink-0 relative transition-colors', sendLink ? 'bg-blue-500' : 'bg-slate-200')}>
