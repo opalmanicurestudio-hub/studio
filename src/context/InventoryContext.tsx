@@ -29,6 +29,11 @@ import {
     type SubscriptionInstance,
     type Redemption,
     type RefreshmentRequest,
+    // ── Staff custody & replenishment ──────────────────────────────────────
+    type AssetUnit,
+    type StationAllocation,
+    type StaffReplenishmentRequest,
+    type OverflowEvent,
 } from '@/lib/data';
 import {
     type BillDefinition as Bill,
@@ -84,6 +89,11 @@ interface InventoryContextType {
   scheduleProfiles: any[];
   lifestyleProfiles: any[];
   businessProfiles: any[];
+  // ── Staff custody & replenishment ────────────────────────────────────────
+  assetUnits: AssetUnit[];
+  stationAllocations: StationAllocation[];
+  staffReplenishmentRequests: StaffReplenishmentRequest[];
+  overflowEvents: OverflowEvent[];
   isLoading: boolean;
 }
 
@@ -131,6 +141,15 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
   const { data: redemptions, isLoading: redemptionsLoading } = useCollection<Redemption>(useMemoFirebase(() => !firestore || !tenantId ? null : collectionGroup(firestore, 'redemptions'), [firestore, tenantId]));
 
   const { data: checkIns, isLoading: checkInsLoading } = useCollection<Partial<Appointment>>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, 'appointmentCheckIns'), where('tenantId', '==', tenantId)), [firestore, tenantId]));
+
+  // ── Staff custody & replenishment ──────────────────────────────────────────
+  // Same pattern as every other tenant-scoped collection above. These feed
+  // lib/replenishment-system.ts (deductMainStock, approveReplenishment,
+  // logServiceUsage, recordAssetScan, etc).
+  const { data: assetUnits, isLoading: assetUnitsLoading } = useCollection<AssetUnit>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'assetUnits') : null, [firestore, tenantId]));
+  const { data: stationAllocations, isLoading: stationAllocationsLoading } = useCollection<StationAllocation>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'stationAllocations') : null, [firestore, tenantId]));
+  const { data: staffReplenishmentRequests, isLoading: staffReplenishmentRequestsLoading } = useCollection<StaffReplenishmentRequest>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'staffReplenishmentRequests') : null, [firestore, tenantId]));
+  const { data: overflowEvents, isLoading: overflowEventsLoading } = useCollection<OverflowEvent>(useMemoFirebase(() => tenantId ? collection(firestore, 'tenants', tenantId, 'overflowEvents') : null, [firestore, tenantId]));
 
   const billDefinitions = useMemo(() => {
     const rawDefs = billDefinitionsData || [];
@@ -288,7 +307,7 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     return rawStudioEvents || [];
   }, [rawStudioEvents]);
 
-  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || studioEventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading;
+  const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || studioEventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading || overflowEventsLoading;
   
   const value = {
     inventory: inventory || [],
@@ -320,6 +339,11 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
     scheduleProfiles: scheduleProfiles || [],
     lifestyleProfiles: lifestyleProfiles || [],
     businessProfiles: businessProfiles || [],
+    // ── Staff custody & replenishment ────────────────────────────────────────
+    assetUnits: assetUnits || [],
+    stationAllocations: stationAllocations || [],
+    staffReplenishmentRequests: staffReplenishmentRequests || [],
+    overflowEvents: overflowEvents || [],
     isLoading,
   };
 
