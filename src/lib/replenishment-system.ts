@@ -504,6 +504,104 @@ export function resolveOverflowEvent(
   };
 }
 
+// ---------- Low-float alerts (proactive, before a station hits zero) ----------
+
+export type LowFloatAlert = {
+  allocation: StationAllocation;
+  itemName: string;
+  percentRemaining: number;
+};
+
+/**
+ * Flags station allocations that have dropped below `thresholdPercent` of
+ * their last-known replenished amount. Call this on a schedule (or whenever
+ * allocations update) to notify staff BEFORE they run dry mid-service,
+ * turning most overflow events into ordinary replenishment requests instead.
+ *
+ * `lastReplenishedAmount` should be the quantity from that staff member's
+ * most recent approved StaffReplenishmentRequest for this item — pass a map
+ * built from your staffReplenishmentRequests collection, since
+ * StationAllocation itself doesn't track its own history.
+ */
+export function getLowFloatAllocations(
+  allocations: StationAllocation[],
+  items: InventoryItem[],
+  lastReplenishedAmounts: Map<string, number>, // key: `${staffId}-${itemId}`
+  thresholdPercent: number = 20
+): LowFloatAlert[] {
+  const alerts: LowFloatAlert[] = [];
+
+  for (const allocation of allocations) {
+    const lastAmount = lastReplenishedAmounts.get(`${allocation.staffId}-${allocation.itemId}`);
+    if (!lastAmount || lastAmount <= 0) continue;
+
+    const percentRemaining = (allocation.quantity / lastAmount) * 100;
+    if (percentRemaining <= thresholdPercent) {
+      const item = items.find(i => i.id === allocation.itemId);
+      alerts.push({
+        allocation,
+        itemName: item?.name || 'Unknown item',
+        percentRemaining: Math.round(percentRemaining),
+      });
+    }
+  }
+
+  return alerts;
+}
+
+// ---------- Staff offboarding (reconcile float + force asset check-in) ----------
+
+export type OffboardStaffResult = {
+  /** Bulk allocations to zero out, with their quantity returned to main stock. */
+  allocationsToReconcile: { allocation: StationAllocation; itemId: string; quantityReturned: number }[];
+  /** Serialized units that must be force-checked-in (no longer assigned to this staff member). */
+  assetsToCheckIn: AssetUnit[];
+  /** One stockCorrection per reconciled allocation, for the audit trail. */
+  stockCorrections: Omit<StockCorrection, 'id'>[];
+};
+
+/**
+ * Computes what needs to happen when a staff member leaves: every bulk
+ * allocation they're holding gets returned to main stock (their float
+ * doesn't just vanish, uncounted), and every serialized asset assigned to
+ * them gets force-checked-in so it isn't silently "owned" by someone no
+ * longer employed.
+ *
+ * Does NOT mutate anything — returns what to write. Caller applies these
+ * (increment each item's totalStock by quantityReturned, delete/zero the
+ * allocation docs, update each AssetUnit's assignedToStaffId to null,
+ * write the stockCorrections) inside a single Firestore batch/transaction.
+ */
+export function offboardStaff(
+  staffId: string,
+  staffName: string,
+  allocations: StationAllocation[],
+  assetUnits: AssetUnit[]
+): OffboardStaffResult {
+  const staffAllocations = allocations.filter(a => a.staffId === staffId && a.quantity > 0);
+  const staffAssets = assetUnits.filter(u => u.assignedToStaffId === staffId);
+
+  const allocationsToReconcile = staffAllocations.map(allocation => ({
+    allocation,
+    itemId: allocation.itemId,
+    quantityReturned: allocation.quantity,
+  }));
+
+  const stockCorrections: Omit<StockCorrection, 'id'>[] = allocationsToReconcile.map(({ itemId, quantityReturned }) => ({
+    productId: itemId,
+    date: new Date().toISOString(),
+    change: quantityReturned,
+    unit: 'units',
+    reason: `Reconciled from ${staffName}'s station on offboarding`,
+  }));
+
+  return {
+    allocationsToReconcile,
+    assetsToCheckIn: staffAssets,
+    stockCorrections,
+  };
+}
+
 // ---------- Asset custody (serialized items — shears, clippers, etc.) ----------
 
 /** Records a scan event and updates the unit's assignment/status accordingly. */
