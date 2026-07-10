@@ -135,6 +135,7 @@ export async function POST(req: NextRequest) {
     let autoCancelled = false;
     let autoCancelledFeeCharged = false;
     let autoCancelledFeeAmount: number | undefined;
+    let autoCancelledFeePending = false;
     if (APPOINTMENT_INTENTS.includes(intent)) {
       const aptId: string = body?.appointmentId;
       if (!aptId) {
@@ -259,12 +260,24 @@ export async function POST(req: NextRequest) {
         let feeAmount = 0;
         let stripePaymentIntentId: string | undefined;
         let shouldExecute = false;
+        // v15 — NEW: cancel now with the fee left unresolved, rather than
+        // falling all the way to staff review. Identity is already
+        // verified — the cancellation itself isn't the risky part, and
+        // holding the slot hostage to fee collection doesn't serve
+        // anyone. The fee gets parked as owed (same outstandingBalance/
+        // unpaidFees shape onCancellationEvent already uses for this
+        // exact scenario) AND the client gets a self-service way to pay
+        // it — the existing check-in link, re-sent, now showing a
+        // payment prompt for this specific fee. Distinct from
+        // shouldExecute (fee fully resolved) so the write below can
+        // record which path actually happened.
+        let shouldExecuteWithPendingFee = false;
 
         if (safeToConsider && isFeeFree) {
           shouldExecute = true;
-        } else if (safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true && hasUsableCard) {
+        } else if (safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true) {
           feeAmount = Number(tenant.cancellationFee) || Number(svc?.price) || 0;
-          if (feeAmount > 0) {
+          if (feeAmount > 0 && hasUsableCard) {
             try {
               const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
                 method: 'POST',
@@ -286,11 +299,14 @@ export async function POST(req: NextRequest) {
                 feeCharged = true;
                 stripePaymentIntentId = chargeData.paymentIntentId;
                 shouldExecute = true;
+              } else {
+                shouldExecuteWithPendingFee = true;
               }
-              // charge failed — shouldExecute stays false, falls to staff review below
             } catch {
-              /* charge attempt failed — shouldExecute stays false */
+              shouldExecuteWithPendingFee = true;
             }
+          } else if (feeAmount > 0 && !hasUsableCard) {
+            shouldExecuteWithPendingFee = true;
           } else {
             // No actual fee configured despite being "within the window" —
             // nothing to charge, so treat like the fee-free path.
@@ -298,9 +314,9 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        if (shouldExecute) {
+        if (shouldExecute || shouldExecuteWithPendingFee) {
           const cancelNowISO = new Date().toISOString();
-          const cancelPatch = {
+          const cancelPatch: any = {
             status: 'cancelled',
             cancelledAt: cancelNowISO,
             cancellationReason: 'client_requested_via_voice',
@@ -308,23 +324,66 @@ export async function POST(req: NextRequest) {
             cancellationAudit: {
               actorType: 'client',
               actorId: appointment.clientId || 'unknown_client',
-              reason: feeCharged ? 'client_requested_via_voice_verified_fee_charged' : 'client_requested_via_voice_verified',
+              reason: feeCharged
+                ? 'client_requested_via_voice_verified_fee_charged'
+                : shouldExecuteWithPendingFee
+                  ? 'client_requested_via_voice_verified_fee_pending_link_sent'
+                  : 'client_requested_via_voice_verified',
               feeCharged,
-              feeAmount: feeCharged ? feeAmount : undefined,
+              feeAmount: (feeCharged || shouldExecuteWithPendingFee) ? feeAmount : undefined,
+              feePending: shouldExecuteWithPendingFee || undefined,
               stripePaymentIntentId,
               timestamp: cancelNowISO,
             },
             updatedAt: cancelNowISO,
           };
+          // v15 — the "fully audible" activity record: this shows up on
+          // the appointment timeline (AppointmentDetailsSheet already
+          // reads appointment fields directly) so staff can see, without
+          // digging, exactly what was tried and what happened — charge
+          // attempted, declined/no card, fee parked, link sent.
+          if (shouldExecuteWithPendingFee) {
+            cancelPatch.feeLinkSentAt = cancelNowISO;
+          }
+
           const cancelBatch = db.batch();
           cancelBatch.set(db.doc(`tenants/${tenantId}/appointments/${appointment.id}`), cancelPatch, { merge: true });
           if (appointment.checkInToken) {
             cancelBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), cancelPatch, { merge: true });
-            cancelBatch.set(
-              db.doc(`tenants/${tenantId}/bookingCompletions/${appointment.checkInToken}`),
-              { status: 'void' },
-              { merge: true },
-            );
+            // v15 — when the fee is pending (not charged), the
+            // bookingCompletions doc is NOT voided the way a normal
+            // cancellation would be — it gets repurposed to carry the
+            // owed fee, so the client's existing check-in link (same
+            // token, nothing new to send them) can show a payment prompt
+            // for it. See checkin-page.tsx's CancelledView for the
+            // client-facing side of this.
+            if (shouldExecuteWithPendingFee) {
+              cancelBatch.set(
+                db.doc(`tenants/${tenantId}/bookingCompletions/${appointment.checkInToken}`),
+                {
+                  status: 'fee_owed',
+                  // v15 — FIX: reuses depositAmountCents (the exact field
+                  // /api/stripe/completion already reads to build an
+                  // Embedded Checkout session) rather than a new field
+                  // name. CancelledView can call that same existing route
+                  // unchanged — no new payment endpoint needed, no risk of
+                  // a parallel, slightly-different implementation of the
+                  // same "collect a specific dollar amount" job.
+                  depositAmountCents: Math.round(feeAmount * 100),
+                  clientId: appointment.clientId,
+                  clientName: clientDocForGate?.name || appointment.clientName,
+                  clientEmail: clientDocForGate?.email,
+                  serviceName: `${svc?.name || 'Service'} — Late Cancellation Fee`,
+                },
+                { merge: true },
+              );
+            } else {
+              cancelBatch.set(
+                db.doc(`tenants/${tenantId}/bookingCompletions/${appointment.checkInToken}`),
+                { status: 'void' },
+                { merge: true },
+              );
+            }
           }
           if (feeCharged) {
             const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
@@ -346,10 +405,54 @@ export async function POST(req: NextRequest) {
               hasReceipt: true,
             });
           }
+          if (shouldExecuteWithPendingFee && appointment.clientId) {
+            cancelBatch.set(
+              db.doc(`tenants/${tenantId}/clients/${appointment.clientId}`),
+              {
+                outstandingBalance: (Number(clientDocForGate?.outstandingBalance) || 0) + feeAmount,
+                unpaidFees: [
+                  ...(clientDocForGate?.unpaidFees || []),
+                  {
+                    feeId: nanoid(),
+                    appointmentId: appointment.id,
+                    appointmentDate: cancelNowISO,
+                    feeAmount,
+                    reason: 'Late Cancellation Fee (voice, self-pay link sent)',
+                  },
+                ],
+              },
+              { merge: true },
+            );
+          }
           await cancelBatch.commit();
           autoCancelled = true;
           autoCancelledFeeCharged = feeCharged;
-          autoCancelledFeeAmount = feeCharged ? feeAmount : undefined;
+          autoCancelledFeeAmount = (feeCharged || shouldExecuteWithPendingFee) ? feeAmount : undefined;
+          autoCancelledFeePending = shouldExecuteWithPendingFee;
+
+          // v15 — resend the SAME check-in link (same token — nothing new
+          // to give the client) so it's fresh in their texts/email with
+          // framing specifically about the fee, rather than expecting
+          // them to dig up the original booking confirmation from
+          // however long ago.
+          if (shouldExecuteWithPendingFee && appointment.checkInToken) {
+            try {
+              const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
+              await fetch(`${appUrl}/api/notifications/send-completion-link`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  link: `${appUrl}/check-in/${appointment.checkInToken}`,
+                  clientName: clientDocForGate?.name || appointment.clientName,
+                  clientEmail: clientDocForGate?.email,
+                  clientPhone: clientDocForGate?.phone,
+                  studioName: tenant.name,
+                }),
+              });
+            } catch {
+              /* non-fatal — the fee is still recorded as owed either way; staff can resend manually */
+            }
+          }
         }
       }
     }
@@ -702,11 +805,13 @@ export async function POST(req: NextRequest) {
       cancel:
         autoCancelled && autoCancelledFeeCharged
           ? `You're all set — that appointment's cancelled. Since it's within the cancellation window, I charged the ${(autoCancelledFeeAmount || 0).toFixed(2)} dollar fee to your card on file.`
-          : autoCancelled
-            ? "You're all set — that appointment's cancelled, no fee since you gave us plenty of notice."
-            : codeVerified === 'verified'
-              ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
-              : "I've passed your cancellation request to the team — they'll confirm it shortly.",
+          : autoCancelled && autoCancelledFeePending
+            ? `That appointment's cancelled. There's a ${(autoCancelledFeeAmount || 0).toFixed(2)} dollar cancellation fee since it's short notice — I've just texted you a secure link to take care of that whenever's convenient.`
+            : autoCancelled
+              ? "You're all set — that appointment's cancelled, no fee since you gave us plenty of notice."
+              : codeVerified === 'verified'
+                ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
+                : "I've passed your cancellation request to the team — they'll confirm it shortly.",
       reschedule:
         autoRescheduled && autoRescheduledFeeCharged
           ? `You're all set — that's moved to ${requestedSlotSpoken}. Since it's a short-notice change, I charged the ${(autoRescheduledFeeAmount || 0).toFixed(2)} dollar reschedule fee to your card on file.`
