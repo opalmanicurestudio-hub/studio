@@ -1,4 +1,4 @@
-                             import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
+import { BillDefinition, billDefinitions, billInstances, transactions } from './financial-data';
 import { addDays, subDays, setHours, setMinutes, startOfDay, parseISO } from 'date-fns';
 import { nanoid } from 'nanoid';
 
@@ -408,6 +408,12 @@ export type Service = {
     maxCount?: number;
     persistToProfile?: boolean;
   }[];
+  // v10 — lets an owner mark a specific service (high-value, custom,
+  // whatever needs a human's judgment) as always requiring approval on a
+  // voice booking, independent of the tenant-wide
+  // voiceAgent.bookingMode setting. Default false/unset — the tenant
+  // setting alone decides unless this is explicitly turned on.
+  voiceAlwaysRequireApproval?: boolean;
   status?: 'active' | 'archived';
   bottomColor?: string;
   depositType?: 'none' | 'deposit' | 'full' | 'breakeven';
@@ -1117,6 +1123,23 @@ export type Tenant = {
   // both are set AND the move is inside the window; staff still opt in.
   rescheduleFee?: number;             // flat fee, e.g. 15
   rescheduleFeeWindowHours?: number;  // only suggest fee if moved within N hours of the appt
+
+  // ── Notification defaults ───────────────────────────────────────────────
+  // Studio-wide defaults for booking confirmations and reminders. Every
+  // client's own notificationPreferences (see Client type) takes priority
+  // over these — UNLESS allowClientOverride is explicitly false, in which
+  // case client-level preferences are ignored entirely and every client
+  // gets the tenant default. When allowClientOverride is false, the
+  // client-facing "Notification settings" link on the check-in page is
+  // hidden rather than shown-but-ineffective — a business owner who wants
+  // this fully in their own hands shouldn't see a settings screen that
+  // silently does nothing.
+  notificationDefaults?: {
+    confirmationChannel?: 'sms' | 'email' | 'both' | 'none';
+    reminderChannel?: 'voice' | 'sms' | 'email' | 'both' | 'none';
+    reminderHoursBefore?: number;
+    allowClientOverride?: boolean; // default true if unset
+  };
 
   // ── Cancellation & No-Show — automation v2 ──────────────────────────────
   // Read directly by functions/src/autoCancel.ts and
