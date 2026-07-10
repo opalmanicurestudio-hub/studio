@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
     let appointment: any = null;
     let appointmentSpoken: string | undefined;
     let codeVerified: 'verified' | 'mismatch' | 'not_provided' = 'not_provided';
+    let autoCancelled = false;
     if (APPOINTMENT_INTENTS.includes(intent)) {
       const aptId: string = body?.appointmentId;
       if (!aptId) {
@@ -202,6 +203,58 @@ export async function POST(req: NextRequest) {
       appointmentSpoken = `${svc?.name || 'appointment'}${
         staffMember?.name ? ` with ${staffMember.name.split(' ')[0]}` : ''
       }${start && !Number.isNaN(start.getTime()) ? ` on ${speakDateTime(start, tz)}` : ''}`;
+
+      // v12 — auto-execute a cancellation, with no staff click, ONLY when
+      // every one of these holds. This is deliberately narrower than "any
+      // fee-free cancel" — it requires the caller to have PROVEN they're
+      // the actual client (shortCode match), not just a phone-number
+      // heuristic, which is what made this safe to build at all (see the
+      // codeVerified work above). Never touches money either way — same
+      // scope restriction as execute-cancel's one-click path; a paid
+      // deposit still waits for a human to decide on a refund regardless
+      // of how this resolves.
+      if (intent === 'cancel' && codeVerified === 'verified' && appointment.clientId) {
+        const clientSnapForGate = await db.doc(`tenants/${tenantId}/clients/${appointment.clientId}`).get();
+        const clientDocForGate = clientSnapForGate.exists ? clientSnapForGate.data() as any : null;
+        const tenant = ctx.tenant || {};
+        const hoursUntilStart = start && !Number.isNaN(start.getTime())
+          ? (start.getTime() - Date.now()) / 3_600_000
+          : 0;
+        const cancellationWindowHours = Number(svc?.cancellationWindowHours) || Number(tenant.cancellationWindowHours) || 24;
+        const isFeeFree = hoursUntilStart >= cancellationWindowHours;
+        const poorHistory = (Number(clientDocForGate?.noShowCount) || 0) + (Number(clientDocForGate?.cancellationCount) || 0) > 2;
+        const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
+
+        if (clientDocForGate && isFeeFree && !poorHistory && !hasOutstandingBalance) {
+          const cancelNowISO = new Date().toISOString();
+          const cancelPatch = {
+            status: 'cancelled',
+            cancelledAt: cancelNowISO,
+            cancellationReason: 'client_requested_via_voice',
+            cancellationFeeCharged: false,
+            cancellationAudit: {
+              actorType: 'client',
+              actorId: appointment.clientId || 'unknown_client',
+              reason: 'client_requested_via_voice_verified',
+              feeCharged: false,
+              timestamp: cancelNowISO,
+            },
+            updatedAt: cancelNowISO,
+          };
+          const cancelBatch = db.batch();
+          cancelBatch.set(db.doc(`tenants/${tenantId}/appointments/${appointment.id}`), cancelPatch, { merge: true });
+          if (appointment.checkInToken) {
+            cancelBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), cancelPatch, { merge: true });
+            cancelBatch.set(
+              db.doc(`tenants/${tenantId}/bookingCompletions/${appointment.checkInToken}`),
+              { status: 'void' },
+              { merge: true },
+            );
+          }
+          await cancelBatch.commit();
+          autoCancelled = true;
+        }
+      }
     }
 
     // ── Reschedule: format the agreed-upon new slot ─────────────────────────
@@ -353,7 +406,7 @@ export async function POST(req: NextRequest) {
         requestedProviderId: body.requestedProviderId || undefined,
         requestedSlotSpoken,
         minutesLate,
-        autoApplied: autoApplied || undefined,
+        autoApplied: (autoApplied || autoCancelled) || undefined,
         eventInquiry,
         consultation,
         details: (body.details || '').trim() || undefined,
@@ -366,9 +419,11 @@ export async function POST(req: NextRequest) {
 
     const confirmations: Record<Intent, string> = {
       cancel:
-        codeVerified === 'verified'
-          ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
-          : "I've passed your cancellation request to the team — they'll confirm it shortly.",
+        autoCancelled
+          ? "You're all set — that appointment's cancelled, no fee since you gave us plenty of notice."
+          : codeVerified === 'verified'
+            ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
+            : "I've passed your cancellation request to the team — they'll confirm it shortly.",
       reschedule: requestedSlotSpoken
         ? `I've noted the move to ${requestedSlotSpoken} — the team will confirm it shortly.`
         : "I've passed your reschedule request to the team — they'll follow up with times.",
