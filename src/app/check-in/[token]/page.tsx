@@ -85,6 +85,7 @@ import {
     Ban,
     Phone,
     Camera,
+    Bell,
 } from 'lucide-react';
 import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
 import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
@@ -155,7 +156,122 @@ const CancelledView = ({ reason }: { reason?: string }) => (
     </ViewContainer>
 );
 
-// v7 — NEW: for an appointment whose time has clearly passed with no
+// v8 — NEW: lets a client control how and when they're notified. Seeded
+// from client.notificationPreferences, defaulting to whatever the
+// existing system-wide defaults are today (both channels for
+// confirmations, voice for reminders — preserving current behavior for
+// every client who hasn't touched this) so an unset preference is
+// indistinguishable from "I'm fine with the defaults."
+const REMINDER_HOUR_OPTIONS = [
+    { value: 1, label: '1 hour before' },
+    { value: 24, label: '24 hours before' },
+    { value: 48, label: '48 hours before' },
+    { value: 72, label: '72 hours before' },
+];
+
+const NotificationPreferencesView = ({
+    tenantId,
+    client,
+    onBack,
+}: {
+    tenantId: string;
+    client: Client;
+    onBack: () => void;
+}) => {
+    const { firestore } = useFirebase();
+    const { toast } = useToast();
+    const prefs = client.notificationPreferences || {};
+    const [confirmationChannel, setConfirmationChannel] = useState(prefs.confirmationChannel || 'both');
+    const [reminderChannel, setReminderChannel] = useState(prefs.reminderChannel || 'voice');
+    const [reminderHoursBefore, setReminderHoursBefore] = useState(prefs.reminderHoursBefore || 48);
+    const [saving, setSaving] = useState(false);
+    const [saved, setSaved] = useState(false);
+
+    const handleSave = async () => {
+        if (!firestore || !tenantId || !client.id) return;
+        setSaving(true);
+        try {
+            await setDoc(
+                doc(firestore, `tenants/${tenantId}/clients`, client.id),
+                { notificationPreferences: { confirmationChannel, reminderChannel, reminderHoursBefore } },
+                { merge: true },
+            );
+            setSaved(true);
+            toast({ title: 'Preferences saved' });
+            setTimeout(() => setSaved(false), 2000);
+        } catch {
+            toast({ variant: 'destructive', title: 'Could not save', description: 'Please try again.' });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const channelOption = (value: string, label: string, current: string, onChange: (v: string) => void) => (
+        <button
+            key={value}
+            type="button"
+            onClick={() => onChange(value)}
+            className={cn(
+                'flex-1 h-12 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-colors',
+                current === value ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500',
+            )}
+        >
+            {label}
+        </button>
+    );
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Notification Settings" subtitle="How and when we reach you" icon={Bell} />
+            <CardContent className="p-8 md:p-12 space-y-10 text-left">
+                <div className="space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking confirmations</Label>
+                    <div className="flex gap-2 flex-wrap">
+                        {channelOption('sms', 'Text', confirmationChannel, setConfirmationChannel)}
+                        {channelOption('email', 'Email', confirmationChannel, setConfirmationChannel)}
+                        {channelOption('both', 'Both', confirmationChannel, setConfirmationChannel)}
+                        {channelOption('none', 'Off', confirmationChannel, setConfirmationChannel)}
+                    </div>
+                </div>
+
+                <div className="space-y-3">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Appointment reminders</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                        {channelOption('voice', 'Phone call', reminderChannel, setReminderChannel)}
+                        {channelOption('sms', 'Text', reminderChannel, setReminderChannel)}
+                        {channelOption('email', 'Email', reminderChannel, setReminderChannel)}
+                        {channelOption('none', 'Off', reminderChannel, setReminderChannel)}
+                    </div>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 px-1">
+                        "Phone call" means a friendly reminder call — you can reschedule or cancel right there if plans change.
+                    </p>
+                </div>
+
+                {reminderChannel !== 'none' && (
+                    <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Remind me</Label>
+                        <select
+                            value={reminderHoursBefore}
+                            onChange={e => setReminderHoursBefore(Number(e.target.value))}
+                            className="w-full h-12 rounded-xl border-2 px-4 text-sm font-bold bg-white shadow-inner"
+                        >
+                            {REMINDER_HOUR_OPTIONS.map(opt => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+
+                <Button onClick={handleSave} disabled={saving} className="w-full h-14 rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-primary/20">
+                    {saving ? <Loader className="w-4 h-4 animate-spin" /> : saved ? <><Check className="w-4 h-4 mr-2" /> Saved</> : 'Save Preferences'}
+                </Button>
+                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
+            </CardContent>
+        </ViewContainer>
+    );
+};
+
+
 // resolution — never checked in, never explicitly cancelled, never marked
 // completed or no-show. Previously a stale link like this fell straight
 // through to the normal arrival flow ("Hello! I Have Arrived / En Route /
@@ -1601,6 +1717,7 @@ export default function CheckInPage() {
 
     const [entered, setEntered] = useState(false);
     const [showCancelFlow, setShowCancelFlow] = useState(false);
+    const [showNotificationSettings, setShowNotificationSettings] = useState(false);
     // v2 -- once the completion gate is submitted, we don't want the
     // still-cached-in-memory `completion` doc (which may not have refreshed
     // yet) to flash the gate again before Firestore's snapshot updates.
@@ -1794,6 +1911,16 @@ export default function CheckInPage() {
         );
     }
 
+    if (showNotificationSettings && tenantId && client) {
+        return (
+            <NotificationPreferencesView
+                tenantId={tenantId}
+                client={client}
+                onBack={() => setShowNotificationSettings(false)}
+            />
+        );
+    }
+
     // IMMERSIVE TRANSITION CHECK
     const isArrivedOrServicing = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
 
@@ -1953,6 +2080,13 @@ export default function CheckInPage() {
                                 className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
                             >
                                 Can't make it? Cancel appointment
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowNotificationSettings(true)}
+                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
+                            >
+                                Notification settings
                             </button>
                         </div>
                     </CardContent>
