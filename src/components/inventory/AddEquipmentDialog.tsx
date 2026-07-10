@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { InventoryDialogShell } from '@/components/inventory/InventoryDialogShell';
-import { ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, Check, Building } from 'lucide-react';
+import { ArrowRight, PlusCircle, DollarSign, Calendar as CalendarIcon, Hammer, Sparkles, Check, Building, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Switch } from '@/components/ui/switch';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -34,6 +35,12 @@ const schema = z.object({
   primaryLocationId: z.string().optional(),
   imageUrl:          z.string().optional(),
   sku:               z.string().optional(),
+  // ── Staff custody & replenishment ────────────────────────────────────────
+  // Equipment items are already granular (one InventoryItem per physical
+  // unit — see the onSubmit loop below), so custody tracking here just
+  // means "generate an AssetUnit alongside this item for scan-based
+  // check-out/check-in" rather than a full bulk/serialized picker.
+  trackCustody:      z.boolean().default(false),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -151,7 +158,10 @@ const Step2 = () => {
 };
 
 const Step3 = ({ locations }: { locations: Location[] }) => {
-  const { register, control } = useFormContext<FormData>();
+  const { register, control, watch } = useFormContext<FormData>();
+  const quantity = watch('quantity');
+  const trackCustody = watch('trackCustody');
+
   return (
     <div className="space-y-6 text-left">
       <SH icon={Building} title="Logistics & Source" step={3} />
@@ -182,6 +192,35 @@ const Step3 = ({ locations }: { locations: Location[] }) => {
           </div>
         </div>
       </div>
+
+      {/* ── Staff custody & replenishment ────────────────────────────────── */}
+      <div className="pt-4 border-t border-dashed">
+        <div className="flex items-center justify-between p-5 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
+          <div className="flex items-start gap-3 pr-4">
+            <div className="p-2 bg-primary/10 rounded-xl shrink-0">
+              <ShieldCheck className="w-4 h-4 text-primary" />
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Track Custody Per Staff Member</p>
+              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide leading-relaxed">
+                Generates a scannable label for check-out/check-in, so you always know who has this{quantity > 1 ? ' each unit' : ''}.
+              </p>
+            </div>
+          </div>
+          <Controller
+            name="trackCustody"
+            control={control}
+            render={({ field }) => (
+              <Switch checked={field.value} onCheckedChange={field.onChange} className="shrink-0" />
+            )}
+          />
+        </div>
+        {trackCustody && quantity > 1 && (
+          <p className="text-[9px] font-bold uppercase tracking-widest text-primary/70 mt-3 ml-1">
+            {quantity} separate assets will be created, each with its own custody label.
+          </p>
+        )}
+      </div>
     </div>
   );
 };
@@ -191,7 +230,10 @@ export const AddEquipmentDialog = ({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  onEquipmentAdded: (e: InventoryItem) => void;
+  // Second arg tells the caller whether to also create a linked AssetUnit
+  // (see handleEquipmentAdded in inventory/page.tsx, which should call
+  // createAssetUnit() from lib/replenishment-firestore.ts when true).
+  onEquipmentAdded: (e: InventoryItem, shouldCreateAssetUnit: boolean) => void;
   equipmentCategories: string[];
   onNewCategory: (c: string) => void;
   locations: Location[];
@@ -201,13 +243,13 @@ export const AddEquipmentDialog = ({
 
   const methods = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { lifespanYears: 5, purchaseDate: new Date(), quantity: 1 },
+    defaultValues: { lifespanYears: 5, purchaseDate: new Date(), quantity: 1, trackCustody: false },
   });
   const { handleSubmit, reset, trigger } = methods;
 
   useEffect(() => {
     if (open) {
-      reset({ lifespanYears: 5, purchaseDate: new Date(), quantity: 1 });
+      reset({ lifespanYears: 5, purchaseDate: new Date(), quantity: 1, trackCustody: false });
       setStep(1);
     }
   }, [open, reset]);
@@ -215,7 +257,7 @@ export const AddEquipmentDialog = ({
   const onSubmit = (data: FormData) => {
     const qty = data.quantity || 1;
     for (let i = 0; i < qty; i++) {
-      onEquipmentAdded({
+      const item: InventoryItem = {
         id: `equip-${nanoid()}`,
         name: qty > 1 ? `${data.name} #${i + 1}` : data.name,
         type: 'equipment',
@@ -230,7 +272,12 @@ export const AddEquipmentDialog = ({
         imageUrl: data.imageUrl,
         sku: data.sku,
         batches: [{ id: `batch-${nanoid()}`, stock: 1, costPerUnit: data.purchaseCost, receivedDate: data.purchaseDate.toISOString() }],
-      });
+        // trackingMode is 'serialized' per-unit here since each loop
+        // iteration already IS one physical unit — there's no bulk case
+        // for equipment (see note at the schema definition above).
+        ...(data.trackCustody ? { trackingMode: 'serialized' as const } : {}),
+      };
+      onEquipmentAdded(item, data.trackCustody);
     }
     onOpenChange(false);
   };
