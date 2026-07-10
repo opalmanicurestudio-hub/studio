@@ -209,7 +209,24 @@ export async function createBooking(
     if (Number.isNaN(signedAt.getTime())) return true;
     return monthsBetween(signedAt, now) >= FORM_SIGNATURE_VALIDITY_MONTHS;
   });
-  const needsLink = depositCents > 0 || formsNeedingSignature.length > 0;
+  // v2 — FIX: service-level required documents (Photo ID, etc.) were never
+  // read here at all — fileRequirements below was hardcoded to an empty
+  // array regardless of what the service actually requires. A client
+  // booking the identical service via QuickBookForm would correctly be
+  // asked for it; the same service booked by voice silently wasn't. Same
+  // "already on file" rule as QuickBookForm: a requirement flagged
+  // persistToProfile only counts as outstanding if this client's profile
+  // doesn't already have a matching entry — matched by the requirement's
+  // own stable id (not freshly minted here), so the same id ends up on
+  // clientDoc.profileDocuments once fulfilled and is recognized as
+  // satisfied at this client's next booking of the same service.
+  const serviceFileReqs: any[] = service.requiredFileRequirements || [];
+  const profileDocs: any[] = clientDoc?.profileDocuments || [];
+  const pendingFileReqs = serviceFileReqs.filter((fr: any) => {
+    if (!fr.persistToProfile) return true;
+    return !profileDocs.some((pd: any) => pd.requirementId === fr.id);
+  });
+  const needsLink = depositCents > 0 || formsNeedingSignature.length > 0 || pendingFileReqs.length > 0;
 
   // ── 4. Transactional slot claim (QuickBook's lock discipline) ──────────
   const nowISO = new Date().toISOString();
@@ -284,6 +301,7 @@ export async function createBooking(
       clientEmail: clientEmail || undefined,
       depositCents,
       formsNeeded: formsNeedingSignature.length,
+      filesNeeded: pendingFileReqs.length,
     }),
   });
 
@@ -330,7 +348,17 @@ export async function createBooking(
         requiredConsentFormIds: formsNeedingSignature,
         skipCardStep: !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
         cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
-        fileRequirements: [],
+        fileRequirements: pendingFileReqs.map((fr: any) => ({
+          id: fr.id,
+          type: 'file_upload',
+          label: fr.label,
+          required: true,
+          prompt: fr.label,
+          minCount: fr.minCount || 1,
+          maxCount: fr.maxCount || 5,
+          acceptedTypes: ['image/*', 'application/pdf'],
+          persistToProfile: !!fr.persistToProfile,
+        })),
         status: 'pending',
         createdAt: nowISO,
         expiresAt: new Date(Date.now() + expiryDays * 24 * 3600 * 1000).toISOString(),
