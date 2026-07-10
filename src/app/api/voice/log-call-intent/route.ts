@@ -124,6 +124,7 @@ export async function POST(req: NextRequest) {
     // ── Appointment verification for cancel / reschedule / late ────────────
     let appointment: any = null;
     let appointmentSpoken: string | undefined;
+    let codeVerified: 'verified' | 'mismatch' | 'not_provided' = 'not_provided';
     if (APPOINTMENT_INTENTS.includes(intent)) {
       const aptId: string = body?.appointmentId;
       if (!aptId) {
@@ -162,6 +163,33 @@ export async function POST(req: NextRequest) {
           logged: false,
           error: 'already_cancelled',
           spokenSummary: 'It looks like that appointment was already cancelled.',
+        });
+      }
+
+      // v11 — confirmation-code verification. The phone-based clientId
+      // match above only runs when lookup-client actually found someone —
+      // an unrecognized number (different phone, shared family line,
+      // blocked caller ID) skips that check ENTIRELY, with nothing else
+      // standing in for it. shortCode is real proof: it's the code given
+      // to the client at booking (texted, printed, shown on the
+      // confirmation screen) — unlike a phone number, someone reciting it
+      // correctly actually demonstrates they have the original booking
+      // confirmation in hand. Optional and non-blocking: an unverified
+      // request still logs for staff review exactly as before, just
+      // clearly flagged so whoever reviews it knows to look closer before
+      // clicking the one-click action.
+      const suppliedCode: string = (body?.confirmationCode || '').trim().toUpperCase();
+      if (suppliedCode) {
+        codeVerified = suppliedCode === String(appointment.shortCode || '').toUpperCase()
+          ? 'verified'
+          : 'mismatch';
+      }
+      if (codeVerified === 'mismatch') {
+        return NextResponse.json({
+          logged: false,
+          error: 'confirmation_code_mismatch',
+          spokenSummary:
+            "That confirmation number doesn't quite match what I have on file — could you double-check it, or I can just take a message for the team instead.",
         });
       }
 
@@ -316,6 +344,11 @@ export async function POST(req: NextRequest) {
         clientId: body.clientId || null,
         appointmentId: appointment?.id,
         appointmentSpoken,
+        // v11 — surfaced on the inbox row so staff reviewing a cancel/
+        // reschedule can see at a glance whether the caller actually
+        // proved ownership (shortCode matched) versus this only being
+        // backed by a phone-number match or nothing at all.
+        codeVerified: APPOINTMENT_INTENTS.includes(intent) ? codeVerified : undefined,
         requestedSlotISO: body.requestedSlotISO || undefined,
         requestedProviderId: body.requestedProviderId || undefined,
         requestedSlotSpoken,
@@ -333,7 +366,9 @@ export async function POST(req: NextRequest) {
 
     const confirmations: Record<Intent, string> = {
       cancel:
-        "I've passed your cancellation request to the team — they'll confirm it shortly.",
+        codeVerified === 'verified'
+          ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
+          : "I've passed your cancellation request to the team — they'll confirm it shortly.",
       reschedule: requestedSlotSpoken
         ? `I've noted the move to ${requestedSlotSpoken} — the team will confirm it shortly.`
         : "I've passed your reschedule request to the team — they'll follow up with times.",
