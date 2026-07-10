@@ -1141,6 +1141,30 @@ export type Tenant = {
     allowClientOverride?: boolean; // default true if unset
   };
 
+  // ── Voice agent config ──────────────────────────────────────────────────
+  // Previously only accessed loosely (tenant.voiceAgent.bookingMode) across
+  // the voice route files — formalized here now that it's grown a second,
+  // more consequential setting.
+  voiceAgent?: {
+    /** 'instant' books/confirms without staff approval, subject to the
+     * safety gates in createBooking (poor history, outstanding balance,
+     * per-service override). Default 'approval'. */
+    bookingMode?: 'instant' | 'approval';
+    /** Default false — the safe, opt-in default. When true, a VERIFIED
+     * caller (shortCode match) with a usable card on file can have a
+     * FEE-BEARING cancellation or reschedule executed immediately during
+     * the call, including the actual charge — not just fee-free cases,
+     * which auto-execute regardless of this setting once verified. This
+     * is the single biggest autonomy step in the whole voice system: it
+     * lets the agent move real money with no staff review at all. Same
+     * safety gates apply as everywhere else (poor history, outstanding
+     * balance never bypass this), but the owner should understand this
+     * specifically means fee decisions no longer get a human's eyes
+     * before the charge happens.
+     */
+    autoChargeFeeBearingActions?: boolean;
+  };
+
   // ── Cancellation & No-Show — automation v2 ──────────────────────────────
   // Read directly by functions/src/autoCancel.ts and
   // functions/src/onCancellationEvent.ts. Kept flat on Tenant (no separate
