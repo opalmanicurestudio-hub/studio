@@ -186,6 +186,45 @@ export async function createBooking(
     clientDoc &&
     (Number(clientDoc.noShowCount) || 0) + (Number(clientDoc.cancellationCount) || 0) > 2
   );
+
+  // v10 — the tenant-wide instant/approval switch (input.mode) stays a
+  // single simple setting — that's deliberate, not a gap. But a specific
+  // booking can still get downgraded to approval underneath it when a real
+  // risk signal is present, the same way "On File" file requirements can
+  // still be overridden by requiresEveryAppointment, or a client's saved
+  // card gets treated as unusable once it's expired. Three independent
+  // reasons force the downgrade, any one is enough:
+  //   1. poorHistory — more than 2 combined no-shows/cancellations. A
+  //      bigger deposit alone (which poorHistory already triggers via
+  //      computeDepositCents) protects the MONEY on this one booking; it
+  //      doesn't protect the CALENDAR from a client with a demonstrated
+  //      pattern of not showing up.
+  //   2. An outstanding balance from a previous visit — instantly
+  //      confirming a new slot for someone who already owes money is how
+  //      unpaid balances compound instead of getting resolved.
+  //   3. The service itself is flagged voiceAlwaysRequireApproval — an
+  //      owner's explicit call that this specific service always wants a
+  //      human's eyes regardless of anything else.
+  const hasOutstandingBalance = (Number(clientDoc?.outstandingBalance) || 0) > 0;
+  const serviceForcesApproval = !!(service as any).voiceAlwaysRequireApproval;
+  const effectiveMode: 'instant' | 'approval' =
+    input.mode === 'instant' && !poorHistory && !hasOutstandingBalance && !serviceForcesApproval
+      ? 'instant'
+      : 'approval';
+
+  // v10 — card-on-file usability check for the deposit auto-charge below.
+  // Mirrors the exact same expiry logic already used in
+  // AppointmentDetailsSheet's handleSendRequirements — an expired card is
+  // treated as no card at all, never silently trusted as "on file."
+  const cardExpDate = clientDoc?.cardOnFile?.expMonth && clientDoc?.cardOnFile?.expYear
+    ? new Date(Number(clientDoc.cardOnFile.expYear), Number(clientDoc.cardOnFile.expMonth), 0)
+    : null;
+  const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
+  const hasUsableCard = !!(
+    (clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token) &&
+    (clientDoc?.cardOnFile?.customerId || clientDoc?.cardOnFile?.stripeCustomerId) &&
+    !cardIsExpired
+  );
   let depositCents = 0;
   try {
     depositCents = computeDepositCents({
@@ -226,7 +265,7 @@ export async function createBooking(
     if (!fr.persistToProfile) return true;
     return !profileDocs.some((pd: any) => pd.requirementId === fr.id);
   });
-  const needsLink = depositCents > 0 || formsNeedingSignature.length > 0 || pendingFileReqs.length > 0;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
 
   // ── 4. Transactional slot claim (QuickBook's lock discipline) ──────────
   const nowISO = new Date().toISOString();
@@ -257,14 +296,57 @@ export async function createBooking(
     throw e;
   }
 
+  // v10 — deposit auto-charge. Only attempted when the booking is
+  // genuinely going instant — a booking that got downgraded to approval
+  // above (poor history, outstanding balance, or a service flagged for
+  // manual review) never gets an unsupervised card charge either; the
+  // whole point of forcing a human look is that a charge shouldn't happen
+  // without one. On decline, this falls through to exactly the same
+  // completion-link path as "no card at all" — the client's booking still
+  // goes through, they just secure the deposit via the link instead.
+  let depositCharged = false;
+  let depositChargeIntentId: string | undefined;
+  if (effectiveMode === 'instant' && depositCents > 0 && hasUsableCard && clientId) {
+    try {
+      const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          clientId,
+          amountCents: depositCents,
+          description: `Deposit — ${service.name}`,
+          category: 'Retainers',
+          appointmentId: aptId,
+          reason: 'Voice booking deposit — card on file',
+          mode: 'auto',
+          kind: 'deposit',
+        }),
+      });
+      const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
+      if (chargeData.ok) {
+        depositCharged = true;
+        depositChargeIntentId = chargeData.paymentIntentId;
+      }
+    } catch {
+      /* falls through to completion-link path below, same as a declined card */
+    }
+  }
+
+  // v10 — needsLink now reflects the charge outcome: a successfully
+  // charged deposit no longer forces a link on its own. Forms and pending
+  // documents still can, same as always.
+  const needsLink = (depositCents > 0 && !depositCharged) || formsNeedingSignature.length > 0 || pendingFileReqs.length > 0;
+
   // ── 5. The booking write (full parity, one batch) ──────────────────────
   const checkInToken = nanoid();
   const shortCode = generateShortCodeServer();
   const endUtc = new Date(startUtc.getTime() + (service.duration ?? 60) * 60_000);
+  // v10 — a successfully charged deposit means the appointment is fully
+  // confirmed immediately, not deposit_pending, even though depositCents > 0.
   const status: 'deposit_pending' | 'confirmed' =
-    depositCents > 0 ? 'deposit_pending' : 'confirmed';
+    depositCents > 0 && !depositCharged ? 'deposit_pending' : 'confirmed';
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
   const link = needsLink ? `${appUrl}/check-in/${checkInToken}` : null;
 
   const aptDoc = stripUndefined({
@@ -290,9 +372,11 @@ export async function createBooking(
     checkInStatus: 'pending',
     notes: input.notes?.trim() || undefined,
     depositAmountCents: depositCents,
-    depositStatus: depositCents > 0 ? 'pending' : 'none',
+    depositStatus: depositCents === 0 ? 'none' : depositCharged ? 'paid' : 'pending',
+    depositPaymentIntentId: depositChargeIntentId,
+    depositChargedViaVoice: depositCharged || undefined,
     completionStatus: needsLink ? 'pending' : undefined,
-    voiceApproval: input.mode === 'approval' ? 'pending' : undefined,
+    voiceApproval: effectiveMode === 'approval' ? 'pending' : undefined,
     retellCallId: input.retellCallId || undefined,
     // Self-describing metadata so review surfaces need no joins:
     voiceMeta: stripUndefined({
@@ -303,8 +387,17 @@ export async function createBooking(
       clientPhone: clientPhone || undefined,
       clientEmail: clientEmail || undefined,
       depositCents,
+      depositCharged,
       formsNeeded: formsNeedingSignature.length,
       filesNeeded: pendingFileReqs.length,
+      // v10 — visible on the approvals panel so staff can see AT A
+      // GLANCE why a specific booking got downgraded to approval even
+      // though the tenant is set to instant — without this, "why didn't
+      // this one auto-confirm" would require digging through the client
+      // record by hand every time.
+      downgradedFromInstant: input.mode === 'instant' && effectiveMode === 'approval'
+        ? (poorHistory ? 'poor_history' : hasOutstandingBalance ? 'outstanding_balance' : 'service_requires_review')
+        : undefined,
     }),
   });
 
@@ -347,9 +440,9 @@ export async function createBooking(
         clientEmail: clientEmail.toLowerCase(),
         serviceId: service.id,
         serviceName: service.name || '',
-        depositAmountCents: depositCents,
+        depositAmountCents: depositCharged ? 0 : depositCents,
         requiredConsentFormIds: formsNeedingSignature,
-        skipCardStep: !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
+        skipCardStep: depositCharged || !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
         cardAlreadyOnFile: !!(clientDoc?.cardOnFile?.paymentMethodId || clientDoc?.cardOnFile?.token),
         fileRequirements: pendingFileReqs.map((fr: any) => ({
           id: fr.id,
@@ -381,7 +474,7 @@ export async function createBooking(
 
   // ── 6. Instant mode: fire the link now; approval mode stages it ────────
   let linkSent = false;
-  if (input.mode === 'instant' && link) {
+  if (effectiveMode === 'instant' && link) {
     try {
       const res = await fetch(`${appUrl}/api/notifications/send-completion-link`, {
         method: 'POST',
@@ -401,12 +494,19 @@ export async function createBooking(
     }
   }
 
+  // v10 — new first branch: deposit successfully charged against the card
+  // on file. Fully confirmed, nothing further needed from the client for
+  // the deposit itself (though a link may still exist for forms/files —
+  // spoken text stays quiet about that specific and lets the text/email
+  // speak for itself, matching how forms-only bookings already behave).
   const spoken =
-    input.mode === 'approval'
+    effectiveMode === 'approval'
       ? `That's held for you — ${service.name} with ${providerFirst} on ${spokenWhen}. The team will confirm by text shortly${depositCents > 0 ? ', with a secure link for the deposit' : ''}.`
-      : depositCents > 0
-        ? `You're booked — ${service.name} with ${providerFirst} on ${spokenWhen}. ${linkSent ? "I've just texted" : "You'll receive"} a secure link to lock in the deposit of $${(depositCents / 100).toFixed(2)}.`
-        : `You're all booked — ${service.name} with ${providerFirst} on ${spokenWhen}. A confirmation is on its way.`;
+      : depositCharged
+        ? `You're all set — ${service.name} with ${providerFirst} on ${spokenWhen}. I've charged your card on file $${(depositCents / 100).toFixed(2)} to secure it.`
+        : depositCents > 0
+          ? `You're booked — ${service.name} with ${providerFirst} on ${spokenWhen}. ${linkSent ? "I've just texted" : "You'll receive"} a secure link to lock in the deposit of $${(depositCents / 100).toFixed(2)}.`
+          : `You're all booked — ${service.name} with ${providerFirst} on ${spokenWhen}. A confirmation is on its way.`;
 
   return {
     ok: true,
@@ -415,8 +515,9 @@ export async function createBooking(
     checkInToken,
     shortCode,
     status,
-    mode: input.mode,
+    mode: effectiveMode,
     depositCents,
+    depositCharged,
     link,
     linkSent,
     spoken,
