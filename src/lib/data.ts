@@ -1163,6 +1163,13 @@ export type Tenant = {
      * before the charge happens.
      */
     autoChargeFeeBearingActions?: boolean;
+    /** Default false. Separate from autoChargeFeeBearingActions on purpose
+     * — selling a package (and eventually a membership) is a new revenue
+     * commitment, not a fee for something that already happened. An owner
+     * might trust the agent with one and not the other. When false, a
+     * verified sale interest is logged for staff to close instead of
+     * charged and enrolled live. */
+    autoSellOfferings?: boolean;
   };
 
   // ── Cancellation & No-Show — automation v2 ──────────────────────────────
