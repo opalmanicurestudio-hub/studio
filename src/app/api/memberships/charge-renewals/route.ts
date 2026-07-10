@@ -54,6 +54,13 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch { /* tenantId check below */ }
   const tenantId: string = body?.tenantId;
+  // v18 — dry-run mode: runs the exact same selection logic (who's due,
+  // who's past-due-past-grace) without ever calling Stripe or writing
+  // anything to Firestore. Built specifically so this can be verified
+  // against real client data before trusting it to move real money —
+  // there was previously no safe way to test this route at all short of
+  // actually charging someone or waiting for a real billing date.
+  const dryRun: boolean = body?.dryRun === true;
   if (!tenantId) {
     return NextResponse.json({ charged: 0, error: 'missing_tenant' }, { status: 400 });
   }
@@ -91,15 +98,17 @@ export async function POST(req: NextRequest) {
         const pastDueSince = sub.pastDueSince ? new Date(sub.pastDueSince) : nextBilling;
         const daysPastDue = (now.getTime() - pastDueSince.getTime()) / (24 * 3600 * 1000);
         if (daysPastDue > gracePeriodDays) {
-          await clientDoc.ref.set(
-            {
-              activeMembershipId: null,
-              subscription: { ...sub, status: 'canceled', canceledAt: now.toISOString() },
-            },
-            { merge: true },
-          );
+          if (!dryRun) {
+            await clientDoc.ref.set(
+              {
+                activeMembershipId: null,
+                subscription: { ...sub, status: 'canceled', canceledAt: now.toISOString() },
+              },
+              { merge: true },
+            );
+          }
           lapsed += 1;
-          results.push({ clientId: clientDoc.id, outcome: 'lapsed' });
+          results.push({ clientId: clientDoc.id, clientName: client.name, outcome: dryRun ? 'would_lapse' : 'lapsed', daysPastDue: Math.round(daysPastDue) });
           continue;
         }
       }
@@ -119,8 +128,25 @@ export async function POST(req: NextRequest) {
         !cardIsExpired
       );
 
-      let chargeSucceeded = false;
+      let chargeSucceeded = price === 0; // nothing to charge — renews cleanly
       let stripePaymentIntentId: string | undefined;
+
+      if (dryRun) {
+        // Never call Stripe or write anything in dry-run — just report
+        // what this run WOULD attempt, so the decision logic can be
+        // checked against real client data with zero financial risk.
+        const wouldAttempt = price > 0 && hasUsableCard;
+        results.push({
+          clientId: clientDoc.id,
+          clientName: client.name,
+          membershipName: membership.name,
+          amount: price,
+          hasUsableCard,
+          outcome: price === 0 ? 'would_renew_free' : wouldAttempt ? 'would_charge' : 'would_mark_past_due',
+          reason: price > 0 && !hasUsableCard ? 'no_usable_card_on_file' : undefined,
+        });
+        continue;
+      }
 
       if (price > 0 && hasUsableCard) {
         try {
@@ -193,7 +219,7 @@ export async function POST(req: NextRequest) {
         });
         await batch.commit();
         charged += 1;
-        results.push({ clientId: clientDoc.id, outcome: 'charged' });
+        results.push({ clientId: clientDoc.id, clientName: client.name, outcome: 'charged' });
       } else {
         await clientDoc.ref.set(
           {
@@ -226,7 +252,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ charged, lapsed, considered: snap.docs.length, results });
+    return NextResponse.json({ dryRun, charged, lapsed, considered: snap.docs.length, results });
   } catch (e) {
     console.error('[memberships/charge-renewals]', e);
     return NextResponse.json({ charged: 0, error: 'internal' }, { status: 500 });
