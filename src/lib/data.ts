@@ -230,6 +230,41 @@ export type Client = {
     phone: string;
   };
   birthday?: string;
+  // v7 — marketing/photo consent: a permanent client preference (can we
+  // share before/after photos, mention the visit in marketing), captured
+  // once via the check-in link's completion flow, not re-asked per visit.
+  marketingConsent?: {
+    consented: boolean;
+    consentedAt: string;
+    source: 'client_self_service' | 'staff';
+  };
+  // v7 — documents uploaded and flagged persistToProfile (e.g. Photo ID) —
+  // durable, cross-appointment, distinct from per-appointment
+  // requirementFiles on the Appointment type. requirementId matches the
+  // stable id on whichever Service.requiredFileRequirements entry (or
+  // ad-hoc AppointmentDetailsSheet request) originated it, which is what
+  // lets future bookings recognize "already on file."
+  profileDocuments?: {
+    requirementId: string;
+    label: string;
+    files: { name: string; url: string; uploadedAt: string }[];
+    uploadedAt: string;
+  }[];
+  // v8 — client-controlled notification settings. All optional — an unset
+  // field means "use the existing default behavior" everywhere it's read,
+  // so this is fully backward-compatible with every client who existed
+  // before this was added:
+  //   confirmationChannel unset  -> defaults to 'both' (sms + email)
+  //   reminderChannel unset      -> defaults to 'voice' (preserves the
+  //                                 existing voice-reminder system's
+  //                                 current behavior for every client)
+  //   reminderHoursBefore unset  -> falls back to whatever the booking
+  //                                 path's own default is (48h today)
+  notificationPreferences?: {
+    confirmationChannel?: 'sms' | 'email' | 'both' | 'none';
+    reminderChannel?: 'voice' | 'sms' | 'email' | 'both' | 'none';
+    reminderHoursBefore?: number;
+  };
   // Dispute tracking
   hasOpenDispute?: boolean;
   disputeCount?: number;
@@ -360,6 +395,19 @@ export type Service = {
   isPrivate?: boolean;
   confirmationMessage?: string;
   requiredFormIds?: string[];
+  // v3 — service-level required documents (Photo ID, etc.), configured
+  // once in ServiceFormSheet and read automatically by every booking path
+  // (QuickBookForm, the voice booking engine) instead of being an ad-hoc,
+  // per-booking decision. persistToProfile mirrors the same field on
+  // Client.profileDocuments — true means "on file, don't ask again";
+  // false/unset means "ask at every booking of this service."
+  requiredFileRequirements?: {
+    id: string;
+    label: string;
+    minCount?: number;
+    maxCount?: number;
+    persistToProfile?: boolean;
+  }[];
   status?: 'active' | 'archived';
   bottomColor?: string;
   depositType?: 'none' | 'deposit' | 'full' | 'breakeven';
@@ -473,14 +521,6 @@ export type InventoryItem = {
   labelImageUrl?: string;
   moq?: number;
   leadTimeDays?: number;
-  // ── Staff custody & replenishment ────────────────────────────────────────
-  // Only relevant for 'equipment' | 'professional' items distributed to
-  // staff/stations. Undefined = legacy item, not yet migrated — usage/
-  // replenishment logic should fall back to the old direct-deduction
-  // behavior (handleLogUseConfirm) for these until this is set.
-  //   'serialized' → tracked as individual AssetUnit records (e.g. shears)
-  //   'bulk'       → tracked as pooled StationAllocation quantities (e.g. towels)
-  trackingMode?: TrackingMode;
 };
 
 export type AppointmentCheckoutState = {
@@ -1305,90 +1345,6 @@ export type RefreshmentRequest = {
     staffName?: string;
     priceAtRequest?: number;
     isRedemption?: boolean;
-};
-
-// ─── Staff custody & replenishment ─────────────────────────────────────────
-// Added alongside RefreshmentRequest (guest-facing hospitality) — these are
-// the staff-facing equivalents for equipment custody and consumable
-// replenishment. See lib/replenishment-system.ts for the logic that
-// operates on these types (deductMainStock, approveReplenishment,
-// logServiceUsage, etc).
-
-export type TrackingMode = 'serialized' | 'bulk';
-
-/** A single physical, individually tracked piece of equipment (e.g. Shears #1). */
-export type AssetUnit = {
-  id: string;
-  tenantId: string;
-  itemId: string; // InventoryItem.id
-  serial: string; // printed on the fixed label — never reprinted on reassignment,
-                   // only when the physical label wears out (see recordAssetScan)
-  status: 'active' | 'damaged' | 'missing' | 'retired';
-  assignedToStaffId: string | null;
-  lastScannedAt: string | null;
-  lastScannedByStaffId: string | null;
-  conditionNotes?: string;
-};
-
-export type AssetScanEvent = {
-  id: string;
-  tenantId: string;
-  assetUnitId: string;
-  staffId: string;
-  action: 'checked_out' | 'checked_in' | 'reported_damaged' | 'reported_missing';
-  timestamp: string;
-  note?: string;
-};
-
-/** Quantity of a bulk consumable currently sitting at a staff member's station (Location). */
-export type StationAllocation = {
-  id: string;
-  tenantId: string;
-  itemId: string; // InventoryItem.id
-  staffId: string;
-  stationId: string; // Location.id
-  quantity: number;
-};
-
-/**
- * Manager-gated request to top up a station's bulk allocation.
- * Same shape/spirit as RefreshmentRequest but for staff, not guests —
- * kept separate since the requesting actor (staffId vs clientId) differs.
- */
-export type StaffReplenishmentRequest = {
-  id: string;
-  tenantId: string;
-  itemId: string;
-  itemName: string;
-  staffId: string;
-  staffName: string;
-  stationId: string;
-  quantityRequested: number;
-  status: 'pending' | 'approved' | 'denied';
-  requestedAt: string;
-  approvedByStaffId?: string;
-  approvedAt?: string;
-  deniedReason?: string;
-};
-
-/**
- * Created whenever a station runs short mid-service and the shortfall was
- * pulled directly from main stock rather than blocking the service. Stays
- * unresolved until a manager reviews it — unresolved flags block that
- * staff member's next replenishment approval.
- */
-export type OverflowEvent = {
-  id: string;
-  tenantId: string;
-  itemId: string;
-  staffId: string;
-  stationId: string;
-  quantityOverflowed: number;
-  timestamp: string;
-  resolved: boolean;
-  resolvedByStaffId?: string;
-  resolvedAt?: string;
-  resolutionNote?: string; // e.g. "legit high demand", "damaged product", "investigate"
 };
 
 export type Discount = {
