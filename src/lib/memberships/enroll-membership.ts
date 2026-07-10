@@ -43,17 +43,16 @@ export type EnrollMembershipInput = {
   tenantId: string;
   clientId: string;
   membershipId: string;
-  /** 'card_on_file' — client already has a saved card, charged off-session.
-   *  'stripe_payment_intent_id' — payment was already collected some other
-   *  way (e.g. CheckoutHub's own card flows) and this is just the
-   *  post-payment enrollment write; no charge is attempted here. */
   paymentMethod: 'card_on_file' | 'already_charged';
-  /** Required when paymentMethod is 'already_charged' — the PaymentIntent
-   * id from whatever already collected the money, recorded on the ledger
-   * line for traceability. */
   existingPaymentIntentId?: string;
-  source: string; // 'pos_checkout' | 'ai_receptionist' | 'admin_manual'
+  source: string;
   appUrl?: string;
+  // v17 — matches the exact skipLedger convention already used throughout
+  // pos-page.tsx's handleCheckout. When called from POS checkout, the
+  // ledger line for this sale is already written by that function's own
+  // retailItems loop — this must only perform the enrollment WRITE in
+  // that case, never a second, duplicate "Membership Sales" transaction.
+  skipLedger?: boolean;
 };
 
 export type EnrollMembershipResult =
@@ -167,7 +166,7 @@ export async function enrollMembership(
     },
     { merge: true },
   );
-  if (price > 0) {
+  if (price > 0 && !input.skipLedger) {
     const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
     batch.set(txnRef, {
       id: txnRef.id,
@@ -194,5 +193,135 @@ export async function enrollMembership(
     chargedAmount: price,
     stripePaymentIntentId,
     spoken: `You're enrolled in ${membership.name}${price > 0 ? ` — $${price.toFixed(2)} charged today` : ''}. Your next billing date is ${nextBilling.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`,
+  };
+}
+
+/**
+ * enrollPackage — the same missing-write gap sell-package.ts's voice route
+ * always wrote correctly, but pos-page.tsx's checkout never did for a
+ * BRAND NEW package purchase (only ever decremented an EXISTING one during
+ * redemption). This is the shared engine for that write, same
+ * architecture as enrollMembership — card charged first (or already
+ * charged, matching POS checkout's flow), activePackages entry written
+ * only on confirmed payment.
+ */
+export type EnrollPackageInput = {
+  tenantId: string;
+  clientId: string;
+  packageId: string;
+  paymentMethod: 'card_on_file' | 'already_charged';
+  existingPaymentIntentId?: string;
+  source: string;
+  appUrl?: string;
+  skipLedger?: boolean;
+};
+
+export type EnrollPackageResult =
+  | { ok: true; sessionsRemaining: number; chargedAmount: number; stripePaymentIntentId?: string; spoken: string }
+  | { ok: false; error: string; spoken: string };
+
+export async function enrollPackage(
+  db: Firestore,
+  input: EnrollPackageInput,
+): Promise<EnrollPackageResult> {
+  const { tenantId, clientId, packageId } = input;
+
+  const clientSnap = await db.doc(`tenants/${tenantId}/clients/${clientId}`).get();
+  if (!clientSnap.exists) {
+    return { ok: false, error: 'client_not_found', spoken: "I couldn't find your file — let me get the team to help with that." };
+  }
+  const client = clientSnap.data() as any;
+
+  const pkgSnap = await db.doc(`tenants/${tenantId}/packages/${packageId}`).get();
+  if (!pkgSnap.exists) {
+    return { ok: false, error: 'package_not_found', spoken: "I'm not finding that package on my end." };
+  }
+  const pkg = pkgSnap.data() as any;
+  const price = Number(pkg.price) || 0;
+
+  let stripePaymentIntentId = input.existingPaymentIntentId;
+
+  if (input.paymentMethod === 'card_on_file') {
+    const cardExpDate = client.cardOnFile?.expMonth && client.cardOnFile?.expYear
+      ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
+      : null;
+    const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
+    const hasUsableCard = !!(
+      (client.cardOnFile?.paymentMethodId || client.cardOnFile?.token) &&
+      (client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId) &&
+      !cardIsExpired
+    );
+    if (!hasUsableCard) {
+      return { ok: false, error: 'no_usable_card', spoken: "I don't see a valid card on file to set that up with." };
+    }
+    if (price > 0) {
+      const appUrl = input.appUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
+      try {
+        const chargeRes = await fetch(`${appUrl}/api/stripe/charge-card`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            clientId,
+            amountCents: Math.round(price * 100),
+            description: `Package — ${pkg.name}`,
+            category: 'Package Sales',
+            reason: `${input.source} package enrollment`,
+            mode: 'auto',
+            kind: 'deposit',
+          }),
+        });
+        const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
+        if (!chargeData.ok) {
+          return { ok: false, error: 'charge_declined', spoken: "That charge didn't go through — want to try a different card, or have the team follow up?" };
+        }
+        stripePaymentIntentId = chargeData.paymentIntentId;
+      } catch {
+        return { ok: false, error: 'charge_failed', spoken: "I ran into an issue processing that — let me have the team follow up instead." };
+      }
+    }
+  }
+
+  const now = new Date().toISOString();
+  const sessionsRemaining = Number(pkg.sessions) || 1;
+  const batch = db.batch();
+  const existingPackages: any[] = client.activePackages || [];
+  batch.set(
+    db.doc(`tenants/${tenantId}/clients/${clientId}`),
+    {
+      activePackages: [
+        ...existingPackages,
+        { packageId, sessionsRemaining, purchasedAt: now, source: input.source },
+      ],
+      lifetimeValue: (Number(client.lifetimeValue) || 0) + price,
+    },
+    { merge: true },
+  );
+  if (price > 0 && !input.skipLedger) {
+    const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
+    batch.set(txnRef, {
+      id: txnRef.id,
+      tenantId,
+      date: now,
+      description: `Package: ${pkg.name}`,
+      clientOrVendor: client.name || 'Client',
+      clientId,
+      type: 'income',
+      context: 'Business',
+      category: 'Package Sales',
+      amount: price,
+      paymentMethod: input.paymentMethod === 'card_on_file' ? 'Card on File (Stripe)' : 'Card (Stripe)',
+      stripePaymentIntentId,
+      hasReceipt: true,
+    });
+  }
+  await batch.commit();
+
+  return {
+    ok: true,
+    sessionsRemaining,
+    chargedAmount: price,
+    stripePaymentIntentId,
+    spoken: `You're all set — ${pkg.name} is active${price > 0 ? ` — $${price.toFixed(2)} charged today` : ''}. You've got ${sessionsRemaining} sessions to use.`,
   };
 }
