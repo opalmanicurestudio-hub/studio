@@ -146,7 +146,7 @@ const CancelledView = ({ reason }: { reason?: string }) => (
             <div className="space-y-2 text-center">
                 <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Record Voided</h3>
                 <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    This appointment is no longer active. Reason: <strong>{reason?.replace('_', ' ') || 'Protocol Change'}</strong>.
+                    This appointment is no longer active. Reason: <strong>{reason?.replace(/_/g, ' ') || 'Protocol Change'}</strong>.
                 </p>
             </div>
             <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
@@ -1911,7 +1911,7 @@ export default function CheckInPage() {
         );
     }
 
-    if (showNotificationSettings && tenantId && client) {
+    if (showNotificationSettings && tenantId && client && tenant?.notificationDefaults?.allowClientOverride !== false) {
         return (
             <NotificationPreferencesView
                 tenantId={tenantId}
@@ -2081,13 +2081,15 @@ export default function CheckInPage() {
                             >
                                 Can't make it? Cancel appointment
                             </button>
-                            <button
-                                type="button"
-                                onClick={() => setShowNotificationSettings(true)}
-                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                            >
-                                Notification settings
-                            </button>
+                            {tenant?.notificationDefaults?.allowClientOverride !== false && (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNotificationSettings(true)}
+                                    className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
+                                >
+                                    Notification settings
+                                </button>
+                            )}
                         </div>
                     </CardContent>
                 </ViewContainer>
