@@ -35,6 +35,8 @@ import {
   resolveOverflowEvent as resolveOverflowEventPure,
   recordAssetScan,
   isManager,
+  offboardStaff,
+  type OffboardStaffResult,
 } from '@/lib/replenishment-system';
 
 // ---------- Submitting a request (staff-facing) ----------
@@ -85,6 +87,46 @@ export async function submitReplenishmentRequest(
   const ref = doc(firestore, 'tenants', tenantId, 'staffReplenishmentRequests', request.id);
   await import('firebase/firestore').then(({ setDoc }) => setDoc(ref, request));
   return request;
+}
+
+/**
+ * Combined entry point for the staff-facing request form: submits the
+ * request, then immediately auto-approves it if the tenant is solo-tier.
+ * For 'studio'/'enterprise' tenants this behaves exactly like
+ * submitReplenishmentRequest() alone — the request sits pending until a
+ * manager acts on it in ReplenishmentApprovalQueue.
+ */
+export async function submitAndAutoApproveIfSolo(
+  firestore: Firestore,
+  tenantId: string,
+  tenant: { subscriptionTier?: string },
+  requestingStaff: Staff,
+  overflowEvents: OverflowEvent[],
+  params: {
+    itemId: string;
+    itemName: string;
+    staffId: string;
+    staffName: string;
+    stationId: string;
+    quantityRequested: number;
+  }
+): Promise<{ request: StaffReplenishmentRequest; autoApproved: boolean; approveResult?: ApproveResult }> {
+  const request = await submitReplenishmentRequest(firestore, tenantId, params);
+
+  if (!shouldAutoApprove(tenant)) {
+    return { request, autoApproved: false };
+  }
+
+  const unresolved = getUnresolvedOverflowsForStaff(overflowEvents, requestingStaff.id);
+  const approveResult = await approveReplenishmentRequestTx(
+    firestore,
+    tenantId,
+    request.id,
+    requestingStaff, // the solo provider approves their own request
+    unresolved
+  );
+
+  return { request, autoApproved: true, approveResult };
 }
 
 // ---------- Approving a request (manager-facing) ----------
@@ -337,4 +379,68 @@ export async function createAssetUnit(
   const ref = doc(firestore, 'tenants', tenantId, 'assetUnits', unit.id);
   await setDoc(ref, unit);
   return unit;
+}
+
+// ---------- Staff offboarding ----------
+
+export type OffboardResult = { success: true; summary: OffboardStaffResult } | { success: false; error: string };
+
+/**
+ * Reads a departing staff member's current allocations and assigned
+ * assets, computes the reconciliation via offboardStaff(), and commits
+ * everything atomically: returns bulk quantities to main stock, force
+ * checks-in serialized assets, and writes the stockCorrection audit trail.
+ *
+ * Call this from your staff deactivation flow (wherever `active: false`
+ * gets set on the Staff doc) BEFORE or alongside that update.
+ */
+export async function offboardStaffTx(
+  firestore: Firestore,
+  tenantId: string,
+  staffId: string,
+  staffName: string
+): Promise<OffboardResult> {
+  try {
+    const { getDocs, collection: col, query, where, writeBatch } = await import('firebase/firestore');
+
+    const allocationsSnap = await getDocs(
+      query(col(firestore, 'tenants', tenantId, 'stationAllocations'), where('staffId', '==', staffId))
+    );
+    const allocations = allocationsSnap.docs.map(d => d.data() as StationAllocation);
+
+    const assetsSnap = await getDocs(
+      query(col(firestore, 'tenants', tenantId, 'assetUnits'), where('assignedToStaffId', '==', staffId))
+    );
+    const assetUnits = assetsSnap.docs.map(d => d.data() as AssetUnit);
+
+    const summary = offboardStaff(staffId, staffName, allocations, assetUnits);
+
+    const batch = writeBatch(firestore);
+
+    for (const { allocation, itemId, quantityReturned } of summary.allocationsToReconcile) {
+      const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', itemId);
+      const itemSnap = await import('firebase/firestore').then(({ getDoc }) => getDoc(itemRef));
+      if (itemSnap.exists()) {
+        const item = itemSnap.data() as InventoryItem;
+        batch.update(itemRef, { totalStock: (item.totalStock || 0) + quantityReturned } as any);
+      }
+      const allocationRef = doc(firestore, 'tenants', tenantId, 'stationAllocations', allocation.id);
+      batch.update(allocationRef, { quantity: 0 } as any);
+    }
+
+    for (const unit of summary.assetsToCheckIn) {
+      const unitRef = doc(firestore, 'tenants', tenantId, 'assetUnits', unit.id);
+      batch.update(unitRef, { assignedToStaffId: null, status: 'active' } as any);
+    }
+
+    for (const correction of summary.stockCorrections) {
+      const correctionRef = doc(collection(firestore, 'tenants', tenantId, 'stockCorrections'));
+      batch.set(correctionRef, { id: correctionRef.id, ...correction } as StockCorrection);
+    }
+
+    await batch.commit();
+    return { success: true, summary };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Unknown error offboarding staff.' };
+  }
 }
