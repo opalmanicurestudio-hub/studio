@@ -194,6 +194,14 @@ export type Client = {
     nextBillingDate: string;
     perkLastUsed?: string;
     perkUsage?: { [itemId: string]: number };
+    // v16 — added alongside enroll-membership.ts / charge-membership-
+    // renewals: startedAt records enrollment date; pastDueSince marks when
+    // a renewal first failed, so the grace-period calculation has a fixed
+    // reference point rather than re-measuring from "now" on every cron
+    // tick.
+    startedAt?: string;
+    pastDueSince?: string | null;
+    canceledAt?: string;
   };
   cardOnFile?: CardOnFile;
   activePackages?: {
