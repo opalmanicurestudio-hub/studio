@@ -1785,9 +1785,15 @@ export function QuickBookForm({
   }, [selectedClient?.id]);
 
   React.useEffect(() => {
+    // v8 — a client's own notificationPreferences.reminderHoursBefore, if
+    // they've set one, takes priority over the same-day/future heuristic
+    // below. Staff can still override the dropdown manually afterward for
+    // this specific booking — this only sets the initial default.
+    const clientPref = (selectedClient as any)?.notificationPreferences?.reminderHoursBefore;
+    if (clientPref) { setReminderHours(String(clientPref)); return; }
     if (aptDate === todayStr) setReminderHours('1');
     else setReminderHours('48');
-  }, [aptDate, todayStr]);
+  }, [aptDate, todayStr, selectedClient]);
 
   React.useEffect(() => {
     if (!firestore || !tenantId) return;
