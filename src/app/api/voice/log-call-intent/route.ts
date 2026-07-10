@@ -69,14 +69,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
 import {
   verifyVoiceSecret,
   parseVoiceToolRequest,
   stripUndefined,
   speakDateTime,
+  localDateStr,
+  localTimeHHmm,
 } from '@/lib/voice/voice-utils';
-import { loadTenantContext } from '@/lib/voice/server-availability';
+import {
+  loadTenantContext,
+  verifySlotOpen,
+  fetchDayAppointments,
+} from '@/lib/voice/server-availability';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -126,6 +133,8 @@ export async function POST(req: NextRequest) {
     let appointmentSpoken: string | undefined;
     let codeVerified: 'verified' | 'mismatch' | 'not_provided' = 'not_provided';
     let autoCancelled = false;
+    let autoCancelledFeeCharged = false;
+    let autoCancelledFeeAmount: number | undefined;
     if (APPOINTMENT_INTENTS.includes(intent)) {
       const aptId: string = body?.appointmentId;
       if (!aptId) {
@@ -209,10 +218,20 @@ export async function POST(req: NextRequest) {
       // fee-free cancel" — it requires the caller to have PROVEN they're
       // the actual client (shortCode match), not just a phone-number
       // heuristic, which is what made this safe to build at all (see the
-      // codeVerified work above). Never touches money either way — same
-      // scope restriction as execute-cancel's one-click path; a paid
-      // deposit still waits for a human to decide on a refund regardless
-      // of how this resolves.
+      // codeVerified work above).
+      //
+      // v14 — extended to fee-BEARING cancellations too, but only when the
+      // tenant has explicitly opted in via
+      // voiceAgent.autoChargeFeeBearingActions (default false — this is
+      // the single biggest autonomy step in the whole voice system, so it
+      // does not activate silently). When active, a verified caller with a
+      // usable card on file gets the fee charged immediately, same
+      // /api/stripe/charge-card + kind:'arrears_fee' pattern self-cancel
+      // already uses. Critically: if the charge FAILS, this does NOT
+      // cancel the appointment anyway — falling back to staff review is
+      // the correct outcome, since auto-cancelling without collecting a
+      // deserved fee is exactly the kind of revenue loss this whole
+      // feature exists to prevent, not cause.
       if (intent === 'cancel' && codeVerified === 'verified' && appointment.clientId) {
         const clientSnapForGate = await db.doc(`tenants/${tenantId}/clients/${appointment.clientId}`).get();
         const clientDocForGate = clientSnapForGate.exists ? clientSnapForGate.data() as any : null;
@@ -224,19 +243,75 @@ export async function POST(req: NextRequest) {
         const isFeeFree = hoursUntilStart >= cancellationWindowHours;
         const poorHistory = (Number(clientDocForGate?.noShowCount) || 0) + (Number(clientDocForGate?.cancellationCount) || 0) > 2;
         const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
+        const safeToConsider = !!clientDocForGate && !poorHistory && !hasOutstandingBalance;
 
-        if (clientDocForGate && isFeeFree && !poorHistory && !hasOutstandingBalance) {
+        const cardExpDate = clientDocForGate?.cardOnFile?.expMonth && clientDocForGate?.cardOnFile?.expYear
+          ? new Date(Number(clientDocForGate.cardOnFile.expYear), Number(clientDocForGate.cardOnFile.expMonth), 0)
+          : null;
+        const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
+        const hasUsableCard = !!(
+          (clientDocForGate?.cardOnFile?.paymentMethodId || clientDocForGate?.cardOnFile?.token) &&
+          (clientDocForGate?.cardOnFile?.customerId || clientDocForGate?.cardOnFile?.stripeCustomerId) &&
+          !cardIsExpired
+        );
+
+        let feeCharged = false;
+        let feeAmount = 0;
+        let stripePaymentIntentId: string | undefined;
+        let shouldExecute = false;
+
+        if (safeToConsider && isFeeFree) {
+          shouldExecute = true;
+        } else if (safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true && hasUsableCard) {
+          feeAmount = Number(tenant.cancellationFee) || Number(svc?.price) || 0;
+          if (feeAmount > 0) {
+            try {
+              const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tenantId,
+                  clientId: appointment.clientId,
+                  amountCents: Math.round(feeAmount * 100),
+                  description: `Cancellation fee — ${svc?.name || 'Service'}`,
+                  category: 'Cancellation Fee',
+                  appointmentId: appointment.id,
+                  reason: 'Voice-verified cancellation, tenant opted into auto-charge',
+                  mode: 'auto',
+                  kind: 'arrears_fee',
+                }),
+              });
+              const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
+              if (chargeData.ok) {
+                feeCharged = true;
+                stripePaymentIntentId = chargeData.paymentIntentId;
+                shouldExecute = true;
+              }
+              // charge failed — shouldExecute stays false, falls to staff review below
+            } catch {
+              /* charge attempt failed — shouldExecute stays false */
+            }
+          } else {
+            // No actual fee configured despite being "within the window" —
+            // nothing to charge, so treat like the fee-free path.
+            shouldExecute = true;
+          }
+        }
+
+        if (shouldExecute) {
           const cancelNowISO = new Date().toISOString();
           const cancelPatch = {
             status: 'cancelled',
             cancelledAt: cancelNowISO,
             cancellationReason: 'client_requested_via_voice',
-            cancellationFeeCharged: false,
+            cancellationFeeCharged: feeCharged,
             cancellationAudit: {
               actorType: 'client',
               actorId: appointment.clientId || 'unknown_client',
-              reason: 'client_requested_via_voice_verified',
-              feeCharged: false,
+              reason: feeCharged ? 'client_requested_via_voice_verified_fee_charged' : 'client_requested_via_voice_verified',
+              feeCharged,
+              feeAmount: feeCharged ? feeAmount : undefined,
+              stripePaymentIntentId,
               timestamp: cancelNowISO,
             },
             updatedAt: cancelNowISO,
@@ -251,17 +326,223 @@ export async function POST(req: NextRequest) {
               { merge: true },
             );
           }
+          if (feeCharged) {
+            const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
+            cancelBatch.set(txnRef, {
+              id: txnRef.id,
+              tenantId,
+              date: cancelNowISO,
+              description: `Cancellation fee — ${svc?.name || 'Service'}`,
+              clientOrVendor: clientDocForGate?.name || appointment.clientName || 'Client',
+              clientId: appointment.clientId,
+              type: 'income',
+              context: 'Business',
+              category: 'Cancellation Fee',
+              taxBucket: 'revenue',
+              amount: feeAmount,
+              paymentMethod: 'Card on File (Stripe)',
+              stripePaymentIntentId,
+              appointmentId: appointment.id,
+              hasReceipt: true,
+            });
+          }
           await cancelBatch.commit();
           autoCancelled = true;
+          autoCancelledFeeCharged = feeCharged;
+          autoCancelledFeeAmount = feeCharged ? feeAmount : undefined;
         }
       }
     }
 
-    // ── Reschedule: format the agreed-upon new slot ─────────────────────────
+    // ── Reschedule: format the agreed-upon new slot, and auto-execute when safe ──
     let requestedSlotSpoken: string | undefined;
+    let autoRescheduled = false;
+    let autoRescheduledFeeCharged = false;
+    let autoRescheduledFeeAmount: number | undefined;
     if (intent === 'reschedule' && body.requestedSlotISO) {
       const t = new Date(body.requestedSlotISO);
       if (!Number.isNaN(t.getTime())) requestedSlotSpoken = speakDateTime(t, tz);
+
+      // v14 — auto-execute a reschedule, mirroring execute-reschedule.ts's
+      // actual move logic (that route requires staff auth and can't be
+      // called directly from here — same reasoning create-booking has its
+      // own inline slot-lock rather than sharing QuickBookForm's client-
+      // side code). Fee-free moves auto-execute under the same verified-
+      // caller bar as fee-free cancellation, unconditionally. Fee-bearing
+      // moves additionally require the SAME tenant opt-in
+      // (voiceAgent.autoChargeFeeBearingActions) as fee-bearing
+      // cancellation — one setting governs both, since it's the same
+      // underlying trust decision either way.
+      if (codeVerified === 'verified' && appointment.clientId && !Number.isNaN(t.getTime()) && t.getTime() > Date.now()) {
+        const clientSnapForGate = await db.doc(`tenants/${tenantId}/clients/${appointment.clientId}`).get();
+        const clientDocForGate = clientSnapForGate.exists ? clientSnapForGate.data() as any : null;
+        const tenant = ctx.tenant || {};
+        const hoursUntilOriginal = start && !Number.isNaN(start.getTime())
+          ? (start.getTime() - Date.now()) / 3_600_000
+          : 0;
+        const rescheduleFeeAmount = Number(tenant.rescheduleFee) || 0;
+        const rescheduleWindowHours = Number(tenant.rescheduleFeeWindowHours) || 0;
+        const isFeeFree = !(rescheduleFeeAmount > 0 && rescheduleWindowHours > 0 && hoursUntilOriginal < rescheduleWindowHours);
+        const poorHistory = (Number(clientDocForGate?.noShowCount) || 0) + (Number(clientDocForGate?.cancellationCount) || 0) > 2;
+        const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
+        const safeToConsider = !!clientDocForGate && !poorHistory && !hasOutstandingBalance;
+
+        const cardExpDate = clientDocForGate?.cardOnFile?.expMonth && clientDocForGate?.cardOnFile?.expYear
+          ? new Date(Number(clientDocForGate.cardOnFile.expYear), Number(clientDocForGate.cardOnFile.expMonth), 0)
+          : null;
+        const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
+        const hasUsableCard = !!(
+          (clientDocForGate?.cardOnFile?.paymentMethodId || clientDocForGate?.cardOnFile?.token) &&
+          (clientDocForGate?.cardOnFile?.customerId || clientDocForGate?.cardOnFile?.stripeCustomerId) &&
+          !cardIsExpired
+        );
+
+        let feeCharged = false;
+        let shouldExecute = false;
+
+        if (safeToConsider && isFeeFree) {
+          shouldExecute = true;
+        } else if (safeToConsider && !isFeeFree && tenant.voiceAgent?.autoChargeFeeBearingActions === true && hasUsableCard) {
+          try {
+            const chargeRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com'}/api/stripe/charge-card`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tenantId,
+                clientId: appointment.clientId,
+                amountCents: Math.round(rescheduleFeeAmount * 100),
+                description: `Reschedule fee — ${svc?.name || 'Service'}`,
+                category: 'Adjustment Fee',
+                appointmentId: appointment.id,
+                reason: 'Voice-verified reschedule, tenant opted into auto-charge',
+                mode: 'auto',
+                kind: 'arrears_fee',
+              }),
+            });
+            const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
+            if (chargeData.ok) {
+              feeCharged = true;
+              shouldExecute = true;
+            }
+            // charge failed — shouldExecute stays false, falls to staff review
+          } catch {
+            /* charge attempt failed — shouldExecute stays false */
+          }
+        }
+
+        if (shouldExecute) {
+          // Re-verify the target slot server-side, excluding the appointment
+          // being moved — same guarantee as execute-reschedule.ts.
+          const dateLocal = localDateStr(t, tz);
+          const timeLocal = localTimeHHmm(t, tz);
+          const staffMember = ctx.staff.find((s: any) => s.id === (body.requestedProviderId || appointment.staffId));
+          const dayApts = staffMember
+            ? (await fetchDayAppointments(db, tenantId, ctx, dateLocal)).filter((a: any) => a.id !== appointment.id)
+            : [];
+          const verdict = staffMember
+            ? verifySlotOpen({ staffMember, service: svc, startUtc: t, ctx, dayAppointments: dayApts })
+            : { open: false, reason: 'provider_not_found' };
+
+          if (verdict.open && staffMember) {
+            const lockKey = `${staffMember.id}_${dateLocal}_${timeLocal.replace(':', '')}`;
+            const lockRef = db.doc(`tenants/${tenantId}/slotLocks/${lockKey}`);
+            let claimed = false;
+            try {
+              await db.runTransaction(async (tx) => {
+                const existing = await tx.get(lockRef);
+                if (existing.exists) throw new Error('SLOT_TAKEN');
+                tx.set(lockRef, {
+                  staffId: staffMember.id,
+                  date: dateLocal,
+                  time: timeLocal,
+                  aptId: appointment.id,
+                  reservedAt: new Date().toISOString(),
+                  expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+                });
+              });
+              claimed = true;
+            } catch {
+              claimed = false;
+            }
+
+            if (claimed) {
+              const oldStart = new Date(appointment.startTime);
+              const oldEnd = new Date(appointment.endTime);
+              const durationMs =
+                !Number.isNaN(oldStart.getTime()) && !Number.isNaN(oldEnd.getTime()) && oldEnd > oldStart
+                  ? oldEnd.getTime() - oldStart.getTime()
+                  : (svc?.duration ?? 60) * 60_000;
+              const newEnd = new Date(t.getTime() + durationMs);
+              const rescheduleNowISO = new Date().toISOString();
+              const providerChanged = staffMember.id !== appointment.staffId;
+
+              const historyEntry = {
+                from: appointment.startTime,
+                to: t.toISOString(),
+                fromStaffId: appointment.staffId,
+                toStaffId: staffMember.id,
+                at: rescheduleNowISO,
+                by: appointment.clientId,
+                source: 'voice_verified_auto',
+                feeCharged,
+                feeAmount: feeCharged ? rescheduleFeeAmount : undefined,
+              };
+              const movePatch = {
+                startTime: t.toISOString(),
+                endTime: newEnd.toISOString(),
+                staffId: staffMember.id,
+                reminderSent: false,
+                updatedAt: rescheduleNowISO,
+              };
+
+              const moveBatch = db.batch();
+              moveBatch.set(
+                db.doc(`tenants/${tenantId}/appointments/${appointment.id}`),
+                { ...movePatch, rescheduleHistory: FieldValue.arrayUnion(historyEntry) },
+                { merge: true },
+              );
+              if (appointment.checkInToken) {
+                moveBatch.set(db.doc(`appointmentCheckIns/${appointment.checkInToken}`), movePatch, { merge: true });
+              }
+              if (providerChanged) {
+                moveBatch.set(
+                  db.doc(`tenants/${tenantId}/staff/${staffMember.id}`),
+                  { lastBookingAssignedAt: rescheduleNowISO, lastServedTimestamp: rescheduleNowISO },
+                  { merge: true },
+                );
+              }
+              if (feeCharged) {
+                const txnRef = db.doc(`tenants/${tenantId}/transactions/${nanoid()}`);
+                moveBatch.set(txnRef, {
+                  id: txnRef.id,
+                  tenantId,
+                  date: rescheduleNowISO,
+                  description: `Reschedule fee — ${svc?.name || 'Service'}`,
+                  clientOrVendor: clientDocForGate?.name || appointment.clientName || 'Client',
+                  clientId: appointment.clientId,
+                  type: 'income',
+                  context: 'Business',
+                  category: 'Adjustment Fee',
+                  taxBucket: 'adjustment',
+                  amount: rescheduleFeeAmount,
+                  paymentMethod: 'Card on File (Stripe)',
+                  appointmentId: appointment.id,
+                  hasReceipt: true,
+                });
+              }
+              moveBatch.delete(lockRef);
+              await moveBatch.commit();
+              autoRescheduled = true;
+              autoRescheduledFeeCharged = feeCharged;
+              autoRescheduledFeeAmount = feeCharged ? rescheduleFeeAmount : undefined;
+            }
+          }
+          // If the slot wasn't open or couldn't be claimed, this silently
+          // falls through to the standard staff-reviewed inbox item below —
+          // same as execute-reschedule.ts returning slot_taken and the
+          // panel falling back to manual handling.
+        }
+      }
     }
 
     // ── Late: the one direct write ──────────────────────────────────────────
@@ -406,7 +687,7 @@ export async function POST(req: NextRequest) {
         requestedProviderId: body.requestedProviderId || undefined,
         requestedSlotSpoken,
         minutesLate,
-        autoApplied: (autoApplied || autoCancelled) || undefined,
+        autoApplied: (autoApplied || autoCancelled || autoRescheduled) || undefined,
         eventInquiry,
         consultation,
         details: (body.details || '').trim() || undefined,
@@ -419,14 +700,21 @@ export async function POST(req: NextRequest) {
 
     const confirmations: Record<Intent, string> = {
       cancel:
-        autoCancelled
-          ? "You're all set — that appointment's cancelled, no fee since you gave us plenty of notice."
-          : codeVerified === 'verified'
-            ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
-            : "I've passed your cancellation request to the team — they'll confirm it shortly.",
-      reschedule: requestedSlotSpoken
-        ? `I've noted the move to ${requestedSlotSpoken} — the team will confirm it shortly.`
-        : "I've passed your reschedule request to the team — they'll follow up with times.",
+        autoCancelled && autoCancelledFeeCharged
+          ? `You're all set — that appointment's cancelled. Since it's within the cancellation window, I charged the ${(autoCancelledFeeAmount || 0).toFixed(2)} dollar fee to your card on file.`
+          : autoCancelled
+            ? "You're all set — that appointment's cancelled, no fee since you gave us plenty of notice."
+            : codeVerified === 'verified'
+              ? "You're confirmed on that appointment, so I've passed your cancellation straight through — the team will finalize it shortly."
+              : "I've passed your cancellation request to the team — they'll confirm it shortly.",
+      reschedule:
+        autoRescheduled && autoRescheduledFeeCharged
+          ? `You're all set — that's moved to ${requestedSlotSpoken}. Since it's a short-notice change, I charged the ${(autoRescheduledFeeAmount || 0).toFixed(2)} dollar reschedule fee to your card on file.`
+          : autoRescheduled
+            ? `You're all set — that's moved to ${requestedSlotSpoken}, no fee.`
+            : requestedSlotSpoken
+              ? `I've noted the move to ${requestedSlotSpoken} — the team will confirm it shortly.`
+              : "I've passed your reschedule request to the team — they'll follow up with times.",
       late: `Got it — I've let them know you're running about ${minutesLate} minutes behind.`,
       event_quote:
         "I've got all the details down — someone will reach out with a quote.",
