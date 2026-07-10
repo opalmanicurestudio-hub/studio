@@ -136,25 +136,144 @@ const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: 
     </CardHeader>
 );
 
-const CancelledView = ({ reason }: { reason?: string }) => (
-    <ViewContainer>
-        <ViewHeader title="Session Void" subtitle="Protocol cancellation finalized" icon={XCircle} />
-        <CardContent className="p-10 md:p-16 text-center space-y-8">
-            <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                <XCircle className="w-12 h-12 text-destructive" />
-            </div>
-            <div className="space-y-2 text-center">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Record Voided</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    This appointment is no longer active. Reason: <strong>{reason?.replace(/_/g, ' ') || 'Protocol Change'}</strong>.
-                </p>
-            </div>
-            <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                <Link href="/">Browse Availability</Link>
-            </Button>
-        </CardContent>
-    </ViewContainer>
-);
+// v15 — CancelledView now optionally shows a self-service payment prompt
+// when bookingCompletions.status === 'fee_owed' (set by log-call-intent's
+// voice-verified-but-no-card cancellation path). Reuses the EXISTING
+// /api/stripe/completion route and EmbeddedCheckout pattern already proven
+// in CompletionGateView — same payload shape, same component, just a
+// different framing ("Cancellation Fee" instead of "Finish Your Booking").
+// No new payment endpoint; this is the same money-collection mechanism
+// already used everywhere else in this file.
+const CancelledView = ({
+    reason,
+    tenantId,
+    token,
+    completion,
+    firestore,
+}: {
+    reason?: string;
+    tenantId?: string;
+    token?: string;
+    completion?: any;
+    firestore?: any;
+}) => {
+    const [clientSecret, setClientSecret] = useState<string | null>(null);
+    const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+    const [isStartingPayment, setIsStartingPayment] = useState(false);
+    const [paymentError, setPaymentError] = useState<string | null>(null);
+    const [feeSettled, setFeeSettled] = useState(false);
+
+    const owesFee = completion?.status === 'fee_owed' && !feeSettled;
+    const feeAmount = (completion?.depositAmountCents || 0) / 100;
+
+    const stripePromise = useMemo(() => {
+        const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+        if (!pk || !stripeAccountId) return null;
+        return loadStripe(pk, { stripeAccount: stripeAccountId });
+    }, [stripeAccountId]);
+
+    const handleStartPayment = async () => {
+        setIsStartingPayment(true);
+        setPaymentError(null);
+        try {
+            const res = await fetch('/api/stripe/completion', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tenantId, completionToken: token,
+                    appointmentId: completion?.owedFeeAppointmentId,
+                    clientId: completion?.clientId,
+                    clientName: completion?.clientName,
+                    clientEmail: completion?.clientEmail,
+                    depositAmount: feeAmount,
+                    serviceName: completion?.serviceName,
+                }),
+            });
+            const out = await res.json().catch(() => null);
+            if (out?.clientSecret) {
+                setStripeAccountId(out.stripeAccountId || null);
+                setClientSecret(out.clientSecret);
+            } else {
+                setPaymentError(out?.error || 'Could not start checkout. Please contact the studio.');
+            }
+        } catch (e: any) {
+            setPaymentError(e.message || 'Something went wrong. Please try again.');
+        } finally {
+            setIsStartingPayment(false);
+        }
+    };
+
+    const handleFeePaid = async () => {
+        // Best-effort settlement — mirrors the shape written when a fee is
+        // parked as owed, just reversed. The Stripe payment itself is the
+        // source of truth; this just keeps the client-facing status and
+        // ledger-adjacent records in sync so staff don't see a stale
+        // "still owed" balance after it's genuinely been paid.
+        setFeeSettled(true);
+        if (!firestore || !tenantId || !token) return;
+        try {
+            await setDoc(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), { status: 'fee_paid' }, { merge: true });
+            if (completion?.clientId) {
+                await setDoc(
+                    doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
+                    { feePaidViaLinkAt: new Date().toISOString() },
+                    { merge: true },
+                );
+            }
+        } catch { /* best-effort — Stripe's own record is authoritative regardless */ }
+    };
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Session Void" subtitle="Protocol cancellation finalized" icon={XCircle} />
+            <CardContent className="p-10 md:p-16 text-center space-y-8">
+                <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
+                    <XCircle className="w-12 h-12 text-destructive" />
+                </div>
+                <div className="space-y-2 text-center">
+                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Record Voided</h3>
+                    <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
+                        This appointment is no longer active. Reason: <strong>{reason?.replace(/_/g, ' ') || 'Protocol Change'}</strong>.
+                    </p>
+                </div>
+
+                {owesFee && (
+                    <div className="p-6 md:p-8 rounded-[2rem] border-4 border-amber-200 bg-amber-50 space-y-5 text-left">
+                        <div className="text-center space-y-1">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Cancellation Fee Due</p>
+                            <p className="text-3xl font-black text-amber-700 font-mono tracking-tighter">${feeAmount.toFixed(2)}</p>
+                        </div>
+                        {clientSecret && stripePromise ? (
+                            <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: handleFeePaid }}>
+                                <EmbeddedCheckout />
+                            </EmbeddedCheckoutProvider>
+                        ) : (
+                            <>
+                                {paymentError && <p className="text-xs font-bold text-destructive text-center">{paymentError}</p>}
+                                <Button
+                                    onClick={handleStartPayment}
+                                    disabled={isStartingPayment}
+                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl bg-amber-600 hover:bg-amber-700"
+                                >
+                                    {isStartingPayment ? <Loader className="w-4 h-4 animate-spin" /> : 'Pay Cancellation Fee'}
+                                </Button>
+                            </>
+                        )}
+                    </div>
+                )}
+                {feeSettled && (
+                    <div className="p-4 rounded-2xl bg-green-50 border-2 border-green-200">
+                        <p className="text-xs font-black uppercase text-green-700">Fee paid — thank you</p>
+                    </div>
+                )}
+
+                <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
+                    <Link href="/">Browse Availability</Link>
+                </Button>
+            </CardContent>
+        </ViewContainer>
+    );
+};
 
 // v8 — NEW: lets a client control how and when they're notified. Seeded
 // from client.notificationPreferences, defaulting to whatever the
@@ -1857,7 +1976,13 @@ export default function CheckInPage() {
 
     if (appointmentData?.status === 'cancelled') {
         return (
-            <CancelledView reason={appointmentData.cancellationReason} />
+            <CancelledView
+                reason={appointmentData.cancellationReason}
+                tenantId={tenantId}
+                token={token}
+                completion={completion}
+                firestore={firestore}
+            />
         );
     }
 
