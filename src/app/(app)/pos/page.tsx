@@ -591,12 +591,19 @@ function POSPage() {
       const involvedIds = new Set<string>(); if (apt.staffId) involvedIds.add(apt.staffId); if (overrides) Object.values(overrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); }); involvedIds.forEach(sid => { if (sid) batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'available', lastWalkInCompletedAt: now }, { merge: true }); });
     }
 
+    // v17 — track any membership/package items so they can be properly
+    // ENROLLED after this batch commits, not just recorded as revenue.
+    // The forEach below already writes the correct ledger line for these
+    // (unchanged) — this only collects which ones need the actual
+    // enrollment write that was previously missing entirely.
+    const offeringsToEnroll: { offeringType: 'membership' | 'package'; offeringId: string }[] = [];
     retailItems.forEach(item => {
       const productValue = item.price * item.quantity;
       const itemCategory = item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : 'Retail';
       const itemDescription = item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
       if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: itemDescription, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: itemCategory, amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId, checkoutSessionId }));
       if (item.type === 'product') { batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` })); }
+      if (item.type === 'membership' || item.type === 'package') offeringsToEnroll.push({ offeringType: item.type, offeringId: item.id });
       totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
     });
 
@@ -653,6 +660,37 @@ function POSPage() {
     try {
       await batch.commit();
       toast({ title: "Checkout Successful" });
+      // v17 — enroll any membership/package sold in this cart. Must run
+      // AFTER the main batch commits (so we know the sale itself is
+      // real), and always skipLedger:true — the forEach above already
+      // wrote (or correctly skipped) this item's ledger line; this call
+      // performs ONLY the enrollment write that was previously missing
+      // entirely for a brand-new purchase.
+      for (const offering of offeringsToEnroll) {
+        try {
+          const enrollRes = await fetch('/api/memberships/enroll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId,
+              clientId: effectiveClientId,
+              offeringType: offering.offeringType,
+              offeringId: offering.offeringId,
+              paymentMethod: 'already_charged',
+              existingPaymentIntentId: paymentData.stripePaymentIntentId,
+              source: 'pos_checkout',
+              skipLedger: true,
+            }),
+          });
+          const enrollData = await enrollRes.json().catch(() => ({ ok: false }));
+          if (!enrollData.ok) {
+            console.error('[handleCheckout] enrollment failed', offering, enrollData);
+            toast({ variant: 'destructive', title: 'Enrollment issue', description: `${offering.offeringType === 'membership' ? 'Membership' : 'Package'} was sold but not activated — please check the client profile.` });
+          }
+        } catch (e) {
+          console.error('[handleCheckout] enrollment call failed', offering, e);
+        }
+      }
       try {
         const receiptRef = doc(collection(firestore, `tenants/${tenantId}/receipts`));
         const receiptData = { id: receiptRef.id, checkoutSessionId, clientId: effectiveClientId, clientName: clientObj?.name || 'Guest', tenantId, date: now, paymentMethod: paymentData.paymentMethod, amountTendered: safeNumber(paymentData.amountTendered), change: Math.max(0, safeNumber(paymentData.amountTendered) - totalCalc), subtotal: subtotalCalc, tax: taxCalc, tip: tipAmount, discount: discountValue + membershipDiscountValue, total: totalCalc, cashierName: (staff || []).find((s: any) => s.id === currentUser?.uid)?.name || '', stripePaymentIntentId: paymentData.stripePaymentIntentId || null, lineItems: [...readyForCheckoutAppointments.filter(a => selectedAppointmentIds.has(a.id)).flatMap(a => { const overrides = a.appointment.checkoutState?.serviceStaffOverrides || {}; const mainStaffMember = staff.find((s: any) => s.id === (overrides[a.service?.id] || a.appointment.staffId)); const lines: any[] = [{ label: a.service?.name || 'Service', amount: getServicePrice(a.service, a.staff), type: 'service', staff: mainStaffMember?.name?.split(' ')[0] }]; (a.addOnServices || []).forEach((addon: any) => { const addonStaff = staff.find((s: any) => s.id === (overrides[addon.id] || a.appointment.staffId)); lines.push({ label: `+ ${addon.name}`, amount: getServicePrice(addon, addonStaff), type: 'addon', staff: addonStaff?.name?.split(' ')[0] }); }); return lines; }), ...retailItems.map((item: any) => ({ label: item.name, amount: item.price * item.quantity, type: item.type || 'retail' }))] };
