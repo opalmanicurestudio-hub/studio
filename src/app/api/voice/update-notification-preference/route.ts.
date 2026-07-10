@@ -1,0 +1,125 @@
+/**
+ * POST /api/voice/update-notification-preference — v1
+ *
+ * Voice tool for "can you text me instead of calling" / "remind me two
+ * days ahead instead" type requests. Previously this genuinely didn't
+ * exist — a client could only change their notification preferences
+ * through the web check-in link's settings screen, never mid-call.
+ *
+ * Respects tenant.notificationDefaults.allowClientOverride the same way
+ * every other notification code path does: if the owner has turned client
+ * override OFF, this route does NOT write anything — it returns a
+ * graceful spoken decline instead, so the agent doesn't imply a change was
+ * made when the business has deliberately kept this centralized.
+ *
+ * Auth: same inbound-call tool secret as create-booking / check-availability
+ * (this fires mid-call, not staff-triggered — no staff auth token exists
+ * at this point in the flow).
+ */
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { verifyVoiceSecret } from '@/lib/voice/voice-utils';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+const VALID_CONFIRMATION_CHANNELS = ['sms', 'email', 'both', 'none'];
+const VALID_REMINDER_CHANNELS = ['voice', 'sms', 'email', 'both', 'none'];
+
+export async function POST(req: NextRequest) {
+  if (!verifyVoiceSecret(req)) {
+    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
+  }
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: 'invalid_json' }, { status: 400 });
+  }
+
+  const tenantId: string = body?.tenantId;
+  const clientId: string | undefined = body?.clientId;
+  const phone: string | undefined = body?.phone;
+  const confirmationChannel: string | undefined = body?.confirmationChannel;
+  const reminderChannel: string | undefined = body?.reminderChannel;
+  const reminderHoursBefore: number | undefined = body?.reminderHoursBefore;
+
+  if (!tenantId || (!clientId && !phone)) {
+    return NextResponse.json({ ok: false, error: 'missing_params' }, { status: 400 });
+  }
+  if (confirmationChannel && !VALID_CONFIRMATION_CHANNELS.includes(confirmationChannel)) {
+    return NextResponse.json({ ok: false, error: 'invalid_confirmation_channel' }, { status: 400 });
+  }
+  if (reminderChannel && !VALID_REMINDER_CHANNELS.includes(reminderChannel)) {
+    return NextResponse.json({ ok: false, error: 'invalid_reminder_channel' }, { status: 400 });
+  }
+
+  try {
+    const db = getAdminDb();
+
+    const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+    const tenant = tenantSnap.data();
+    if (!tenant) {
+      return NextResponse.json({ ok: false, error: 'tenant_not_found' }, { status: 404 });
+    }
+
+    // The whole point of this guard: if the owner has decided notification
+    // channel/timing is their call, not the client's, this route must not
+    // quietly write a preference that nothing will ever actually honor —
+    // every consumer (onAppointmentCreate, both reminder routes) already
+    // ignores client preference when this is false, so writing one here
+    // would create a client-visible setting with zero real effect.
+    if (tenant.notificationDefaults?.allowClientOverride === false) {
+      return NextResponse.json({
+        ok: true,
+        applied: false,
+        spoken: "That's actually set by the studio for everyone, so I can't change it on my end — but I can pass your request along to the team.",
+      });
+    }
+
+    let resolvedClientId = clientId;
+    if (!resolvedClientId && phone) {
+      const snap = await db
+        .collection(`tenants/${tenantId}/clients`)
+        .where('phone', '==', phone)
+        .limit(1)
+        .get();
+      if (!snap.empty) resolvedClientId = snap.docs[0].id;
+    }
+    if (!resolvedClientId) {
+      return NextResponse.json({
+        ok: false,
+        error: 'client_not_found',
+        spoken: "I couldn't quite find your file to update that — let me have the team take care of it instead.",
+      });
+    }
+
+    const patch: Record<string, any> = {};
+    if (confirmationChannel) patch['notificationPreferences.confirmationChannel'] = confirmationChannel;
+    if (reminderChannel) patch['notificationPreferences.reminderChannel'] = reminderChannel;
+    if (reminderHoursBefore) patch['notificationPreferences.reminderHoursBefore'] = reminderHoursBefore;
+
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({ ok: false, error: 'nothing_to_update' }, { status: 400 });
+    }
+
+    await db.doc(`tenants/${tenantId}/clients/${resolvedClientId}`).set(patch, { merge: true });
+
+    const channelWord =
+      reminderChannel === 'sms' ? 'texting' :
+      reminderChannel === 'email' ? 'emailing' :
+      reminderChannel === 'voice' ? 'calling' :
+      reminderChannel === 'both' ? 'texting and emailing' :
+      reminderChannel === 'none' ? 'not sending reminders to' : null;
+
+    const spoken = channelWord
+      ? `Got it — I'll switch to ${channelWord} you for reminders from now on.`
+      : "Got it — I've updated your notification preferences.";
+
+    return NextResponse.json({ ok: true, applied: true, spoken });
+  } catch (e) {
+    console.error('[voice/update-notification-preference]', e);
+    return NextResponse.json({ ok: false, error: 'internal' }, { status: 500 });
+  }
+}
