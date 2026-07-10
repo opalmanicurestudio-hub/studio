@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
   Card,
@@ -79,9 +79,9 @@ import { AddFormulaDialog } from '@/components/clients/AddFormulaDialog';
 import { IssueRecoveryDialog } from '@/components/clients/IssueRecoveryDialog';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { nanoid } from 'nanoid';
-import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection } from '@/firebase';
+import { useFirebase, useDoc, useMemoFirebase, updateDocumentNonBlocking, useCollection, useUser } from '@/firebase';
 import { useInventory } from '@/context/InventoryContext';
-import { collection, doc, arrayUnion, increment, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -300,6 +300,30 @@ export default function ClientDetailPage() {
   // AppointmentDetailsSheet, kept local to this page since it's a separate
   // component/file.
   const [docExpandedImage, setDocExpandedImage] = useState<string | null>(null);
+  const { user: currentUser } = useUser();
+
+  // v11 — access log for sensitive documents: who viewed a client's signed
+  // consent forms / uploaded documents (Photo ID, etc.), and when. This is
+  // NOT a claim of HIPAA compliance by itself — that requires a legal
+  // determination of whether HIPAA even applies to this business, plus
+  // BAAs with every vendor touching this data, neither of which a log
+  // entry can satisfy. What this DOES provide, regardless of that
+  // question: a genuine, reviewable record of who accessed sensitive
+  // client data, which is good practice on its own merits.
+  const logDocumentAccess = useCallback(() => {
+    if (!firestore || !tenantId || !clientId || !currentUser) return;
+    const logRef = doc(collection(firestore, `tenants/${tenantId}/accessLogs`));
+    setDoc(logRef, {
+      id: logRef.id,
+      tenantId,
+      clientId,
+      accessedBy: currentUser.uid,
+      accessedByName: currentUser.displayName || currentUser.email || 'Unknown staff',
+      resource: 'client_documents_tab',
+      accessedAt: new Date().toISOString(),
+    }).catch(() => { /* best-effort — never blocks the UI on a logging failure */ });
+  }, [firestore, tenantId, clientId, currentUser]);
+
   const [docLightboxImages, setDocLightboxImages] = useState<{ url: string; name: string }[]>([]);
   const [docLightboxIndex, setDocLightboxIndex] = useState(0);
   const openDocLightbox = (images: { url: string; name: string }[], index: number) => {
@@ -558,7 +582,7 @@ export default function ClientDetailPage() {
 
         <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-8 md:gap-10 text-left">
           <div className="lg:col-span-2 xl:col-span-3 space-y-8 md:space-y-10 min-w-0 text-left">
-            <Tabs defaultValue="overview" className="text-left">
+            <Tabs defaultValue="overview" className="text-left" onValueChange={(v) => { if (v === 'documents') logDocumentAccess(); }}>
               <ScrollArea className="w-full overflow-hidden text-left">
                 <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-6 md:mb-8 w-max text-left">
                   <TabsTrigger value="overview" className="px-6 h-10 md:h-11 rounded-xl font-black text-[9px] md:text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Overview</TabsTrigger>
