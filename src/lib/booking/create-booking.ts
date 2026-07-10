@@ -282,7 +282,10 @@ export async function createBooking(
     endTime: endUtc.toISOString(),
     createdAt: nowISO,
     reminderSent: false,
-    reminderHours: 48,
+    // v2 — respects the client's own notificationPreferences.reminderHoursBefore
+    // when set, same priority order as QuickBookForm now uses. Falls back
+    // to the existing 48h default for clients who haven't set a preference.
+    reminderHours: Number(clientDoc?.notificationPreferences?.reminderHoursBefore) || 48,
     autoCancelledNoShow: false,
     checkInStatus: 'pending',
     notes: input.notes?.trim() || undefined,
