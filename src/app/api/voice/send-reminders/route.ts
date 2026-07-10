@@ -116,13 +116,26 @@ export async function POST(req: NextRequest) {
       // Resolve the client's phone
       let toNumber = '';
       let firstName = 'there';
+      let clientPrefChannel: string | undefined;
       if (apt.clientId) {
         const cSnap = await db.doc(`tenants/${tenantId}/clients/${apt.clientId}`).get();
         if (cSnap.exists) {
           const c = cSnap.data() as any;
           toNumber = (c.phone || '').trim();
           firstName = (c.name || '').split(' ')[0] || firstName;
+          clientPrefChannel = c.notificationPreferences?.reminderChannel;
         }
+      }
+
+      // v2 — skip entirely (don't mark reminderSent) if the client has
+      // explicitly chosen a non-voice channel or opted out. The new
+      // /api/notifications/send-reminders route (sms/email) — or nothing,
+      // if they chose 'none' — owns those instead. An UNSET preference
+      // still defaults to voice here, so every existing client's current
+      // behavior is completely unchanged by this guard's existence.
+      if (clientPrefChannel === 'sms' || clientPrefChannel === 'email' || clientPrefChannel === 'both' || clientPrefChannel === 'none') {
+        results.push({ appointmentId: apt.id, skipped: 'client_prefers_other_channel' });
+        continue;
       }
 
       // Mark BEFORE calling — a cron overlap must never double-call.
