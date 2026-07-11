@@ -1,0 +1,31 @@
+name: Charge Membership Renewals
+
+# Once daily — renewals are date-based (nextBillingDate), not hourly like
+# reminders. Running this more than once a day would just waste calls
+# hitting clients who aren't due yet; the route's own selection logic
+# already filters correctly either way, daily is just the sane cadence.
+
+on:
+  schedule:
+    - cron: '0 13 * * *'   # once daily, 1pm UTC — adjust to land mid-morning
+                            # in your tenants' actual timezone(s)
+  workflow_dispatch: {}      # manual trigger, for testing — use dryRun below
+                              # for the FIRST manual run before trusting this
+                              # against real cards
+
+jobs:
+  charge-renewals:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # TODO: same as send-reminders.yml — one entry per tenant until a
+        # multi-tenant-aware version exists.
+        tenant_id:
+          - YOUR_TENANT_ID_HERE
+    steps:
+      - name: Charge renewals for ${{ matrix.tenant_id }}
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/memberships/charge-renewals" \
+            -H "Content-Type: application/json" \
+            -H "x-billing-secret: ${{ secrets.BILLING_CRON_SECRET }}" \
+            -d "{\"tenantId\":\"${{ matrix.tenant_id }}\"}"
