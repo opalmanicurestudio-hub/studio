@@ -12,6 +12,7 @@ import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, query, orderBy, setDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -57,7 +58,7 @@ export default function MessageThreadPage() {
       const res = await fetch('/api/sms/reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ tenantId, threadId, message: replyText.trim() }),
+        body: JSON.stringify({ tenantId, threadId, message: replyText.trim(), senderStaffId: resolveActiveStaffId(currentUser?.uid) }),
       });
       const data = await res.json().catch(() => ({ ok: false }));
       if (data.ok) {
