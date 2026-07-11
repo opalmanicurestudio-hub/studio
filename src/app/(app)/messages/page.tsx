@@ -16,6 +16,7 @@ import { useRouter } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
 
@@ -46,11 +47,15 @@ export default function MessagesPage() {
   const { staff } = useInventory();
   const router = useRouter();
   const tenantId = selectedTenant?.id;
+  // v30 — PIN-verified identity first, Firebase login fallback (see
+  // lib/staff-identity.ts for why): portal staff share one Firebase
+  // login, so uid alone cannot identify who is actually messaging.
+  const activeStaffId = resolveActiveStaffId(currentUser?.uid);
   const [filterMine, setFilterMine] = useState(false);
   const [section, setSection] = useState<'clients' | 'team'>('clients');
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const currentStaffMember = (staff || []).find((s: any) => s.id === currentUser?.uid);
+  const currentStaffMember = (staff || []).find((s: any) => s.id === activeStaffId);
   const myAvailability = currentStaffMember?.notificationAvailability?.mode || 'business_hours_only';
   const isOwnerOrAdmin = currentStaffMember?.role === 'owner' || currentStaffMember?.role === 'admin';
 
@@ -63,9 +68,9 @@ export default function MessagesPage() {
 
   const visibleThreads = useMemo(() => {
     const list = threads || [];
-    if (!isOwnerOrAdmin) return list.filter((t: any) => t.assignedStaffId === currentUser?.uid);
-    return filterMine ? list.filter((t: any) => t.assignedStaffId === currentUser?.uid) : list;
-  }, [threads, filterMine, currentUser, isOwnerOrAdmin]);
+    if (!isOwnerOrAdmin) return list.filter((t: any) => t.assignedStaffId === activeStaffId);
+    return filterMine ? list.filter((t: any) => t.assignedStaffId === activeStaffId) : list;
+  }, [threads, filterMine, activeStaffId, isOwnerOrAdmin]);
 
   // ── Staff-to-staff conversations ────────────────────────────────────────
   // v28 — FIX (the bug behind "I send a message and don't see the thread"):
@@ -76,11 +81,11 @@ export default function MessagesPage() {
   // the list. Single-field filter only, sort in memory — the same
   // discipline every other query in this codebase follows.
   const staffThreadsQuery = useMemoFirebase(
-    () => !firestore || !tenantId || !currentUser?.uid ? null : query(
+    () => !firestore || !tenantId || !activeStaffId ? null : query(
       collection(firestore, `tenants/${tenantId}/staffThreads`),
-      where('participantIds', 'array-contains', currentUser.uid),
+      where('participantIds', 'array-contains', activeStaffId),
     ),
-    [firestore, tenantId, currentUser?.uid],
+    [firestore, tenantId, activeStaffId],
   );
   const { data: myStaffThreads } = useCollection<any>(staffThreadsQuery);
   const dmThreads = useMemo(
@@ -90,36 +95,36 @@ export default function MessagesPage() {
     [myStaffThreads],
   );
   const teamThread = useMemo(() => (myStaffThreads || []).find((t: any) => t.type === 'team'), [myStaffThreads]);
-  const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== currentUser?.uid), [staff, currentUser]);
+  const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== activeStaffId), [staff, activeStaffId]);
 
   const isThreadUnread = (t: any) =>
-    !!t.lastMessageBy && t.lastMessageBy !== currentUser?.uid && !(t.readBy || []).includes(currentUser?.uid);
+    !!t.lastMessageBy && t.lastMessageBy !== activeStaffId && !(t.readBy || []).includes(activeStaffId);
   const teamUnreadCount = (myStaffThreads || []).filter(isThreadUnread).length;
   const clientOpenCount = visibleThreads.filter((t: any) => t.status === 'open').length;
 
   const [awayDays, setAwayDays] = useState(7);
 
   const handleAvailabilityChange = async (mode: string) => {
-    if (!firestore || !tenantId || !currentUser?.uid) return;
+    if (!firestore || !tenantId || !activeStaffId) return;
     const awayUntil = mode === 'away'
       ? new Date(Date.now() + awayDays * 24 * 3600 * 1000).toISOString()
       : null;
     await setDoc(
-      doc(firestore, `tenants/${tenantId}/staff`, currentUser.uid),
+      doc(firestore, `tenants/${tenantId}/staff`, activeStaffId),
       { notificationAvailability: { mode, awayUntil } },
       { merge: true },
     );
   };
 
   const handleStartDM = async (otherStaffId: string) => {
-    if (!firestore || !tenantId || !currentUser?.uid) return;
-    const threadId = dmThreadId(currentUser.uid, otherStaffId);
+    if (!firestore || !tenantId || !activeStaffId) return;
+    const threadId = dmThreadId(activeStaffId, otherStaffId);
     // v28 — seeds lastMessageAt (=createdAt) and readBy so a brand-new
     // thread sorts correctly and doesn't show as unread to its creator.
     const now = new Date().toISOString();
     await setDoc(
       doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-      { id: threadId, tenantId, type: 'dm', participantIds: [currentUser.uid, otherStaffId], createdAt: now, lastMessageAt: now, readBy: [currentUser.uid] },
+      { id: threadId, tenantId, type: 'dm', participantIds: [activeStaffId, otherStaffId], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
       { merge: true },
     );
     setPickerOpen(false);
@@ -351,7 +356,7 @@ export default function MessagesPage() {
                   </div>
                 )}
                 {dmThreads.map((thread: any) => {
-                  const otherId = thread.participantIds.find((id: string) => id !== currentUser?.uid);
+                  const otherId = thread.participantIds.find((id: string) => id !== activeStaffId);
                   const otherPerson = (staff || []).find((s: any) => s.id === otherId);
                   const unread = isThreadUnread(thread);
                   const mode = otherPerson?.notificationAvailability?.mode || 'business_hours_only';
