@@ -128,6 +128,25 @@ export async function POST(req: NextRequest) {
       channel: 'sms',
     });
 
+    // v21 — FIX: previously, a client sending three quick messages in a
+    // row before anyone replied triggered three separate notifications
+    // for what's really one situation. Checks for an already-unread
+    // notification linking to this same thread within the last 10
+    // minutes; if one exists, the thread/message above still saves
+    // (nothing is ever silently dropped), it just doesn't ping again —
+    // the existing unread notification already covers it.
+    const dedupWindowStart = Date.now() - 10 * 60_000;
+    const recentNotifSnap = await db
+      .collection(`tenants/${tenantId}/notifications`)
+      .where('link', '==', `/messages/${threadId}`)
+      .get();
+    const alreadyNotifiedRecently = recentNotifSnap.docs.some((d) => {
+      const data = d.data();
+      if (data?.read !== false) return false;
+      const createdAt = new Date(data?.createdAt || 0).getTime();
+      return createdAt >= dedupWindowStart;
+    });
+
     // Notify the resolved staff member, respecting their availability —
     // this is the actual work/life boundary, not just a nice idea. 'away'
     // and outside business hours both mean: log it, don't page them.
@@ -139,7 +158,7 @@ export async function POST(req: NextRequest) {
         (!staffMember?.notificationAvailability?.awayUntil || new Date(staffMember.notificationAvailability.awayUntil) > new Date());
       const shouldNotifyNow = availability === 'always' || (availability === 'business_hours_only' && isWithinBusinessHours(tenant));
 
-      if (!isAway && shouldNotifyNow) {
+      if (!isAway && shouldNotifyNow && !alreadyNotifiedRecently) {
         const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await notifRef.set({
           id: notifRef.id,
@@ -151,10 +170,10 @@ export async function POST(req: NextRequest) {
           read: false,
         });
       }
-      // If away or outside hours: the thread and message are still saved
-      // above regardless — staff sees it whenever they next check, it's
-      // just not pushed at them right now.
-    } else {
+      // If away or outside hours, or already notified recently: the
+      // thread and message are still saved above regardless — staff sees
+      // it whenever they next check.
+    } else if (!alreadyNotifiedRecently) {
       // v20 — FIX: previously, an unmatched client (no phone match, no
       // name mentioned) meant NOBODY got notified at all — the message
       // saved silently with zero human alerted, which is worse than any
