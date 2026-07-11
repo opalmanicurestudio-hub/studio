@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, query, orderBy, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
@@ -62,6 +62,22 @@ export default function TeamThreadPage() {
     });
   }, [messages, firestore, tenantId, currentUser?.uid, threadId]);
 
+  // v28 — FIX: thread-level readBy was read by every unread badge
+  // (mobile portal, sidebar, the hub) but NOTHING ever wrote it — every
+  // thread with a message from someone else showed unread forever.
+  // Opening the thread now records it. For the team broadcast, also
+  // syncs me into participantIds — membership was frozen at creation, so
+  // anyone hired afterward was never included.
+  useEffect(() => {
+    if (!firestore || !tenantId || !currentUser?.uid || !thread) return;
+    const patch: any = {};
+    if (!(thread.readBy || []).includes(currentUser.uid)) patch.readBy = arrayUnion(currentUser.uid);
+    if (thread.type === 'team' && !(thread.participantIds || []).includes(currentUser.uid)) patch.participantIds = arrayUnion(currentUser.uid);
+    if (Object.keys(patch).length > 0) {
+      updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), patch).catch(() => {});
+    }
+  }, [thread, firestore, tenantId, currentUser?.uid, threadId]);
+
   const handleSend = async () => {
     if (!messageText.trim() || !firestore || !tenantId || !currentUser?.uid || sending) return;
     setSending(true);
@@ -78,16 +94,23 @@ export default function TeamThreadPage() {
       });
       await setDoc(
         doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-        { lastMessageAt: now, lastMessagePreview: messageText.trim().slice(0, 140), lastMessageBy: currentUser.uid },
+        // v28 — readBy resets to just the sender on every send: that's
+        // what makes the thread show as unread to everyone else until
+        // they actually open it. Without this, unread badges had nothing
+        // real to key off.
+        { lastMessageAt: now, lastMessagePreview: messageText.trim().slice(0, 140), lastMessageBy: currentUser.uid, readBy: [currentUser.uid] },
         { merge: true },
       );
 
-      // v25 — respects the same notificationAvailability model already
-      // built for client-message escalation: only actually pings a
-      // recipient if they're not away/outside hours right now. The
-      // message itself always saves either way — this only governs
-      // whether a notification entry gets created to nudge them.
-      const recipients = (thread?.participantIds || []).filter((id: string) => id !== currentUser.uid);
+      // v28 — respects the same notificationAvailability model already
+      // built for client-message escalation. For the team broadcast,
+      // recipients come from the LIVE staff list, not the thread's
+      // participantIds — membership was frozen at creation, so anyone
+      // hired after the thread first existed would otherwise silently
+      // never be notified.
+      const recipients = isTeamThread
+        ? (staff || []).map((s: any) => s.id).filter((id: string) => id !== currentUser.uid)
+        : (thread?.participantIds || []).filter((id: string) => id !== currentUser.uid);
       for (const recipientId of recipients) {
         const recipient = (staff || []).find((s: any) => s.id === recipientId);
         const availability = recipient?.notificationAvailability?.mode || 'business_hours_only';
@@ -128,12 +151,27 @@ export default function TeamThreadPage() {
       <AppHeader title={isTeamThread ? 'Team Announcements' : (otherPerson?.name || 'Conversation')} />
       <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full flex flex-col gap-4">
 
-        <button
-          onClick={() => router.push('/messages')}
-          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-indigo-600 transition-colors w-fit"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> All Conversations
-        </button>
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => router.push('/messages')}
+            className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-indigo-600 transition-colors w-fit"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> All Conversations
+          </button>
+          {!isTeamThread && otherPerson && (() => {
+            const mode = otherPerson?.notificationAvailability?.mode || 'business_hours_only';
+            const away = mode === 'away';
+            return (
+              <span className={cn(
+                'flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border-2',
+                away ? 'text-slate-500 border-slate-200 bg-slate-50' : mode === 'always' ? 'text-green-700 border-green-200 bg-green-50' : 'text-amber-700 border-amber-200 bg-amber-50',
+              )}>
+                <span className={cn('w-2 h-2 rounded-full', away ? 'bg-slate-300' : mode === 'always' ? 'bg-green-500' : 'bg-amber-400')} />
+                {away ? "Away — they'll see this when they're back" : mode === 'always' ? 'Available' : 'Business hours only'}
+              </span>
+            );
+          })()}
+        </div>
 
         <Card className="border-4 rounded-[2rem] shadow-sm flex-1 flex flex-col overflow-hidden">
           <CardContent className="p-5 flex-1 overflow-y-auto space-y-3 min-h-[300px] max-h-[55vh]">
