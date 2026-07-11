@@ -38,6 +38,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { nanoid } from 'nanoid';
+import { hasUsableCard as hasUsableCardCheck } from '@/lib/payments/has-usable-card';
 
 export type EnrollMembershipInput = {
   tenantId: string;
@@ -96,15 +97,8 @@ export async function enrollMembership(
   let stripePaymentIntentId = input.existingPaymentIntentId;
 
   if (input.paymentMethod === 'card_on_file') {
-    const cardExpDate = client.cardOnFile?.expMonth && client.cardOnFile?.expYear
-      ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
-      : null;
-    const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
-    const hasUsableCard = !!(
-      (client.cardOnFile?.paymentMethodId || client.cardOnFile?.token) &&
-      (client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId) &&
-      !cardIsExpired
-    );
+    // v21 — consolidated into the shared has-usable-card helper.
+    const hasUsableCard = hasUsableCardCheck(client);
     if (!hasUsableCard) {
       return { ok: false, error: 'no_usable_card', spoken: "I don't see a valid card on file to set that up with." };
     }
@@ -242,15 +236,8 @@ export async function enrollPackage(
   let stripePaymentIntentId = input.existingPaymentIntentId;
 
   if (input.paymentMethod === 'card_on_file') {
-    const cardExpDate = client.cardOnFile?.expMonth && client.cardOnFile?.expYear
-      ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
-      : null;
-    const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
-    const hasUsableCard = !!(
-      (client.cardOnFile?.paymentMethodId || client.cardOnFile?.token) &&
-      (client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId) &&
-      !cardIsExpired
-    );
+    // v21 — consolidated into the shared has-usable-card helper.
+    const hasUsableCard = hasUsableCardCheck(client);
     if (!hasUsableCard) {
       return { ok: false, error: 'no_usable_card', spoken: "I don't see a valid card on file to set that up with." };
     }
