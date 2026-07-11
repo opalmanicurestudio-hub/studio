@@ -33,6 +33,12 @@ export default function MessagesPage() {
 
   const currentStaffMember = (staff || []).find((s: any) => s.id === currentUser?.uid);
   const myAvailability = currentStaffMember?.notificationAvailability?.mode || 'business_hours_only';
+  // v25 — regular staff should only ever see conversations actually
+  // assigned to them, not every client's conversation across the whole
+  // studio — same admin-vs-staff visibility split already established in
+  // the mobile portal. Owner/admin keep the existing "see everything,
+  // optionally filter to mine" behavior.
+  const isOwnerOrAdmin = currentStaffMember?.role === 'owner' || currentStaffMember?.role === 'admin';
 
   const threadsQuery = useMemoFirebase(
     () => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/smsThreads`), orderBy('lastMessageAt', 'desc')),
@@ -42,8 +48,13 @@ export default function MessagesPage() {
 
   const visibleThreads = useMemo(() => {
     const list = threads || [];
+    if (!isOwnerOrAdmin) {
+      // Regular staff: always restricted to their own assigned threads,
+      // no toggle to see anyone else's conversations.
+      return list.filter((t: any) => t.assignedStaffId === currentUser?.uid);
+    }
     return filterMine ? list.filter((t: any) => t.assignedStaffId === currentUser?.uid) : list;
-  }, [threads, filterMine, currentUser]);
+  }, [threads, filterMine, currentUser, isOwnerOrAdmin]);
 
   const [awayDays, setAwayDays] = useState(7);
 
@@ -121,14 +132,16 @@ export default function MessagesPage() {
               <MessageSquare className="w-4 h-4" /> Conversations
             </CardTitle>
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={filterMine ? 'default' : 'outline'}
-                onClick={() => setFilterMine(v => !v)}
-                className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
-              >
-                Assigned to Me
-              </Button>
+              {isOwnerOrAdmin && (
+                <Button
+                  size="sm"
+                  variant={filterMine ? 'default' : 'outline'}
+                  onClick={() => setFilterMine(v => !v)}
+                  className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                >
+                  Assigned to Me
+                </Button>
+              )}
             </div>
           </CardHeader>
           <CardContent className="p-0">
