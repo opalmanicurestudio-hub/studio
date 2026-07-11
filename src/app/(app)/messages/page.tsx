@@ -45,11 +45,22 @@ export default function MessagesPage() {
     return filterMine ? list.filter((t: any) => t.assignedStaffId === currentUser?.uid) : list;
   }, [threads, filterMine, currentUser]);
 
+  const [awayDays, setAwayDays] = useState(7);
+
   const handleAvailabilityChange = async (mode: string) => {
     if (!firestore || !tenantId || !currentUser?.uid) return;
+    // v23 — FIX: previously always wrote awayUntil: null regardless of
+    // mode, which meant "I'm Away" never actually expired — the auto-
+    // expiry check in escalate-sms-route.ts treats a missing awayUntil as
+    // "away indefinitely." Now requires and stores a real end date
+    // whenever away mode is chosen, so staff who forget to switch back
+    // don't just stay silently unreachable forever.
+    const awayUntil = mode === 'away'
+      ? new Date(Date.now() + awayDays * 24 * 3600 * 1000).toISOString()
+      : null;
     await setDoc(
       doc(firestore, `tenants/${tenantId}/staff`, currentUser.uid),
-      { notificationAvailability: { mode, awayUntil: null } },
+      { notificationAvailability: { mode, awayUntil } },
       { merge: true },
     );
   };
@@ -70,16 +81,37 @@ export default function MessagesPage() {
                 <p className="text-xs font-bold text-slate-600">Controls whether escalated texts page you in real time</p>
               </div>
             </div>
-            <Select value={myAvailability} onValueChange={handleAvailabilityChange}>
-              <SelectTrigger className="w-full md:w-56 h-11 rounded-xl border-2 font-black uppercase text-[10px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl border-2">
-                {AVAILABILITY_OPTIONS.map(opt => (
-                  <SelectItem key={opt.value} value={opt.value} className="font-bold uppercase text-[10px]">{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex flex-col items-end gap-2">
+              <Select value={myAvailability} onValueChange={handleAvailabilityChange}>
+                <SelectTrigger className="w-full md:w-56 h-11 rounded-xl border-2 font-black uppercase text-[10px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-2">
+                  {AVAILABILITY_OPTIONS.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value} className="font-bold uppercase text-[10px]">{opt.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {myAvailability === 'away' && (
+                <div className="flex items-center gap-2">
+                  <Select value={String(awayDays)} onValueChange={(v) => { setAwayDays(Number(v)); handleAvailabilityChange('away'); }}>
+                    <SelectTrigger className="w-32 h-8 rounded-lg border-2 font-bold text-[9px] uppercase">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="rounded-xl border-2">
+                      {[1, 3, 7, 14, 30].map(d => (
+                        <SelectItem key={d} value={String(d)} className="font-bold text-[9px] uppercase">{d} day{d > 1 ? 's' : ''}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {currentStaffMember?.notificationAvailability?.awayUntil && (
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase">
+                      Back {new Date(currentStaffMember.notificationAvailability.awayUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
 
