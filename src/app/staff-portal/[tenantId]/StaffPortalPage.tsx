@@ -1,4 +1,4 @@
-og'use client';
+'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -2925,7 +2925,7 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'>('today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'>('today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -2980,6 +2980,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   }, [firestore, tenantId, isOwnerOrAdmin, staffMember.id]);
   const { data: openThreads } = useCollection(openThreadsQ);
   const messagesBadge = (openThreads || []).length;
+  // v25 — rough unread proxy for the new Team tab: a thread where the
+  // last message wasn't sent by me. Not as precise as checking every
+  // individual message's readBy array, but good enough for a badge count
+  // without an extra subcollection query per thread.
+  const myStaffThreadsQ = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds', 'array-contains', staffMember.id)), [firestore, tenantId, staffMember?.id]);
+  const { data: myStaffThreads } = useCollection(myStaffThreadsQ);
+  const teamBadge = (myStaffThreads || []).filter((t: any) => t.lastMessageBy && t.lastMessageBy !== staffMember.id).length;
   const allStaffQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staff`), [firestore,tenantId]);
   const servicesQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/services`), [firestore,tenantId]);
   const notifsQ         = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/notifications`), where('userId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
@@ -3252,7 +3259,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     { id:'schedule', label:'Schedule', icon:Calendar },
     { id:'earnings', label:'Earnings', icon:DollarSign },
     { id:'requests', label:'Requests', icon:ClipboardList, badge:requestsBadge },
-    { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge, external:'/messages' },
+    { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge + teamBadge, external:'/messages' },
     { id:'inbox',    label:'Inbox',    icon:Bell, badge:unreadCount },
   ] as const;
 
@@ -3272,6 +3279,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     sms_escalation:      <MessageSquare className="w-4 h-4 text-primary" />,
     sms_escalation_unassigned: <MessageSquare className="w-4 h-4 text-amber-500" />,
     membership_payment_failed: <CreditCard className="w-4 h-4 text-destructive" />,
+    staff_message: <MessageSquare className="w-4 h-4 text-indigo-500" />,
   };
 
   return (
