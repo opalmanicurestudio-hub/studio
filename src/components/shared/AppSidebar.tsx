@@ -23,6 +23,7 @@ import { ClientOnly } from './ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
 import { useAuth, useFirebase, useUser } from '@/firebase';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { signOut } from 'firebase/auth';
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider,
@@ -247,11 +248,12 @@ export function AppSidebar() {
   // not sent by me), same heuristic used in the mobile portal's badge.
   const [messagesBadgeCount, setMessagesBadgeCount] = useState(0);
   useEffect(() => {
-    if (!firestore || !tenantId || !currentUser?.uid) return;
+    const activeStaffId = resolveActiveStaffId(currentUser?.uid);
+    if (!firestore || !tenantId || !activeStaffId) return;
     const clientThreadsQ = isOwnerOrAdmin
       ? query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'))
-      : query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'), where('assignedStaffId', '==', currentUser.uid));
-    const staffThreadsQ = query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds', 'array-contains', currentUser.uid));
+      : query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'), where('assignedStaffId', '==', activeStaffId));
+    const staffThreadsQ = query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds', 'array-contains', activeStaffId));
 
     let clientCount = 0;
     let staffCount = 0;
@@ -262,7 +264,7 @@ export function AppSidebar() {
     const unsubStaff = onSnapshot(staffThreadsQ, (snap) => {
       staffCount = snap.docs.filter((d) => {
         const data = d.data() as any;
-        return data.lastMessageBy && data.lastMessageBy !== currentUser.uid && !(data.readBy || []).includes(currentUser.uid);
+        return data.lastMessageBy && data.lastMessageBy !== activeStaffId && !(data.readBy || []).includes(activeStaffId);
       }).length;
       setMessagesBadgeCount(clientCount + staffCount);
     }, () => { /* non-fatal */ });
