@@ -68,17 +68,34 @@ export default function MessagesPage() {
   }, [threads, filterMine, currentUser, isOwnerOrAdmin]);
 
   // ── Staff-to-staff conversations ────────────────────────────────────────
+  // v28 — FIX (the bug behind "I send a message and don't see the thread"):
+  // this query previously combined array-contains with orderBy, which
+  // requires a Firestore composite index that doesn't exist — the query
+  // failed silently and this section rendered empty no matter what was in
+  // the database. Messages were being written fine; nobody could ever see
+  // the list. Single-field filter only, sort in memory — the same
+  // discipline every other query in this codebase follows.
   const staffThreadsQuery = useMemoFirebase(
     () => !firestore || !tenantId || !currentUser?.uid ? null : query(
       collection(firestore, `tenants/${tenantId}/staffThreads`),
       where('participantIds', 'array-contains', currentUser.uid),
-      orderBy('lastMessageAt', 'desc'),
     ),
     [firestore, tenantId, currentUser?.uid],
   );
   const { data: myStaffThreads } = useCollection<any>(staffThreadsQuery);
-  const dmThreads = useMemo(() => (myStaffThreads || []).filter((t: any) => t.type === 'dm'), [myStaffThreads]);
+  const dmThreads = useMemo(
+    () => (myStaffThreads || [])
+      .filter((t: any) => t.type === 'dm')
+      .sort((a: any, b: any) => (b.lastMessageAt || b.createdAt || '').localeCompare(a.lastMessageAt || a.createdAt || '')),
+    [myStaffThreads],
+  );
+  const teamThread = useMemo(() => (myStaffThreads || []).find((t: any) => t.type === 'team'), [myStaffThreads]);
   const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== currentUser?.uid), [staff, currentUser]);
+
+  const isThreadUnread = (t: any) =>
+    !!t.lastMessageBy && t.lastMessageBy !== currentUser?.uid && !(t.readBy || []).includes(currentUser?.uid);
+  const teamUnreadCount = (myStaffThreads || []).filter(isThreadUnread).length;
+  const clientOpenCount = visibleThreads.filter((t: any) => t.status === 'open').length;
 
   const [awayDays, setAwayDays] = useState(7);
 
@@ -97,22 +114,38 @@ export default function MessagesPage() {
   const handleStartDM = async (otherStaffId: string) => {
     if (!firestore || !tenantId || !currentUser?.uid) return;
     const threadId = dmThreadId(currentUser.uid, otherStaffId);
+    // v28 — seeds lastMessageAt (=createdAt) and readBy so a brand-new
+    // thread sorts correctly and doesn't show as unread to its creator.
+    const now = new Date().toISOString();
     await setDoc(
       doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-      { id: threadId, tenantId, type: 'dm', participantIds: [currentUser.uid, otherStaffId], createdAt: new Date().toISOString() },
+      { id: threadId, tenantId, type: 'dm', participantIds: [currentUser.uid, otherStaffId], createdAt: now, lastMessageAt: now, readBy: [currentUser.uid] },
       { merge: true },
     );
     setPickerOpen(false);
     router.push(`/messages/team/${threadId}`);
   };
 
-  const ensureTeamThread = async () => {
+  // v28 — FIX: previously fired on a Link's onClick, racing navigation —
+  // the thread page could load before the doc existed. Now awaited, then
+  // navigates. Also refreshes participantIds to the CURRENT staff list on
+  // every open, so someone hired after the thread was first created is
+  // still included.
+  const openTeamThread = async () => {
     if (!firestore || !tenantId) return;
+    const now = new Date().toISOString();
     await setDoc(
       doc(firestore, `tenants/${tenantId}/staffThreads`, TEAM_THREAD_ID),
-      { id: TEAM_THREAD_ID, tenantId, type: 'team', participantIds: (staff || []).map((s: any) => s.id), createdAt: new Date().toISOString() },
+      {
+        id: TEAM_THREAD_ID,
+        tenantId,
+        type: 'team',
+        participantIds: (staff || []).map((s: any) => s.id),
+        ...(teamThread ? {} : { createdAt: now, lastMessageAt: now, readBy: [] }),
+      },
       { merge: true },
     );
+    router.push(`/messages/team/${TEAM_THREAD_ID}`);
   };
 
   return (
@@ -130,6 +163,9 @@ export default function MessagesPage() {
             )}
           >
             <MessageSquare className="w-3.5 h-3.5" /> Clients
+            {clientOpenCount > 0 && (
+              <span className="ml-1 h-4 min-w-4 px-1 bg-primary text-white text-[8px] font-black rounded-full flex items-center justify-center">{clientOpenCount}</span>
+            )}
           </button>
           <button
             onClick={() => setSection('team')}
@@ -139,6 +175,9 @@ export default function MessagesPage() {
             )}
           >
             <Users className="w-3.5 h-3.5" /> Team
+            {teamUnreadCount > 0 && (
+              <span className="ml-1 h-4 min-w-4 px-1 bg-indigo-600 text-white text-[8px] font-black rounded-full flex items-center justify-center">{teamUnreadCount}</span>
+            )}
           </button>
         </div>
 
@@ -265,19 +304,31 @@ export default function MessagesPage() {
           </Card>
         ) : (
           <>
-            <Link href={`/messages/team/${TEAM_THREAD_ID}`} onClick={ensureTeamThread}>
+            <button onClick={openTeamThread} className="w-full text-left">
               <Card className="border-4 border-indigo-200 bg-indigo-50/50 rounded-[2rem] shadow-sm hover:border-indigo-300 transition-colors">
                 <CardContent className="p-5 flex items-center gap-4">
                   <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shrink-0">
                     <Users className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-black uppercase text-sm text-slate-900">Team Announcements</p>
-                    <p className="text-xs font-bold text-slate-500">Shared with everyone on staff</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-black uppercase text-sm text-slate-900">Team Announcements</p>
+                      {teamThread && isThreadUnread(teamThread) && (
+                        <Badge className="h-4 px-1.5 bg-indigo-600 text-white border-none font-black text-[7px] uppercase">New</Badge>
+                      )}
+                    </div>
+                    <p className="text-xs font-bold text-slate-500 truncate">
+                      {teamThread?.lastMessagePreview || 'Shared with everyone on staff'}
+                    </p>
                   </div>
+                  {teamThread?.lastMessageAt && (
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 shrink-0">
+                      {formatDistanceToNow(parseISO(teamThread.lastMessageAt), { addSuffix: true })}
+                    </p>
+                  )}
                 </CardContent>
               </Card>
-            </Link>
+            </button>
 
             <Card className="border-4 rounded-[2.5rem] shadow-sm overflow-hidden">
               <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
@@ -302,21 +353,32 @@ export default function MessagesPage() {
                 {dmThreads.map((thread: any) => {
                   const otherId = thread.participantIds.find((id: string) => id !== currentUser?.uid);
                   const otherPerson = (staff || []).find((s: any) => s.id === otherId);
+                  const unread = isThreadUnread(thread);
+                  const mode = otherPerson?.notificationAvailability?.mode || 'business_hours_only';
+                  const presenceColor = mode === 'always' ? 'bg-green-500' : mode === 'away' ? 'bg-slate-300' : 'bg-amber-400';
                   return (
                     <Link
                       key={thread.id}
                       href={`/messages/team/${thread.id}`}
-                      className="flex items-center gap-4 p-5 border-b last:border-0 hover:bg-indigo-50/40 transition-colors"
+                      className={cn('flex items-center gap-4 p-5 border-b last:border-0 hover:bg-indigo-50/40 transition-colors', unread && 'bg-indigo-50/30')}
                     >
-                      <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm shrink-0">
-                        <AvatarImage src={otherPerson?.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">
-                          {(otherPerson?.name || '?').charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="relative shrink-0">
+                        <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm">
+                          <AvatarImage src={otherPerson?.avatarUrl} className="object-cover" />
+                          <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">
+                            {(otherPerson?.name || '?').charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className={cn('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white', presenceColor)} title={mode === 'away' ? 'Away' : mode === 'always' ? 'Available' : 'Business hours'} />
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{otherPerson?.name || 'Unknown'}</p>
-                        <p className="text-xs text-slate-500 truncate">{thread.lastMessagePreview}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{otherPerson?.name || 'Unknown'}</p>
+                          {unread && (
+                            <Badge className="h-4 px-1.5 bg-indigo-600 text-white border-none font-black text-[7px] uppercase">New</Badge>
+                          )}
+                        </div>
+                        <p className={cn('text-xs truncate', unread ? 'text-slate-800 font-bold' : 'text-slate-500')}>{thread.lastMessagePreview}</p>
                       </div>
                       {thread.lastMessageAt && (
                         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 flex items-center gap-1 shrink-0">
