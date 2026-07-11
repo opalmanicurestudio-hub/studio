@@ -3,16 +3,18 @@
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { MessageSquare, Clock, User, Tag, Sparkles } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { MessageSquare, Clock, User, Tag, Sparkles, Users, Plus } from 'lucide-react';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, setDoc, query, orderBy } from 'firebase/firestore';
+import { collection, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
@@ -23,23 +25,36 @@ const AVAILABILITY_OPTIONS = [
   { value: 'away', label: "I'm Away" },
 ];
 
+const TEAM_THREAD_ID = 'team_broadcast';
+
+// Deterministic thread id for a DM pair — same two people always resolve
+// to the same thread, no lookup/creation race, no duplicate threads.
+function dmThreadId(idA: string, idB: string): string {
+  return `dm_${[idA, idB].sort().join('_')}`;
+}
+
+// v26 — consolidated /team into this page as a second section, rather
+// than a separate top-level route. Two places to check for messages was
+// worse UX than one hub with a clear "which audience am I looking at"
+// toggle — client and staff conversations stay visually and structurally
+// distinct via the section switch and distinct accent colors, without
+// fragmenting navigation into two destinations to remember.
 export default function MessagesPage() {
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
   const { selectedTenant } = useTenant();
   const { staff } = useInventory();
+  const router = useRouter();
   const tenantId = selectedTenant?.id;
   const [filterMine, setFilterMine] = useState(false);
+  const [section, setSection] = useState<'clients' | 'team'>('clients');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const currentStaffMember = (staff || []).find((s: any) => s.id === currentUser?.uid);
   const myAvailability = currentStaffMember?.notificationAvailability?.mode || 'business_hours_only';
-  // v25 — regular staff should only ever see conversations actually
-  // assigned to them, not every client's conversation across the whole
-  // studio — same admin-vs-staff visibility split already established in
-  // the mobile portal. Owner/admin keep the existing "see everything,
-  // optionally filter to mine" behavior.
   const isOwnerOrAdmin = currentStaffMember?.role === 'owner' || currentStaffMember?.role === 'admin';
 
+  // ── Client conversations (unchanged from before) ────────────────────────
   const threadsQuery = useMemoFirebase(
     () => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/smsThreads`), orderBy('lastMessageAt', 'desc')),
     [firestore, tenantId],
@@ -48,24 +63,27 @@ export default function MessagesPage() {
 
   const visibleThreads = useMemo(() => {
     const list = threads || [];
-    if (!isOwnerOrAdmin) {
-      // Regular staff: always restricted to their own assigned threads,
-      // no toggle to see anyone else's conversations.
-      return list.filter((t: any) => t.assignedStaffId === currentUser?.uid);
-    }
+    if (!isOwnerOrAdmin) return list.filter((t: any) => t.assignedStaffId === currentUser?.uid);
     return filterMine ? list.filter((t: any) => t.assignedStaffId === currentUser?.uid) : list;
   }, [threads, filterMine, currentUser, isOwnerOrAdmin]);
+
+  // ── Staff-to-staff conversations ────────────────────────────────────────
+  const staffThreadsQuery = useMemoFirebase(
+    () => !firestore || !tenantId || !currentUser?.uid ? null : query(
+      collection(firestore, `tenants/${tenantId}/staffThreads`),
+      where('participantIds', 'array-contains', currentUser.uid),
+      orderBy('lastMessageAt', 'desc'),
+    ),
+    [firestore, tenantId, currentUser?.uid],
+  );
+  const { data: myStaffThreads } = useCollection<any>(staffThreadsQuery);
+  const dmThreads = useMemo(() => (myStaffThreads || []).filter((t: any) => t.type === 'dm'), [myStaffThreads]);
+  const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== currentUser?.uid), [staff, currentUser]);
 
   const [awayDays, setAwayDays] = useState(7);
 
   const handleAvailabilityChange = async (mode: string) => {
     if (!firestore || !tenantId || !currentUser?.uid) return;
-    // v23 — FIX: previously always wrote awayUntil: null regardless of
-    // mode, which meant "I'm Away" never actually expired — the auto-
-    // expiry check in escalate-sms-route.ts treats a missing awayUntil as
-    // "away indefinitely." Now requires and stores a real end date
-    // whenever away mode is chosen, so staff who forget to switch back
-    // don't just stay silently unreachable forever.
     const awayUntil = mode === 'away'
       ? new Date(Date.now() + awayDays * 24 * 3600 * 1000).toISOString()
       : null;
@@ -76,10 +94,53 @@ export default function MessagesPage() {
     );
   };
 
+  const handleStartDM = async (otherStaffId: string) => {
+    if (!firestore || !tenantId || !currentUser?.uid) return;
+    const threadId = dmThreadId(currentUser.uid, otherStaffId);
+    await setDoc(
+      doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+      { id: threadId, tenantId, type: 'dm', participantIds: [currentUser.uid, otherStaffId], createdAt: new Date().toISOString() },
+      { merge: true },
+    );
+    setPickerOpen(false);
+    router.push(`/messages/team/${threadId}`);
+  };
+
+  const ensureTeamThread = async () => {
+    if (!firestore || !tenantId) return;
+    await setDoc(
+      doc(firestore, `tenants/${tenantId}/staffThreads`, TEAM_THREAD_ID),
+      { id: TEAM_THREAD_ID, tenantId, type: 'team', participantIds: (staff || []).map((s: any) => s.id), createdAt: new Date().toISOString() },
+      { merge: true },
+    );
+  };
+
   return (
     <div className="min-h-screen bg-muted/10">
       <AppHeader title="Messages" />
       <main className="p-4 md:p-8 max-w-4xl mx-auto space-y-6">
+
+        {/* Section toggle — the one thing that replaces having two pages */}
+        <div className="flex gap-2 p-1.5 bg-muted/30 rounded-2xl border-2 w-fit">
+          <button
+            onClick={() => setSection('clients')}
+            className={cn(
+              'flex items-center gap-2 h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all',
+              section === 'clients' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground',
+            )}
+          >
+            <MessageSquare className="w-3.5 h-3.5" /> Clients
+          </button>
+          <button
+            onClick={() => setSection('team')}
+            className={cn(
+              'flex items-center gap-2 h-10 px-5 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all',
+              section === 'team' ? 'bg-white text-indigo-600 shadow-sm' : 'text-muted-foreground',
+            )}
+          >
+            <Users className="w-3.5 h-3.5" /> Team
+          </button>
+        </div>
 
         <Card className="border-4 rounded-[2rem] shadow-sm">
           <CardContent className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -89,7 +150,7 @@ export default function MessagesPage() {
               </div>
               <div>
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Your Notification Status</Label>
-                <p className="text-xs font-bold text-slate-600">Controls whether escalated texts page you in real time</p>
+                <p className="text-xs font-bold text-slate-600">Controls whether escalated texts or teammate messages page you in real time</p>
               </div>
             </div>
             <div className="flex flex-col items-end gap-2">
@@ -126,12 +187,12 @@ export default function MessagesPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-4 rounded-[2.5rem] shadow-sm overflow-hidden">
-          <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
-            <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary/60 flex items-center gap-2">
-              <MessageSquare className="w-4 h-4" /> Conversations
-            </CardTitle>
-            <div className="flex items-center gap-2">
+        {section === 'clients' ? (
+          <Card className="border-4 rounded-[2.5rem] shadow-sm overflow-hidden">
+            <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
+              <CardTitle className="text-[10px] font-black uppercase tracking-widest text-primary/60 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" /> Client Conversations
+              </CardTitle>
               {isOwnerOrAdmin && (
                 <Button
                   size="sm"
@@ -142,68 +203,161 @@ export default function MessagesPage() {
                   Assigned to Me
                 </Button>
               )}
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoading && (
-              <div className="py-16 text-center text-[10px] font-black uppercase text-slate-400">Loading...</div>
-            )}
-            {!isLoading && visibleThreads.length === 0 && (
-              <div className="py-16 text-center space-y-3">
-                <MessageSquare className="w-10 h-10 mx-auto text-slate-300" />
-                <p className="text-[10px] font-black uppercase text-slate-400">No conversations yet</p>
-              </div>
-            )}
-            {visibleThreads.map((thread: any) => {
-              const assignedStaff = (staff || []).find((s: any) => s.id === thread.assignedStaffId);
-              return (
-                <Link
-                  key={thread.id}
-                  href={`/messages/${thread.id}`}
-                  className="flex items-center gap-4 p-5 border-b last:border-0 hover:bg-primary/[0.02] transition-colors"
-                >
-                  <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm shrink-0">
-                    <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">
-                      {(thread.clientName || thread.clientPhone || '?').charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">
-                        {thread.clientName || thread.clientPhone}
-                      </p>
-                      {thread.status === 'open' && (
-                        <Badge className="h-4 px-1.5 bg-primary text-white border-none font-black text-[7px] uppercase">New</Badge>
+            </CardHeader>
+            <CardContent className="p-0">
+              {isLoading && (
+                <div className="py-16 text-center text-[10px] font-black uppercase text-slate-400">Loading...</div>
+              )}
+              {!isLoading && visibleThreads.length === 0 && (
+                <div className="py-16 text-center space-y-3">
+                  <MessageSquare className="w-10 h-10 mx-auto text-slate-300" />
+                  <p className="text-[10px] font-black uppercase text-slate-400">No conversations yet</p>
+                </div>
+              )}
+              {visibleThreads.map((thread: any) => {
+                const assignedStaff = (staff || []).find((s: any) => s.id === thread.assignedStaffId);
+                return (
+                  <Link
+                    key={thread.id}
+                    href={`/messages/${thread.id}`}
+                    className="flex items-center gap-4 p-5 border-b last:border-0 hover:bg-primary/[0.02] transition-colors"
+                  >
+                    <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm shrink-0">
+                      <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">
+                        {(thread.clientName || thread.clientPhone || '?').charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">
+                          {thread.clientName || thread.clientPhone}
+                        </p>
+                        {thread.status === 'open' && (
+                          <Badge className="h-4 px-1.5 bg-primary text-white border-none font-black text-[7px] uppercase">New</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">{thread.lastMessagePreview}</p>
+                      {(thread.tags || []).length > 0 && (
+                        <div className="flex gap-1 mt-1.5">
+                          {thread.tags.map((tag: string) => (
+                            <Badge key={tag} variant="secondary" className="h-4 px-1.5 font-bold text-[7px] uppercase bg-muted">
+                              <Tag className="w-2 h-2 mr-1" />{tag}
+                            </Badge>
+                          ))}
+                        </div>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500 truncate">{thread.lastMessagePreview}</p>
-                    {(thread.tags || []).length > 0 && (
-                      <div className="flex gap-1 mt-1.5">
-                        {thread.tags.map((tag: string) => (
-                          <Badge key={tag} variant="secondary" className="h-4 px-1.5 font-bold text-[7px] uppercase bg-muted">
-                            <Tag className="w-2 h-2 mr-1" />{tag}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0 space-y-1">
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 flex items-center gap-1 justify-end">
-                      <Clock className="w-2.5 h-2.5" />
-                      {thread.lastMessageAt ? formatDistanceToNow(parseISO(thread.lastMessageAt), { addSuffix: true }) : ''}
-                    </p>
-                    {assignedStaff && (
-                      <p className="text-[9px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 justify-end">
-                        <User className="w-2.5 h-2.5" />{assignedStaff.name?.split(' ')[0]}
+                    <div className="text-right shrink-0 space-y-1">
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 flex items-center gap-1 justify-end">
+                        <Clock className="w-2.5 h-2.5" />
+                        {thread.lastMessageAt ? formatDistanceToNow(parseISO(thread.lastMessageAt), { addSuffix: true }) : ''}
                       </p>
-                    )}
+                      {assignedStaff && (
+                        <p className="text-[9px] font-bold text-primary uppercase tracking-widest flex items-center gap-1 justify-end">
+                          <User className="w-2.5 h-2.5" />{assignedStaff.name?.split(' ')[0]}
+                        </p>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <Link href={`/messages/team/${TEAM_THREAD_ID}`} onClick={ensureTeamThread}>
+              <Card className="border-4 border-indigo-200 bg-indigo-50/50 rounded-[2rem] shadow-sm hover:border-indigo-300 transition-colors">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg shrink-0">
+                    <Users className="w-5 h-5 text-white" />
                   </div>
-                </Link>
-              );
-            })}
-          </CardContent>
-        </Card>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black uppercase text-sm text-slate-900">Team Announcements</p>
+                    <p className="text-xs font-bold text-slate-500">Shared with everyone on staff</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Card className="border-4 rounded-[2.5rem] shadow-sm overflow-hidden">
+              <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
+                <CardTitle className="text-[10px] font-black uppercase tracking-widest text-indigo-600/70 flex items-center gap-2">
+                  <Users className="w-4 h-4" /> Direct Messages
+                </CardTitle>
+                <Button
+                  size="sm"
+                  onClick={() => setPickerOpen(true)}
+                  className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" /> New
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                {dmThreads.length === 0 && (
+                  <div className="py-16 text-center space-y-3">
+                    <Users className="w-10 h-10 mx-auto text-slate-300" />
+                    <p className="text-[10px] font-black uppercase text-slate-400">No conversations yet</p>
+                  </div>
+                )}
+                {dmThreads.map((thread: any) => {
+                  const otherId = thread.participantIds.find((id: string) => id !== currentUser?.uid);
+                  const otherPerson = (staff || []).find((s: any) => s.id === otherId);
+                  return (
+                    <Link
+                      key={thread.id}
+                      href={`/messages/team/${thread.id}`}
+                      className="flex items-center gap-4 p-5 border-b last:border-0 hover:bg-indigo-50/40 transition-colors"
+                    >
+                      <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm shrink-0">
+                        <AvatarImage src={otherPerson?.avatarUrl} className="object-cover" />
+                        <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">
+                          {(otherPerson?.name || '?').charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{otherPerson?.name || 'Unknown'}</p>
+                        <p className="text-xs text-slate-500 truncate">{thread.lastMessagePreview}</p>
+                      </div>
+                      {thread.lastMessageAt && (
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 flex items-center gap-1 shrink-0">
+                          <Clock className="w-2.5 h-2.5" />
+                          {formatDistanceToNow(parseISO(thread.lastMessageAt), { addSuffix: true })}
+                        </p>
+                      )}
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </main>
+
+      <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
+        <DialogContent className="rounded-[2rem] border-4 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black uppercase tracking-tight">Message Someone</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {otherStaff.map((s: any) => (
+              <button
+                key={s.id}
+                onClick={() => handleStartDM(s.id)}
+                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted/40 transition-colors text-left"
+              >
+                <Avatar className="h-9 w-9 rounded-lg border-2 shrink-0">
+                  <AvatarImage src={s.avatarUrl} className="object-cover" />
+                  <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">{(s.name || '?').charAt(0)}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <p className="font-black text-xs uppercase text-slate-900 truncate">{s.name}</p>
+                  <p className="text-[10px] font-bold text-muted-foreground uppercase">{s.role}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
