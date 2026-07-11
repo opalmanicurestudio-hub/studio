@@ -111,10 +111,11 @@ async function sendConfirmationSms(opts: {
   whenText: string;
   studioName: string;
   checkInUrl: string;
+  fromNumber?: string;
 }) {
   await twilioClient.messages.create({
     to: opts.to,
-    from: process.env.TWILIO_PHONE_NUMBER,
+    from: opts.fromNumber || process.env.TWILIO_PHONE_NUMBER,
     body: `${opts.studioName}: You're booked for ${opts.serviceName} on ${opts.whenText}. View or manage: ${opts.checkInUrl}`,
   });
 }
@@ -154,8 +155,20 @@ export const onAppointmentCreate = functions.firestore.onDocumentCreated(
         return;
       }
 
-      // Default 'both' when unset — see Client type comment for reasoning.
-      const channel = client?.notificationPreferences?.confirmationChannel || 'both';
+      // v9 — tenant-level defaults now take precedence over the hardcoded
+      // 'both' fallback. If the owner has explicitly turned OFF client
+      // override (notificationDefaults.allowClientOverride === false),
+      // the client's own preference is ignored entirely and everyone gets
+      // the tenant default — this is the "business owner's decision, not
+      // the client's" mode. Otherwise, client preference wins when set,
+      // falling back to the tenant default, falling back to 'both' if
+      // neither exists.
+      const tenantDefaults = tenant.notificationDefaults || {};
+      const allowOverride = tenantDefaults.allowClientOverride !== false;
+      const channel =
+        (allowOverride && client?.notificationPreferences?.confirmationChannel) ||
+        tenantDefaults.confirmationChannel ||
+        'both';
       if (channel === 'none') {
         await aptRef.set({ confirmationSent: true, confirmationSkippedReason: 'client_opted_out' }, { merge: true });
         return;
@@ -196,6 +209,7 @@ export const onAppointmentCreate = functions.firestore.onDocumentCreated(
             whenText,
             studioName: tenant.name || 'the studio',
             checkInUrl,
+            fromNumber: tenant.voiceAgent?.phoneNumber,
           });
           smsSent = true;
         } catch (e) {
