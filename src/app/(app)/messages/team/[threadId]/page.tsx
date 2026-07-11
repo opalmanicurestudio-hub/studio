@@ -175,50 +175,69 @@ export default function TeamThreadPage() {
 
         <Card className="border-4 rounded-[2rem] shadow-sm flex-1 flex flex-col overflow-hidden">
           <CardContent className="p-5 flex-1 overflow-y-auto space-y-3 min-h-[300px] max-h-[55vh]">
-            {(messages || []).map((msg: any) => {
+            {(messages || []).map((msg: any, index: number) => {
               const isMine = msg.senderId === currentUser?.uid;
               const sender = (staff || []).find((s: any) => s.id === msg.senderId);
               const seenByOthers = (msg.readBy || []).filter((id: string) => id !== msg.senderId).length;
+              // v29 — sender grouping: consecutive messages from the same
+              // person render as one visual block — name label on the
+              // first, avatar anchored on the last — so a back-and-forth
+              // reads as a conversation, not an anonymous stack. Name now
+              // shows in DMs too (was team-threads-only), and "their"
+              // bubbles are white with a real border instead of a muted
+              // gray that blended into the page.
+              const prevMsg = index > 0 ? messages[index - 1] : null;
+              const nextMsg = index < (messages?.length || 0) - 1 ? messages[index + 1] : null;
+              const isGroupStart = !prevMsg || prevMsg.senderId !== msg.senderId;
+              const isGroupEnd = !nextMsg || nextMsg.senderId !== msg.senderId;
               return (
-                <div key={msg.id} className={cn('flex gap-2', isMine ? 'justify-end' : 'justify-start')}>
+                <div key={msg.id} className={cn('flex gap-2', isMine ? 'justify-end' : 'justify-start', !isGroupStart && '-mt-1.5')}>
                   {!isMine && (
-                    <Avatar className="h-7 w-7 rounded-lg border shrink-0 mt-auto">
-                      <AvatarImage src={sender?.avatarUrl} className="object-cover" />
-                      <AvatarFallback className="text-[9px] font-black bg-primary/10 text-primary">{(sender?.name || '?').charAt(0)}</AvatarFallback>
-                    </Avatar>
+                    <div className="w-7 shrink-0 flex items-end">
+                      {isGroupEnd && (
+                        <Avatar className="h-7 w-7 rounded-lg border">
+                          <AvatarImage src={sender?.avatarUrl} className="object-cover" />
+                          <AvatarFallback className="text-[9px] font-black bg-indigo-100 text-indigo-600">{(sender?.name || '?').charAt(0)}</AvatarFallback>
+                        </Avatar>
+                      )}
+                    </div>
                   )}
                   <div className="max-w-[75%]">
-                    {isTeamThread && !isMine && (
-                      <p className="text-[9px] font-black uppercase text-muted-foreground mb-0.5 ml-1">{sender?.name}</p>
+                    {!isMine && isGroupStart && (
+                      <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600/70 mb-0.5 ml-1">{sender?.name || 'Unknown'}</p>
                     )}
                     <div className={cn(
-                      'rounded-2xl px-4 py-2.5 text-sm font-medium',
-                      isMine ? 'bg-primary text-white' : 'bg-muted text-slate-800',
+                      'px-4 py-2.5 text-sm font-medium',
+                      isMine
+                        ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md shadow-sm'
+                        : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md',
                     )}>
                       {msg.needsResponse && !isMine && (
-                        <p className="text-[9px] font-black uppercase tracking-wide mb-1 opacity-80 flex items-center gap-1">
+                        <p className="text-[9px] font-black uppercase tracking-wide mb-1 text-amber-600 flex items-center gap-1">
                           <AlertCircle className="w-2.5 h-2.5" /> Needs a response
                         </p>
                       )}
                       <p>{msg.body}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <p className="text-[9px] font-bold uppercase tracking-wide opacity-60">
-                          {msg.sentAt ? format(parseISO(msg.sentAt), 'h:mm a') : ''}
-                        </p>
-                        {isMine && (
-                          isTeamThread ? (
-                            seenByOthers > 0 && (
-                              <span className="text-[9px] font-bold opacity-60 flex items-center gap-0.5">
-                                <Users className="w-2.5 h-2.5" /> {seenByOthers}
-                              </span>
+                      {isGroupEnd && (
+                        <div className={cn('flex items-center gap-1 mt-1', isMine ? 'opacity-70' : 'opacity-50')}>
+                          <p className="text-[9px] font-bold uppercase tracking-wide">
+                            {msg.sentAt ? format(parseISO(msg.sentAt), 'h:mm a') : ''}
+                          </p>
+                          {isMine && (
+                            isTeamThread ? (
+                              seenByOthers > 0 && (
+                                <span className="text-[9px] font-bold flex items-center gap-0.5">
+                                  <Users className="w-2.5 h-2.5" /> {seenByOthers}
+                                </span>
+                              )
+                            ) : (
+                              seenByOthers > 0
+                                ? <CheckCheck className="w-3 h-3" />
+                                : <Check className="w-3 h-3" />
                             )
-                          ) : (
-                            seenByOthers > 0
-                              ? <CheckCheck className="w-3 h-3 opacity-80" />
-                              : <Check className="w-3 h-3 opacity-60" />
-                          )
-                        )}
-                      </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
