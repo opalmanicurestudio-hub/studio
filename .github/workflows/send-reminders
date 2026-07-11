@@ -1,0 +1,30 @@
+name: Send Appointment Reminders (SMS/Email)
+
+# Hourly, same cadence as the voice reminder cron and every other
+# scheduled job in this codebase. Each tenant is called separately since
+# the route is scoped to one tenantId per call — add a line to the
+# matrix (or the tenant list below) for every tenant on the platform.
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # every hour, on the hour, UTC
+  workflow_dispatch: {}     # manual trigger from the Actions tab, for testing
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # TODO: add one entry per tenant on the platform. This is the one
+        # piece that has to be maintained by hand until there's a
+        # multi-tenant-aware version of this cron that loops over every
+        # tenant itself rather than needing one matrix entry each.
+        tenant_id:
+          - YOUR_TENANT_ID_HERE
+    steps:
+      - name: Call send-reminders for ${{ matrix.tenant_id }}
+        run: |
+          curl -sf -X POST "${{ secrets.APP_URL }}/api/notifications/send-reminders" \
+            -H "Content-Type: application/json" \
+            -H "x-notifications-secret: ${{ secrets.NOTIFICATIONS_CRON_SECRET }}" \
+            -d "{\"tenantId\":\"${{ matrix.tenant_id }}\"}"
