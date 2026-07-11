@@ -70,6 +70,10 @@ export async function POST(req: NextRequest) {
       body: message,
       sentAt: now,
       sentBy: auth.uid,
+      // v30 — the PIN-verified staff member who actually typed this, since
+      // portal staff share one Firebase login and auth.uid alone can't
+      // attribute the reply to a person.
+      sentByStaffId: body.senderStaffId || auth.uid,
       channel: 'sms',
     });
     await threadRef.set(
