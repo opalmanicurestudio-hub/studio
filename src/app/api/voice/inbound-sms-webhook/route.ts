@@ -123,16 +123,25 @@ export async function POST(req: NextRequest) {
         // The appointment this reply is actually about: the most recent
         // one a reminder was already sent for, still confirmed. Matches
         // exactly what send-text-reminders just texted them about.
+        // v23 — FIX: previously always guessed the EARLIEST upcoming
+        // reminded appointment, which silently cancels/confirms the wrong
+        // one for a client with more than one booking pending reminder
+        // replies in the same window (e.g. two appointments the same
+        // week). Now checks for genuine ambiguity first — if more than
+        // one candidate matches, this does NOT guess; it falls through to
+        // normal agent handling, where a clarifying question can actually
+        // ask which appointment they mean, matching the same "don't guess
+        // when unclear" principle already used for free-text messages.
         const aptQuery = await db
           .collection(`tenants/${tenantId}/appointments`)
           .where('clientId', '==', clientId)
           .where('reminderSent', '==', true)
           .where('status', '==', 'confirmed')
           .orderBy('startTime', 'asc')
-          .limit(1)
+          .limit(2)
           .get();
 
-        if (!aptQuery.empty) {
+        if (aptQuery.docs.length === 1) {
           const apt = aptQuery.docs[0];
           if (isConfirmKeyword) {
             await apt.ref.set(
@@ -167,6 +176,11 @@ export async function POST(req: NextRequest) {
               /* non-fatal — falls through to normal agent handling below */
             }
           }
+        } else if (aptQuery.docs.length > 1) {
+          // Genuine ambiguity — more than one candidate, don't guess.
+          // Signals the agent to actually ask rather than see a bare "C"
+          // or "X" with no context at all.
+          keywordActionTaken = 'ambiguous_appointment';
         }
       }
     }
