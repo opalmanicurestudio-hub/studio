@@ -71,6 +71,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { hasUsableCard as hasUsableCardCheck } from '@/lib/payments/has-usable-card';
 import {
   verifyVoiceSecret,
   parseVoiceToolRequest,
@@ -246,15 +247,8 @@ export async function POST(req: NextRequest) {
         const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
         const safeToConsider = !!clientDocForGate && !poorHistory && !hasOutstandingBalance;
 
-        const cardExpDate = clientDocForGate?.cardOnFile?.expMonth && clientDocForGate?.cardOnFile?.expYear
-          ? new Date(Number(clientDocForGate.cardOnFile.expYear), Number(clientDocForGate.cardOnFile.expMonth), 0)
-          : null;
-        const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
-        const hasUsableCard = !!(
-          (clientDocForGate?.cardOnFile?.paymentMethodId || clientDocForGate?.cardOnFile?.token) &&
-          (clientDocForGate?.cardOnFile?.customerId || clientDocForGate?.cardOnFile?.stripeCustomerId) &&
-          !cardIsExpired
-        );
+        // v21 — consolidated into the shared has-usable-card helper.
+        const hasUsableCard = hasUsableCardCheck(clientDocForGate);
 
         let feeCharged = false;
         let feeAmount = 0;
@@ -490,15 +484,8 @@ export async function POST(req: NextRequest) {
         const hasOutstandingBalance = (Number(clientDocForGate?.outstandingBalance) || 0) > 0;
         const safeToConsider = !!clientDocForGate && !poorHistory && !hasOutstandingBalance;
 
-        const cardExpDate = clientDocForGate?.cardOnFile?.expMonth && clientDocForGate?.cardOnFile?.expYear
-          ? new Date(Number(clientDocForGate.cardOnFile.expYear), Number(clientDocForGate.cardOnFile.expMonth), 0)
-          : null;
-        const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
-        const hasUsableCard = !!(
-          (clientDocForGate?.cardOnFile?.paymentMethodId || clientDocForGate?.cardOnFile?.token) &&
-          (clientDocForGate?.cardOnFile?.customerId || clientDocForGate?.cardOnFile?.stripeCustomerId) &&
-          !cardIsExpired
-        );
+        // v21 — consolidated into the shared has-usable-card helper.
+        const hasUsableCard = hasUsableCardCheck(clientDocForGate);
 
         let feeCharged = false;
         let shouldExecute = false;
