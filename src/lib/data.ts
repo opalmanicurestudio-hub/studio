@@ -63,6 +63,15 @@ export type Staff = {
   twitterUrl?: string;
   pinterestUrl?: string;
   youtubeUrl?: string;
+  // v19 — staff availability for internal/escalation notifications,
+  // distinct from their bookable schedule (availability.week, used for
+  // appointment slots). Governs whether an SMS escalation actually pings
+  // them in real time or just waits in their inbox until they're back —
+  // the point being real work/life boundaries, not appointment capacity.
+  notificationAvailability?: {
+    mode: 'business_hours_only' | 'always' | 'away';
+    awayUntil?: string; // ISO date, only meaningful when mode === 'away'
+  };
   portfolioUrl?: string;
   portfolioImageUrls?: string[];
   yearsOfExperience?: number;
