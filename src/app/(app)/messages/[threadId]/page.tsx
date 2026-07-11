@@ -151,19 +151,44 @@ export default function MessageThreadPage() {
         <Card className="border-4 rounded-[2rem] shadow-sm flex-1 flex flex-col overflow-hidden">
           <CardContent className="p-5 flex-1 overflow-y-auto space-y-3 min-h-[300px] max-h-[50vh]">
             {messagesLoading && <div className="text-center text-[10px] font-black uppercase text-slate-400 py-8">Loading...</div>}
-            {(messages || []).map((msg: any) => (
-              <div key={msg.id} className={cn('flex', msg.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
-                <div className={cn(
-                  'max-w-[75%] rounded-2xl px-4 py-2.5 text-sm font-medium',
-                  msg.direction === 'outbound' ? 'bg-primary text-white' : 'bg-muted text-slate-800',
-                )}>
-                  <p>{msg.body}</p>
-                  <p className={cn('text-[9px] font-bold uppercase tracking-wide mt-1 opacity-60')}>
-                    {msg.sentAt ? format(parseISO(msg.sentAt), 'MMM d, h:mm a') : ''}
-                  </p>
-                </div>
-              </div>
-            ))}
+            {(messages || []).map((msg: any, index: number) => {
+              // v23 — a thread is per-phone-number, not per-session, so a
+              // client texting back a week after their last message
+              // previously looked identical to an active conversation.
+              // This divider makes a real time gap visually obvious,
+              // rather than a stale reply reading as if it just happened.
+              const prevMsg = index > 0 ? messages[index - 1] : null;
+              const gapHours = prevMsg?.sentAt && msg.sentAt
+                ? (parseISO(msg.sentAt).getTime() - parseISO(prevMsg.sentAt).getTime()) / 3_600_000
+                : 0;
+              const showGapDivider = gapHours >= 12;
+              return (
+                <React.Fragment key={msg.id}>
+                  {showGapDivider && (
+                    <div className="flex items-center gap-3 py-2">
+                      <div className="h-px flex-1 bg-border/60" />
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60">
+                        {gapHours >= 24
+                          ? `${Math.round(gapHours / 24)} day${Math.round(gapHours / 24) > 1 ? 's' : ''} later`
+                          : `${Math.round(gapHours)}h later`}
+                      </p>
+                      <div className="h-px flex-1 bg-border/60" />
+                    </div>
+                  )}
+                  <div className={cn('flex', msg.direction === 'outbound' ? 'justify-end' : 'justify-start')}>
+                    <div className={cn(
+                      'max-w-[75%] rounded-2xl px-4 py-2.5 text-sm font-medium',
+                      msg.direction === 'outbound' ? 'bg-primary text-white' : 'bg-muted text-slate-800',
+                    )}>
+                      <p>{msg.body}</p>
+                      <p className={cn('text-[9px] font-bold uppercase tracking-wide mt-1 opacity-60')}>
+                        {msg.sentAt ? format(parseISO(msg.sentAt), 'MMM d, h:mm a') : ''}
+                      </p>
+                    </div>
+                  </div>
+                </React.Fragment>
+              );
+            })}
             <div ref={scrollRef} />
           </CardContent>
           <CardFooter className="p-4 border-t bg-muted/5 gap-2">
