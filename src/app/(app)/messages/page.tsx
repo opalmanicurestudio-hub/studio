@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -54,6 +55,8 @@ export default function MessagesPage() {
   const [filterMine, setFilterMine] = useState(false);
   const [section, setSection] = useState<'clients' | 'team'>('clients');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState('');
 
   const currentStaffMember = (staff || []).find((s: any) => s.id === activeStaffId);
   const myAvailability = currentStaffMember?.notificationAvailability?.mode || 'business_hours_only';
@@ -90,7 +93,7 @@ export default function MessagesPage() {
   const { data: myStaffThreads } = useCollection<any>(staffThreadsQuery);
   const dmThreads = useMemo(
     () => (myStaffThreads || [])
-      .filter((t: any) => t.type === 'dm')
+      .filter((t: any) => t.type === 'dm' || t.type === 'group')
       .sort((a: any, b: any) => (b.lastMessageAt || b.createdAt || '').localeCompare(a.lastMessageAt || a.createdAt || '')),
     [myStaffThreads],
   );
@@ -116,18 +119,32 @@ export default function MessagesPage() {
     );
   };
 
-  const handleStartDM = async (otherStaffId: string) => {
-    if (!firestore || !tenantId || !activeStaffId) return;
-    const threadId = dmThreadId(activeStaffId, otherStaffId);
-    // v28 — seeds lastMessageAt (=createdAt) and readBy so a brand-new
-    // thread sorts correctly and doesn't show as unread to its creator.
+  // v31 — one person selected = DM (deterministic id, same thread every
+  // time); two or more = a real group thread with its own id and optional
+  // name. This is the "certain members vs the whole team" middle ground —
+  // the team broadcast stays for announcements; groups are for a subset.
+  const handleStartConversation = async () => {
+    if (!firestore || !tenantId || !activeStaffId || selectedIds.length === 0) return;
     const now = new Date().toISOString();
-    await setDoc(
-      doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-      { id: threadId, tenantId, type: 'dm', participantIds: [activeStaffId, otherStaffId], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
-      { merge: true },
-    );
+    let threadId: string;
+    if (selectedIds.length === 1) {
+      threadId = dmThreadId(activeStaffId, selectedIds[0]);
+      await setDoc(
+        doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+        { id: threadId, tenantId, type: 'dm', participantIds: [activeStaffId, selectedIds[0]], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
+        { merge: true },
+      );
+    } else {
+      threadId = `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await setDoc(
+        doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+        { id: threadId, tenantId, type: 'group', groupName: groupName.trim() || null, participantIds: [activeStaffId, ...selectedIds], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
+        { merge: true },
+      );
+    }
     setPickerOpen(false);
+    setSelectedIds([]);
+    setGroupName('');
     router.push(`/messages/team/${threadId}`);
   };
 
@@ -356,8 +373,13 @@ export default function MessagesPage() {
                   </div>
                 )}
                 {dmThreads.map((thread: any) => {
-                  const otherId = thread.participantIds.find((id: string) => id !== activeStaffId);
+                  const isGroup = thread.type === 'group';
+                  const others = thread.participantIds.filter((id: string) => id !== activeStaffId);
+                  const otherId = others[0];
                   const otherPerson = (staff || []).find((s: any) => s.id === otherId);
+                  const displayName = isGroup
+                    ? (thread.groupName || others.map((id: string) => (staff || []).find((s: any) => s.id === id)?.name?.split(' ')[0]).filter(Boolean).join(', '))
+                    : (otherPerson?.name || 'Unknown');
                   const unread = isThreadUnread(thread);
                   const mode = otherPerson?.notificationAvailability?.mode || 'business_hours_only';
                   const presenceColor = mode === 'always' ? 'bg-green-500' : mode === 'away' ? 'bg-slate-300' : 'bg-amber-400';
@@ -368,17 +390,25 @@ export default function MessagesPage() {
                       className={cn('flex items-center gap-4 p-5 border-b last:border-0 hover:bg-indigo-50/40 transition-colors', unread && 'bg-indigo-50/30')}
                     >
                       <div className="relative shrink-0">
-                        <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm">
-                          <AvatarImage src={otherPerson?.avatarUrl} className="object-cover" />
-                          <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">
-                            {(otherPerson?.name || '?').charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className={cn('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white', presenceColor)} title={mode === 'away' ? 'Away' : mode === 'always' ? 'Available' : 'Business hours'} />
+                        {isGroup ? (
+                          <div className="h-11 w-11 rounded-xl border-2 shadow-sm bg-indigo-600 flex items-center justify-center">
+                            <Users className="w-5 h-5 text-white" />
+                          </div>
+                        ) : (
+                          <>
+                            <Avatar className="h-11 w-11 rounded-xl border-2 shadow-sm">
+                              <AvatarImage src={otherPerson?.avatarUrl} className="object-cover" />
+                              <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">
+                                {(otherPerson?.name || '?').charAt(0).toUpperCase()}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className={cn('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white', presenceColor)} title={mode === 'away' ? 'Away' : mode === 'always' ? 'Available' : 'Business hours'} />
+                          </>
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{otherPerson?.name || 'Unknown'}</p>
+                          <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{displayName}</p>
                           {unread && (
                             <Badge className="h-4 px-1.5 bg-indigo-600 text-white border-none font-black text-[7px] uppercase">New</Badge>
                           )}
@@ -405,24 +435,45 @@ export default function MessagesPage() {
           <DialogHeader>
             <DialogTitle className="text-lg font-black uppercase tracking-tight">Message Someone</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 max-h-80 overflow-y-auto">
-            {otherStaff.map((s: any) => (
-              <button
-                key={s.id}
-                onClick={() => handleStartDM(s.id)}
-                className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted/40 transition-colors text-left"
-              >
-                <Avatar className="h-9 w-9 rounded-lg border-2 shrink-0">
-                  <AvatarImage src={s.avatarUrl} className="object-cover" />
-                  <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">{(s.name || '?').charAt(0)}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <p className="font-black text-xs uppercase text-slate-900 truncate">{s.name}</p>
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase">{s.role}</p>
-                </div>
-              </button>
-            ))}
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {otherStaff.map((s: any) => {
+              const checked = selectedIds.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedIds(ids => checked ? ids.filter(i => i !== s.id) : [...ids, s.id])}
+                  className={cn('w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left border-2', checked ? 'border-indigo-400 bg-indigo-50' : 'border-transparent hover:bg-muted/40')}
+                >
+                  <Avatar className="h-9 w-9 rounded-lg border-2 shrink-0">
+                    <AvatarImage src={s.avatarUrl} className="object-cover" />
+                    <AvatarFallback className="font-black text-xs bg-indigo-100 text-indigo-600">{(s.name || '?').charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-black text-xs uppercase text-slate-900 truncate">{s.name}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">{s.role}</p>
+                  </div>
+                  <div className={cn('w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0', checked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300')}>
+                    {checked && <span className="text-white text-[10px] font-black">✓</span>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
+          {selectedIds.length > 1 && (
+            <Input
+              value={groupName}
+              onChange={e => setGroupName(e.target.value)}
+              placeholder="Group name (optional)"
+              className="h-10 rounded-xl border-2 text-xs font-bold"
+            />
+          )}
+          <Button
+            onClick={handleStartConversation}
+            disabled={selectedIds.length === 0}
+            className="w-full h-11 rounded-xl font-black uppercase text-[10px] tracking-widest bg-indigo-600 hover:bg-indigo-700"
+          >
+            {selectedIds.length > 1 ? `Start Group (${selectedIds.length + 1} people)` : 'Start Conversation'}
+          </Button>
         </DialogContent>
       </Dialog>
     </div>
