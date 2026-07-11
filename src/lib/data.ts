@@ -1655,22 +1655,3 @@ export type StudioEvent = {
 
 
 // ─── Appointment automation types ─────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export { nanoid };
