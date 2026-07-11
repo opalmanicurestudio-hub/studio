@@ -121,6 +121,22 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         inbound_agent_id: agentId,
+        // v22 — FIX: this route previously only ever enabled VOICE on a
+        // newly provisioned number. Given the later decision to run SMS
+        // on the SAME per-tenant number as voice (not a second number),
+        // every tenant onboarded through this route was silently
+        // voice-only, needing a manual extra step to get texting working
+        // — exactly the gap flagged a few turns back, now confirmed by
+        // reading this file directly.
+        //
+        // sms_agent_id is INFERRED from the inbound_agent_id naming
+        // pattern, not confirmed against Retell's current docs — verify
+        // this exact field name (and whether enabling SMS on a number
+        // even happens at creation time vs. a separate follow-up call)
+        // before relying on it. Same "read tolerantly, verify on first
+        // use" caution this file's own header already gives for the
+        // voice fields.
+        sms_agent_id: agentId,
         ...(areaCode ? { area_code: Number(areaCode) } : {}),
         nickname: tenant.name || tenantId,
       }),
@@ -136,7 +152,7 @@ export async function POST(req: NextRequest) {
             Authorization: `Bearer ${process.env.RETELL_API_KEY}`,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ inbound_agent_id: agentId, nickname: tenant.name || tenantId }),
+          body: JSON.stringify({ inbound_agent_id: agentId, sms_agent_id: agentId, nickname: tenant.name || tenantId }),
         });
         const retryData: any = await retry.json().catch(() => ({}));
         if (retry.ok && (retryData.phone_number || retryData.phoneNumber)) {
@@ -147,6 +163,7 @@ export async function POST(req: NextRequest) {
                 phoneNumber: num,
                 provisionedAt: new Date().toISOString(),
                 retellAgentId: agentId,
+                smsAgentId: agentId,
                 areaCodeFallback: true,
               },
             },
@@ -173,6 +190,7 @@ export async function POST(req: NextRequest) {
           phoneNumber,
           provisionedAt: new Date().toISOString(),
           retellAgentId: agentId,
+                smsAgentId: agentId,
         },
       },
       { merge: true },
