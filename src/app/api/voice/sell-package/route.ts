@@ -43,6 +43,7 @@ import { nanoid } from 'nanoid';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyVoiceSecret, parseVoiceToolRequest } from '@/lib/voice/voice-utils';
 import { loadTenantContext } from '@/lib/voice/server-availability';
+import { hasUsableCard as hasUsableCardCheck } from '@/lib/payments/has-usable-card';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -116,15 +117,8 @@ export async function POST(req: NextRequest) {
     const hasOutstandingBalance = (Number(client.outstandingBalance) || 0) > 0;
     const safeToConsider = !poorHistory && !hasOutstandingBalance;
 
-    const cardExpDate = client.cardOnFile?.expMonth && client.cardOnFile?.expYear
-      ? new Date(Number(client.cardOnFile.expYear), Number(client.cardOnFile.expMonth), 0)
-      : null;
-    const cardIsExpired = !!cardExpDate && cardExpDate < new Date();
-    const hasUsableCard = !!(
-      (client.cardOnFile?.paymentMethodId || client.cardOnFile?.token) &&
-      (client.cardOnFile?.customerId || client.cardOnFile?.stripeCustomerId) &&
-      !cardIsExpired
-    );
+    // v21 — consolidated into the shared has-usable-card helper.
+    const hasUsableCard = hasUsableCardCheck(client);
 
     const canAutoSell = tenant.voiceAgent?.autoSellOfferings === true && safeToConsider && hasUsableCard;
     const price = Number(pkg.price) || 0;
