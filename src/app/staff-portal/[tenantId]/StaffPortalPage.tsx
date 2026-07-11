@@ -3220,6 +3220,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     // showing a "View →" indicator implying it was tappable. Falls
     // through to real navigation for anything else.
     if (n.link) {
+      // v31 — re-assert PIN identity before leaving the portal, so a reply
+      // sent from the admin-shell messages page still attributes to the
+      // actual staff member, even in sessions whose PIN sign-in predates
+      // the identity-storage code.
+      setActiveStaffId(staffMember.id);
       router.push(n.link);
     }
   };
@@ -3332,7 +3337,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       {/* Tab bar */}
       <div className="flex bg-white border-b-2 border-slate-100 shrink-0">
         {TABS.map(tab => (
-          <button key={tab.id} onClick={() => (tab as any).external ? router.push((tab as any).external) : setActiveTab(tab.id as any)}
+          <button key={tab.id} onClick={() => { if ((tab as any).external) { setActiveStaffId(staffMember.id); router.push((tab as any).external); } else { setActiveTab(tab.id as any); } }}
             className={cn('flex-1 flex flex-col items-center gap-1 py-3 text-[8px] font-black uppercase tracking-widest transition-all relative shrink-0 min-w-[56px]', activeTab===tab.id ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground')}>
             <div className="relative">
               <tab.icon className="w-4 h-4" />
