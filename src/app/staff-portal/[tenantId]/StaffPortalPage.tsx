@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -3777,7 +3778,7 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
     </div>
   );
 
-  if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={setSignedInStaff} />;
+  if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={(s: any) => { setActiveStaffId(s.id); setSignedInStaff(s); }} />;
 
-  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => setSignedInStaff(null)} /></ErrorBoundary>;
+  return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); }} /></ErrorBoundary>;
 }
