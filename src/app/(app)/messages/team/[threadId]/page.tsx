@@ -7,10 +7,11 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users } from 'lucide-react';
+import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { useInventory } from '@/context/InventoryContext';
@@ -35,6 +36,9 @@ export default function TeamThreadPage() {
   const [needsResponse, setNeedsResponse] = useState(false);
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const threadRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), [firestore, tenantId, threadId]);
   const { data: thread, isLoading: threadLoading } = useDoc<any>(threadRef);
@@ -46,6 +50,10 @@ export default function TeamThreadPage() {
   const { data: messages } = useCollection<any>(messagesQuery);
 
   const isTeamThread = thread?.type === 'team';
+  const isGroupThread = thread?.type === 'group';
+  const groupTitle = isGroupThread
+    ? (thread?.groupName || (thread?.participantIds || []).filter((id: string) => id !== activeStaffId).map((id: string) => (staff || []).find((s: any) => s.id === id)?.name?.split(' ')[0]).filter(Boolean).join(', '))
+    : null;
   const otherId = !isTeamThread ? thread?.participantIds?.find((id: string) => id !== activeStaffId) : null;
   const otherPerson = (staff || []).find((s: any) => s.id === otherId);
   const otherCount = isTeamThread ? (thread?.participantIds?.length || 1) - 1 : 0;
@@ -81,6 +89,44 @@ export default function TeamThreadPage() {
       updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), patch).catch(() => {});
     }
   }, [thread, firestore, tenantId, activeStaffId, threadId]);
+
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!firestore || !tenantId) return;
+    // Soft delete — the bubble stays as "Message deleted" rather than
+    // vanishing, so a conversation's flow still reads coherently and
+    // nobody can silently unsay something without a trace.
+    await updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`, msgId), {
+      deleted: true, body: '', imageUrl: null,
+    }).catch(() => {});
+    setOpenMenuId(null);
+  };
+
+  const handleCopyMessage = (body: string) => {
+    try { navigator.clipboard.writeText(body); } catch {}
+    setOpenMenuId(null);
+  };
+
+  const handleAttachPhoto = async (file: File) => {
+    if (!firestore || !tenantId || !activeStaffId || uploading) return;
+    setUploading(true);
+    try {
+      const storage = getStorage();
+      const path = `tenants/${tenantId}/staffThreads/${threadId}/${Date.now()}_${file.name}`;
+      const sRef = storageRef(storage, path);
+      await uploadBytes(sRef, file);
+      const imageUrl = await getDownloadURL(sRef);
+      const now = new Date().toISOString();
+      const msgRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`));
+      await setDoc(msgRef, { id: msgRef.id, senderId: activeStaffId, body: '', imageUrl, sentAt: now, readBy: [activeStaffId] });
+      await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+        { lastMessageAt: now, lastMessagePreview: '📷 Photo', lastMessageBy: activeStaffId, readBy: [activeStaffId] }, { merge: true });
+    } catch {
+      toast({ variant: 'destructive', title: 'Upload failed', description: 'Check that Firebase Storage rules allow uploads.' });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSend = async () => {
     if (!messageText.trim() || !firestore || !tenantId || !activeStaffId || sending) return;
@@ -152,7 +198,7 @@ export default function TeamThreadPage() {
 
   return (
     <div className="min-h-screen bg-muted/10 flex flex-col">
-      <AppHeader title={isTeamThread ? 'Team Announcements' : (otherPerson?.name || 'Conversation')} />
+      <AppHeader title={isTeamThread ? 'Team Announcements' : isGroupThread ? (groupTitle || 'Group') : (otherPerson?.name || 'Conversation')} />
       <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full flex flex-col gap-4">
 
         <div className="flex items-center justify-between">
@@ -206,7 +252,29 @@ export default function TeamThreadPage() {
                       )}
                     </div>
                   )}
-                  <div className="max-w-[75%]">
+                  <div className="max-w-[75%] relative group/msg">
+                    {!msg.deleted && (
+                      <button
+                        onClick={() => setOpenMenuId(openMenuId === msg.id ? null : msg.id)}
+                        className={cn('absolute top-0 z-10 p-1 rounded-lg bg-white border shadow-sm opacity-0 group-hover/msg:opacity-100 transition-opacity', isMine ? '-left-8' : '-right-8')}
+                      >
+                        <MoreHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                      </button>
+                    )}
+                    {openMenuId === msg.id && (
+                      <div className={cn('absolute top-7 z-20 bg-white border-2 rounded-xl shadow-xl overflow-hidden min-w-32', isMine ? 'right-0' : 'left-0')}>
+                        {msg.body && (
+                          <button onClick={() => handleCopyMessage(msg.body)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-muted/40">
+                            <Copy className="w-3 h-3" /> Copy
+                          </button>
+                        )}
+                        {isMine && (
+                          <button onClick={() => handleDeleteMessage(msg.id)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-destructive hover:bg-destructive/5">
+                            <Trash2 className="w-3 h-3" /> Delete
+                          </button>
+                        )}
+                      </div>
+                    )}
                     {!isMine && isGroupStart && (
                       <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600/70 mb-0.5 ml-1">{sender?.name || 'Unknown'}</p>
                     )}
@@ -216,12 +284,23 @@ export default function TeamThreadPage() {
                         ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md shadow-sm'
                         : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md',
                     )}>
-                      {msg.needsResponse && !isMine && (
+                      {msg.needsResponse && !isMine && !msg.deleted && (
                         <p className="text-[9px] font-black uppercase tracking-wide mb-1 text-amber-600 flex items-center gap-1">
                           <AlertCircle className="w-2.5 h-2.5" /> Needs a response
                         </p>
                       )}
-                      <p>{msg.body}</p>
+                      {msg.deleted ? (
+                        <p className="italic opacity-50 text-xs">Message deleted</p>
+                      ) : (
+                        <>
+                          {msg.imageUrl && (
+                            <a href={msg.imageUrl} target="_blank" rel="noreferrer">
+                              <img src={msg.imageUrl} alt="Shared photo" className="rounded-xl max-h-64 max-w-full mb-1 border" />
+                            </a>
+                          )}
+                          {msg.body && <p>{msg.body}</p>}
+                        </>
+                      )}
                       {isGroupEnd && (
                         <div className={cn('flex items-center gap-1 mt-1', isMine ? 'opacity-70' : 'opacity-50')}>
                           <p className="text-[9px] font-bold uppercase tracking-wide">
@@ -251,6 +330,22 @@ export default function TeamThreadPage() {
           </CardContent>
           <CardFooter className="p-4 border-t bg-muted/5 flex-col gap-2">
             <div className="flex items-center gap-2 w-full">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleAttachPhoto(f); }}
+              />
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="h-12 w-12 rounded-xl shrink-0 p-0 border-2"
+                title="Share a photo"
+              >
+                {uploading ? <Loader className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+              </Button>
               <Input
                 value={messageText}
                 onChange={e => setMessageText(e.target.value)}
