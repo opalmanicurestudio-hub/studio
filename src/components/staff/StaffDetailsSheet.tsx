@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -51,6 +50,18 @@ import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Label } from '@/components/ui/label';
 import { formatPhoneNumber } from 'react-phone-number-input';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRouter } from 'next/navigation';
+import { useFirebase, useUser } from '@/firebase';
+import { useTenant } from '@/context/TenantContext';
+import { doc, setDoc } from 'firebase/firestore';
+import { MessageCircle } from 'lucide-react';
+
+// Deterministic thread id for a DM pair — same scheme used in
+// messages-page.tsx and the team thread page, so a conversation started
+// from here lands in the exact same thread as one started from Messages.
+function dmThreadId(idA: string, idB: string): string {
+  return `dm_${[idA, idB].sort().join('_')}`;
+}
 
 const safeDateWrapper = (val: any): Date => {
     if (!val) return new Date();
@@ -133,6 +144,11 @@ export const StaffDetailsSheet = ({
   consentForms,
 }: any) => {
   const isMobile = useIsMobile();
+  const router = useRouter();
+  const { firestore } = useFirebase();
+  const { user: currentUser } = useUser();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
   const [activitySearch, setActivitySearch] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
   const [periodPreset, setPeriodPreset] = useState('30days');
@@ -493,6 +509,22 @@ export const StaffDetailsSheet = ({
       </div>
   );
 
+  const handleMessage = async () => {
+    if (!firestore || !tenantId || !currentUser?.uid || !staffMember?.id || currentUser.uid === staffMember.id) return;
+    const threadId = dmThreadId(currentUser.uid, staffMember.id);
+    // Ensure the thread doc exists with correct participantIds from the
+    // first visit — same reasoning as messages-page.tsx's handleStartDM,
+    // avoids the header showing a placeholder name until a first message
+    // is actually sent.
+    await setDoc(
+      doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+      { id: threadId, tenantId, type: 'dm', participantIds: [currentUser.uid, staffMember.id], createdAt: new Date().toISOString() },
+      { merge: true },
+    );
+    onOpenChange(false);
+    router.push(`/messages/team/${threadId}`);
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? 'bottom' : 'right'} className={cn("p-0 border-none bg-background flex flex-col", isMobile ? "h-[92dvh] rounded-t-[3rem] shadow-2xl" : "sm:max-w-2xl")}>
@@ -503,10 +535,20 @@ export const StaffDetailsSheet = ({
                         <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
                         <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
                     </Avatar>
-                    <div className='text-left'>
+                    <div className='text-left flex-1'>
                         <SheetTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
                         <SheetDescription className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
                     </div>
+                    {currentUser?.uid !== staffMember?.id && (
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleMessage}
+                            className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2 shrink-0"
+                        >
+                            <MessageCircle className="w-3.5 h-3.5 mr-1.5" /> Message
+                        </Button>
+                    )}
                 </div>
             </SheetHeader>
 
