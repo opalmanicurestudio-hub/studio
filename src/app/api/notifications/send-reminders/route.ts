@@ -81,7 +81,7 @@ async function sendReminderEmail(opts: {
 }
 
 async function sendReminderSms(opts: {
-  to: string; serviceName: string; whenText: string; studioName: string; checkInUrl: string;
+  to: string; serviceName: string; whenText: string; studioName: string; checkInUrl: string; fromNumber?: string;
 }): Promise<boolean> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -94,7 +94,7 @@ async function sendReminderSms(opts: {
     },
     body: new URLSearchParams({
       To: opts.to,
-      From: process.env.TWILIO_PHONE_NUMBER || '',
+      From: opts.fromNumber || process.env.TWILIO_PHONE_NUMBER || '',
       Body: `${opts.studioName}: Reminder — ${opts.serviceName} on ${opts.whenText}. Check in or manage: ${opts.checkInUrl}`,
     }),
   });
@@ -160,7 +160,16 @@ export async function POST(req: NextRequest) {
       // explicitly chosen text/email. An unset preference means 'voice'
       // (the existing route already owns them) — never assumed to mean
       // "this route should also try."
-      const channel = client?.notificationPreferences?.reminderChannel;
+      //
+      // v2 — unless the tenant has disabled client override
+      // (notificationDefaults.allowClientOverride === false), in which
+      // case the tenant's own reminderChannel default decides for
+      // everyone instead of each client's individual preference.
+      const allowOverride = tenant.notificationDefaults?.allowClientOverride !== false;
+      const tenantReminderDefault = tenant.notificationDefaults?.reminderChannel;
+      const channel = allowOverride
+        ? client?.notificationPreferences?.reminderChannel
+        : (tenantReminderDefault || 'voice');
       if (channel !== 'sms' && channel !== 'email' && channel !== 'both') continue;
 
       const clientEmail = (client?.email || '').trim();
@@ -191,7 +200,7 @@ export async function POST(req: NextRequest) {
       }
       if ((channel === 'sms' || channel === 'both') && clientPhone) {
         try {
-          smsOk = await sendReminderSms({ to: clientPhone, serviceName, whenText, studioName: tenant.name || 'the studio', checkInUrl });
+          smsOk = await sendReminderSms({ to: clientPhone, serviceName, whenText, studioName: tenant.name || 'the studio', checkInUrl, fromNumber: tenant.voiceAgent?.phoneNumber });
         } catch (e) {
           console.error('[notifications/send-reminders] sms failed', e);
         }
