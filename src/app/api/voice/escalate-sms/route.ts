@@ -154,6 +154,29 @@ export async function POST(req: NextRequest) {
       // If away or outside hours: the thread and message are still saved
       // above regardless — staff sees it whenever they next check, it's
       // just not pushed at them right now.
+    } else {
+      // v20 — FIX: previously, an unmatched client (no phone match, no
+      // name mentioned) meant NOBODY got notified at all — the message
+      // saved silently with zero human alerted, which is worse than any
+      // of the "wrong person notified" risks this route otherwise guards
+      // against. Falls back to every admin/owner, same notification shape
+      // used for a failed membership renewal — an unassigned message
+      // still needs a human, just not a specific one.
+      const adminsSnap = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['admin', 'owner']).get();
+      const notifBatch = db.batch();
+      adminsSnap.docs.forEach((d) => {
+        const notifRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        notifBatch.set(notifRef, {
+          id: notifRef.id,
+          userId: d.id,
+          type: 'sms_escalation_unassigned',
+          message: `Unmatched text from ${clientPhone}: "${messageBody.slice(0, 100)}"`,
+          link: `/messages/${threadId}`,
+          createdAt: now,
+          read: false,
+        });
+      });
+      await notifBatch.commit();
     }
 
     return NextResponse.json({
