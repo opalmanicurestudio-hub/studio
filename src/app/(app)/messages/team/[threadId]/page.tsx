@@ -12,6 +12,7 @@ import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,9 @@ export default function TeamThreadPage() {
   const { staff } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
+  // v30 — same PIN-first identity resolution as the hub; see
+  // lib/staff-identity.ts.
+  const activeStaffId = resolveActiveStaffId(currentUser?.uid);
 
   const [messageText, setMessageText] = useState('');
   const [needsResponse, setNeedsResponse] = useState(false);
@@ -42,7 +46,7 @@ export default function TeamThreadPage() {
   const { data: messages } = useCollection<any>(messagesQuery);
 
   const isTeamThread = thread?.type === 'team';
-  const otherId = !isTeamThread ? thread?.participantIds?.find((id: string) => id !== currentUser?.uid) : null;
+  const otherId = !isTeamThread ? thread?.participantIds?.find((id: string) => id !== activeStaffId) : null;
   const otherPerson = (staff || []).find((s: any) => s.id === otherId);
   const otherCount = isTeamThread ? (thread?.participantIds?.length || 1) - 1 : 0;
 
@@ -52,15 +56,15 @@ export default function TeamThreadPage() {
 
   // Mark every message not sent by me as read the moment I view the thread.
   useEffect(() => {
-    if (!firestore || !tenantId || !currentUser?.uid || !messages) return;
+    if (!firestore || !tenantId || !activeStaffId || !messages) return;
     messages.forEach((msg: any) => {
-      if (msg.senderId !== currentUser.uid && !(msg.readBy || []).includes(currentUser.uid)) {
+      if (msg.senderId !== activeStaffId && !(msg.readBy || []).includes(activeStaffId)) {
         updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`, msg.id), {
-          readBy: [...(msg.readBy || []), currentUser.uid],
+          readBy: [...(msg.readBy || []), activeStaffId],
         }).catch(() => {});
       }
     });
-  }, [messages, firestore, tenantId, currentUser?.uid, threadId]);
+  }, [messages, firestore, tenantId, activeStaffId, threadId]);
 
   // v28 — FIX: thread-level readBy was read by every unread badge
   // (mobile portal, sidebar, the hub) but NOTHING ever wrote it — every
@@ -69,27 +73,27 @@ export default function TeamThreadPage() {
   // syncs me into participantIds — membership was frozen at creation, so
   // anyone hired afterward was never included.
   useEffect(() => {
-    if (!firestore || !tenantId || !currentUser?.uid || !thread) return;
+    if (!firestore || !tenantId || !activeStaffId || !thread) return;
     const patch: any = {};
-    if (!(thread.readBy || []).includes(currentUser.uid)) patch.readBy = arrayUnion(currentUser.uid);
-    if (thread.type === 'team' && !(thread.participantIds || []).includes(currentUser.uid)) patch.participantIds = arrayUnion(currentUser.uid);
+    if (!(thread.readBy || []).includes(activeStaffId)) patch.readBy = arrayUnion(activeStaffId);
+    if (thread.type === 'team' && !(thread.participantIds || []).includes(activeStaffId)) patch.participantIds = arrayUnion(activeStaffId);
     if (Object.keys(patch).length > 0) {
       updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), patch).catch(() => {});
     }
-  }, [thread, firestore, tenantId, currentUser?.uid, threadId]);
+  }, [thread, firestore, tenantId, activeStaffId, threadId]);
 
   const handleSend = async () => {
-    if (!messageText.trim() || !firestore || !tenantId || !currentUser?.uid || sending) return;
+    if (!messageText.trim() || !firestore || !tenantId || !activeStaffId || sending) return;
     setSending(true);
     try {
       const now = new Date().toISOString();
       const msgRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`));
       await setDoc(msgRef, {
         id: msgRef.id,
-        senderId: currentUser.uid,
+        senderId: activeStaffId,
         body: messageText.trim(),
         sentAt: now,
-        readBy: [currentUser.uid],
+        readBy: [activeStaffId],
         needsResponse,
       });
       await setDoc(
@@ -98,7 +102,7 @@ export default function TeamThreadPage() {
         // what makes the thread show as unread to everyone else until
         // they actually open it. Without this, unread badges had nothing
         // real to key off.
-        { lastMessageAt: now, lastMessagePreview: messageText.trim().slice(0, 140), lastMessageBy: currentUser.uid, readBy: [currentUser.uid] },
+        { lastMessageAt: now, lastMessagePreview: messageText.trim().slice(0, 140), lastMessageBy: activeStaffId, readBy: [activeStaffId] },
         { merge: true },
       );
 
@@ -109,8 +113,8 @@ export default function TeamThreadPage() {
       // hired after the thread first existed would otherwise silently
       // never be notified.
       const recipients = isTeamThread
-        ? (staff || []).map((s: any) => s.id).filter((id: string) => id !== currentUser.uid)
-        : (thread?.participantIds || []).filter((id: string) => id !== currentUser.uid);
+        ? (staff || []).map((s: any) => s.id).filter((id: string) => id !== activeStaffId)
+        : (thread?.participantIds || []).filter((id: string) => id !== activeStaffId);
       for (const recipientId of recipients) {
         const recipient = (staff || []).find((s: any) => s.id === recipientId);
         const availability = recipient?.notificationAvailability?.mode || 'business_hours_only';
@@ -122,7 +126,7 @@ export default function TeamThreadPage() {
           id: notifRef.id,
           userId: recipientId,
           type: 'staff_message',
-          message: `${staff?.find((s: any) => s.id === currentUser.uid)?.name || 'A teammate'}: "${messageText.trim().slice(0, 100)}"`,
+          message: `${staff?.find((s: any) => s.id === activeStaffId)?.name || 'A teammate'}: "${messageText.trim().slice(0, 100)}"`,
           link: `/messages/team/${threadId}`,
           createdAt: now,
           read: false,
@@ -176,7 +180,7 @@ export default function TeamThreadPage() {
         <Card className="border-4 rounded-[2rem] shadow-sm flex-1 flex flex-col overflow-hidden">
           <CardContent className="p-5 flex-1 overflow-y-auto space-y-3 min-h-[300px] max-h-[55vh]">
             {(messages || []).map((msg: any, index: number) => {
-              const isMine = msg.senderId === currentUser?.uid;
+              const isMine = msg.senderId === activeStaffId;
               const sender = (staff || []).find((s: any) => s.id === msg.senderId);
               const seenByOthers = (msg.readBy || []).filter((id: string) => id !== msg.senderId).length;
               // v29 — sender grouping: consecutive messages from the same
