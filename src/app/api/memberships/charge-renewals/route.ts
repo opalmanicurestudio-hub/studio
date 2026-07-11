@@ -248,7 +248,33 @@ export async function POST(req: NextRequest) {
           });
         });
         await notifBatch.commit();
-        results.push({ clientId: clientDoc.id, outcome: 'past_due' });
+
+        // v20 — FIX: previously only staff were told a renewal failed —
+        // the client themselves had no idea anything was wrong until
+        // their membership silently lapsed days later. That's exactly
+        // the kind of surprise that generates an angry support ticket
+        // ("why was I cancelled, nobody told me"). Tell them directly,
+        // from their studio's own dedicated number, while there's still
+        // time in the grace period to fix it.
+        if (client.phone) {
+          try {
+            const accountSid = process.env.TWILIO_ACCOUNT_SID;
+            const authToken = process.env.TWILIO_AUTH_TOKEN;
+            const twilioAuth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+            await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+              method: 'POST',
+              headers: { Authorization: `Basic ${twilioAuth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                To: client.phone,
+                From: tenant.voiceAgent?.phoneNumber || process.env.TWILIO_PHONE_NUMBER || '',
+                Body: `${tenant.name || 'Your studio'}: We couldn't process your ${membership.name} membership renewal ($${price.toFixed(2)}). Please update your card on file within ${gracePeriodDays} days to keep your membership active.`,
+              }),
+            });
+          } catch {
+            /* non-fatal — staff were already notified above and can follow up manually */
+          }
+        }
+        results.push({ clientId: clientDoc.id, clientName: client.name, outcome: 'past_due' });
       }
     }
 
