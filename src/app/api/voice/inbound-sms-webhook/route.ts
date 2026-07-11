@@ -59,6 +59,8 @@ export async function POST(req: NextRequest) {
   // against current docs and adjust this destructuring if needed.
   const inbound = body?.sms_inbound || body?.chat_inbound || body || {};
   const toNumber: string = inbound.to_number || inbound.toNumber || '';
+  const fromNumber: string = inbound.from_number || inbound.fromNumber || '';
+  const messageBody: string = (inbound.message_body || inbound.body || inbound.text || '').trim();
 
   const fallback = {
     dynamic_variables: {
@@ -99,6 +101,76 @@ export async function POST(req: NextRequest) {
     const tenant = tenantDoc.data() as any;
     const tenantId = tenantDoc.id;
 
+    // v22 — keyword short-circuit for CONFIRM/CANCEL replies to a
+    // reminder. The point of this block: the actual state change (marking
+    // confirmed, or executing a cancellation) happens HERE,
+    // deterministically, in code — not left to the AI to interpret. This
+    // matters regardless of whether Retell's own contract supports "skip
+    // the agent, use this canned reply instead" (unconfirmed) — even if
+    // the message still reaches the chat agent afterward, the important
+    // part (the actual data change) has already happened correctly. The
+    // agent's remaining job is reduced to generating a natural-sounding
+    // acknowledgment, a much lower-stakes task than deciding what to do.
+    let keywordActionTaken: string | undefined;
+    const normalizedBody = messageBody.toUpperCase();
+    const isConfirmKeyword = normalizedBody === 'C' || normalizedBody === 'CONFIRM' || normalizedBody === 'YES' || normalizedBody === 'Y';
+    const isCancelKeyword = normalizedBody === 'X' || normalizedBody === 'CANCEL' || normalizedBody === 'NO' || normalizedBody === 'N';
+
+    if ((isConfirmKeyword || isCancelKeyword) && fromNumber) {
+      const clientQuery = await db.collection(`tenants/${tenantId}/clients`).where('phone', '==', fromNumber).limit(1).get();
+      if (!clientQuery.empty) {
+        const clientId = clientQuery.docs[0].id;
+        // The appointment this reply is actually about: the most recent
+        // one a reminder was already sent for, still confirmed. Matches
+        // exactly what send-text-reminders just texted them about.
+        const aptQuery = await db
+          .collection(`tenants/${tenantId}/appointments`)
+          .where('clientId', '==', clientId)
+          .where('reminderSent', '==', true)
+          .where('status', '==', 'confirmed')
+          .orderBy('startTime', 'asc')
+          .limit(1)
+          .get();
+
+        if (!aptQuery.empty) {
+          const apt = aptQuery.docs[0];
+          if (isConfirmKeyword) {
+            await apt.ref.set(
+              { confirmedViaReminderReply: true, confirmedAt: new Date().toISOString() },
+              { merge: true },
+            );
+            keywordActionTaken = 'confirmed';
+          } else {
+            // Reuses log-call-intent's existing cancellation logic
+            // (fee gating, safety checks, everything already built)
+            // rather than reimplementing any of it here — a keyword
+            // reply cancellation goes through the exact same rules as
+            // any other cancel.
+            try {
+              const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
+              await fetch(`${appUrl}/api/voice/log-call-intent`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-voice-secret': process.env.VOICE_AGENT_SECRET || '',
+                },
+                body: JSON.stringify({
+                  tenantId,
+                  clientId,
+                  appointmentId: apt.id,
+                  intent: 'cancel',
+                  callerPhone: fromNumber,
+                }),
+              });
+              keywordActionTaken = 'cancel_requested';
+            } catch {
+              /* non-fatal — falls through to normal agent handling below */
+            }
+          }
+        }
+      }
+    }
+
     const dynamicVariables = await buildTenantVariables(db, tenantId, tenant);
 
     return NextResponse.json({
@@ -107,6 +179,11 @@ export async function POST(req: NextRequest) {
         call_direction: 'inbound',
         channel: 'sms',
         outbound_task: '',
+        // Tells the agent's prompt a deterministic action already
+        // happened — see the task playbook's SMS section for how it
+        // should react to this (acknowledge briefly, don't re-derive
+        // intent from the raw keyword).
+        keyword_action_taken: keywordActionTaken || '',
       },
       metadata: { tenantId },
     });
