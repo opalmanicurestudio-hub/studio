@@ -81,7 +81,7 @@ async function sendReminderEmail(opts: {
 }
 
 async function sendReminderSms(opts: {
-  to: string; serviceName: string; whenText: string; studioName: string; checkInUrl: string; fromNumber?: string;
+  to: string; serviceName: string; whenText: string; studioName: string; checkInUrl: string; fromNumber?: string; replyKeywordHint?: string;
 }): Promise<boolean> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -95,7 +95,7 @@ async function sendReminderSms(opts: {
     body: new URLSearchParams({
       To: opts.to,
       From: opts.fromNumber || process.env.TWILIO_PHONE_NUMBER || '',
-      Body: `${opts.studioName}: Reminder — ${opts.serviceName} on ${opts.whenText}. Check in or manage: ${opts.checkInUrl}`,
+      Body: `${opts.studioName}: Reminder — ${opts.serviceName} on ${opts.whenText}.${opts.replyKeywordHint || ''} Check in or manage: ${opts.checkInUrl}`,
     }),
   });
   return res.ok;
@@ -187,6 +187,12 @@ export async function POST(req: NextRequest) {
       const whenText = formatWhen(apt.startTime);
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
       const checkInUrl = apt.checkInToken ? `${appUrl}/check-in/${apt.checkInToken}` : appUrl;
+      // v22 — explicit reply keywords, so the highest-volume text
+      // interaction (confirming or cancelling off a reminder) never
+      // depends on AI interpreting free text — a simple, deterministic
+      // keyword check (see inbound-sms-webhook's keyword short-circuit)
+      // handles this before anything ambiguous would reach the chat agent.
+      const replyKeywordHint = ' Reply C to confirm, X to cancel.';
 
       let emailOk = false;
       let smsOk = false;
@@ -200,7 +206,7 @@ export async function POST(req: NextRequest) {
       }
       if ((channel === 'sms' || channel === 'both') && clientPhone) {
         try {
-          smsOk = await sendReminderSms({ to: clientPhone, serviceName, whenText, studioName: tenant.name || 'the studio', checkInUrl, fromNumber: tenant.voiceAgent?.phoneNumber });
+          smsOk = await sendReminderSms({ to: clientPhone, serviceName, whenText, studioName: tenant.name || 'the studio', checkInUrl, fromNumber: tenant.voiceAgent?.phoneNumber, replyKeywordHint });
         } catch (e) {
           console.error('[notifications/send-reminders] sms failed', e);
         }
