@@ -1,4 +1,4 @@
-'use client';
+og'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
@@ -2925,7 +2925,7 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'>('today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'>('today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -2967,6 +2967,19 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // Single-field where only — filter status client-side to avoid composite index requirement
   const incomingSwapQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('swapWithStaffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   const pendingApprovalQ = useMemoFirebase(() => (!firestore||!tenantId||!isOwnerOrAdmin) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('status','==','swap_consent_given')), [firestore,tenantId,isOwnerOrAdmin]);
+  // v25 — badge for the new Messages entry point. Owner/admin see a count
+  // across every open conversation; regular staff only see ones actually
+  // assigned to them — same admin-vs-staff visibility split already
+  // established by isOwnerOrAdmin elsewhere in this file, now applied
+  // consistently to client conversations too.
+  const openThreadsQ = useMemoFirebase(() => {
+    if (!firestore || !tenantId) return null;
+    return isOwnerOrAdmin
+      ? query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'))
+      : query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'), where('assignedStaffId', '==', staffMember.id));
+  }, [firestore, tenantId, isOwnerOrAdmin, staffMember.id]);
+  const { data: openThreads } = useCollection(openThreadsQ);
+  const messagesBadge = (openThreads || []).length;
   const allStaffQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staff`), [firestore,tenantId]);
   const servicesQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/services`), [firestore,tenantId]);
   const notifsQ         = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/notifications`), where('userId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
@@ -3239,6 +3252,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     { id:'schedule', label:'Schedule', icon:Calendar },
     { id:'earnings', label:'Earnings', icon:DollarSign },
     { id:'requests', label:'Requests', icon:ClipboardList, badge:requestsBadge },
+    { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge, external:'/messages' },
     { id:'inbox',    label:'Inbox',    icon:Bell, badge:unreadCount },
   ] as const;
 
@@ -3309,7 +3323,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       {/* Tab bar */}
       <div className="flex bg-white border-b-2 border-slate-100 shrink-0">
         {TABS.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+          <button key={tab.id} onClick={() => (tab as any).external ? router.push((tab as any).external) : setActiveTab(tab.id as any)}
             className={cn('flex-1 flex flex-col items-center gap-1 py-3 text-[8px] font-black uppercase tracking-widest transition-all relative shrink-0 min-w-[56px]', activeTab===tab.id ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground')}>
             <div className="relative">
               <tab.icon className="w-4 h-4" />
