@@ -2986,7 +2986,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // without an extra subcollection query per thread.
   const myStaffThreadsQ = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds', 'array-contains', staffMember.id)), [firestore, tenantId, staffMember?.id]);
   const { data: myStaffThreads } = useCollection(myStaffThreadsQ);
-  const teamBadge = (myStaffThreads || []).filter((t: any) => t.lastMessageBy && t.lastMessageBy !== staffMember.id).length;
+  const teamBadge = (myStaffThreads || []).filter((t: any) => t.lastMessageBy && t.lastMessageBy !== staffMember.id && !((t as any).readBy || []).includes(staffMember.id)).length;
   const allStaffQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staff`), [firestore,tenantId]);
   const servicesQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/services`), [firestore,tenantId]);
   const notifsQ         = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/notifications`), where('userId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
