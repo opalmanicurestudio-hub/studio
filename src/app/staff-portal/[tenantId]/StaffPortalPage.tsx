@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,7 +22,7 @@ import {
   AlertCircle, ChevronRight, Trash2, Loader,
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
   User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
-  PlusCircle, Car, Users,
+  PlusCircle, Car, Users, MessageSquare, CreditCard,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
@@ -2923,6 +2924,7 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
+  const router = useRouter();
   const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'>('today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
@@ -3186,7 +3188,19 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const handleNotifClick = async (n: any) => {
     if (!n.read) { try { await updateDoc(doc(firestore,`tenants/${tenantId}/notifications`,n.id),{ read:true }); } catch {} }
     const map: Record<string,typeof activeTab> = { requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings', today:'today' };
-    if (n.link && map[n.link]) setActiveTab(map[n.link]);
+    if (n.link && map[n.link]) {
+      setActiveTab(map[n.link]);
+      return;
+    }
+    // v24 — FIX: previously any link that wasn't one of the five internal
+    // tab names above did nothing at all — tapping an SMS escalation or
+    // membership-payment-failed notification (both write a real /messages
+    // or /clients link) just silently marked it read, despite the row
+    // showing a "View →" indicator implying it was tappable. Falls
+    // through to real navigation for anything else.
+    if (n.link) {
+      router.push(n.link);
+    }
   };
 
   const handleClearInbox = async () => {
@@ -3241,6 +3255,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     schedule_published: <CalendarDays className="w-4 h-4 text-primary" />,
     escalation:         <AlertTriangle className="w-4 h-4 text-amber-500" />,
     client_movement:    <Activity className="w-4 h-4 text-blue-500" />,
+    sms_escalation:      <MessageSquare className="w-4 h-4 text-primary" />,
+    sms_escalation_unassigned: <MessageSquare className="w-4 h-4 text-amber-500" />,
+    membership_payment_failed: <CreditCard className="w-4 h-4 text-destructive" />,
   };
 
   return (
