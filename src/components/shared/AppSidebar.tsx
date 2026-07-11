@@ -262,7 +262,7 @@ export function AppSidebar() {
     const unsubStaff = onSnapshot(staffThreadsQ, (snap) => {
       staffCount = snap.docs.filter((d) => {
         const data = d.data() as any;
-        return data.lastMessageBy && data.lastMessageBy !== currentUser.uid;
+        return data.lastMessageBy && data.lastMessageBy !== currentUser.uid && !(data.readBy || []).includes(currentUser.uid);
       }).length;
       setMessagesBadgeCount(clientCount + staffCount);
     }, () => { /* non-fatal */ });
