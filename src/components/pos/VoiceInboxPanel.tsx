@@ -54,21 +54,42 @@ import {
   XCircle, CalendarClock, Clock, PartyPopper, MessageSquare,
   Bot, Check, Trash2, ExternalLink, Loader, Phone, AlertTriangle, ClipboardList,
   CalendarClock as CalendarMove, XCircle as CancelIcon, GraduationCap,
+  Repeat, Award, ShieldCheck, Wallet,
 } from 'lucide-react';
 
 type VoiceInboxItem = {
   id: string;
   tenantId: string;
   createdAt: string;
-  intent: 'cancel' | 'reschedule' | 'late' | 'event_quote' | 'complaint' | 'consultation' | 'message';
+  // v24 — FIX: package_interest and membership_interest were being
+  // written to this exact collection by sell-package/sell-membership's
+  // not-opted-in fallback path, but this type (and INTENT_CONFIG below)
+  // never knew about them — they silently fell back to the generic
+  // 'message' rendering, with none of the package/membership name, price,
+  // or context actually shown. Staff saw a blank-looking row instead of
+  // "Package Interest: 10-Session Gel Bundle — $450."
+  intent: 'cancel' | 'reschedule' | 'late' | 'event_quote' | 'complaint' | 'consultation' | 'message' | 'package_interest' | 'membership_interest';
   callerName: string;
   callerPhone?: string;
   clientId?: string | null;
   appointmentId?: string;
   appointmentSpoken?: string;
   requestedSlotSpoken?: string;
+  requestedSlotISO?: string;
   minutesLate?: number;
   autoApplied?: boolean;
+  // v24 — these were being written onto cancel/reschedule inbox items
+  // (log-call-intent's confirmation-code verification and the pending-
+  // fee self-pay-link path) but never displayed anywhere — staff had no
+  // way to see from this panel whether a caller proved their identity,
+  // or whether a fee is sitting unpaid with a link already sent.
+  codeVerified?: 'verified' | 'mismatch' | 'not_provided';
+  feePending?: boolean;
+  feeAmount?: number;
+  packageId?: string;
+  packageName?: string;
+  packagePrice?: number;
+  membershipId?: string;
   eventInquiry?: {
     eventDate?: string;
     headcount?: number;
@@ -129,6 +150,16 @@ const INTENT_CONFIG: Record<
     icon: MessageSquare,
     chipClass: 'bg-slate-100 text-slate-600 border-slate-200',
   },
+  package_interest: {
+    label: 'Package interest',
+    icon: Repeat,
+    chipClass: 'bg-teal-50 text-teal-700 border-teal-200',
+  },
+  membership_interest: {
+    label: 'Membership interest',
+    icon: Award,
+    chipClass: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  },
 };
 
 // Same defensive pattern as QuickBookForm's safeRelativeTime — a malformed
@@ -175,6 +206,12 @@ function detailLine(item: VoiceInboxItem): string {
   }
   if (item.intent === 'complaint') {
     return item.details || item.callSummary || 'Complaint — listen to the recording before calling back';
+  }
+  if (item.intent === 'package_interest') {
+    return `Interested in: ${item.packageName || 'a package'}${item.packagePrice ? ` — $${item.packagePrice.toFixed(2)}` : ''}`;
+  }
+  if (item.intent === 'membership_interest') {
+    return `Interested in enrolling: ${item.membershipId ? 'membership tier' : 'a membership'}`;
   }
   return item.details || item.callSummary || 'Left a message';
 }
@@ -391,6 +428,16 @@ export function VoiceInboxPanel({
                         <Check className="w-2.5 h-2.5" /> Auto-noted on appointment
                       </span>
                     )}
+                    {item.codeVerified === 'verified' && (
+                      <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <ShieldCheck className="w-2.5 h-2.5" /> Caller verified
+                      </span>
+                    )}
+                    {item.feePending && (
+                      <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Wallet className="w-2.5 h-2.5" /> ${(item.feeAmount || 0).toFixed(2)} fee — pay link sent
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs font-medium text-slate-900 truncate mt-1.5">
                     {item.callerName}
@@ -454,7 +501,7 @@ export function VoiceInboxPanel({
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {item.intent === 'reschedule' && item.appointmentId && item.requestedSlotISO && (
+                  {item.intent === 'reschedule' && item.appointmentId && item.requestedSlotISO && !item.autoApplied && (
                     <Button
                       size="sm"
                       className="h-8 text-xs"
@@ -467,7 +514,7 @@ export function VoiceInboxPanel({
                       )}
                     </Button>
                   )}
-                  {item.intent === 'cancel' && item.appointmentId && (
+                  {item.intent === 'cancel' && item.appointmentId && !item.autoApplied && (
                     <Button
                       size="sm"
                       variant="outline"
