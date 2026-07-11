@@ -1,6 +1,8 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import {
   Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
   SidebarFooter, SidebarContent, SidebarSeparator, SidebarGroup,
@@ -13,13 +15,14 @@ import {
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
+  MessageSquare,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
 import { ClientOnly } from './ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/firebase';
+import { useAuth, useFirebase, useUser } from '@/firebase';
 import { signOut } from 'firebase/auth';
 import {
   Tooltip, TooltipContent, TooltipTrigger, TooltipProvider,
@@ -44,6 +47,7 @@ const DAILY_HUB = [
   { href: '/planner',     icon: Calendar,        label: 'Planner'        },
   { href: '/pos',         icon: ListChecks,      label: 'Terminal (POS)' },
   { href: '/voice',       icon: Bot,             label: 'AI Receptionist'},
+  { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
   { href: '/my-schedule', icon: Clock,           label: 'My Schedule'    },
 ];
 
@@ -224,11 +228,49 @@ export function AppSidebar() {
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
   const auth     = useAuth();
+  const { firestore } = useFirebase();
+  const { user: currentUser } = useUser();
   const router   = useRouter();
   const pathname = usePathname();
 
   const isOwner = role === 'owner';
   const isAdmin = role === 'admin';
+  const isOwnerOrAdmin = isOwner || isAdmin;
+
+  // v27 — FIX: /messages was completely absent from the sidebar — every
+  // client conversation, staff DM, and team broadcast built this
+  // conversation had zero way to be reached from the main nav. Badge
+  // count respects the same admin-vs-staff visibility split already
+  // established in messages-page.tsx and the mobile portal: owner/admin
+  // see every open client thread; regular staff only see ones assigned to
+  // them. Combined with a rough unread proxy for staff DMs (last message
+  // not sent by me), same heuristic used in the mobile portal's badge.
+  const [messagesBadgeCount, setMessagesBadgeCount] = useState(0);
+  useEffect(() => {
+    if (!firestore || !tenantId || !currentUser?.uid) return;
+    const clientThreadsQ = isOwnerOrAdmin
+      ? query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'))
+      : query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('status', '==', 'open'), where('assignedStaffId', '==', currentUser.uid));
+    const staffThreadsQ = query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds', 'array-contains', currentUser.uid));
+
+    let clientCount = 0;
+    let staffCount = 0;
+    const unsubClient = onSnapshot(clientThreadsQ, (snap) => {
+      clientCount = snap.size;
+      setMessagesBadgeCount(clientCount + staffCount);
+    }, () => { /* non-fatal */ });
+    const unsubStaff = onSnapshot(staffThreadsQ, (snap) => {
+      staffCount = snap.docs.filter((d) => {
+        const data = d.data() as any;
+        return data.lastMessageBy && data.lastMessageBy !== currentUser.uid;
+      }).length;
+      setMessagesBadgeCount(clientCount + staffCount);
+    }, () => { /* non-fatal */ });
+
+    return () => { unsubClient(); unsubStaff(); };
+  }, [firestore, tenantId, currentUser?.uid, isOwnerOrAdmin]);
+
+  const dailyBadges = messagesBadgeCount > 0 ? { '/messages': messagesBadgeCount } : undefined;
 
   const handleLogout = async () => {
     if (auth) { await signOut(auth); router.push('/login'); }
@@ -280,7 +322,7 @@ export function AppSidebar() {
             </div>
           )}
 
-          <NavSection label="Daily" items={DAILY_HUB} />
+          <NavSection label="Daily" items={DAILY_HUB} badges={dailyBadges} />
 
           {isOwner && (
             <>
