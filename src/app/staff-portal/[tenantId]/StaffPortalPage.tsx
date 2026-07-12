@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
 import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
+import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -2956,6 +2957,15 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const [clPickerOpen, setClPickerOpen] = useState(false);
   const [clSearch, setClSearch] = useState('');
   const [shareClients, setShareClients] = useState<any[]|null>(null);
+  const [gifOpen, setGifOpen] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const [reactionForId, setReactionForId] = useState<string|null>(null);
+  const audioCtxRef = useRef<AudioContext|null>(null);
+  const rafRef = useRef<number>(0);
+  const recTimerRef = useRef<ReturnType<typeof setInterval>|null>(null);
+  const recCancelledRef = useRef(false);
+  const recExtRef = useRef('webm');
 
   const allStaffQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const { data: allStaff } = useCollection(allStaffQ);
@@ -3060,7 +3070,9 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     setUploading(true);
     try {
       const sRef = storageRef(getStorage(), `tenants/${tenantId}/staffThreads/${openId}/${Date.now()}_${fileName}`);
-      await uploadBytes(sRef, blob);
+      // v36 — explicit contentType; typeless audio blobs serve as
+      // octet-stream and refuse to play back.
+      await uploadBytes(sRef, blob, { contentType: blob.type || (kind === 'audio' ? 'audio/mp4' : 'application/octet-stream') });
       const url = await getDownloadURL(sRef);
       const now = new Date().toISOString();
       const mRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`));
@@ -3073,16 +3085,81 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     finally { setUploading(false); }
   };
 
+  const pickAudioMime = (): { mime: string; ext: string } => {
+    const candidates: [string,string][] = [['audio/webm;codecs=opus','webm'],['audio/webm','webm'],['audio/mp4','m4a'],['audio/ogg;codecs=opus','ogg']];
+    for (const [m,e] of candidates) { try { if ((window as any).MediaRecorder?.isTypeSupported?.(m)) return { mime:m, ext:e }; } catch {} }
+    return { mime:'', ext:'webm' };
+  };
+
+  const stopRecCleanup = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (recTimerRef.current) clearInterval(recTimerRef.current);
+    audioCtxRef.current?.close().catch(()=>{});
+    audioCtxRef.current = null;
+    setMicLevel(0); setRecSeconds(0); setRecording(false);
+  };
+
+  const cancelRec = () => { recCancelledRef.current = true; recRef.current?.stop(); };
+
   const toggleRec = async () => {
-    if (recording) { recRef.current?.stop(); setRecording(false); return; }
+    if (recording) { recCancelledRef.current = false; recRef.current?.stop(); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
-      const rec = new MediaRecorder(stream);
+      const { mime, ext } = pickAudioMime();
+      recExtRef.current = ext;
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       chunksRef.current = [];
+      recCancelledRef.current = false;
       rec.ondataavailable = (e) => { if (e.data.size>0) chunksRef.current.push(e.data); };
-      rec.onstop = () => { stream.getTracks().forEach(t=>t.stop()); const b = new Blob(chunksRef.current, { type: rec.mimeType||'audio/webm' }); if (b.size>0) uploadAndSend(b, 'voice_note.webm', 'audio'); };
+      rec.onstop = () => {
+        stream.getTracks().forEach(t=>t.stop());
+        stopRecCleanup();
+        if (recCancelledRef.current) return;
+        const b = new Blob(chunksRef.current, { type: rec.mimeType || mime || 'audio/mp4' });
+        if (b.size < 1000) { toast({ variant:'destructive', title:'Nothing recorded', description:'Check the level bars move while you speak.' }); return; }
+        uploadAndSend(b, `voice_note.${recExtRef.current}`, 'audio');
+      };
       recRef.current = rec; rec.start(); setRecording(true);
+      setRecSeconds(0);
+      recTimerRef.current = setInterval(() => setRecSeconds(s=>s+1), 1000);
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i=0;i<data.length;i++){ const v=(data[i]-128)/128; sum += v*v; }
+        setMicLevel(Math.sqrt(sum/data.length));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
     } catch { toast({ variant:'destructive', title:'Microphone unavailable' }); }
+  };
+
+  const REACTIONS = ['👍','❤️','😂','🎉','🙏','🔥'];
+  const toggleReaction = async (m: any, emoji: string) => {
+    if (!firestore || !tenantId || !openId) return;
+    const current: Record<string,string[]> = m.reactions || {};
+    const list: string[] = current[emoji] || [];
+    const has = list.includes(staffMember.id);
+    const next: Record<string,string[]> = { ...current, [emoji]: has ? list.filter((id)=>id!==staffMember.id) : [...list, staffMember.id] };
+    if (next[emoji].length===0) delete next[emoji];
+    await updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`, m.id), { reactions: next }).catch(()=>{});
+    setReactionForId(null);
+  };
+
+  const sendGif = async (gifUrl: string) => {
+    setGifOpen(false);
+    if (!openId) return;
+    const now = new Date().toISOString();
+    const mRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`));
+    await setDoc(mRef, { id: mRef.id, senderId: staffMember.id, body:'', imageUrl: gifUrl, sentAt: now, readBy: [staffMember.id] });
+    await bumpThread(openId, '🎬 GIF');
+    notifyRecipients(openId, '🎬 GIF');
   };
 
   const sendClientReply = async () => {
@@ -3144,7 +3221,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
               <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
                 <div className="max-w-[80%]">
                   {!mine && sender && <p className="text-[9px] font-black uppercase text-indigo-600/70 mb-0.5 ml-1">{sender.name}</p>}
-                  <div className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md' : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md')}>
+                  <div onClick={() => { if (!isClient) setReactionForId(reactionForId === m.id ? null : m.id); }} className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md' : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md')}>
                     {m.deleted ? <p className="italic opacity-50 text-xs">Message deleted</p> : (<>
                       {m.imageUrl && <a href={m.imageUrl} target="_blank" rel="noreferrer"><img src={m.imageUrl} alt="" className="rounded-xl max-h-56 mb-1 border"/></a>}
                       {m.audioUrl && <audio controls src={m.audioUrl} className="max-w-full h-10 my-0.5"/>}
@@ -3162,6 +3239,22 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                     </>)}
                     <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(parseISO(m.sentAt),'h:mm a') : ''}</p>
                   </div>
+                  {!isClient && reactionForId === m.id && (
+                    <div className={cn('flex gap-1 mt-1 bg-white border-2 rounded-full px-2 py-1 w-fit shadow-sm', mine ? 'ml-auto' : '')}>
+                      {REACTIONS.map(e => (
+                        <button key={e} onClick={() => toggleReaction(m, e)} className="text-base active:scale-125 transition-transform">{e}</button>
+                      ))}
+                    </div>
+                  )}
+                  {m.reactions && Object.keys(m.reactions).length > 0 && (
+                    <div className={cn('flex flex-wrap gap-1 mt-1', mine ? 'justify-end' : 'justify-start')}>
+                      {Object.entries(m.reactions as Record<string,string[]>).map(([emoji, ids]) => (
+                        <button key={emoji} onClick={() => !isClient && toggleReaction(m, emoji)} className={cn('h-6 px-1.5 rounded-full border-2 text-[11px] font-bold flex items-center gap-1 bg-white', (ids as string[]).includes(staffMember.id) ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200')}>
+                          <span>{emoji}</span><span className="text-[9px] text-slate-500">{(ids as string[]).length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -3189,6 +3282,24 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             </div>
           </div>
         )}
+        {gifOpen && !isClient && (
+          <GifPicker className="mt-2 mx-1" onSelect={sendGif} onClose={()=>setGifOpen(false)} />
+        )}
+        {recording && (
+          <div className="flex items-center gap-2.5 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2 mt-2 mx-1">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"/>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"/>
+            </span>
+            <p className="text-[10px] font-black uppercase text-red-700 w-9 shrink-0">{Math.floor(recSeconds/60)}:{String(recSeconds%60).padStart(2,'0')}</p>
+            <div className="flex items-end gap-0.5 h-6 flex-1">
+              {Array.from({length:18}).map((_,i)=>(
+                <span key={i} className="flex-1 rounded-sm bg-red-400 transition-all duration-75" style={{ height: `${Math.max(10, Math.min(100, micLevel*320*(0.5+(((i*37)%17)/17)*0.5)))}%`, opacity: micLevel>0.015?1:0.25 }}/>
+              ))}
+            </div>
+            <button onClick={cancelRec} className="text-[9px] font-black uppercase text-slate-500 px-1 shrink-0">Cancel</button>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 pt-3 px-1">
           {!isClient && (<>
             <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'image'); if(imgRef.current) imgRef.current.value='';}}}/>
@@ -3197,6 +3308,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white items-center justify-center shrink-0 hidden sm:flex"><Paperclip className="w-4 h-4"/></button>
             <button onClick={toggleRec} disabled={uploading} className={cn('h-11 w-11 rounded-xl border-2 flex items-center justify-center shrink-0', recording ? 'bg-red-500 text-white animate-pulse' : 'bg-white')}>{recording ? <Square className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
             <button onClick={openClPicker} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><User className="w-4 h-4"/></button>
+            {GIF_ENABLED && <button onClick={()=>setGifOpen(v=>!v)} disabled={uploading||recording} className="h-11 px-2.5 rounded-xl border-2 bg-white flex items-center justify-center shrink-0 font-black text-[9px] tracking-widest">GIF</button>}
           </>)}
           <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
           <button onClick={isClient ? sendClientReply : sendTeamText} disabled={sending||!text.trim()} className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 disabled:opacity-40">{sending ? <Loader className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}</button>
