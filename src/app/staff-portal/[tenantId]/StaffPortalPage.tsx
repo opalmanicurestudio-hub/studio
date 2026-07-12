@@ -2951,6 +2951,9 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const imgRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const [clPickerOpen, setClPickerOpen] = useState(false);
+  const [clSearch, setClSearch] = useState('');
+  const [shareClients, setShareClients] = useState<any[]|null>(null);
 
   const allStaffQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
   const { data: allStaff } = useCollection(allStaffQ);
@@ -3018,18 +3021,36 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     }
   };
 
-  const sendTeamText = async () => {
-    if (!text.trim()||!openId||sending) return;
+  const sendTeamText = async (clientRefArg?: any) => {
+    const clientRef = clientRefArg && clientRefArg.clientId ? clientRefArg : null;
+    if ((!text.trim() && !clientRef)||!openId||sending) return;
     setSending(true);
     try {
+      const preview = clientRef ? `👤 ${clientRef.name}` : text.trim();
       const now = new Date().toISOString();
       const mRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`));
-      await setDoc(mRef, { id: mRef.id, senderId: staffMember.id, body: text.trim(), sentAt: now, readBy: [staffMember.id] });
-      await bumpThread(openId, text.trim().slice(0,140));
-      notifyRecipients(openId, text.trim());
+      await setDoc(mRef, { id: mRef.id, senderId: staffMember.id, body: text.trim(), sentAt: now, readBy: [staffMember.id], ...(clientRef ? { clientRef } : {}) });
+      await bumpThread(openId, preview.slice(0,140));
+      notifyRecipients(openId, preview);
       setText('');
     } catch { toast({ variant:'destructive', title:'Could not send' }); }
     finally { setSending(false); }
+  };
+
+  const openClPicker = async () => {
+    if (clPickerOpen) { setClPickerOpen(false); return; }
+    setClPickerOpen(true);
+    if (!shareClients && firestore && tenantId) {
+      try {
+        const snap = await getDocs(collection(firestore, `tenants/${tenantId}/clients`));
+        setShareClients(snap.docs.map((d:any) => ({ id: d.id, ...(d.data() as any) })));
+      } catch { setShareClients([]); }
+    }
+  };
+
+  const shareClientCard = async (cl: any) => {
+    setClPickerOpen(false); setClSearch('');
+    await sendTeamText({ clientId: cl.id, name: cl.name || 'Client', phone: cl.phone || '' });
   };
 
   const uploadAndSend = async (blob: Blob, fileName: string, kind: 'image'|'audio'|'file') => {
@@ -3126,6 +3147,15 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                       {m.imageUrl && <a href={m.imageUrl} target="_blank" rel="noreferrer"><img src={m.imageUrl} alt="" className="rounded-xl max-h-56 mb-1 border"/></a>}
                       {m.audioUrl && <audio controls src={m.audioUrl} className="max-w-full h-10 my-0.5"/>}
                       {m.fileUrl && <a href={m.fileUrl} target="_blank" rel="noreferrer" className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2 my-0.5 text-xs font-bold', mine ? 'border-white/30 text-white' : 'border-slate-200 text-slate-700')}><FileText className="w-4 h-4 shrink-0"/><span className="truncate">{m.fileName||'Attachment'}</span></a>}
+                      {m.clientRef && (
+                        <div className={cn('flex items-center gap-2.5 rounded-xl border-2 px-3 py-2.5 my-0.5', mine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-indigo-50/60')}>
+                          <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', mine ? 'bg-white/20' : 'bg-indigo-600')}><User className="w-4 h-4 text-white"/></div>
+                          <div className="min-w-0">
+                            <p className={cn('text-xs font-black uppercase truncate', mine ? 'text-white' : 'text-slate-900')}>{m.clientRef.name}</p>
+                            {m.clientRef.phone && <a href={`tel:${m.clientRef.phone}`} className={cn('text-[10px] font-bold underline', mine ? 'text-white/80' : 'text-indigo-600')}>{m.clientRef.phone}</a>}
+                          </div>
+                        </div>
+                      )}
                       {m.body && <p>{m.body}</p>}
                     </>)}
                     <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(parseISO(m.sentAt),'h:mm a') : ''}</p>
@@ -3136,6 +3166,27 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
           })}
           <div ref={endRef}/>
         </div>
+        {clPickerOpen && !isClient && (
+          <div className="rounded-xl border-2 bg-white p-3 space-y-2 mt-2 mx-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Share a client</p>
+              <button onClick={()=>setClPickerOpen(false)} className="text-[9px] font-black uppercase text-muted-foreground">Close</button>
+            </div>
+            <input value={clSearch} onChange={e=>setClSearch(e.target.value)} placeholder="Search clients..." className="w-full h-9 rounded-lg border-2 px-3 text-xs font-bold"/>
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {shareClients===null && <p className="text-center py-3 text-[9px] font-black uppercase text-slate-400">Loading...</p>}
+              {(shareClients||[]).filter((cl:any)=>(cl.name||'').toLowerCase().includes(clSearch.toLowerCase())).slice(0,25).map((cl:any) => (
+                <button key={cl.id} onClick={()=>shareClientCard(cl)} className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-indigo-50 text-left">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-600 font-black text-[10px] flex items-center justify-center shrink-0">{(cl.name||'?').charAt(0)}</div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase truncate">{cl.name||'Unnamed'}</p>
+                    <p className="text-[10px] font-bold text-slate-400">{cl.phone||''}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-1.5 pt-3 px-1">
           {!isClient && (<>
             <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'image'); if(imgRef.current) imgRef.current.value='';}}}/>
@@ -3143,6 +3194,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <button onClick={()=>imgRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0">{uploading ? <Loader className="w-4 h-4 animate-spin"/> : <ImagePlus className="w-4 h-4"/>}</button>
             <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white items-center justify-center shrink-0 hidden sm:flex"><Paperclip className="w-4 h-4"/></button>
             <button onClick={toggleRec} disabled={uploading} className={cn('h-11 w-11 rounded-xl border-2 flex items-center justify-center shrink-0', recording ? 'bg-red-500 text-white animate-pulse' : 'bg-white')}>{recording ? <Square className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
+            <button onClick={openClPicker} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><User className="w-4 h-4"/></button>
           </>)}
           <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
           <button onClick={isClient ? sendClientReply : sendTeamText} disabled={sending||!text.trim()} className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 disabled:opacity-40">{sending ? <Loader className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}</button>
