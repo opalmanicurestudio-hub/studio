@@ -62,6 +62,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
+import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -135,7 +136,6 @@ import {
   Gift,
   Clock,
   Pause,
-  MapPin,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -1208,7 +1208,7 @@ export default function BoothsPage() {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
 
-  const { selectedLocation, selectedLocationId, locations, isLoading: locationsLoading } =
+  const { selectedLocationId, locations, isLoading: locationsLoading } =
     useLocation();
 
   const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
@@ -2031,14 +2031,12 @@ export default function BoothsPage() {
             <Armchair className="h-6 w-6" />
             Booths
           </h1>
-          <p className="text-sm text-muted-foreground mb-1.5 flex items-center gap-1.5 flex-wrap">
+          <p className="text-sm text-muted-foreground mb-1.5">
             Booths, renters, and leases — all in one place.
-            {selectedLocation && (
-              <span className="inline-flex items-center gap-1 text-xs bg-muted px-2 py-0.5 rounded-full">
-                <MapPin className="h-3 w-3" />{selectedLocation.name}
-              </span>
-            )}
           </p>
+          <div className="mb-1.5">
+            <LocationSwitcher />
+          </div>
           <LivePulse lastSync={lastSync} />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
