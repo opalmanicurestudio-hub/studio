@@ -7,10 +7,10 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText } from 'lucide-react';
+import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText, User } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion, getDocs } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
@@ -43,6 +43,9 @@ export default function TeamThreadPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const docFileInputRef = useRef<HTMLInputElement>(null);
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+  const [shareClients, setShareClients] = useState<any[] | null>(null);
 
   const threadRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), [firestore, tenantId, threadId]);
   const { data: thread, isLoading: threadLoading } = useDoc<any>(threadRef);
@@ -93,6 +96,27 @@ export default function TeamThreadPage() {
       updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), patch).catch(() => {});
     }
   }, [thread, firestore, tenantId, activeStaffId, threadId]);
+
+  const openClientPicker = async () => {
+    if (clientPickerOpen) { setClientPickerOpen(false); return; }
+    setClientPickerOpen(true);
+    if (!shareClients && firestore && tenantId) {
+      try {
+        const snap = await getDocs(collection(firestore, `tenants/${tenantId}/clients`));
+        setShareClients(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+      } catch { setShareClients([]); }
+    }
+  };
+
+  const shareClientCard = async (cl: any) => {
+    setClientPickerOpen(false);
+    setClientSearch('');
+    // Snapshot the essentials onto the message itself — rendering never
+    // needs a join, and the card stays meaningful even if the client is
+    // later renamed or removed. The composer text (if any) rides along as
+    // the note.
+    await handleSend({ clientId: cl.id, name: cl.name || 'Client', phone: cl.phone || '' });
+  };
 
   const handleDeleteMessage = async (msgId: string) => {
     if (!firestore || !tenantId) return;
@@ -166,10 +190,16 @@ export default function TeamThreadPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSend = async () => {
-    if (!messageText.trim() || !firestore || !tenantId || !activeStaffId || sending) return;
+  const handleSend = async (clientRefArg?: any) => {
+    // v34 — a shared client card rides the same send path as text: same
+    // thread bump, same readBy reset, same availability-aware notify.
+    // Click events land here too, so only treat it as a card when it
+    // actually looks like one.
+    const clientRef = clientRefArg && clientRefArg.clientId ? clientRefArg : null;
+    if ((!messageText.trim() && !clientRef) || !firestore || !tenantId || !activeStaffId || sending) return;
     setSending(true);
     try {
+      const previewText = clientRef ? `👤 ${clientRef.name}` : messageText.trim();
       const now = new Date().toISOString();
       const msgRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`));
       await setDoc(msgRef, {
@@ -179,6 +209,7 @@ export default function TeamThreadPage() {
         sentAt: now,
         readBy: [activeStaffId],
         needsResponse,
+        ...(clientRef ? { clientRef } : {}),
       });
       await setDoc(
         doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
@@ -186,7 +217,7 @@ export default function TeamThreadPage() {
         // what makes the thread show as unread to everyone else until
         // they actually open it. Without this, unread badges had nothing
         // real to key off.
-        { lastMessageAt: now, lastMessagePreview: messageText.trim().slice(0, 140), lastMessageBy: activeStaffId, readBy: [activeStaffId] },
+        { lastMessageAt: now, lastMessagePreview: previewText.slice(0, 140), lastMessageBy: activeStaffId, readBy: [activeStaffId] },
         { merge: true },
       );
 
@@ -210,7 +241,7 @@ export default function TeamThreadPage() {
           id: notifRef.id,
           userId: recipientId,
           type: 'staff_message',
-          message: `${staff?.find((s: any) => s.id === activeStaffId)?.name || 'A teammate'}: "${messageText.trim().slice(0, 100)}"`,
+          message: `${staff?.find((s: any) => s.id === activeStaffId)?.name || 'A teammate'}: ${clientRef ? previewText : '"' + previewText.slice(0, 100) + '"'}`,
           link: `/messages/team/${threadId}`,
           createdAt: now,
           read: false,
@@ -344,6 +375,17 @@ export default function TeamThreadPage() {
                               <FileText className="w-4 h-4 shrink-0" /> <span className="truncate">{msg.fileName || 'Attachment'}</span>
                             </a>
                           )}
+                          {msg.clientRef && (
+                            <a href={`/clients/${msg.clientRef.clientId}`} className={cn('flex items-center gap-2.5 rounded-xl border-2 px-3 py-2.5 my-0.5', isMine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-indigo-50/60')}>
+                              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', isMine ? 'bg-white/20' : 'bg-indigo-600')}>
+                                <User className="w-4 h-4 text-white" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className={cn('text-xs font-black uppercase truncate', isMine ? 'text-white' : 'text-slate-900')}>{msg.clientRef.name}</p>
+                                <p className={cn('text-[10px] font-bold', isMine ? 'text-white/70' : 'text-slate-500')}>{msg.clientRef.phone || 'View profile'}</p>
+                              </div>
+                            </a>
+                          )}
                           {msg.body && <p>{msg.body}</p>}
                         </>
                       )}
@@ -375,6 +417,30 @@ export default function TeamThreadPage() {
             <div ref={scrollRef} />
           </CardContent>
           <CardFooter className="p-4 border-t bg-muted/5 flex-col gap-2">
+            {clientPickerOpen && (
+              <div className="w-full rounded-xl border-2 bg-white p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Share a client — your message text rides along as the note</p>
+                  <button onClick={() => setClientPickerOpen(false)} className="text-[9px] font-black uppercase text-muted-foreground hover:text-slate-700">Close</button>
+                </div>
+                <Input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients..." className="h-9 rounded-lg border-2 text-xs font-bold" />
+                <div className="max-h-44 overflow-y-auto space-y-1">
+                  {shareClients === null && <p className="text-center py-3 text-[9px] font-black uppercase text-slate-400">Loading...</p>}
+                  {(shareClients || []).filter((cl: any) => (cl.name || '').toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 25).map((cl: any) => (
+                    <button key={cl.id} onClick={() => shareClientCard(cl)} className="w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-indigo-50 text-left">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-100 text-indigo-600 font-black text-[10px] flex items-center justify-center shrink-0">{(cl.name || '?').charAt(0)}</div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-black uppercase truncate">{cl.name || 'Unnamed'}</p>
+                        <p className="text-[10px] font-bold text-slate-400">{cl.phone || ''}</p>
+                      </div>
+                    </button>
+                  ))}
+                  {shareClients !== null && (shareClients || []).filter((cl: any) => (cl.name || '').toLowerCase().includes(clientSearch.toLowerCase())).length === 0 && (
+                    <p className="text-center py-3 text-[9px] font-black uppercase text-slate-400">No matches</p>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2 w-full">
               <input
                 ref={fileInputRef}
@@ -406,6 +472,15 @@ export default function TeamThreadPage() {
                 title="Attach a file"
               >
                 <Paperclip className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                onClick={openClientPicker}
+                disabled={uploading || recording}
+                className="h-12 w-12 rounded-xl shrink-0 p-0 border-2"
+                title="Share a client profile"
+              >
+                <User className="w-4 h-4" />
               </Button>
               <Button
                 variant={recording ? 'destructive' : 'outline'}
