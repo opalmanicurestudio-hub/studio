@@ -4,6 +4,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
 import { registerPushForStaff } from '@/lib/push-notifications';
+import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -3648,10 +3649,16 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       <div className="bg-slate-900 px-5 pt-6 pb-5 space-y-4 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Avatar className="w-11 h-11 rounded-2xl border-2 border-white/10">
-              <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-              <AvatarFallback className="bg-primary/20 text-primary font-black">{staffMember.name?.[0]}</AvatarFallback>
-            </Avatar>
+            <AvatarUpload
+              url={staffMember.avatarUrl}
+              name={staffMember.name}
+              storagePath={`tenants/${tenantId}/avatars/staff_${staffMember.id}.jpg`}
+              onUploaded={async (newUrl) => {
+                await updateDoc(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id), { avatarUrl: newUrl });
+              }}
+              className="w-11 h-11 rounded-2xl border-2 border-white/10"
+              fallbackClassName="bg-primary/20 text-primary font-black"
+            />
             <div>
               <p className="font-black uppercase text-white text-sm leading-none">{staffMember.name}</p>
               <p className="text-[9px] font-black uppercase text-primary/60 mt-0.5">{staffMember.role} · {format(today,'EEE, MMM d')}</p>
