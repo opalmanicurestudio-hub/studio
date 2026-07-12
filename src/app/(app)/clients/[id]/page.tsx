@@ -84,6 +84,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc } from 'firebase/firestore';
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
+import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -538,10 +539,17 @@ export default function ClientDetailPage() {
         <Card className={cn("border-4 shadow-3xl rounded-[2.5rem] md:rounded-[3rem] overflow-hidden bg-white/80 backdrop-blur-xl transition-all text-left", client.status === 'banned' && "border-destructive ring-4 ring-destructive/10")}>
           <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
             <div className="relative shrink-0">
-              <Avatar className="w-28 h-28 md:w-40 md:h-40 text-2xl border-4 border-white shadow-2xl rounded-[2.5rem] md:rounded-[3rem]">
-                <AvatarImage src={client.avatarUrl} alt={client.name} className="object-cover" />
-                <AvatarFallback className="font-black bg-primary/10 text-primary uppercase">{getInitials(client.name)}</AvatarFallback>
-              </Avatar>
+              <AvatarUpload
+                url={client.avatarUrl}
+                name={client.name}
+                storagePath={`tenants/${selectedTenant?.id}/avatars/client_${client.id}.jpg`}
+                onUploaded={async (newUrl) => {
+                  if (!firestore || !selectedTenant?.id) return;
+                  await setDoc(doc(firestore, `tenants/${selectedTenant.id}/clients`, client.id), { avatarUrl: newUrl }, { merge: true });
+                }}
+                className="w-28 h-28 md:w-40 md:h-40 text-2xl border-4 border-white shadow-2xl rounded-[2.5rem] md:rounded-[3rem]"
+                fallbackClassName="font-black bg-primary/10 text-primary uppercase"
+              />
               {activeMembership && <div className="absolute -top-2 -right-2 md:-top-3 md:-right-3 bg-indigo-600 text-white p-1.5 md:p-2 rounded-2xl shadow-xl border-4 border-white"><Award className="w-4 h-4 md:w-6 md:h-6" /></div>}
             </div>
             <div className="space-y-4 flex-1 min-w-0 w-full text-left">
