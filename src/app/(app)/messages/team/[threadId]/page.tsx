@@ -12,6 +12,7 @@ import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion, getDocs } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { useInventory } from '@/context/InventoryContext';
@@ -44,6 +45,14 @@ export default function TeamThreadPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const docFileInputRef = useRef<HTMLInputElement>(null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
+  const [micLevel, setMicLevel] = useState(0);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const rafRef = useRef<number>(0);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recCancelledRef = useRef(false);
+  const recExtRef = useRef('webm');
   const [clientSearch, setClientSearch] = useState('');
   const [shareClients, setShareClients] = useState<any[] | null>(null);
 
@@ -144,7 +153,11 @@ export default function TeamThreadPage() {
       const storage = getStorage();
       const path = `tenants/${tenantId}/staffThreads/${threadId}/${Date.now()}_${fileName}`;
       const sRef = storageRef(storage, path);
-      await uploadBytes(sRef, blob);
+      // v36 — FIX: contentType must be explicit. Some browsers report an
+      // empty blob type for recordings; uploaded typeless, the file serves
+      // as application/octet-stream and the <audio> player refuses it —
+      // exactly the "uploads but errors on playback" symptom.
+      await uploadBytes(sRef, blob, { contentType: blob.type || (kind === 'audio' ? 'audio/mp4' : 'application/octet-stream') });
       const url = await getDownloadURL(sRef);
       const now = new Date().toISOString();
       const msgRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`));
@@ -161,28 +174,110 @@ export default function TeamThreadPage() {
     }
   };
 
+  // v36 — pick a format the CURRENT browser can actually record. Safari
+  // records audio/mp4, Chrome audio/webm; hardcoding webm (v1) produced
+  // typeless or mislabeled blobs on iPhones — uploads succeeded, playback
+  // errored.
+  const pickAudioMime = (): { mime: string; ext: string } => {
+    const candidates: [string, string][] = [
+      ['audio/webm;codecs=opus', 'webm'],
+      ['audio/webm', 'webm'],
+      ['audio/mp4', 'm4a'],
+      ['audio/ogg;codecs=opus', 'ogg'],
+    ];
+    for (const [m, e] of candidates) {
+      try { if ((window as any).MediaRecorder?.isTypeSupported?.(m)) return { mime: m, ext: e }; } catch {}
+    }
+    return { mime: '', ext: 'webm' };
+  };
+
+  const stopRecordingCleanup = () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (recTimerRef.current) clearInterval(recTimerRef.current);
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
+    setMicLevel(0);
+    setRecSeconds(0);
+    setRecording(false);
+  };
+
+  const cancelRecording = () => {
+    recCancelledRef.current = true;
+    mediaRecorderRef.current?.stop();
+  };
+
   const toggleRecording = async () => {
     if (recording) {
+      recCancelledRef.current = false;
       mediaRecorderRef.current?.stop();
-      setRecording(false);
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const { mime, ext } = pickAudioMime();
+      recExtRef.current = ext;
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       audioChunksRef.current = [];
+      recCancelledRef.current = false;
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        if (blob.size > 0) uploadAndSend(blob, `voice_note.webm`, 'audio');
+        stopRecordingCleanup();
+        if (recCancelledRef.current) return; // discarded on purpose
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mime || 'audio/mp4' });
+        if (blob.size < 1000) {
+          toast({ variant: 'destructive', title: 'Nothing recorded', description: 'The mic produced no audio — check the level bars move while you speak.' });
+          return;
+        }
+        uploadAndSend(blob, `voice_note.${recExtRef.current}`, 'audio');
       };
       mediaRecorderRef.current = recorder;
       recorder.start();
       setRecording(true);
+      setRecSeconds(0);
+      recTimerRef.current = setInterval(() => setRecSeconds(s => s + 1), 1000);
+
+      // Live level meter — THE "is it actually hearing me" indicator.
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+        setMicLevel(Math.sqrt(sum / data.length));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
     } catch {
       toast({ variant: 'destructive', title: 'Microphone unavailable', description: 'Allow microphone access to record a voice note.' });
     }
+  };
+
+  const REACTIONS = ['👍', '❤️', '😂', '🎉', '🙏', '🔥'];
+  const toggleReaction = async (msg: any, emoji: string) => {
+    if (!firestore || !tenantId || !activeStaffId) return;
+    const current: Record<string, string[]> = msg.reactions || {};
+    const list: string[] = current[emoji] || [];
+    const has = list.includes(activeStaffId);
+    const next: Record<string, string[]> = { ...current, [emoji]: has ? list.filter((id) => id !== activeStaffId) : [...list, activeStaffId] };
+    if (next[emoji].length === 0) delete next[emoji];
+    await updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`, msg.id), { reactions: next }).catch(() => {});
+    setOpenMenuId(null);
+  };
+
+  const sendGif = async (gifUrl: string) => {
+    setGifPickerOpen(false);
+    if (!firestore || !tenantId || !activeStaffId) return;
+    const now = new Date().toISOString();
+    const msgRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`));
+    await setDoc(msgRef, { id: msgRef.id, senderId: activeStaffId, body: '', imageUrl: gifUrl, sentAt: now, readBy: [activeStaffId] });
+    await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+      { lastMessageAt: now, lastMessagePreview: '🎬 GIF', lastMessageBy: activeStaffId, readBy: [activeStaffId] }, { merge: true });
   };
 
   const handleAttachPhoto = async (file: File) => {
@@ -331,7 +426,12 @@ export default function TeamThreadPage() {
                       </button>
                     )}
                     {openMenuId === msg.id && (
-                      <div className={cn('absolute top-7 z-20 bg-white border-2 rounded-xl shadow-xl overflow-hidden min-w-32', isMine ? 'right-0' : 'left-0')}>
+                      <div className={cn('absolute top-7 z-20 bg-white border-2 rounded-xl shadow-xl overflow-hidden min-w-44', isMine ? 'right-0' : 'left-0')}>
+                        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b">
+                          {REACTIONS.map(e => (
+                            <button key={e} onClick={() => toggleReaction(msg, e)} className="text-base hover:scale-125 transition-transform p-0.5">{e}</button>
+                          ))}
+                        </div>
                         {msg.body && (
                           <button onClick={() => handleCopyMessage(msg.body)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-muted/40">
                             <Copy className="w-3 h-3" /> Copy
@@ -410,6 +510,20 @@ export default function TeamThreadPage() {
                         </div>
                       )}
                     </div>
+                    {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                      <div className={cn('flex flex-wrap gap-1 mt-1', isMine ? 'justify-end' : 'justify-start')}>
+                        {Object.entries(msg.reactions as Record<string, string[]>).map(([emoji, ids]) => (
+                          <button
+                            key={emoji}
+                            onClick={() => toggleReaction(msg, emoji)}
+                            className={cn('h-6 px-1.5 rounded-full border-2 text-[11px] font-bold flex items-center gap-1 bg-white transition-colors', (ids as string[]).includes(activeStaffId || '') ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300')}
+                          >
+                            <span>{emoji}</span>
+                            <span className="text-[9px] text-slate-500">{(ids as string[]).length}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -439,6 +553,36 @@ export default function TeamThreadPage() {
                     <p className="text-center py-3 text-[9px] font-black uppercase text-slate-400">No matches</p>
                   )}
                 </div>
+              </div>
+            )}
+            {gifPickerOpen && (
+              <GifPicker className="w-full" onSelect={sendGif} onClose={() => setGifPickerOpen(false)} />
+            )}
+            {recording && (
+              <div className="w-full flex items-center gap-3 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-2">
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </span>
+                <p className="text-[10px] font-black uppercase text-red-700 w-10 shrink-0">
+                  {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, '0')}
+                </p>
+                <div className="flex items-end gap-0.5 h-6 flex-1">
+                  {Array.from({ length: 24 }).map((_, i) => (
+                    <span
+                      key={i}
+                      className="flex-1 rounded-sm bg-red-400 transition-all duration-75"
+                      style={{
+                        height: `${Math.max(10, Math.min(100, micLevel * 320 * (0.5 + (((i * 37) % 17) / 17) * 0.5)))}%`,
+                        opacity: micLevel > 0.015 ? 1 : 0.25,
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="text-[8px] font-bold uppercase text-red-400 shrink-0 hidden sm:block">
+                  {micLevel > 0.015 ? 'Hearing you' : 'Speak up...'}
+                </p>
+                <button onClick={cancelRecording} className="text-[9px] font-black uppercase text-slate-500 hover:text-slate-800 px-1 shrink-0">Cancel</button>
               </div>
             )}
             <div className="flex items-center gap-2 w-full">
@@ -482,6 +626,17 @@ export default function TeamThreadPage() {
               >
                 <User className="w-4 h-4" />
               </Button>
+              {GIF_ENABLED && (
+                <Button
+                  variant="outline"
+                  onClick={() => setGifPickerOpen(v => !v)}
+                  disabled={uploading || recording}
+                  className="h-12 w-12 rounded-xl shrink-0 p-0 border-2 font-black text-[9px] tracking-widest"
+                  title="Send a GIF"
+                >
+                  GIF
+                </Button>
+              )}
               <Button
                 variant={recording ? 'destructive' : 'outline'}
                 onClick={toggleRecording}
