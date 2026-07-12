@@ -38,3 +38,20 @@ export async function uploadImage(path: string, file: File, maxDim = 512): Promi
   await uploadBytes(sRef, blob, { contentType: blob.type || 'image/jpeg' });
   return getDownloadURL(sRef);
 }
+
+/** Upload an already-prepared blob (e.g. a marked-up canvas export). */
+export async function uploadImageBlob(path: string, blob: Blob): Promise<string> {
+  const sRef = storageRef(getStorage(), path);
+  await uploadBytes(sRef, blob, { contentType: blob.type || 'image/jpeg' });
+  return getDownloadURL(sRef);
+}
+
+/** Convert a base64 data-URL (canvas exports) to a Blob for upload. */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const [head, body] = dataUrl.split(',');
+  const mime = head.match(/data:(.*?);/)?.[1] || 'image/jpeg';
+  const bin = atob(body);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
