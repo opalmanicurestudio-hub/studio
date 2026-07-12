@@ -18,6 +18,7 @@ import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase
 import { collection, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
+import { registerPushForStaff } from '@/lib/push-notifications';
 import { useInventory } from '@/context/InventoryContext';
 import { cn } from '@/lib/utils';
 
@@ -59,6 +60,14 @@ export default function MessagesPage() {
   const [groupName, setGroupName] = useState('');
 
   const currentStaffMember = (staff || []).find((s: any) => s.id === activeStaffId);
+  // v35 — register this device for push, keyed to the resolved identity.
+  // Fail-quiet: denied permission or unsupported browser never breaks the
+  // page. React.useEffect keeps hooks-before-returns discipline.
+  React.useEffect(() => {
+    if (firestore && tenantId && activeStaffId) {
+      registerPushForStaff(firestore, tenantId, activeStaffId).catch(() => {});
+    }
+  }, [firestore, tenantId, activeStaffId]);
   const myAvailability = currentStaffMember?.notificationAvailability?.mode || 'business_hours_only';
   const isOwnerOrAdmin = currentStaffMember?.role === 'owner' || currentStaffMember?.role === 'admin';
 
