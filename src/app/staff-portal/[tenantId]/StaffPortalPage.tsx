@@ -24,6 +24,7 @@ import {
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
   User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
   PlusCircle, Car, Users, MessageSquare, CreditCard,
+  Send, Mic, Square, Paperclip, ImagePlus, ArrowLeft, FileText,
 } from 'lucide-react';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
@@ -32,8 +33,9 @@ import {
   startOfMonth, endOfMonth,
 } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
-import { collection, query, where, doc, getDocs, writeBatch, updateDoc, arrayUnion } from 'firebase/firestore';
+import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { collection, query, where, doc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy } from 'firebase/firestore';
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
 
@@ -2923,6 +2925,304 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
 }
 
 // ─── MAIN DASHBOARD ───────────────────────────────────────────────────────────
+
+// ─── STAFF MESSAGES TAB — v33 ────────────────────────────────────────────────
+// Messaging living NATIVELY inside the portal, so staff never leave this
+// shell into the admin app to read or reply — the navigation jump out to
+// /messages was both jarring and the root of the identity-attribution
+// bugs. Everything here keys off staffMember.id (the PIN-verified
+// identity), never the shared Firebase login.
+function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
+  const { toast } = useToast();
+  const { user: authUser } = useUser();
+  const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
+  const [section, setSection] = useState<'clients'|'team'>('team');
+  const [openId, setOpenId] = useState<string|null>(null); // staffThread id
+  const [openClientId, setOpenClientId] = useState<string|null>(null); // smsThread id
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [groupName, setGroupName] = useState('');
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recRef = useRef<MediaRecorder|null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const imgRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+
+  const allStaffQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const { data: allStaff } = useCollection(allStaffQ);
+
+  const threadsQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore, `tenants/${tenantId}/staffThreads`), where('participantIds','array-contains', staffMember.id)), [firestore, tenantId, staffMember.id]);
+  const { data: rawThreads } = useCollection(threadsQ);
+  const threads = useMemo(() => (rawThreads||[]).slice().sort((a:any,b:any)=>(b.lastMessageAt||b.createdAt||'').localeCompare(a.lastMessageAt||a.createdAt||'')), [rawThreads]);
+
+  const clientThreadsQ = useMemoFirebase(() => {
+    if (!firestore||!tenantId) return null;
+    return isOwnerOrAdmin
+      ? collection(firestore, `tenants/${tenantId}/smsThreads`)
+      : query(collection(firestore, `tenants/${tenantId}/smsThreads`), where('assignedStaffId','==', staffMember.id));
+  }, [firestore, tenantId, isOwnerOrAdmin, staffMember.id]);
+  const { data: rawClientThreads } = useCollection(clientThreadsQ);
+  const clientThreads = useMemo(() => (rawClientThreads||[]).slice().sort((a:any,b:any)=>(b.lastMessageAt||'').localeCompare(a.lastMessageAt||'')), [rawClientThreads]);
+
+  const activeThreadId = section==='team' ? openId : openClientId;
+  const msgsQ = useMemoFirebase(() => {
+    if (!firestore||!tenantId||!activeThreadId) return null;
+    const base = section==='team' ? `tenants/${tenantId}/staffThreads/${activeThreadId}/messages` : `tenants/${tenantId}/smsThreads/${activeThreadId}/messages`;
+    return query(collection(firestore, base), orderBy('sentAt','asc'));
+  }, [firestore, tenantId, activeThreadId, section]);
+  const { data: msgs } = useCollection(msgsQ);
+
+  const openThread = threads.find((t:any)=>t.id===openId);
+  const openClientThread = clientThreads.find((t:any)=>t.id===openClientId);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs?.length]);
+
+  // Mark read on open — thread-level readBy (badges) + per-message (receipts)
+  useEffect(() => {
+    if (!firestore||!tenantId||!openId||!openThread) return;
+    const patch: any = {};
+    if (!(openThread.readBy||[]).includes(staffMember.id)) patch.readBy = arrayUnion(staffMember.id);
+    if (openThread.type==='team' && !(openThread.participantIds||[]).includes(staffMember.id)) patch.participantIds = arrayUnion(staffMember.id);
+    if (Object.keys(patch).length) updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, openId), patch).catch(()=>{});
+  }, [openId, openThread?.lastMessageAt]);
+  useEffect(() => {
+    if (!firestore||!tenantId||!openId||section!=='team'||!msgs) return;
+    (msgs||[]).forEach((m:any) => {
+      if (m.senderId!==staffMember.id && !(m.readBy||[]).includes(staffMember.id)) {
+        updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`, m.id), { readBy: [...(m.readBy||[]), staffMember.id] }).catch(()=>{});
+      }
+    });
+  }, [msgs, openId]);
+
+  const bumpThread = async (threadId: string, preview: string) => {
+    const now = new Date().toISOString();
+    await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
+      { lastMessageAt: now, lastMessagePreview: preview, lastMessageBy: staffMember.id, readBy: [staffMember.id] }, { merge: true });
+    return now;
+  };
+
+  const notifyRecipients = async (threadId: string, preview: string) => {
+    const t = threads.find((x:any)=>x.id===threadId);
+    const recipients = (t?.type==='team' ? (allStaff||[]).map((s:any)=>s.id) : (t?.participantIds||[])).filter((id:string)=>id!==staffMember.id);
+    for (const rid of recipients) {
+      const r = (allStaff||[]).find((s:any)=>s.id===rid);
+      const mode = r?.notificationAvailability?.mode || 'business_hours_only';
+      const isAway = mode==='away' && (!r?.notificationAvailability?.awayUntil || new Date(r.notificationAvailability.awayUntil) > new Date());
+      if (isAway) continue;
+      const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+      await setDoc(nRef, { id: nRef.id, userId: rid, type:'staff_message', message: `${staffMember.name||'A teammate'}: "${preview.slice(0,100)}"`, link: `/messages/team/${threadId}`, createdAt: new Date().toISOString(), read: false }).catch(()=>{});
+    }
+  };
+
+  const sendTeamText = async () => {
+    if (!text.trim()||!openId||sending) return;
+    setSending(true);
+    try {
+      const now = new Date().toISOString();
+      const mRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`));
+      await setDoc(mRef, { id: mRef.id, senderId: staffMember.id, body: text.trim(), sentAt: now, readBy: [staffMember.id] });
+      await bumpThread(openId, text.trim().slice(0,140));
+      notifyRecipients(openId, text.trim());
+      setText('');
+    } catch { toast({ variant:'destructive', title:'Could not send' }); }
+    finally { setSending(false); }
+  };
+
+  const uploadAndSend = async (blob: Blob, fileName: string, kind: 'image'|'audio'|'file') => {
+    if (!openId||uploading) return;
+    setUploading(true);
+    try {
+      const sRef = storageRef(getStorage(), `tenants/${tenantId}/staffThreads/${openId}/${Date.now()}_${fileName}`);
+      await uploadBytes(sRef, blob);
+      const url = await getDownloadURL(sRef);
+      const now = new Date().toISOString();
+      const mRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${openId}/messages`));
+      await setDoc(mRef, { id: mRef.id, senderId: staffMember.id, body:'', sentAt: now, readBy:[staffMember.id],
+        ...(kind==='image' ? { imageUrl:url } : kind==='audio' ? { audioUrl:url } : { fileUrl:url, fileName }) });
+      const preview = kind==='image' ? '📷 Photo' : kind==='audio' ? '🎤 Voice note' : `📎 ${fileName}`;
+      await bumpThread(openId, preview);
+      notifyRecipients(openId, preview);
+    } catch { toast({ variant:'destructive', title:'Upload failed', description:'Check Storage rules allow uploads.' }); }
+    finally { setUploading(false); }
+  };
+
+  const toggleRec = async () => {
+    if (recording) { recRef.current?.stop(); setRecording(false); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = (e) => { if (e.data.size>0) chunksRef.current.push(e.data); };
+      rec.onstop = () => { stream.getTracks().forEach(t=>t.stop()); const b = new Blob(chunksRef.current, { type: rec.mimeType||'audio/webm' }); if (b.size>0) uploadAndSend(b, 'voice_note.webm', 'audio'); };
+      recRef.current = rec; rec.start(); setRecording(true);
+    } catch { toast({ variant:'destructive', title:'Microphone unavailable' }); }
+  };
+
+  const sendClientReply = async () => {
+    if (!text.trim()||!openClientId||sending) return;
+    setSending(true);
+    try {
+      const idToken = await (authUser as any)?.getIdToken?.();
+      const res = await fetch('/api/sms/reply', { method:'POST', headers:{ 'Content-Type':'application/json', Authorization:`Bearer ${idToken}` },
+        body: JSON.stringify({ tenantId, threadId: openClientId, message: text.trim(), senderStaffId: staffMember.id }) });
+      const d = await res.json().catch(()=>({ok:false}));
+      if (d.ok) setText(''); else toast({ variant:'destructive', title:'Could not send', description: d.error||'Try again.' });
+    } catch { toast({ variant:'destructive', title:'Could not send' }); }
+    finally { setSending(false); }
+  };
+
+  const startConversation = async () => {
+    if (selectedIds.length===0) return;
+    const now = new Date().toISOString();
+    let tid: string;
+    if (selectedIds.length===1) {
+      tid = `dm_${[staffMember.id, selectedIds[0]].sort().join('_')}`;
+      await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, tid), { id: tid, tenantId, type:'dm', participantIds:[staffMember.id, selectedIds[0]], createdAt: now, lastMessageAt: now, readBy:[staffMember.id] }, { merge:true });
+    } else {
+      tid = `group_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+      await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, tid), { id: tid, tenantId, type:'group', groupName: groupName.trim()||null, participantIds:[staffMember.id, ...selectedIds], createdAt: now, lastMessageAt: now, readBy:[staffMember.id] }, { merge:true });
+    }
+    setPickerOpen(false); setSelectedIds([]); setGroupName(''); setOpenId(tid);
+  };
+
+  const openTeamBroadcast = async () => {
+    await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, 'team_broadcast'),
+      { id:'team_broadcast', tenantId, type:'team', participantIds:(allStaff||[]).map((s:any)=>s.id) }, { merge:true });
+    setOpenId('team_broadcast');
+  };
+
+  const threadName = (t: any) => {
+    if (t.type==='team') return 'Team Announcements';
+    if (t.type==='group') return t.groupName || t.participantIds.filter((id:string)=>id!==staffMember.id).map((id:string)=>(allStaff||[]).find((s:any)=>s.id===id)?.name?.split(' ')[0]).filter(Boolean).join(', ');
+    const other = (allStaff||[]).find((s:any)=>s.id===t.participantIds.find((id:string)=>id!==staffMember.id));
+    return other?.name || 'Unknown';
+  };
+  const unread = (t:any) => !!t.lastMessageBy && t.lastMessageBy!==staffMember.id && !(t.readBy||[]).includes(staffMember.id);
+
+  // ── Thread view (team or client) ──────────────────────────────────────
+  if (activeThreadId) {
+    const isClient = section==='clients';
+    const title = isClient ? (openClientThread?.clientName || openClientThread?.clientPhone || 'Client') : (openThread ? threadName(openThread) : '');
+    return (
+      <div className="flex flex-col h-[calc(100dvh-190px)]">
+        <div className="flex items-center gap-3 px-1 pb-3">
+          <button onClick={() => { setOpenId(null); setOpenClientId(null); setText(''); }} className="p-2 rounded-xl border-2 bg-white"><ArrowLeft className="w-4 h-4"/></button>
+          <p className="font-black uppercase text-sm truncate">{title}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto space-y-2 px-1">
+          {(msgs||[]).map((m:any) => {
+            const mine = isClient ? m.direction==='outbound' : m.senderId===staffMember.id;
+            const sender = !isClient ? (allStaff||[]).find((s:any)=>s.id===m.senderId) : null;
+            return (
+              <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                <div className="max-w-[80%]">
+                  {!mine && sender && <p className="text-[9px] font-black uppercase text-indigo-600/70 mb-0.5 ml-1">{sender.name}</p>}
+                  <div className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md' : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md')}>
+                    {m.deleted ? <p className="italic opacity-50 text-xs">Message deleted</p> : (<>
+                      {m.imageUrl && <a href={m.imageUrl} target="_blank" rel="noreferrer"><img src={m.imageUrl} alt="" className="rounded-xl max-h-56 mb-1 border"/></a>}
+                      {m.audioUrl && <audio controls src={m.audioUrl} className="max-w-full h-10 my-0.5"/>}
+                      {m.fileUrl && <a href={m.fileUrl} target="_blank" rel="noreferrer" className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2 my-0.5 text-xs font-bold', mine ? 'border-white/30 text-white' : 'border-slate-200 text-slate-700')}><FileText className="w-4 h-4 shrink-0"/><span className="truncate">{m.fileName||'Attachment'}</span></a>}
+                      {m.body && <p>{m.body}</p>}
+                    </>)}
+                    <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(parseISO(m.sentAt),'h:mm a') : ''}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div ref={endRef}/>
+        </div>
+        <div className="flex items-center gap-1.5 pt-3 px-1">
+          {!isClient && (<>
+            <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'image'); if(imgRef.current) imgRef.current.value='';}}}/>
+            <input ref={fileRef} type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0]; if(f){uploadAndSend(f,f.name,'file'); if(fileRef.current) fileRef.current.value='';}}}/>
+            <button onClick={()=>imgRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0">{uploading ? <Loader className="w-4 h-4 animate-spin"/> : <ImagePlus className="w-4 h-4"/>}</button>
+            <button onClick={()=>fileRef.current?.click()} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white items-center justify-center shrink-0 hidden sm:flex"><Paperclip className="w-4 h-4"/></button>
+            <button onClick={toggleRec} disabled={uploading} className={cn('h-11 w-11 rounded-xl border-2 flex items-center justify-center shrink-0', recording ? 'bg-red-500 text-white animate-pulse' : 'bg-white')}>{recording ? <Square className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
+          </>)}
+          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
+          <button onClick={isClient ? sendClientReply : sendTeamText} disabled={sending||!text.trim()} className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 disabled:opacity-40">{sending ? <Loader className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── List view ─────────────────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 p-1 bg-muted/30 rounded-2xl border-2 w-fit">
+        <button onClick={()=>setSection('team')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='team' ? 'bg-white text-indigo-600 shadow-sm' : 'text-muted-foreground')}>Team</button>
+        <button onClick={()=>setSection('clients')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='clients' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground')}>Clients</button>
+      </div>
+
+      {section==='team' ? (<>
+        <button onClick={openTeamBroadcast} className="w-full text-left rounded-2xl border-2 border-indigo-200 bg-indigo-50/60 p-4 flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-600 rounded-xl shrink-0"><Users className="w-4 h-4 text-white"/></div>
+          <div className="flex-1 min-w-0">
+            <p className="font-black uppercase text-xs">Team Announcements</p>
+            <p className="text-[11px] text-slate-500 truncate">{threads.find((t:any)=>t.type==='team')?.lastMessagePreview || 'Message everyone at once'}</p>
+          </div>
+          {threads.find((t:any)=>t.type==='team' && unread(t)) && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0"/>}
+        </button>
+
+        <div className="flex items-center justify-between px-1">
+          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Conversations</p>
+          <button onClick={()=>setPickerOpen(v=>!v)} className="h-8 px-3 rounded-xl bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-1"><Plus className="w-3 h-3"/> New</button>
+        </div>
+
+        {pickerOpen && (
+          <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
+            {(allStaff||[]).filter((s:any)=>s.id!==staffMember.id).map((s:any) => {
+              const checked = selectedIds.includes(s.id);
+              return (
+                <button key={s.id} onClick={()=>setSelectedIds(ids=>checked?ids.filter(i=>i!==s.id):[...ids,s.id])} className={cn('w-full flex items-center gap-2.5 p-2 rounded-xl border-2 text-left', checked ? 'border-indigo-400 bg-indigo-50' : 'border-transparent')}>
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 font-black text-xs flex items-center justify-center shrink-0">{(s.name||'?').charAt(0)}</div>
+                  <p className="font-black text-xs uppercase truncate flex-1">{s.name}</p>
+                  <div className={cn('w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center', checked ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300')}>{checked && <span className="text-white text-[8px] font-black">✓</span>}</div>
+                </button>
+              );
+            })}
+            {selectedIds.length>1 && <input value={groupName} onChange={e=>setGroupName(e.target.value)} placeholder="Group name (optional)" className="w-full h-9 rounded-xl border-2 px-3 text-xs font-bold"/>}
+            <button onClick={startConversation} disabled={selectedIds.length===0} className="w-full h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{selectedIds.length>1 ? `Start Group (${selectedIds.length+1})` : 'Start Conversation'}</button>
+          </div>
+        )}
+
+        {threads.filter((t:any)=>t.type!=='team').map((t:any) => (
+          <button key={t.id} onClick={()=>setOpenId(t.id)} className={cn('w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 bg-white text-left', unread(t) && 'border-indigo-300 bg-indigo-50/40')}>
+            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs shrink-0', t.type==='group' ? 'bg-indigo-600 text-white' : 'bg-indigo-100 text-indigo-600')}>
+              {t.type==='group' ? <Users className="w-4 h-4"/> : (threadName(t)||'?').charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-black text-xs uppercase truncate">{threadName(t)}</p>
+              <p className={cn('text-[11px] truncate', unread(t) ? 'text-slate-800 font-bold' : 'text-slate-500')}>{t.lastMessagePreview}</p>
+            </div>
+            {unread(t) && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0"/>}
+          </button>
+        ))}
+        {threads.filter((t:any)=>t.type!=='team').length===0 && !pickerOpen && (
+          <p className="text-center py-8 text-[10px] font-black uppercase text-slate-400">No conversations yet</p>
+        )}
+      </>) : (<>
+        {clientThreads.map((t:any) => (
+          <button key={t.id} onClick={()=>setOpenClientId(t.id)} className="w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 bg-white text-left">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary font-black text-xs flex items-center justify-center shrink-0">{(t.clientName||t.clientPhone||'?').charAt(0).toUpperCase()}</div>
+            <div className="flex-1 min-w-0">
+              <p className="font-black text-xs uppercase truncate">{t.clientName || t.clientPhone}</p>
+              <p className="text-[11px] text-slate-500 truncate">{t.lastMessagePreview}</p>
+            </div>
+            {t.status==='open' && <span className="text-[8px] font-black uppercase bg-primary text-white px-1.5 py-0.5 rounded-full shrink-0">New</span>}
+          </button>
+        ))}
+        {clientThreads.length===0 && <p className="text-center py-8 text-[10px] font-black uppercase text-slate-400">No client conversations</p>}
+      </>)}
+    </div>
+  );
+}
+
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
@@ -3265,7 +3565,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     { id:'schedule', label:'Schedule', icon:Calendar },
     { id:'earnings', label:'Earnings', icon:DollarSign },
     { id:'requests', label:'Requests', icon:ClipboardList, badge:requestsBadge },
-    { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge + teamBadge, external:'/messages' },
+    { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge + teamBadge },
     { id:'inbox',    label:'Inbox',    icon:Bell, badge:unreadCount },
   ] as const;
 
@@ -3631,6 +3931,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
 
           {/* INBOX */}
+          {activeTab==='messages' && <StaffMessagesTab staffMember={staffMember} tenantId={tenantId} firestore={firestore} />}
+
           {activeTab==='inbox' && (
             <div className="space-y-3">
               {sortedNotifs.length>0&&(
