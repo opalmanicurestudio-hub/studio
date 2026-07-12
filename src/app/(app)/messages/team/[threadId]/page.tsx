@@ -7,7 +7,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus } from 'lucide-react';
+import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
@@ -39,6 +39,10 @@ export default function TeamThreadPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
 
   const threadRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), [firestore, tenantId, threadId]);
   const { data: thread, isLoading: threadLoading } = useDoc<any>(threadRef);
@@ -106,26 +110,60 @@ export default function TeamThreadPage() {
     setOpenMenuId(null);
   };
 
-  const handleAttachPhoto = async (file: File) => {
+  // v32 — one shared upload path for every media kind. Photos, voice
+  // notes, and files all ride the same Storage pipeline; only the message
+  // field they land in differs, so rendering stays a simple branch.
+  const uploadAndSend = async (blob: Blob, fileName: string, kind: 'image' | 'audio' | 'file') => {
     if (!firestore || !tenantId || !activeStaffId || uploading) return;
     setUploading(true);
     try {
       const storage = getStorage();
-      const path = `tenants/${tenantId}/staffThreads/${threadId}/${Date.now()}_${file.name}`;
+      const path = `tenants/${tenantId}/staffThreads/${threadId}/${Date.now()}_${fileName}`;
       const sRef = storageRef(storage, path);
-      await uploadBytes(sRef, file);
-      const imageUrl = await getDownloadURL(sRef);
+      await uploadBytes(sRef, blob);
+      const url = await getDownloadURL(sRef);
       const now = new Date().toISOString();
       const msgRef = doc(collection(firestore, `tenants/${tenantId}/staffThreads/${threadId}/messages`));
-      await setDoc(msgRef, { id: msgRef.id, senderId: activeStaffId, body: '', imageUrl, sentAt: now, readBy: [activeStaffId] });
+      await setDoc(msgRef, {
+        id: msgRef.id, senderId: activeStaffId, body: '', sentAt: now, readBy: [activeStaffId],
+        ...(kind === 'image' ? { imageUrl: url } : kind === 'audio' ? { audioUrl: url } : { fileUrl: url, fileName }),
+      });
       await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-        { lastMessageAt: now, lastMessagePreview: '📷 Photo', lastMessageBy: activeStaffId, readBy: [activeStaffId] }, { merge: true });
+        { lastMessageAt: now, lastMessagePreview: kind === 'image' ? '📷 Photo' : kind === 'audio' ? '🎤 Voice note' : `📎 ${fileName}`, lastMessageBy: activeStaffId, readBy: [activeStaffId] }, { merge: true });
     } catch {
       toast({ variant: 'destructive', title: 'Upload failed', description: 'Check that Firebase Storage rules allow uploads.' });
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const toggleRecording = async () => {
+    if (recording) {
+      mediaRecorderRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (blob.size > 0) uploadAndSend(blob, `voice_note.webm`, 'audio');
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch {
+      toast({ variant: 'destructive', title: 'Microphone unavailable', description: 'Allow microphone access to record a voice note.' });
+    }
+  };
+
+  const handleAttachPhoto = async (file: File) => {
+    await uploadAndSend(file, file.name, file.type.startsWith('image/') ? 'image' : 'file');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSend = async () => {
@@ -298,6 +336,14 @@ export default function TeamThreadPage() {
                               <img src={msg.imageUrl} alt="Shared photo" className="rounded-xl max-h-64 max-w-full mb-1 border" />
                             </a>
                           )}
+                          {msg.audioUrl && (
+                            <audio controls src={msg.audioUrl} className="max-w-full h-10 my-0.5" />
+                          )}
+                          {msg.fileUrl && (
+                            <a href={msg.fileUrl} target="_blank" rel="noreferrer" className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2 my-0.5 text-xs font-bold', isMine ? 'border-white/30 text-white' : 'border-slate-200 text-slate-700')}>
+                              <FileText className="w-4 h-4 shrink-0" /> <span className="truncate">{msg.fileName || 'Attachment'}</span>
+                            </a>
+                          )}
                           {msg.body && <p>{msg.body}</p>}
                         </>
                       )}
@@ -337,14 +383,38 @@ export default function TeamThreadPage() {
                 className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleAttachPhoto(f); }}
               />
+              <input
+                ref={docFileInputRef}
+                type="file"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) { uploadAndSend(f, f.name, 'file'); if (docFileInputRef.current) docFileInputRef.current.value = ''; } }}
+              />
               <Button
                 variant="outline"
                 onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                disabled={uploading || recording}
                 className="h-12 w-12 rounded-xl shrink-0 p-0 border-2"
                 title="Share a photo"
               >
                 {uploading ? <Loader className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => docFileInputRef.current?.click()}
+                disabled={uploading || recording}
+                className="h-12 w-12 rounded-xl shrink-0 p-0 border-2 hidden sm:flex"
+                title="Attach a file"
+              >
+                <Paperclip className="w-4 h-4" />
+              </Button>
+              <Button
+                variant={recording ? 'destructive' : 'outline'}
+                onClick={toggleRecording}
+                disabled={uploading}
+                className={cn('h-12 w-12 rounded-xl shrink-0 p-0 border-2', recording && 'animate-pulse')}
+                title={recording ? 'Stop and send' : 'Record a voice note'}
+              >
+                {recording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </Button>
               <Input
                 value={messageText}
