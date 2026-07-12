@@ -55,6 +55,7 @@ import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { doc, setDoc } from 'firebase/firestore';
 import { MessageCircle } from 'lucide-react';
+import { AvatarUpload } from '@/components/shared/AvatarUpload';
 
 // Deterministic thread id for a DM pair — same scheme used in
 // messages-page.tsx and the team thread page, so a conversation started
@@ -531,10 +532,17 @@ export const StaffDetailsSheet = ({
         <div className="flex flex-col h-full overflow-hidden">
             <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-4" : "p-8 pb-6")}>
                 <div className="flex items-center gap-4">
-                    <Avatar className={cn("border-4 border-background shadow-xl rounded-2xl", isMobile ? "h-10 w-10" : "h-16 w-16")}>
-                        <AvatarImage src={staffMember.avatarUrl} className="object-cover" />
-                        <AvatarFallback className="font-black text-lg bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback>
-                    </Avatar>
+                    <AvatarUpload
+                        url={staffMember.avatarUrl}
+                        name={staffMember.name}
+                        storagePath={`tenants/${tenantId}/avatars/staff_${staffMember.id}.jpg`}
+                        onUploaded={async (newUrl) => {
+                          if (!firestore || !tenantId) return;
+                          await setDoc(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id), { avatarUrl: newUrl }, { merge: true });
+                        }}
+                        className={cn("border-4 border-background shadow-xl rounded-2xl", isMobile ? "h-10 w-10" : "h-16 w-16")}
+                        fallbackClassName="font-black text-lg bg-primary/10 text-primary"
+                    />
                     <div className='text-left flex-1'>
                         <SheetTitle className={cn("font-black uppercase tracking-tighter text-slate-900 leading-none mb-1", isMobile ? "text-lg" : "text-3xl")}>{staffMember.name}</SheetTitle>
                         <SheetDescription className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest opacity-60">Performance Intelligence</SheetDescription>
