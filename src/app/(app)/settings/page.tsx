@@ -40,6 +40,7 @@ import { PrintStationCardsDialog } from '@/components/concierge/PrintStationCard
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { StripeConnectSetup } from '@/components/settings/StripeConnectSetup';
 import { TerminalSettings } from '@/components/pos/TerminalSettings';
+import { LocationsSettingsTab } from '@/components/settings/LocationsSettingsTab';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const defaultRecoveryPresets: RecoveryPreset[] = [
@@ -432,6 +433,7 @@ function SettingsPageImpl() {
   // ── Tab definitions ────────────────────────────────────────────────────────
   const tabs = [
     { value: 'profile',     label: 'Studio Identity',            icon: <Building className="w-4 h-4" />    },
+    { value: 'locations',   label: 'Locations',                  icon: <MapPin className="w-4 h-4" />      },
     { value: 'hours',       label: 'Operating Window',           icon: <Clock className="w-4 h-4" />       },
     { value: 'experience',  label: 'Hospitality & Connectivity', icon: <Coffee className="w-4 h-4" />      },
     { value: 'policies',    label: 'Operational Protocols',      icon: <ShieldCheck className="w-4 h-4" /> },
@@ -444,7 +446,7 @@ function SettingsPageImpl() {
   ];
 
   // Tabs that manage their own state — hide global save/cancel for these
-  const selfManagedTabs = ['terminal', 'automations'];
+  const selfManagedTabs = ['terminal', 'automations', 'locations'];
 
   if (isTenantContextLoading || isInventoryLoading) {
     return <div className="p-8 flex items-center justify-center h-full"><Loader className="animate-spin text-primary" /></div>;
@@ -507,6 +509,11 @@ function SettingsPageImpl() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* ── LOCATIONS ── */}
+            <TabsContent value="locations" className="mt-0 space-y-10 animate-in fade-in duration-500 text-left">
+              <LocationsSettingsTab />
             </TabsContent>
 
             {/* ── PAYMENTS ── */}
