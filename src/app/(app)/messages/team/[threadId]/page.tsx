@@ -7,7 +7,8 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText, User } from 'lucide-react';
+import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText, User, Pin, X } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
 import { collection, doc, query, orderBy, setDoc, updateDoc, arrayUnion, getDocs } from 'firebase/firestore';
@@ -45,6 +46,8 @@ export default function TeamThreadPage() {
   const audioChunksRef = useRef<Blob[]>([]);
   const docFileInputRef = useRef<HTMLInputElement>(null);
   const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const lastTypingWriteRef = useRef(0);
+  const [nowTick, setNowTick] = useState(Date.now());
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
@@ -258,7 +261,71 @@ export default function TeamThreadPage() {
     }
   };
 
+  // v37 — typing indicators. A throttled timestamp lands on the thread
+  // doc while someone types; anyone with a timestamp fresher than 6s who
+  // isn't me renders as "typing". Staleness handles cleanup — no
+  // explicit clear needed, so a closed tab never leaves a ghost typer.
+  useEffect(() => {
+    const iv = setInterval(() => setNowTick(Date.now()), 2000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const recordTyping = () => {
+    if (!firestore || !tenantId || !activeStaffId) return;
+    const now = Date.now();
+    if (now - lastTypingWriteRef.current < 2500) return;
+    lastTypingWriteRef.current = now;
+    updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), {
+      [`typingBy.${activeStaffId}`]: new Date().toISOString(),
+    }).catch(() => {});
+  };
+
+  const typers = useMemo(() => {
+    const map = (thread as any)?.typingBy || {};
+    return Object.entries(map)
+      .filter(([id, ts]: any) => id !== activeStaffId && ts && (nowTick - new Date(ts).getTime()) < 6000)
+      .map(([id]) => (staff || []).find((s: any) => s.id === id)?.name?.split(' ')[0])
+      .filter(Boolean);
+  }, [thread, nowTick, staff, activeStaffId]);
+
+  const handlePinMessage = async (msg: any) => {
+    if (!firestore || !tenantId) return;
+    const senderName = (staff || []).find((s: any) => s.id === msg.senderId)?.name || 'Someone';
+    // Snapshot, not reference — the pinned bar stays meaningful even if
+    // the original message is later soft-deleted.
+    await updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), {
+      pinnedMessage: {
+        id: msg.id,
+        preview: msg.body?.slice(0, 140) || (msg.imageUrl ? '📷 Photo' : msg.audioUrl ? '🎤 Voice note' : msg.fileUrl ? '📎 File' : 'Message'),
+        senderName,
+        pinnedAt: new Date().toISOString(),
+      },
+    }).catch(() => {});
+    setOpenMenuId(null);
+  };
+
+  const handleUnpin = async () => {
+    if (!firestore || !tenantId) return;
+    await updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, threadId), { pinnedMessage: null }).catch(() => {});
+  };
+
   const REACTIONS = ['👍', '❤️', '😂', '🎉', '🙏', '🔥'];
+
+  // v38 — @mentions. Typing @Maria highlights her name in the bubble and
+  // her notification says "mentioned you" instead of a generic preview —
+  // the difference between noise and "this one's for me."
+  const staffFirstNames = useMemo(
+    () => new Set((staff || []).map((s: any) => (s.name || '').split(' ')[0].toLowerCase()).filter(Boolean)),
+    [staff],
+  );
+  const renderBody = (body: string) => {
+    const parts = body.split(/(@[A-Za-z]+)/g);
+    return parts.map((p, i) =>
+      p.startsWith('@') && staffFirstNames.has(p.slice(1).toLowerCase())
+        ? <span key={i} className="font-black underline decoration-2 underline-offset-2">{p}</span>
+        : p,
+    );
+  };
   const toggleReaction = async (msg: any, emoji: string) => {
     if (!firestore || !tenantId || !activeStaffId) return;
     const current: Record<string, string[]> = msg.reactions || {};
@@ -336,7 +403,7 @@ export default function TeamThreadPage() {
           id: notifRef.id,
           userId: recipientId,
           type: 'staff_message',
-          message: `${staff?.find((s: any) => s.id === activeStaffId)?.name || 'A teammate'}: ${clientRef ? previewText : '"' + previewText.slice(0, 100) + '"'}`,
+          message: `${staff?.find((s: any) => s.id === activeStaffId)?.name || 'A teammate'}${messageText.toLowerCase().includes('@' + (recipient?.name || ' ').split(' ')[0].toLowerCase()) ? ' mentioned you' : ''}: ${clientRef ? previewText : '"' + previewText.slice(0, 100) + '"'}`,
           link: `/messages/team/${threadId}`,
           createdAt: now,
           read: false,
@@ -389,6 +456,18 @@ export default function TeamThreadPage() {
 
         <Card className="border-4 rounded-[2rem] shadow-sm flex-1 flex flex-col overflow-hidden">
           <CardContent className="p-5 flex-1 overflow-y-auto space-y-3 min-h-[300px] max-h-[55vh]">
+            {(thread as any)?.pinnedMessage && (
+              <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2.5 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 mb-2">
+                <Pin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Pinned · {(thread as any).pinnedMessage.senderName}</p>
+                  <p className="text-xs font-bold text-slate-700 truncate">{(thread as any).pinnedMessage.preview}</p>
+                </div>
+                <button onClick={handleUnpin} className="p-1 rounded-lg hover:bg-amber-100 shrink-0" title="Unpin">
+                  <X className="w-3.5 h-3.5 text-amber-600" />
+                </button>
+              </motion.div>
+            )}
             {(messages || []).map((msg: any, index: number) => {
               const isMine = msg.senderId === activeStaffId;
               const sender = (staff || []).find((s: any) => s.id === msg.senderId);
@@ -405,7 +484,7 @@ export default function TeamThreadPage() {
               const isGroupStart = !prevMsg || prevMsg.senderId !== msg.senderId;
               const isGroupEnd = !nextMsg || nextMsg.senderId !== msg.senderId;
               return (
-                <div key={msg.id} className={cn('flex gap-2', isMine ? 'justify-end' : 'justify-start', !isGroupStart && '-mt-1.5')}>
+                <motion.div key={msg.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className={cn('flex gap-2', isMine ? 'justify-end' : 'justify-start', !isGroupStart && '-mt-1.5')}>
                   {!isMine && (
                     <div className="w-7 shrink-0 flex items-end">
                       {isGroupEnd && (
@@ -432,6 +511,9 @@ export default function TeamThreadPage() {
                             <button key={e} onClick={() => toggleReaction(msg, e)} className="text-base hover:scale-125 transition-transform p-0.5">{e}</button>
                           ))}
                         </div>
+                        <button onClick={() => handlePinMessage(msg)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-muted/40">
+                          <Pin className="w-3 h-3" /> Pin
+                        </button>
                         {msg.body && (
                           <button onClick={() => handleCopyMessage(msg.body)} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-slate-700 hover:bg-muted/40">
                             <Copy className="w-3 h-3" /> Copy
@@ -486,7 +568,7 @@ export default function TeamThreadPage() {
                               </div>
                             </a>
                           )}
-                          {msg.body && <p>{msg.body}</p>}
+                          {msg.body && <p>{renderBody(msg.body)}</p>}
                         </>
                       )}
                       {isGroupEnd && (
@@ -513,21 +595,34 @@ export default function TeamThreadPage() {
                     {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                       <div className={cn('flex flex-wrap gap-1 mt-1', isMine ? 'justify-end' : 'justify-start')}>
                         {Object.entries(msg.reactions as Record<string, string[]>).map(([emoji, ids]) => (
-                          <button
+                          <motion.button
                             key={emoji}
+                            initial={{ scale: 0.4 }}
+                            animate={{ scale: 1 }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 20 }}
                             onClick={() => toggleReaction(msg, emoji)}
                             className={cn('h-6 px-1.5 rounded-full border-2 text-[11px] font-bold flex items-center gap-1 bg-white transition-colors', (ids as string[]).includes(activeStaffId || '') ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300')}
                           >
                             <span>{emoji}</span>
                             <span className="text-[9px] text-slate-500">{(ids as string[]).length}</span>
-                          </button>
+                          </motion.button>
                         ))}
                       </div>
                     )}
                   </div>
-                </div>
+                </motion.div>
               );
             })}
+            {typers.length > 0 && (
+              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2">
+                <div className="bg-white border-2 border-slate-200 rounded-2xl rounded-bl-md px-4 py-2.5 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+                <p className="text-[9px] font-black uppercase text-slate-400">{typers.join(' & ')} {typers.length === 1 ? 'is' : 'are'} typing</p>
+              </motion.div>
+            )}
             <div ref={scrollRef} />
           </CardContent>
           <CardFooter className="p-4 border-t bg-muted/5 flex-col gap-2">
@@ -648,7 +743,7 @@ export default function TeamThreadPage() {
               </Button>
               <Input
                 value={messageText}
-                onChange={e => setMessageText(e.target.value)}
+                onChange={e => { setMessageText(e.target.value); recordTyping(); }}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 placeholder="Type a message..."
                 className="h-12 rounded-xl border-2 flex-1"
