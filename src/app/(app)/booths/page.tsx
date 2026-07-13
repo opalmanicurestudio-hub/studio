@@ -56,9 +56,9 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   doc,
   updateDoc,
-  deleteDoc,
-} from 'firebase/firestore';
+  deleteDoc, onSnapshot, getDocs, collection, query } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { useToast } from '@/hooks/use-toast';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
@@ -269,9 +269,11 @@ const EMPTY_FORM: BoothFormState = {
 interface RenterFormState {
   firstName: string; lastName: string; email: string; phone: string;
   businessName: string; specialty: string; notes: string;
+  linkedStaffId: string;
 }
 const EMPTY_RENTER_FORM: RenterFormState = {
   firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
+  linkedStaffId: '',
 };
 
 // ─── Lease form ───────────────────────────────────────────────────────────────
@@ -1084,6 +1086,9 @@ function DetailPanel({
           )}
           <p className="text-xs text-muted-foreground">{renter.email}</p>
           <Badge className="text-[10px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
+          {(renter as any).linkedStaffId && (
+            <p className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid · Team member</p>
+          )}
         </div>
       )}
 
@@ -1208,6 +1213,7 @@ function PerkRow({
 
 export default function BoothsPage() {
   const { firebaseApp, firestore } = useFirebase();
+  const { toast } = useToast();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
 
@@ -1237,6 +1243,67 @@ export default function BoothsPage() {
   const [renterDialogOpen, setRenterDialogOpen] = useState(false);
   const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
   const [renterForm, setRenterForm] = useState<RenterFormState>(EMPTY_RENTER_FORM);
+
+  // ── v49 — CONSOLIDATION: BoothsPage is THE booth-rental hub. The
+  // application pipeline and employee→renter conversion live here now;
+  // the standalone Renters page is decommissioned.
+  const [applications, setApplications] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'boothApplications')), (snap) => {
+      setApplications(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const pendingApps = useMemo(() =>
+    applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [applications, selectedLocationId]);
+  const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
+  const setAppStatus = async (app: any, status: string) => {
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', app.id), { status, decidedAt: new Date().toISOString() }).catch(() => {});
+  };
+  const approveApplication = async (app: any) => {
+    if (decidingAppId) return;
+    setDecidingAppId(app.id);
+    try {
+      if (app.rentalType === 'lease') {
+        const parts = (app.name || '').trim().split(' ');
+        await createRenter(firestore, {
+          tenantId,
+          locationId: app.locationId || selectedLocationId,
+          firstName: parts[0] || 'New',
+          lastName: parts.slice(1).join(' ') || 'Renter',
+          email: app.email || '',
+          phone: app.phone || undefined,
+          specialty: app.specialty || undefined,
+          notes: `Applied via website for ${app.boothName || 'a booth'}${app.timing ? ` · ${app.timing}` : ''}${app.message ? ` · "${app.message}"` : ''}`,
+        } as any);
+        await setAppStatus(app, 'approved');
+        toast({ title: 'Approved — renter created', description: 'Assign their booth via a lease below.' });
+      } else {
+        await setAppStatus(app, 'approved');
+        toast({ title: 'Day rental approved', description: `Reach out to ${app.name} to lock in dates.` });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not approve', description: 'Email may be missing — check the card.' });
+    } finally { setDecidingAppId(null); }
+  };
+
+  // Employee → renter conversion (one identity, two financial relationships)
+  const [convertibleStaff, setConvertibleStaff] = useState<any[]>([]);
+  const loadConvertibleStaff = async () => {
+    try {
+      const snap = await getDocs(collection(firestore, 'tenants', tenantId, 'staff'));
+      setConvertibleStaff(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((s: any) => !s.isRenter && s.role !== 'renter'));
+    } catch { setConvertibleStaff([]); }
+  };
+  const pickStaffToConvert = (staffId: string) => {
+    const s = convertibleStaff.find(x => x.id === staffId);
+    if (!s) { setRenterForm(f => ({ ...f, linkedStaffId: '' })); return; }
+    const parts = (s.name || '').trim().split(' ');
+    setRenterForm(f => ({ ...f, linkedStaffId: s.id, firstName: parts[0] || f.firstName, lastName: parts.slice(1).join(' ') || f.lastName, email: s.email || f.email, phone: s.phone || f.phone, specialty: s.specialty || f.specialty }));
+  };
   const [renterError, setRenterError] = useState<string | null>(null);
   const [savingRenter, setSavingRenter] = useState(false);
 
@@ -1797,14 +1864,14 @@ export default function BoothsPage() {
   // ── Renter CRUD ──────────────────────────────────────────────────────────────
 
   const openCreateRenter = () => {
-    setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true);
+    setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
   const openEditRenter = (renter: Renter) => {
     setEditingRenterId(renter.id);
     setRenterForm({ firstName: renter.firstName, lastName: renter.lastName, email: renter.email,
       phone: renter.phone ?? '', businessName: renter.businessName ?? '',
       specialty: renter.specialty ?? '', notes: renter.notes ?? '' });
-    setRenterError(null); setRenterDialogOpen(true);
+    setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
   const handleRenterDialogOpenChange = (open: boolean) => {
     if (!open) { setEditingRenterId(null); setRenterError(null); }
@@ -1826,7 +1893,8 @@ export default function BoothsPage() {
             phone: renterForm.phone.trim(),
             businessName: renterForm.businessName.trim(),
             specialty: renterForm.specialty.trim(),
-            notes: renterForm.notes.trim(),
+            notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
+            linkedStaffId: renterForm.linkedStaffId || undefined,
             updatedAt: now,
           }
         );
@@ -2030,6 +2098,48 @@ export default function BoothsPage() {
   return (
     <div className="p-4 sm:p-6 md:p-8 space-y-6">
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
+
+      {/* v49 — website applications land here, top of the hub: inbound
+          demand gets first attention. Live via onSnapshot. */}
+      {pendingApps.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-black uppercase tracking-widest">Applications</h2>
+            <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">{pendingApps.length}</span>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {pendingApps.map((app: any) => (
+              <div key={app.id} className={`rounded-2xl border-2 p-4 space-y-3 ${app.status === 'in_review' ? 'border-sky-200 bg-sky-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-sm uppercase truncate">{app.name}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">{app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'} · {app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}</p>
+                  </div>
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>{app.status === 'in_review' ? 'Contacted' : 'New'}</span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-600">
+                  {app.phone && <a href={`tel:${app.phone}`} className="underline underline-offset-2 text-indigo-600">{app.phone}</a>}
+                  {app.email && <a href={`mailto:${app.email}`} className="underline underline-offset-2 text-indigo-600 truncate">{app.email}</a>}
+                  {app.timing && <span className="text-slate-500">{app.timing}</span>}
+                </div>
+                {Array.isArray(app.attachments) && app.attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {app.attachments.map((at: any) => (
+                      <a key={at.url} href={at.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 underline underline-offset-2">📎 {at.label || at.name}</a>
+                    ))}
+                  </div>
+                )}
+                {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{decidingAppId === app.id ? 'Working...' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}</button>
+                  {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
+                  <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
@@ -2665,6 +2775,18 @@ export default function BoothsPage() {
             <DialogDescription>Their independent business — your records.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {!editingRenterId && convertibleStaff.length > 0 && (
+              <div className="space-y-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/40 p-3">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Converting an existing team member?</Label>
+                <select value={renterForm.linkedStaffId} onChange={(e) => pickStaffToConvert(e.target.value)} className="w-full h-10 rounded-lg border-2 px-3 text-sm font-medium bg-white">
+                  <option value="">No — this is a new person</option>
+                  {convertibleStaff.map((s: any) => (<option key={s.id} value={s.id}>{s.name}{s.role ? ` · ${s.role}` : ''}</option>))}
+                </select>
+                {renterForm.linkedStaffId && (
+                  <p className="text-[10px] font-bold text-indigo-600">Details prefilled. Their staff PIN stays their portal login — this adds the rent relationship only.</p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
                 <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
