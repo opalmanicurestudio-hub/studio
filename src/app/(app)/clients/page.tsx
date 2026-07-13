@@ -35,6 +35,7 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useFirebase, updateDocumentNonBlocking, deleteDocumentNonBlocking, addDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, query, where, getDocs } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
+import { canSeeFinancials, canSeeClientContact } from '@/lib/privacy';
 import { useInventory } from '@/context/InventoryContext';
 import { ClientCard } from '@/components/clients/ClientCard';
 
@@ -58,6 +59,9 @@ const EmptyState = ({ onAddClient }: { onAddClient: () => void }) => (
 export default function ClientsPage() {
   const { firestore } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+  // v43 — single source of truth: lib/privacy.ts + tenant.staffPrivacy.
+  const showFinancials = canSeeFinancials(selectedTenant, role);
+  const showContact = canSeeClientContact(selectedTenant, role);
   const router = useRouter();
   const tenantId = selectedTenant?.id;
   const { clients, appointments, transactions } = useInventory();
@@ -271,14 +275,14 @@ export default function ClientsPage() {
                 <CardContent className="p-6 space-y-6 text-left">
                     <div className="p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/10 text-destructive space-y-1">
                         <p className="text-[9px] font-black uppercase tracking-widest opacity-60">Arrears Recovery</p>
-                        <p className="text-2xl font-black font-mono tracking-tighter">${stats.totalPendingDebt.toFixed(2)}</p>
+                        <p className="text-2xl font-black font-mono tracking-tighter">{showFinancials ? `$${stats.totalPendingDebt.toFixed(2)}` : '••••'}</p>
                     </div>
                     <div className="space-y-3">
-                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Services</span><span className="font-mono">${stats.serviceRevenue.toFixed(2)}</span></div>
-                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Retail</span><span className="font-mono">${stats.retailRevenue.toFixed(2)}</span></div>
-                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Tips</span><span className="font-mono">${stats.tipRevenue.toFixed(2)}</span></div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Services</span><span className="font-mono">{showFinancials ? `$${stats.serviceRevenue.toFixed(2)}` : '••••'}</span></div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Retail</span><span className="font-mono">{showFinancials ? `$${stats.retailRevenue.toFixed(2)}` : '••••'}</span></div>
+                        <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60"><span>Tips</span><span className="font-mono">{showFinancials ? `$${stats.tipRevenue.toFixed(2)}` : '••••'}</span></div>
                         <Separator className="bg-muted/50" />
-                        <div className="flex justify-between items-center font-black"><span className="text-[10px] uppercase tracking-widest text-slate-900">Avg. Ticket</span><span className="text-lg tracking-tighter font-mono text-primary">${stats.avgSpend.toFixed(2)}</span></div>
+                        <div className="flex justify-between items-center font-black"><span className="text-[10px] uppercase tracking-widest text-slate-900">Avg. Ticket</span><span className="text-lg tracking-tighter font-mono text-primary">{showFinancials ? `$${stats.avgSpend.toFixed(2)}` : '••••'}</span></div>
                     </div>
                 </CardContent>
             </Card>
@@ -303,7 +307,7 @@ export default function ClientsPage() {
                           <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Complete guest record database</p>
                       </div>
                       <div className="flex items-center gap-3 w-full md:w-auto">
-                          <Button variant="outline" onClick={() => { const headers = ['Name','Email','Phone','Lifetime Value','Last Seen','Outstanding Balance']; const data = filteredClients.map(c => [c.name,c.email,c.phone,safeNumber(c.lifetimeValue).toString(),format(new Date(c.lastAppointment),'yyyy-MM-dd'),safeNumber(c.outstandingBalance).toFixed(2)]); const csv = [headers.join(','),...data.map(r => r.join(','))].join('\n'); const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href=url; link.setAttribute('download',`clients_${new Date().toISOString().split('T')[0]}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); }} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm"><FileDown className="mr-2 h-4 w-4" /> Export</Button>
+                          {showFinancials && showContact && <Button variant="outline" onClick={() => { const headers = ['Name','Email','Phone','Lifetime Value','Last Seen','Outstanding Balance']; const data = filteredClients.map(c => [c.name,c.email,c.phone,safeNumber(c.lifetimeValue).toString(),format(new Date(c.lastAppointment),'yyyy-MM-dd'),safeNumber(c.outstandingBalance).toFixed(2)]); const csv = [headers.join(','),...data.map(r => r.join(','))].join('\n'); const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'}); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href=url; link.setAttribute('download',`clients_${new Date().toISOString().split('T')[0]}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link); }} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm"><FileDown className="mr-2 h-4 w-4" /> Export</Button>}
                           <Button onClick={() => setIsAddClientOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20"><UserPlus className="mr-2 h-4 w-4" /> New Guest</Button>
                       </div>
                   </div>
