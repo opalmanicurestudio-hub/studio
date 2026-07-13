@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -20,11 +19,13 @@ import { cn } from '@/lib/utils';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
+import { canSeeFinancials } from '@/lib/privacy';
 
 const ClientReportPage = () => {
     const params = useParams<{ id: string }>();
     const { clients, appointments, services } = useInventory();
-    const { role } = useTenant();
+    const { role, selectedTenant } = useTenant();
+    const showFinancials = canSeeFinancials(selectedTenant, role);
     const isOwnerOrAdmin = role === 'owner' || role === 'admin';
 
     const [aiSummary, setAiSummary] = useState<{ summary: string; talkingPoints: string[] } | null>(null);
@@ -97,6 +98,22 @@ const ClientReportPage = () => {
 
     if (!client) {
         return notFound();
+    }
+
+    // v43 — this entire page is a per-client financial report; it gates
+    // as a whole through the single source of truth.
+    if (!showFinancials) {
+        return (
+            <div className="flex h-screen w-full flex-col bg-muted/40">
+                <AppHeader title="Client Report" />
+                <main className="flex-1 p-4 md:p-8 flex justify-center items-center">
+                    <div className="text-center space-y-2">
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Financial reports are visible to admins only</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">Ask the owner to change this in Settings → Staff Data Visibility</p>
+                    </div>
+                </main>
+            </div>
+        );
     }
     
     const handlePrint = () => {
