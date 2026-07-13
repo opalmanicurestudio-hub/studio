@@ -11,6 +11,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { useCurrentStaff } from '@/hooks/use-current-staff';
 import { type Staff, type InventoryItem, type Location } from '@/lib/data';
 import { submitAndAutoApproveIfSolo, shouldAutoApprove } from '@/lib/replenishment-firestore';
 
@@ -25,11 +26,8 @@ import { submitAndAutoApproveIfSolo, shouldAutoApprove } from '@/lib/replenishme
  */
 
 export const ReplenishmentRequestForm = ({
-  currentStaff,
   stationId,
 }: {
-  /** The staff member submitting the request — pass your real logged-in Staff record. */
-  currentStaff: Staff;
   /** The station (Location.id) this request is for — usually the staff member's own station. */
   stationId: string;
 }) => {
@@ -38,6 +36,7 @@ export const ReplenishmentRequestForm = ({
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
+  const { currentStaff, isLoading: isStaffLoading, isUnrecognized } = useCurrentStaff();
 
   const [selectedItemId, setSelectedItemId] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -55,7 +54,7 @@ export const ReplenishmentRequestForm = ({
   const isSolo = selectedTenant ? shouldAutoApprove(selectedTenant) : false;
 
   const handleSubmit = async () => {
-    if (!firestore || !tenantId || !selectedItem || !quantity) return;
+    if (!firestore || !tenantId || !selectedItem || !quantity || !currentStaff) return;
     const qty = Number(quantity);
     if (!qty || qty <= 0) {
       toast({ variant: 'destructive', title: 'Enter a valid quantity' });
@@ -93,6 +92,30 @@ export const ReplenishmentRequestForm = ({
     setSelectedItemId('');
     setQuantity('');
   };
+
+  if (isStaffLoading) {
+    return (
+      <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+        <CardContent className="flex flex-col items-center justify-center p-16 gap-4">
+          <Loader className="animate-spin h-8 w-8 text-primary" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isUnrecognized || !currentStaff) {
+    return (
+      <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+        <CardContent className="text-center py-16 opacity-60 flex flex-col items-center gap-4">
+          <PackagePlus className="w-10 h-10 opacity-40" />
+          <p className="font-black uppercase tracking-widest text-sm">Account Not Linked to Staff Record</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest max-w-xs opacity-60">
+            Your login isn't matched to a Staff document for this tenant. Ask an owner to check your staff record's ID.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
