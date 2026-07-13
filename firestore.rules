@@ -87,6 +87,22 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isStaff(tenantId);
     }
+
+    // ── Booth rentals (public website listings + applications) ──────────
+    // Booths are publicly readable so the website's rental section can
+    // list vacancies — this makes rent prices public by design (decision:
+    // listings without prices get skipped). Writes stay staff-only.
+    match /tenants/{tenantId}/booths/{boothId} {
+      allow get, list: if true;
+      allow write: if isStaff(tenantId);
+    }
+    // Applications follow the bookingRequests pattern: anyone can apply
+    // from the public site; only staff can read, review, and decide.
+    match /tenants/{tenantId}/boothApplications/{appId} {
+      allow create: if true;
+      allow read, update, delete: if isStaff(tenantId);
+    }
+
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
       allow read, create: if true;
       allow update: if isStaff(tenantId);
