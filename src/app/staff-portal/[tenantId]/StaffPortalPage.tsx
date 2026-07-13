@@ -3006,20 +3006,30 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     let cancelled = false;
     (async () => {
       try {
-        const [aptSnap, svcSnap] = await Promise.all([
+        const [aptSnap, svcSnap, clSnap] = await Promise.all([
           getDocs(query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientPhone','==', phone))),
           getDocs(collection(firestore, `tenants/${tenantId}/services`)),
+          getDocs(query(collection(firestore, `tenants/${tenantId}/clients`), where('phone','==', phone))),
         ]);
         if (cancelled) return;
         const svcName = new Map(svcSnap.docs.map(d => [d.id, (d.data() as any).name]));
-        const apts = aptSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((a:any) => a.startTime && a.status !== 'cancelled');
+        const allApts = aptSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((a:any) => a.startTime);
+        const apts = allApts.filter((a:any) => a.status !== 'cancelled');
         const now = Date.now();
         const upcoming = apts.filter((a:any) => new Date(a.startTime).getTime() >= now).sort((a:any,b:any)=>a.startTime.localeCompare(b.startTime));
         const past = apts.filter((a:any) => new Date(a.startTime).getTime() < now);
+        const cd: any = clSnap.docs[0]?.data() || {};
         setGuestCtx({
           next: upcoming[0] || null,
           nextService: upcoming[0] ? (svcName.get(upcoming[0].serviceId) || 'Appointment') : null,
           visitCount: past.length,
+          cancels: Number(cd.cancellationCount ?? (allApts.length - apts.length)) || 0,
+          noShows: Number(cd.noShowCount ?? 0) || 0,
+          banned: cd.status === 'banned',
+          membership: cd.subscription?.status || (cd.activeMembershipId ? 'active' : null),
+          hasCareNotes: !!(cd.medicalNotes || cd.allergyNotes || cd.sensoryNeeds),
+          owes: Number(cd.outstandingBalance) || 0,
+          packageSessions: (cd.activePackages || []).reduce((sum: number, pk: any) => sum + (Number(pk.sessionsRemaining) || 0), 0),
         });
       } catch { if (!cancelled) setGuestCtx(null); }
     })();
@@ -3286,6 +3296,17 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             {guestCtx.visitCount > 0 && (
               <span className="text-[9px] font-bold uppercase text-white/50 shrink-0">{guestCtx.visitCount} visits</span>
             )}
+          </div>
+        )}
+        {isClient && guestCtx && (guestCtx.banned || guestCtx.membership || guestCtx.cancels > 0 || guestCtx.noShows > 0 || guestCtx.hasCareNotes) && (
+          <div className="flex flex-wrap gap-1.5 mb-2 px-0.5">
+            {guestCtx.banned && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">⛔ Banned</span>}
+            {isOwnerOrAdmin && guestCtx.owes > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>}
+            {guestCtx.packageSessions > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-violet-100 text-violet-700 border border-violet-300 rounded-full px-2 py-0.5">{guestCtx.packageSessions} pkg sessions</span>}
+            {guestCtx.membership === 'active' && <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5">Member</span>}
+            {guestCtx.membership === 'past_due' && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Past due</span>}
+            {(guestCtx.cancels > 0 || guestCtx.noShows > 0) && <span className="text-[8px] font-black uppercase tracking-widest bg-amber-100 text-amber-700 border border-amber-300 rounded-full px-2 py-0.5">{guestCtx.cancels} cancels · {guestCtx.noShows} no-shows</span>}
+            {guestCtx.hasCareNotes && <span className="text-[8px] font-black uppercase tracking-widest bg-sky-100 text-sky-700 border border-sky-300 rounded-full px-2 py-0.5">Care notes</span>}
           </div>
         )}
         {!isClient && (openThread as any)?.pinnedMessage && (
