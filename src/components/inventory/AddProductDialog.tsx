@@ -11,12 +11,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location } from '@/lib/data';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, PlusCircle, DollarSign, Package, ShoppingCart, Calculator, Sparkles, Truck, ArrowRight, Building, FileText, Landmark, Pipette, CheckCircle } from 'lucide-react';
+import { Check, PlusCircle, DollarSign, Package, ShoppingCart, Calculator, Sparkles, Truck, ArrowRight, Building, FileText, Landmark, Pipette, CheckCircle, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
 
@@ -51,6 +52,12 @@ const schema = z.object({
   manufacturingSop: z.string().optional(),
   moq: z.coerce.number().optional(),
   leadTimeDays: z.coerce.number().optional(),
+  // ── Staff custody & replenishment ────────────────────────────────────────
+  // Only meaningful for type === 'professional' — these are the items
+  // staff actually draw from a per-station float (color, developer, gloves).
+  // Retail items don't get a bulk custody float; they're sold, not consumed
+  // by staff, so this stays false/unused for them.
+  trackCustody: z.boolean().default(false),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -202,7 +209,10 @@ const Step2 = () => {
 };
 
 const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => void; locations: Location[] }) => {
-  const { register, control, formState: { errors } } = useFormContext<FormData>();
+  const { register, control, watch, formState: { errors } } = useFormContext<FormData>();
+  const productType = watch('type');
+  const trackCustody = watch('trackCustody');
+
   return (
     <div className="space-y-8">
       <SectionHeader icon={Truck} title="Logistics & Continuity" step={3} />
@@ -232,7 +242,7 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
         </div>
         <div className="space-y-6">
           <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
-            <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest flex items-center gap-2"><FileText className="w-4 h-4 text-primary opacity-40" /> SOP Notes</CardTitle></CardHeader>
+            <CardHeader className="bg-muted/5 border-b p-5"><CardTitle className="text-sm font-black uppercase tracking-widest">SOP Notes</CardTitle></CardHeader>
             <CardContent className="p-5"><Textarea placeholder="Detail the exact technical protocol..." {...register('manufacturingSop')} className="rounded-xl border-2 bg-muted/5 min-h-[160px] font-medium" /></CardContent>
           </Card>
           <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
@@ -253,6 +263,39 @@ const Step3 = ({ onAddLocationClick, locations }: { onAddLocationClick: () => vo
               </div>
             </CardContent>
           </Card>
+
+          {/* ── Staff custody & replenishment ──────────────────────────────── */}
+          {productType === 'professional' && (
+            <Card className="border-2 rounded-[2rem] overflow-hidden shadow-sm">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between p-4 rounded-2xl bg-primary/[0.03] border-2 border-primary/10">
+                  <div className="flex items-start gap-3 pr-4">
+                    <div className="p-2 bg-primary/10 rounded-xl shrink-0">
+                      <ShieldCheck className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="space-y-0.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Track Custody Per Staff Member</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide leading-relaxed">
+                        Staff request a float from main stock; usage draws from their float first, with overflow flagged for manager review.
+                      </p>
+                    </div>
+                  </div>
+                  <Controller
+                    name="trackCustody"
+                    control={control}
+                    render={({ field }) => (
+                      <Switch checked={field.value} onCheckedChange={field.onChange} className="shrink-0" />
+                    )}
+                  />
+                </div>
+                {trackCustody && (
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-primary/70 mt-3 ml-1">
+                    Main stock stays put until a manager approves a staff replenishment request.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>
@@ -268,15 +311,49 @@ export const AddProductDialog: React.FC<{
 }> = ({ open, onOpenChange, initialType, categories, onNewCategory, onProductAdded, locations, onAddLocationClick }) => {
   const [step, setStep] = useState(1);
   const STEPS = 3;
-  const methods = useForm<FormData>({ resolver: zodResolver(schema), defaultValues: { type: initialType, costingMethod: 'size', initialStock: 1 } });
+  const methods = useForm<FormData>({ resolver: zodResolver(schema), defaultValues: { type: initialType, costingMethod: 'size', initialStock: 1, trackCustody: false } });
 
-  useEffect(() => { if (open) { methods.reset({ type: initialType, costingMethod: 'size', initialStock: 1 }); setStep(1); } }, [open, initialType, methods]);
+  useEffect(() => { if (open) { methods.reset({ type: initialType, costingMethod: 'size', initialStock: 1, trackCustody: false }); setStep(1); } }, [open, initialType, methods]);
 
   const { trigger, handleSubmit } = methods;
 
   const onSubmit = (data: FormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
-    onProductAdded({ id: `prod-${nanoid(8)}`, name: data.name, type: data.type, category: data.category, description: data.description, totalStock: data.initialStock || 0, supplier: data.supplier || '', supplierUrl: data.purchaseLink, costPerUnit, reorderPoint: data.reorderPoint, imageUrl: data.imageUrl, primaryLocationId: data.primaryLocationId, costingMethod: data.costingMethod, size: data.containerSize, unit: data.containerUnit as any, estimatedUses: data.usesPerContainer, msrp: data.msrp, restockingMarkup: data.restockingMarkup, manufacturerName: data.manufacturerName, manufacturerContactName: data.manufacturerContactName, manufacturerEmail: data.manufacturerEmail, manufacturerPhone: data.manufacturerPhone, manufacturingSop: data.manufacturingSop, moq: data.moq, leadTimeDays: data.leadTimeDays, batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock || 0, costPerUnit, receivedDate: new Date().toISOString() }] });
+    onProductAdded({
+      id: `prod-${nanoid(8)}`,
+      name: data.name,
+      type: data.type,
+      category: data.category,
+      description: data.description,
+      totalStock: data.initialStock || 0,
+      supplier: data.supplier || '',
+      supplierUrl: data.purchaseLink,
+      costPerUnit,
+      reorderPoint: data.reorderPoint,
+      imageUrl: data.imageUrl,
+      primaryLocationId: data.primaryLocationId,
+      costingMethod: data.costingMethod,
+      size: data.containerSize,
+      unit: data.containerUnit as any,
+      estimatedUses: data.usesPerContainer,
+      msrp: data.msrp,
+      restockingMarkup: data.restockingMarkup,
+      manufacturerName: data.manufacturerName,
+      manufacturerContactName: data.manufacturerContactName,
+      manufacturerEmail: data.manufacturerEmail,
+      manufacturerPhone: data.manufacturerPhone,
+      manufacturingSop: data.manufacturingSop,
+      moq: data.moq,
+      leadTimeDays: data.leadTimeDays,
+      batches: [{ id: `batch-${nanoid(6)}`, stock: data.initialStock || 0, costPerUnit, receivedDate: new Date().toISOString() }],
+      // trackingMode only ever set for professional items — bulk custody
+      // tracking (a shared per-staff float via StationAllocation) doesn't
+      // apply to retail items, which are sold rather than drawn down by
+      // staff during a service. No AssetUnit is created here, unlike
+      // equipment — the first approved StaffReplenishmentRequest is what
+      // creates this item's first StationAllocation.
+      ...(data.type === 'professional' && data.trackCustody ? { trackingMode: 'bulk' as const } : {}),
+    });
     onOpenChange(false);
   };
 
