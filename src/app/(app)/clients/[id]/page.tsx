@@ -85,6 +85,7 @@ import { collection, doc, arrayUnion, increment, getDocs, query, where, setDoc }
 import type { Client, Appointment, Service, CustomFormula, Membership, Redemption, RefreshmentRequest } from '@/lib/data';
 import { useTenant } from '@/context/TenantContext';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
+import { canSeeFinancials, canSeeCareNoteContents } from '@/lib/privacy';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -259,6 +260,8 @@ export default function ClientDetailPage() {
   const { id: clientId } = params;
   const { firestore, isUserLoading } = useFirebase();
   const { selectedTenant, role, isLoading: isTenantLoading } = useTenant();
+  const showFinancials = canSeeFinancials(selectedTenant, role);
+  const showCareContents = canSeeCareNoteContents(selectedTenant, role);
   const { appointments: allAppointments, services, memberships, redemptions: allRedemptions, packages, transactions: allTransactions } = useInventory();
   const tenantId = selectedTenant?.id;
   const isOwnerOrAdmin = role === 'owner' || role === 'admin';
@@ -745,7 +748,7 @@ export default function ClientDetailPage() {
                     <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Target className="w-4 h-4 text-primary opacity-40" />Strategic Goals</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.goals ? `"${client.notes.goals}"` : "No specific goals archived."}</p></CardContent></Card>
                     <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><RefreshCw className="w-4 h-4 text-primary opacity-40" />Current Routine</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.routine ? `"${client.notes.routine}"` : "No routine details on file."}</p></CardContent></Card>
                     <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><History className="w-4 h-4 text-primary opacity-40" />Service History Notes</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.notes?.history ? `"${client.notes.history}"` : "No historical context archived."}</p></CardContent></Card>
-                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Ear className="w-4 h-4 text-primary opacity-40" />Sensory & Environment</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.sensoryNeeds ? `"${client.sensoryNeeds}"` : "No sensory preferences recorded."}</p></CardContent></Card>
+                    <Card className="border-2 rounded-[2rem] overflow-hidden bg-white shadow-sm text-left"><CardHeader className="bg-muted/5 border-b p-5 text-left"><CardTitle className="text-xs font-black uppercase tracking-tight flex items-center gap-2 text-left"><Ear className="w-4 h-4 text-primary opacity-40" />Sensory & Environment</CardTitle></CardHeader><CardContent className="p-5 text-left"><p className="text-sm font-medium text-slate-700 leading-relaxed italic text-left">{client.sensoryNeeds ? (showCareContents ? `"${client.sensoryNeeds}"` : 'Sensory notes on file — visible to admins.') : "No sensory preferences recorded."}</p></CardContent></Card>
                   </div>
                 </div>
               </TabsContent>
@@ -1152,7 +1155,7 @@ export default function ClientDetailPage() {
                 <div className="p-5 md:p-6 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 relative overflow-hidden group text-left">
                   <div className="absolute top-0 right-0 p-4 opacity-5"><TrendingUp className="w-10 h-10 md:w-12 md:h-12 text-primary"/></div>
                   <p className="text-[8px] md:text-[9px] font-black uppercase text-primary/60 tracking-widest mb-1 text-left">Lifetime Yield</p>
-                  <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none text-left">${safeLTV.toFixed(2)}</p>
+                  <p className="text-3xl md:text-4xl font-black text-primary tracking-tighter font-mono leading-none text-left">{showFinancials ? `$${safeLTV.toFixed(2)}` : '••••'}</p>
                 </div>
                 <div className="grid grid-cols-1 gap-4 text-left">
                   <div className="p-4 md:p-5 rounded-[1.5rem] bg-muted/20 border-2 shadow-inner text-left">
