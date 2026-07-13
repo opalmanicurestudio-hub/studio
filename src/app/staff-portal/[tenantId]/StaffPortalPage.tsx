@@ -2961,6 +2961,8 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const [recSeconds, setRecSeconds] = useState(0);
   const [micLevel, setMicLevel] = useState(0);
   const [reactionForId, setReactionForId] = useState<string|null>(null);
+  const lastTypingWriteRef = useRef(0);
+  const [nowTick, setNowTick] = useState(Date.now());
   const audioCtxRef = useRef<AudioContext|null>(null);
   const rafRef = useRef<number>(0);
   const recTimerRef = useRef<ReturnType<typeof setInterval>|null>(null);
@@ -3029,7 +3031,8 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
       const isAway = mode==='away' && (!r?.notificationAvailability?.awayUntil || new Date(r.notificationAvailability.awayUntil) > new Date());
       if (isAway) continue;
       const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-      await setDoc(nRef, { id: nRef.id, userId: rid, type:'staff_message', message: `${staffMember.name||'A teammate'}: "${preview.slice(0,100)}"`, link: `/messages/team/${threadId}`, createdAt: new Date().toISOString(), read: false }).catch(()=>{});
+      const wasMentioned = preview.toLowerCase().includes('@' + (r?.name || ' ').split(' ')[0].toLowerCase());
+      await setDoc(nRef, { id: nRef.id, userId: rid, type:'staff_message', message: `${staffMember.name||'A teammate'}${wasMentioned ? ' mentioned you' : ''}: "${preview.slice(0,100)}"`, link: `/messages/team/${threadId}`, createdAt: new Date().toISOString(), read: false }).catch(()=>{});
     }
   };
 
@@ -3084,6 +3087,29 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     } catch { toast({ variant:'destructive', title:'Upload failed', description:'Check Storage rules allow uploads.' }); }
     finally { setUploading(false); }
   };
+
+  useEffect(() => {
+    const iv = setInterval(() => setNowTick(Date.now()), 2000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const recordTyping = () => {
+    if (!openId || section !== 'team') return;
+    const now = Date.now();
+    if (now - lastTypingWriteRef.current < 2500) return;
+    lastTypingWriteRef.current = now;
+    updateDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, openId), {
+      [`typingBy.${staffMember.id}`]: new Date().toISOString(),
+    }).catch(() => {});
+  };
+
+  const typers = useMemo(() => {
+    const map: any = (openThread as any)?.typingBy || {};
+    return Object.entries(map)
+      .filter(([id, ts]: any) => id !== staffMember.id && ts && (nowTick - new Date(ts).getTime()) < 6000)
+      .map(([id]) => (allStaff || []).find((s: any) => s.id === id)?.name?.split(' ')[0])
+      .filter(Boolean);
+  }, [openThread, nowTick, allStaff]);
 
   const pickAudioMime = (): { mime: string; ext: string } => {
     const candidates: [string,string][] = [['audio/webm;codecs=opus','webm'],['audio/webm','webm'],['audio/mp4','m4a'],['audio/ogg;codecs=opus','ogg']];
@@ -3141,6 +3167,12 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   };
 
   const REACTIONS = ['👍','❤️','😂','🎉','🙏','🔥'];
+  const staffFirstNames = useMemo(() => new Set((allStaff||[]).map((s:any)=>(s.name||'').split(' ')[0].toLowerCase()).filter(Boolean)), [allStaff]);
+  const renderBody = (body: string) => {
+    const parts = body.split(/(@[A-Za-z]+)/g);
+    return parts.map((p, i) => p.startsWith('@') && staffFirstNames.has(p.slice(1).toLowerCase())
+      ? <span key={i} className="font-black underline decoration-2 underline-offset-2">{p}</span> : p);
+  };
   const toggleReaction = async (m: any, emoji: string) => {
     if (!firestore || !tenantId || !openId) return;
     const current: Record<string,string[]> = m.reactions || {};
@@ -3213,12 +3245,21 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
           <button onClick={() => { setOpenId(null); setOpenClientId(null); setText(''); }} className="p-2 rounded-xl border-2 bg-white"><ArrowLeft className="w-4 h-4"/></button>
           <p className="font-black uppercase text-sm truncate">{title}</p>
         </div>
+        {!isClient && (openThread as any)?.pinnedMessage && (
+          <div className="flex items-center gap-2.5 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 mb-2 mx-1">
+            <span className="text-amber-600 text-xs">📌</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[8px] font-black uppercase tracking-widest text-amber-600">Pinned · {(openThread as any).pinnedMessage.senderName}</p>
+              <p className="text-xs font-bold text-slate-700 truncate">{(openThread as any).pinnedMessage.preview}</p>
+            </div>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto space-y-2 px-1">
           {(msgs||[]).map((m:any) => {
             const mine = isClient ? m.direction==='outbound' : m.senderId===staffMember.id;
             const sender = !isClient ? (allStaff||[]).find((s:any)=>s.id===m.senderId) : null;
             return (
-              <div key={m.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+              <div key={m.id} className={cn('flex animate-in fade-in slide-in-from-bottom-1 duration-200', mine ? 'justify-end' : 'justify-start')}>
                 <div className="max-w-[80%]">
                   {!mine && sender && <p className="text-[9px] font-black uppercase text-indigo-600/70 mb-0.5 ml-1">{sender.name}</p>}
                   <div onClick={() => { if (!isClient) setReactionForId(reactionForId === m.id ? null : m.id); }} className={cn('px-3.5 py-2 text-sm font-medium', mine ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md' : 'bg-white text-slate-800 border-2 border-slate-200 rounded-2xl rounded-bl-md')}>
@@ -3235,7 +3276,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                           </div>
                         </div>
                       )}
-                      {m.body && <p>{m.body}</p>}
+                      {m.body && <p>{renderBody(m.body)}</p>}
                     </>)}
                     <p className={cn('text-[9px] font-bold uppercase mt-1', mine ? 'opacity-70' : 'opacity-50')}>{m.sentAt ? format(parseISO(m.sentAt),'h:mm a') : ''}</p>
                   </div>
@@ -3259,6 +3300,16 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
               </div>
             );
           })}
+          {!isClient && typers.length > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="bg-white border-2 border-slate-200 rounded-2xl rounded-bl-md px-3.5 py-2 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }}/>
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }}/>
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }}/>
+              </div>
+              <p className="text-[9px] font-black uppercase text-slate-400">{typers.join(' & ')} {typers.length===1?'is':'are'} typing</p>
+            </div>
+          )}
           <div ref={endRef}/>
         </div>
         {clPickerOpen && !isClient && (
@@ -3310,7 +3361,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
             <button onClick={openClPicker} disabled={uploading||recording} className="h-11 w-11 rounded-xl border-2 bg-white flex items-center justify-center shrink-0"><User className="w-4 h-4"/></button>
             {GIF_ENABLED && <button onClick={()=>setGifOpen(v=>!v)} disabled={uploading||recording} className="h-11 px-2.5 rounded-xl border-2 bg-white flex items-center justify-center shrink-0 font-black text-[9px] tracking-widest">GIF</button>}
           </>)}
-          <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
+          <input value={text} onChange={e=>{setText(e.target.value); if(!isClient) recordTyping();}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault(); isClient ? sendClientReply() : sendTeamText();}}} placeholder="Type a message..." className="flex-1 h-11 rounded-xl border-2 px-3 text-sm font-medium bg-white min-w-0"/>
           <button onClick={isClient ? sendClientReply : sendTeamText} disabled={sending||!text.trim()} className="h-11 w-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 disabled:opacity-40">{sending ? <Loader className="w-4 h-4 animate-spin"/> : <Send className="w-4 h-4"/>}</button>
         </div>
       </div>
