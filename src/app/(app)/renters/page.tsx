@@ -139,9 +139,11 @@ const WEEKDAY_OPTIONS: { value: WeekDay; label: string }[] = [
 interface RenterFormState {
   firstName: string; lastName: string; email: string; phone: string;
   businessName: string; specialty: string; notes: string;
+  linkedStaffId: string;
 }
 const EMPTY_RENTER_FORM: RenterFormState = {
   firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
+  linkedStaffId: '',
 };
 
 interface LeaseFormState {
@@ -422,7 +424,7 @@ export default function RentersPage() {
   const wizardCanAdvance = leaseStep === 0 ? step0Valid : leaseStep === 1 ? step1Valid : true;
 
   const openCreateRenter = () => {
-    setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true);
+    setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
   // v44 — SPRINT 1: portal access for renters. Creates a MIRRORED staff
   // doc with role 'renter' + a PIN. The portal's PinEntry matches staff
@@ -460,8 +462,36 @@ export default function RentersPage() {
     setRenterForm({ firstName: renter.firstName, lastName: renter.lastName, email: renter.email,
       phone: renter.phone ?? '', businessName: renter.businessName ?? '',
       specialty: renter.specialty ?? '', notes: renter.notes ?? '' });
-    setRenterError(null); setRenterDialogOpen(true);
+    setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
+  // v48 — EMPLOYEE → RENTER conversion. One human, one identity, two
+  // financial relationships: picking a team member prefills the renter
+  // form and records linkedStaffId, so their staff PIN stays their ONLY
+  // portal identity while the renter record carries the rent side. The
+  // link is what makes the future hybrid portal view (shifts + lease in
+  // one session) a join instead of an archaeology project.
+  const [convertibleStaff, setConvertibleStaff] = useState<any[]>([]);
+  const loadConvertibleStaff = async () => {
+    try {
+      const snap = await getDocs(collection(firestore, 'tenants', tenantId, 'staff'));
+      setConvertibleStaff(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((s: any) => !s.isRenter && s.role !== 'renter'));
+    } catch { setConvertibleStaff([]); }
+  };
+  const pickStaffToConvert = (staffId: string) => {
+    const s = convertibleStaff.find(x => x.id === staffId);
+    if (!s) { setRenterForm(f => ({ ...f, linkedStaffId: '' })); return; }
+    const parts = (s.name || '').trim().split(' ');
+    setRenterForm(f => ({
+      ...f,
+      linkedStaffId: s.id,
+      firstName: parts[0] || f.firstName,
+      lastName: parts.slice(1).join(' ') || f.lastName,
+      email: s.email || f.email,
+      phone: s.phone || f.phone,
+      specialty: s.specialty || f.specialty,
+    }));
+  };
+
   const handleRenterDialogOpenChange = (open: boolean) => {
     if (!open) { setEditingRenterId(null); setRenterError(null); }
     setRenterDialogOpen(open);
@@ -504,8 +534,9 @@ export default function RentersPage() {
           phone: renterForm.phone.trim() || undefined,
           businessName: renterForm.businessName.trim() || undefined,
           specialty: renterForm.specialty.trim() || undefined,
-          notes: renterForm.notes.trim() || undefined,
-        });
+          notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' ') || undefined,
+          linkedStaffId: renterForm.linkedStaffId || undefined,
+        } as any);
       }
       setRenterDialogOpen(false); setEditingRenterId(null);
     } catch (err) {
@@ -750,7 +781,9 @@ export default function RentersPage() {
                 <div className="text-sm text-muted-foreground space-y-1">
                   <p>{renter.email}</p>
                   {renter.phone && <p>{renter.phone}</p>}
-                  {(renter as any).portalEnabled ? (
+                  {(renter as any).linkedStaffId ? (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-violet-600">Hybrid · Team member — uses their staff PIN</p>
+                  ) : (renter as any).portalEnabled ? (
                     <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Portal active · PIN {(renter as any).portalPin}</p>
                   ) : (
                     <button
@@ -834,6 +867,24 @@ export default function RentersPage() {
             <DialogDescription>Their independent business — your records.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {!editingRenterId && convertibleStaff.length > 0 && (
+              <div className="space-y-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/40 p-3">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Converting an existing team member?</Label>
+                <select
+                  value={renterForm.linkedStaffId}
+                  onChange={(e) => pickStaffToConvert(e.target.value)}
+                  className="w-full h-10 rounded-lg border-2 px-3 text-sm font-medium bg-white"
+                >
+                  <option value="">No — this is a new person</option>
+                  {convertibleStaff.map((s: any) => (
+                    <option key={s.id} value={s.id}>{s.name}{s.role ? ` · ${s.role}` : ''}</option>
+                  ))}
+                </select>
+                {renterForm.linkedStaffId && (
+                  <p className="text-[10px] font-bold text-indigo-600">Details prefilled. Their staff PIN stays their portal login — this record adds the rent relationship only.</p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
                 <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
