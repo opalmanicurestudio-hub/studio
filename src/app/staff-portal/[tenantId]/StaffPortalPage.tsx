@@ -6,6 +6,7 @@ import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
 import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
+import { canSeeFinancials } from '@/lib/privacy';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,7 +38,7 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, query, where, doc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy } from 'firebase/firestore';
+import { collection, query, where, doc, getDoc, getDocs, writeBatch, updateDoc, arrayUnion, setDoc, orderBy } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
@@ -2939,6 +2940,16 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const { toast } = useToast();
   const { user: authUser } = useUser();
   const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
+  // v42 — the portal reads the same single source of truth. Tenant doc
+  // fetched once; helper decides (owner-configured, PIN role respected).
+  const [tenantDocData, setTenantDocData] = useState<any>(null);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    getDoc(doc(firestore, 'tenants', tenantId))
+      .then(snap => setTenantDocData(snap.data() || {}))
+      .catch(() => setTenantDocData({}));
+  }, [firestore, tenantId]);
+  const showFinancials = canSeeFinancials(tenantDocData, staffMember.role);
   const [section, setSection] = useState<'clients'|'team'>('team');
   const [openId, setOpenId] = useState<string|null>(null); // staffThread id
   const [openClientId, setOpenClientId] = useState<string|null>(null); // smsThread id
@@ -3301,7 +3312,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
         {isClient && guestCtx && (guestCtx.banned || guestCtx.membership || guestCtx.cancels > 0 || guestCtx.noShows > 0 || guestCtx.hasCareNotes) && (
           <div className="flex flex-wrap gap-1.5 mb-2 px-0.5">
             {guestCtx.banned && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">⛔ Banned</span>}
-            {isOwnerOrAdmin && guestCtx.owes > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>}
+            {showFinancials && guestCtx.owes > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>}
             {guestCtx.packageSessions > 0 && <span className="text-[8px] font-black uppercase tracking-widest bg-violet-100 text-violet-700 border border-violet-300 rounded-full px-2 py-0.5">{guestCtx.packageSessions} pkg sessions</span>}
             {guestCtx.membership === 'active' && <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-300 rounded-full px-2 py-0.5">Member</span>}
             {guestCtx.membership === 'past_due' && <span className="text-[8px] font-black uppercase tracking-widest bg-red-100 text-red-700 border border-red-300 rounded-full px-2 py-0.5">Past due</span>}
