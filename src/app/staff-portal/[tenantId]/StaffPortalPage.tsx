@@ -2996,6 +2996,36 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const openThread = threads.find((t:any)=>t.id===openId);
   const openClientThread = clientThreads.find((t:any)=>t.id===openClientId);
 
+  // v39 — compact guest context for the portal: next appointment + visit
+  // count, matched by phone (appointments carry clientPhone, not
+  // clientId). Loads once per opened client thread.
+  const [guestCtx, setGuestCtx] = useState<any>(null);
+  useEffect(() => {
+    const phone = openClientThread?.clientPhone;
+    if (!firestore || !tenantId || !openClientId || !phone) { setGuestCtx(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [aptSnap, svcSnap] = await Promise.all([
+          getDocs(query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientPhone','==', phone))),
+          getDocs(collection(firestore, `tenants/${tenantId}/services`)),
+        ]);
+        if (cancelled) return;
+        const svcName = new Map(svcSnap.docs.map(d => [d.id, (d.data() as any).name]));
+        const apts = aptSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((a:any) => a.startTime && a.status !== 'cancelled');
+        const now = Date.now();
+        const upcoming = apts.filter((a:any) => new Date(a.startTime).getTime() >= now).sort((a:any,b:any)=>a.startTime.localeCompare(b.startTime));
+        const past = apts.filter((a:any) => new Date(a.startTime).getTime() < now);
+        setGuestCtx({
+          next: upcoming[0] || null,
+          nextService: upcoming[0] ? (svcName.get(upcoming[0].serviceId) || 'Appointment') : null,
+          visitCount: past.length,
+        });
+      } catch { if (!cancelled) setGuestCtx(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [openClientId, openClientThread?.clientPhone, firestore, tenantId]);
+
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs?.length]);
 
   // Mark read on open — thread-level readBy (badges) + per-message (receipts)
@@ -3245,6 +3275,19 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
           <button onClick={() => { setOpenId(null); setOpenClientId(null); setText(''); }} className="p-2 rounded-xl border-2 bg-white"><ArrowLeft className="w-4 h-4"/></button>
           <p className="font-black uppercase text-sm truncate">{title}</p>
         </div>
+        {isClient && guestCtx && (guestCtx.next || guestCtx.visitCount > 0) && (
+          <div className="rounded-xl bg-slate-900 px-3.5 py-2.5 mb-2 flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-300">
+            <CalendarDays className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+            <p className="text-[10px] font-black uppercase tracking-wide text-white flex-1 min-w-0 truncate">
+              {guestCtx.next
+                ? `${format(parseISO(guestCtx.next.startTime), 'EEE MMM d · h:mm a')} — ${guestCtx.nextService}`
+                : 'No upcoming appointment'}
+            </p>
+            {guestCtx.visitCount > 0 && (
+              <span className="text-[9px] font-bold uppercase text-white/50 shrink-0">{guestCtx.visitCount} visits</span>
+            )}
+          </div>
+        )}
         {!isClient && (openThread as any)?.pinnedMessage && (
           <div className="flex items-center gap-2.5 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-2 mb-2 mx-1">
             <span className="text-amber-600 text-xs">📌</span>
