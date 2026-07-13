@@ -26,7 +26,13 @@ export default function MessageThreadPage() {
   const router = useRouter();
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role } = useTenant();
+  // v41 — financial data (balance owed, lifetime value) is gated to
+  // owner/admin. UI-level gating: real workflow privacy, not
+  // cryptographic security — see the shared-login ceiling notes in
+  // staff-identity.ts. Server enforcement arrives with the rules
+  // catch-all retirement project.
+  const canSeeFinancials = role === 'owner' || role === 'admin';
   const { staff } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
@@ -65,14 +71,20 @@ export default function MessageThreadPage() {
         ]);
         if (cancelled) return;
         const svcName = new Map(svcSnap.docs.map(d => [d.id, (d.data() as any).name]));
-        const apts = aptSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
-          .filter((a: any) => a.startTime && a.status !== 'cancelled');
+        const allApts = aptSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) })).filter((a: any) => a.startTime);
+        // v40 — cancellations are EXCLUDED from "next" (a cancelled
+        // appointment isn't happening) but INCLUDED as a reliability
+        // signal: a client with three recent cancels texting to book is
+        // exactly what the desk needs to see before replying.
+        const apts = allApts.filter((a: any) => a.status !== 'cancelled');
+        const cancelledFromApts = allApts.length - apts.length;
         const now = Date.now();
         const upcoming = apts.filter((a: any) => new Date(a.startTime).getTime() >= now)
           .sort((a: any, b: any) => a.startTime.localeCompare(b.startTime));
         const past = apts.filter((a: any) => new Date(a.startTime).getTime() < now)
           .sort((a: any, b: any) => b.startTime.localeCompare(a.startTime));
         const clientDoc = clientSnap.docs[0];
+        const cd: any = clientDoc?.data() || {};
         setGuestCtx({
           next: upcoming[0] || null,
           nextService: upcoming[0] ? (svcName.get(upcoming[0].serviceId) || 'Appointment') : null,
@@ -80,7 +92,21 @@ export default function MessageThreadPage() {
           lastService: past[0] ? (svcName.get(past[0].serviceId) || 'Visit') : null,
           visitCount: past.length,
           clientId: clientDoc?.id || null,
-          avatarUrl: (clientDoc?.data() as any)?.avatarUrl || null,
+          avatarUrl: cd.avatarUrl || null,
+          // Client-doc counters are authoritative; appointment-derived
+          // count is the fallback for clients whose counters predate them.
+          cancels: Number(cd.cancellationCount ?? cancelledFromApts) || 0,
+          noShows: Number(cd.noShowCount ?? 0) || 0,
+          banned: cd.status === 'banned',
+          banMessage: cd.banMessage || null,
+          membership: cd.subscription?.status || (cd.activeMembershipId ? 'active' : null),
+          lifetimeValue: Number(cd.lifetimeValue) || 0,
+          hasCareNotes: !!(cd.medicalNotes || cd.allergyNotes || cd.sensoryNeeds),
+          // v41 — verified fields: outstandingBalance is DOLLARS on the
+          // client doc (QuickBook reads it, handleChargeArrears zeroes
+          // it); activePackages carry sessionsRemaining.
+          owes: Number(cd.outstandingBalance) || 0,
+          packageSessions: (cd.activePackages || []).reduce((sum: number, pk: any) => sum + (Number(pk.sessionsRemaining) || 0), 0),
         });
       } catch {
         if (!cancelled) setGuestCtx(null);
@@ -149,6 +175,12 @@ export default function MessageThreadPage() {
       <AppHeader title={thread?.clientName || thread?.clientPhone || 'Conversation'} />
       <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full flex flex-col gap-4">
 
+        {guestCtx?.banned && (
+          <div className="rounded-2xl border-2 border-red-500 bg-red-50 px-4 py-3 animate-in fade-in duration-300">
+            <p className="text-[10px] font-black uppercase tracking-widest text-red-600">⛔ This client is banned</p>
+            {guestCtx.banMessage && <p className="text-xs font-bold text-red-700 mt-0.5">{guestCtx.banMessage}</p>}
+          </div>
+        )}
         {guestCtx && (guestCtx.next || guestCtx.last || guestCtx.clientId) && (
           <div className="rounded-2xl border-2 bg-gradient-to-r from-slate-900 to-slate-800 p-4 flex items-center gap-4 animate-in fade-in slide-in-from-top-1 duration-300">
             <Avatar className="h-12 w-12 rounded-xl border-2 border-white/20 shrink-0">
@@ -175,6 +207,33 @@ export default function MessageThreadPage() {
                 )}
                 {guestCtx.visitCount > 0 && (
                   <span className="text-[9px] font-bold uppercase text-white/50">{guestCtx.visitCount} visit{guestCtx.visitCount === 1 ? '' : 's'}</span>
+                )}
+                {canSeeFinancials && guestCtx.lifetimeValue > 0 && (
+                  <span className="text-[9px] font-bold uppercase text-white/50">${Math.round(guestCtx.lifetimeValue / 100).toLocaleString()} lifetime</span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {canSeeFinancials && guestCtx.owes > 0 && (
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-red-500/30 text-red-200 border border-red-400/40 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>
+                )}
+                {guestCtx.packageSessions > 0 && (
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-violet-500/20 text-violet-300 border border-violet-400/30 rounded-full px-2 py-0.5">{guestCtx.packageSessions} package session{guestCtx.packageSessions === 1 ? '' : 's'} left</span>
+                )}
+                {guestCtx.membership === 'active' && (
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 rounded-full px-2 py-0.5">Member</span>
+                )}
+                {guestCtx.membership === 'past_due' && (
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-red-500/20 text-red-300 border border-red-400/30 rounded-full px-2 py-0.5">Membership past due</span>
+                )}
+                {(guestCtx.cancels > 0 || guestCtx.noShows > 0) && (
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-400/30 rounded-full px-2 py-0.5">
+                    {guestCtx.cancels > 0 && `${guestCtx.cancels} cancel${guestCtx.cancels === 1 ? '' : 's'}`}
+                    {guestCtx.cancels > 0 && guestCtx.noShows > 0 && ' · '}
+                    {guestCtx.noShows > 0 && `${guestCtx.noShows} no-show${guestCtx.noShows === 1 ? '' : 's'}`}
+                  </span>
+                )}
+                {guestCtx.hasCareNotes && (
+                  <span className="text-[8px] font-black uppercase tracking-widest bg-sky-500/20 text-sky-300 border border-sky-400/30 rounded-full px-2 py-0.5">Care notes on file</span>
                 )}
               </div>
             </div>
