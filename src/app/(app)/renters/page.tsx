@@ -55,9 +55,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { useState, useMemo } from 'react';
+import { useToast } from '@/hooks/use-toast';
 import {
   doc,
   updateDoc,
+  setDoc,
 } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFirebase } from '@/firebase';
@@ -236,6 +238,7 @@ function PerkRow({
 
 export default function RentersPage() {
   const { firebaseApp, firestore } = useFirebase();
+  const { toast } = useToast();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
 
@@ -349,6 +352,37 @@ export default function RentersPage() {
   const openCreateRenter = () => {
     setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true);
   };
+  // v44 — SPRINT 1: portal access for renters. Creates a MIRRORED staff
+  // doc with role 'renter' + a PIN. The portal's PinEntry matches staff
+  // docs by pin, so the moment this doc exists the renter can sign into
+  // the SAME portal link as staff — and inherits the entire messaging /
+  // identity / push stack, scoped by role. isRenter: true is the flag
+  // every staff-list surface uses to exclude renters from employee views.
+  const [provisioningId, setProvisioningId] = useState<string | null>(null);
+  const enablePortalAccess = async (renter: Renter) => {
+    if (!firestore || !tenantId || provisioningId) return;
+    setProvisioningId(renter.id);
+    try {
+      const pin = String(Math.floor(1000 + Math.random() * 9000));
+      await setDoc(doc(firestore, `tenants/${tenantId}/staff`, renter.id), {
+        id: renter.id,
+        name: renter.businessName || `${renter.firstName} ${renter.lastName}`.trim(),
+        role: 'renter',
+        isRenter: true,
+        pin,
+        email: renter.email || '',
+        phone: renter.phone || '',
+        notificationAvailability: { mode: 'business_hours_only' },
+      }, { merge: true });
+      await updateDoc(doc(firestore, `tenants/${tenantId}/renters`, renter.id), { portalEnabled: true, portalPin: pin });
+      toast({ title: 'Portal access enabled', description: `PIN: ${pin} — share it with ${renter.firstName}. They sign in at the same portal link as staff.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not enable portal access' });
+    } finally {
+      setProvisioningId(null);
+    }
+  };
+
   const openEditRenter = (renter: Renter) => {
     setEditingRenterId(renter.id);
     setRenterForm({ firstName: renter.firstName, lastName: renter.lastName, email: renter.email,
@@ -597,6 +631,17 @@ export default function RentersPage() {
                 <div className="text-sm text-muted-foreground space-y-1">
                   <p>{renter.email}</p>
                   {renter.phone && <p>{renter.phone}</p>}
+                  {(renter as any).portalEnabled ? (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Portal active · PIN {(renter as any).portalPin}</p>
+                  ) : (
+                    <button
+                      onClick={() => enablePortalAccess(renter)}
+                      disabled={provisioningId === renter.id}
+                      className="text-[10px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 disabled:opacity-40"
+                    >
+                      {provisioningId === renter.id ? 'Enabling...' : 'Enable portal access'}
+                    </button>
+                  )}
                   {renter.specialty && <p>Specialty: {renter.specialty}</p>}
                 </div>
                 {lease && (
