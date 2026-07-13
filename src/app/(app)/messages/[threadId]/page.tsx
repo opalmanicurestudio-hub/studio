@@ -7,12 +7,13 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Send, Tag, X, Loader, User } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { ArrowLeft, Send, Tag, X, Loader, User, CalendarDays, UserCircle, ChevronRight } from 'lucide-react';
+import { format, parseISO, isToday, isTomorrow } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, query, orderBy, setDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, doc, query, orderBy, setDoc, arrayUnion, arrayRemove, getDocs, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,57 @@ export default function MessageThreadPage() {
     [firestore, tenantId, threadId],
   );
   const { data: messages, isLoading: messagesLoading } = useCollection<any>(messagesQuery);
+
+  // v39 — GUEST CONTEXT CARD. The brainstorm's core promise: "no
+  // searching, everything is already there." When a client thread opens,
+  // their appointment picture loads alongside it — matched by phone,
+  // since appointments carry clientPhone (verified: no clientId field on
+  // appointment docs). Single-field query, computed in memory, graceful
+  // when nothing matches (e.g. a texter who's never booked).
+  const [guestCtx, setGuestCtx] = useState<any>(null);
+  useEffect(() => {
+    const phone = thread?.clientPhone;
+    if (!firestore || !tenantId || !phone) { setGuestCtx(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [aptSnap, svcSnap, clientSnap] = await Promise.all([
+          getDocs(query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientPhone', '==', phone))),
+          getDocs(collection(firestore, `tenants/${tenantId}/services`)),
+          getDocs(query(collection(firestore, `tenants/${tenantId}/clients`), where('phone', '==', phone))),
+        ]);
+        if (cancelled) return;
+        const svcName = new Map(svcSnap.docs.map(d => [d.id, (d.data() as any).name]));
+        const apts = aptSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+          .filter((a: any) => a.startTime && a.status !== 'cancelled');
+        const now = Date.now();
+        const upcoming = apts.filter((a: any) => new Date(a.startTime).getTime() >= now)
+          .sort((a: any, b: any) => a.startTime.localeCompare(b.startTime));
+        const past = apts.filter((a: any) => new Date(a.startTime).getTime() < now)
+          .sort((a: any, b: any) => b.startTime.localeCompare(a.startTime));
+        const clientDoc = clientSnap.docs[0];
+        setGuestCtx({
+          next: upcoming[0] || null,
+          nextService: upcoming[0] ? (svcName.get(upcoming[0].serviceId) || 'Appointment') : null,
+          last: past[0] || null,
+          lastService: past[0] ? (svcName.get(past[0].serviceId) || 'Visit') : null,
+          visitCount: past.length,
+          clientId: clientDoc?.id || null,
+          avatarUrl: (clientDoc?.data() as any)?.avatarUrl || null,
+        });
+      } catch {
+        if (!cancelled) setGuestCtx(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [firestore, tenantId, thread?.clientPhone]);
+
+  const aptWhen = (iso: string) => {
+    const d = parseISO(iso);
+    if (isToday(d)) return `Today · ${format(d, 'h:mm a')}`;
+    if (isTomorrow(d)) return `Tomorrow · ${format(d, 'h:mm a')}`;
+    return format(d, 'EEE, MMM d · h:mm a');
+  };
 
   const assignedStaff = (staff || []).find((s: any) => s.id === thread?.assignedStaffId);
 
@@ -96,6 +148,46 @@ export default function MessageThreadPage() {
     <div className="min-h-screen bg-muted/10 flex flex-col">
       <AppHeader title={thread?.clientName || thread?.clientPhone || 'Conversation'} />
       <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full flex flex-col gap-4">
+
+        {guestCtx && (guestCtx.next || guestCtx.last || guestCtx.clientId) && (
+          <div className="rounded-2xl border-2 bg-gradient-to-r from-slate-900 to-slate-800 p-4 flex items-center gap-4 animate-in fade-in slide-in-from-top-1 duration-300">
+            <Avatar className="h-12 w-12 rounded-xl border-2 border-white/20 shrink-0">
+              <AvatarImage src={guestCtx.avatarUrl} className="object-cover" />
+              <AvatarFallback className="bg-white/10 text-white font-black">
+                {(thread?.clientName || '?').charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {guestCtx.next ? (
+                  <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-emerald-300">
+                    <CalendarDays className="w-3 h-3" /> {aptWhen(guestCtx.next.startTime)} — {guestCtx.nextService}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-black uppercase tracking-wide text-white/40">No upcoming appointment</span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {guestCtx.last && (
+                  <span className="text-[9px] font-bold uppercase text-white/50">
+                    Last visit {format(parseISO(guestCtx.last.startTime), 'MMM d')} · {guestCtx.lastService}
+                  </span>
+                )}
+                {guestCtx.visitCount > 0 && (
+                  <span className="text-[9px] font-bold uppercase text-white/50">{guestCtx.visitCount} visit{guestCtx.visitCount === 1 ? '' : 's'}</span>
+                )}
+              </div>
+            </div>
+            {guestCtx.clientId && (
+              <button
+                onClick={() => router.push(`/clients/${guestCtx.clientId}`)}
+                className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-white/70 hover:text-white shrink-0 border-2 border-white/20 rounded-xl px-3 py-2 transition-colors"
+              >
+                Profile <ChevronRight className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        )}
 
         <button
           onClick={() => router.push('/messages')}
