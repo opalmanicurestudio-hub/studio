@@ -2,6 +2,7 @@
  
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type PageSection } from '@/lib/data';
+import { BoothListingsSection } from '@/components/shared/BoothListingsSection';
 import { cn } from '@/lib/utils';
 import {
   Calendar, Clock, Clock3, MapPin, Phone, Mail, Instagram,
@@ -4347,6 +4348,10 @@ function SectionRenderer(p: { section: PageSection; style: StyleConfig; data: Pa
     case 'story':       return <StorySection       {...sp}/>;
     case 'instagram':   return <InstagramSection   {...sp}/>;
     case 'waitlist':    return <WaitlistSection    {...sp}/>;
+    // v46 — booth rental listings. Unlike the other sections, this one
+    // self-fetches (vacant booths change independently of page publishes),
+    // so it takes tenantId + config directly rather than the shared sp.
+    case 'booths' as any: return <BoothListingsSection tenantId={data.tenantId} config={section.config} />;
     default:            return null;
   }
 }
