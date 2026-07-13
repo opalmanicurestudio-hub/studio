@@ -20,6 +20,11 @@
  * inference errors this caught and fixed) and against the real
  * firestore.rules (see LOCATION-SCOPING below for what changed once
  * multi-location entered the design).
+ *
+ * MERGE NOTE: this file now also includes the hourly/daily "day-use
+ * booking" lifecycle (createBookingHold / confirmBooking / releaseBookingHold)
+ * previously staged in booth-rental-service.booking-additions.ts. Search
+ * "DAY-USE:" comments below for exactly what that merge added.
  */
 
 import {
@@ -27,6 +32,8 @@ import {
   collection,
   doc,
   writeBatch,
+  runTransaction,
+  updateDoc,
   getDocs,
   query,
   orderBy,
@@ -46,6 +53,12 @@ import {
   BOOTH_RENTAL_COLLECTIONS,
   generateReceiptNumber,
   toIsoDate,
+  // DAY-USE
+  Booking,
+  BookingStatus,
+  ACTIVE_BOOKING_STATUSES,
+  isBoothAvailable,
+  computeBookingTotalCents,
 } from '@/lib/booth-rental-types';
 import { buildLedgerEntry, ledgerEntryId } from '@/lib/ledger';
 
@@ -508,7 +521,7 @@ export async function recordPayment(
 
   const paymentEntry: RentLedgerEntryWrite & { locationId: string } = {
     locationId: input.locationId,
-    leaseId: input.lease?.id ?? '',
+    leaseId: input.lease?.id ?? null,
     renterId: input.renterId,
     boothId: input.lease?.boothId,
     type: 'payment' as LedgerEntryType, // old scheme — see TYPE-CORRECTIONS #3
@@ -841,6 +854,15 @@ export interface CreateBoothInput {
   canvasY?: number;
   canvasW?: number;
   canvasH?: number;
+  // DAY-USE: optional at creation — defaults to disabled. Owner opts a
+  // booth into day-use later from the booth edit dialog once
+  // recommendDayUseRate() (booth-rental-pricing.ts) has real data to work
+  // from, rather than every new booth defaulting to bookable.
+  dayUseEnabled?: boolean;
+  dayUseHourlyCents?: number;
+  dayUseDailyCents?: number;
+  dayUseMinHours?: number;
+  dayUseBufferMinutes?: number;
 }
 
 export async function createBooth(
@@ -862,6 +884,11 @@ export async function createBooth(
     canvasY: input.canvasY ?? 0,
     canvasW: input.canvasW ?? 140,
     canvasH: input.canvasH ?? 100,
+    dayUseEnabled: input.dayUseEnabled ?? false,
+    dayUseHourlyCents: input.dayUseHourlyCents,
+    dayUseDailyCents: input.dayUseDailyCents,
+    dayUseMinHours: input.dayUseMinHours,
+    dayUseBufferMinutes: input.dayUseBufferMinutes,
     createdAt: now,
     updatedAt: now,
   };
@@ -1026,5 +1053,179 @@ export async function provisionDefaultLocation(
     name: tenant.name ? `${tenant.name} — Main Location` : 'Main Location',
     address: tenant.studioAddress,
     timezone,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DAY-USE: Booking lifecycle
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Bookings get their own lifecycle rather than reusing createLease/
+// endLease — see the Booking type's doc comment in booth-rental-types.ts
+// for why a short-term booking isn't a one-day Lease. The three functions
+// below (hold → confirm, or hold → release) are the client-SDK
+// counterparts to the admin-SDK version embedded directly in
+// /api/stripe/book-station/route.ts — that route can't import client-SDK
+// `firebase/firestore` code, so its transaction logic is intentionally
+// duplicated there rather than shared. If the two ever drift, the route
+// is the one actually enforcing the guarantee (it's server-side and
+// authoritative); treat these as the client-side / non-Stripe-payment
+// entry points (e.g. a "comp this booking, no charge" owner action).
+
+const BOOKINGS_HOLD_TTL_MINUTES = 10;
+
+/** Bookings currently occupying a booth (held-not-expired + confirmed + checked_in). */
+export async function getActiveBookingsForBooth(
+  firestore: Firestore,
+  tenantId: string,
+  boothId: string
+): Promise<Booking[]> {
+  const nowIso = new Date().toISOString();
+  const snap = await getDocs(
+    query(
+      collection(firestore, BOOTH_RENTAL_COLLECTIONS.bookings(tenantId)),
+      where('boothId', '==', boothId)
+    )
+  );
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as Booking))
+    .filter(
+      (b) =>
+        ACTIVE_BOOKING_STATUSES.includes(b.status) ||
+        (b.status === 'held' && b.holdExpiresAt !== null && b.holdExpiresAt > nowIso)
+    );
+}
+
+export class BookingConflictError extends Error {
+  constructor() {
+    super('That slot is no longer available — someone else just booked it.');
+    this.name = 'BookingConflictError';
+  }
+}
+
+export interface CreateBookingHoldInput {
+  tenantId: string;
+  locationId: string;
+  boothId: string;
+  renterId: string;
+  startAt: string;
+  endAt: string;
+  rateType: 'hourly' | 'daily';
+  booth: Pick<Booth, 'dayUseHourlyCents' | 'dayUseDailyCents' | 'dayUseBufferMinutes'>;
+  occupyingLease: { scheduleSlot: Lease['scheduleSlot'] } | undefined;
+  bufferMinutes?: number;
+}
+
+/**
+ * Reserves the slot atomically before payment is attempted — the
+ * transaction re-checks overlap against whatever's actually in Firestore
+ * right now, which is what closes the race condition a client-side-only
+ * availability check can't.
+ */
+export async function createBookingHold(
+  firestore: Firestore,
+  input: CreateBookingHoldInput
+): Promise<{ bookingId: string; totalCents: number }> {
+  const bookingsRef = collection(firestore, BOOTH_RENTAL_COLLECTIONS.bookings(input.tenantId));
+  const now = new Date().toISOString();
+  const holdExpiresAt = new Date(Date.now() + BOOKINGS_HOLD_TTL_MINUTES * 60_000).toISOString();
+  const totalCents = computeBookingTotalCents(input.booth, { startAt: input.startAt, endAt: input.endAt }, input.rateType);
+  const newRef = doc(bookingsRef);
+
+  await runTransaction(firestore, async (tx) => {
+    const existingSnap = await getDocs(
+      query(collection(firestore, BOOTH_RENTAL_COLLECTIONS.bookings(input.tenantId)), where('boothId', '==', input.boothId))
+    );
+    const nowForFilter = new Date().toISOString();
+    const blocking = existingSnap.docs
+      .map((d) => d.data() as Booking)
+      .filter(
+        (b) =>
+          ACTIVE_BOOKING_STATUSES.includes(b.status) ||
+          (b.status === 'held' && b.holdExpiresAt !== null && b.holdExpiresAt > nowForFilter)
+      );
+
+    const available = isBoothAvailable({
+      range: { startAt: input.startAt, endAt: input.endAt },
+      occupyingLease: input.occupyingLease,
+      existingBookings: blocking,
+      bufferMinutes: input.bufferMinutes ?? input.booth.dayUseBufferMinutes ?? 0,
+    });
+    if (!available) throw new BookingConflictError();
+
+    const bookingDoc: Omit<Booking, 'id'> = {
+      tenantId: input.tenantId,
+      locationId: input.locationId,
+      boothId: input.boothId,
+      renterId: input.renterId,
+      status: 'held',
+      startAt: input.startAt,
+      endAt: input.endAt,
+      rateType: input.rateType,
+      rateCentsSnapshot:
+        input.rateType === 'daily' ? input.booth.dayUseDailyCents ?? 0 : input.booth.dayUseHourlyCents ?? 0,
+      totalCents,
+      stripePaymentIntentId: null,
+      stripeChargeId: null,
+      paymentStatus: 'unpaid',
+      transactionId: null,
+      ledgerEntryId: null,
+      holdExpiresAt,
+      cancelledAt: null,
+      cancellationReason: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    tx.set(newRef, bookingDoc);
+  });
+
+  return { bookingId: newRef.id, totalCents };
+}
+
+export interface ConfirmBookingInput {
+  tenantId: string;
+  bookingId: string;
+  stripePaymentIntentId: string;
+  stripeChargeId: string | null;
+  transactionId: string;
+  ledgerEntryId: string | null;
+}
+
+/** Called after a charge succeeds — flips the hold to confirmed and attaches payment/ledger linkage. */
+export async function confirmBooking(firestore: Firestore, input: ConfirmBookingInput): Promise<void> {
+  const ref = doc(firestore, BOOTH_RENTAL_COLLECTIONS.bookings(input.tenantId), input.bookingId);
+  await runTransaction(firestore, async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Booking not found.');
+    tx.set(
+      ref,
+      {
+        status: 'confirmed' as BookingStatus,
+        paymentStatus: 'paid',
+        stripePaymentIntentId: input.stripePaymentIntentId,
+        stripeChargeId: input.stripeChargeId,
+        transactionId: input.transactionId,
+        ledgerEntryId: input.ledgerEntryId,
+        holdExpiresAt: null,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  });
+}
+
+/** Releases a hold that failed payment or was abandoned, freeing the slot immediately. */
+export async function releaseBookingHold(
+  firestore: Firestore,
+  tenantId: string,
+  bookingId: string,
+  reason = 'payment_failed_or_expired'
+): Promise<void> {
+  const ref = doc(firestore, BOOTH_RENTAL_COLLECTIONS.bookings(tenantId), bookingId);
+  await updateDoc(ref, {
+    status: 'cancelled' as BookingStatus,
+    cancelledAt: new Date().toISOString(),
+    cancellationReason: reason,
+    updatedAt: new Date().toISOString(),
   });
 }
