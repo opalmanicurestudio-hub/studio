@@ -44,7 +44,7 @@ import {
   AtSign, Hash, Layers, Undo2, Redo2,
   ShieldCheck, Heart, Zap, Coffee, Leaf, Flame,
   AlertTriangle, Info, Ban, Clock3, CreditCard, BadgeCheck,
-  ArrowLeftRight, Wand2, ChevronRight,
+  ArrowLeftRight, Wand2, ChevronRight, Home,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { type PageSection, type PageBuilderConfig } from '@/lib/data';
@@ -87,7 +87,7 @@ type SectionType =
   | 'nav' | 'hero' | 'trust' | 'services' | 'team' | 'reviews'
   | 'gallery' | 'beforeafter' | 'memberships' | 'packages' | 'giftcards'
   | 'quote' | 'newclient' | 'faq' | 'policies' | 'contact' | 'events'
-  | 'referral' | 'story' | 'instagram' | 'waitlist';
+  | 'referral' | 'story' | 'instagram' | 'waitlist' | 'booths';
 
 type FieldType =
   | 'text' | 'textarea' | 'toggle' | 'select' | 'image' | 'color'
@@ -217,6 +217,19 @@ const POLICY_ICONS = [
 ];
 
 const SECTION_DEFS: Record<SectionType, SectionDef> = {
+  booths: { label: 'Booth Rentals', icon: Home, color: '#B45309', fields: [
+    { k: 'title',          t: 'text',     l: 'Section headline',              d: 'Rent a Chair at Our Studio' },
+    { k: 'subtitle',       t: 'textarea', l: 'Subheadline',                   d: 'Beautiful, fully-equipped stations for independent beauty professionals.' },
+    { k: 'showMonthly',    t: 'toggle',   l: 'Show monthly lease listings',   d: true },
+    { k: 'showDaily',      t: 'toggle',   l: 'Show hourly/daily rentals',     d: true },
+    { k: 'applyCtaText',   t: 'text',     l: 'Monthly CTA label',             d: 'Apply Now' },
+    { k: 'reserveCtaText', t: 'text',     l: 'Hourly/Daily CTA label',        d: 'Reserve a Day' },
+    { k: 'showAmenities',  t: 'toggle',   l: 'Show amenity chips',            d: true },
+    { k: 'emptyMessage',   t: 'text',     l: 'Message when nothing is vacant', d: 'All stations are currently occupied — join the waitlist below.' },
+  ], layouts: [
+    { id: 'grid',     label: 'Listing Grid', preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
+    { id: 'showcase', label: 'Showcase',     preview: '[   🏠 featured   ]' },
+  ]},
   nav: { label: 'Navigation', icon: Navigation, color: '#3B6D11', fields: [
     { k: 'logoUrl',           t: 'image',  l: 'Logo (primary)',                      d: '' },
     { k: 'logoDarkUrl',       t: 'image',  l: 'Logo — dark variant (on light navs)', d: '' },
