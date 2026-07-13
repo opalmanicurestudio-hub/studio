@@ -2937,6 +2937,11 @@ function SwapApproveCard({ req, staffMember, tenantId, firestore, allStaff, allS
 // bugs. Everything here keys off staffMember.id (the PIN-verified
 // identity), never the shared Firebase login.
 function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
+  // v44 — audience scoping. Renters: no client threads (their clients are
+  // their business, studio escalations are ours), DMs only with
+  // owner/admin (decision: renters message management, not each other or
+  // staff), and Building Announcements instead of Team Announcements.
+  const isRenter = staffMember.role === 'renter';
   const { toast } = useToast();
   const { user: authUser } = useUser();
   const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
@@ -2950,7 +2955,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
       .catch(() => setTenantDocData({}));
   }, [firestore, tenantId]);
   const showFinancials = canSeeFinancials(tenantDocData, staffMember.role);
-  const [section, setSection] = useState<'clients'|'team'>('team');
+  const [section, setSection] = useState<'clients'|'team'>('team'); // renters never leave 'team'
   const [openId, setOpenId] = useState<string|null>(null); // staffThread id
   const [openClientId, setOpenClientId] = useState<string|null>(null); // smsThread id
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -3075,7 +3080,12 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 
   const notifyRecipients = async (threadId: string, preview: string) => {
     const t = threads.find((x:any)=>x.id===threadId);
-    const recipients = (t?.type==='team' ? (allStaff||[]).map((s:any)=>s.id) : (t?.participantIds||[])).filter((id:string)=>id!==staffMember.id);
+    const audiencePool = t?.type==='team'
+      ? (allStaff||[]).filter((s:any) => threadId==='building_broadcast'
+          ? (s.isRenter || s.role==='owner' || s.role==='admin')
+          : !s.isRenter).map((s:any)=>s.id)
+      : (t?.participantIds||[]);
+    const recipients = audiencePool.filter((id:string)=>id!==staffMember.id);
     for (const rid of recipients) {
       const r = (allStaff||[]).find((s:any)=>s.id===rid);
       const mode = r?.notificationAvailability?.mode || 'business_hours_only';
@@ -3280,13 +3290,19 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   };
 
   const openTeamBroadcast = async () => {
-    await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, 'team_broadcast'),
-      { id:'team_broadcast', tenantId, type:'team', participantIds:(allStaff||[]).map((s:any)=>s.id) }, { merge:true });
-    setOpenId('team_broadcast');
+    const bid = isRenter ? 'building_broadcast' : 'team_broadcast';
+    const members = (allStaff||[])
+      .filter((s:any) => isRenter
+        ? (s.isRenter || s.role === 'owner' || s.role === 'admin')
+        : !s.isRenter)
+      .map((s:any)=>s.id);
+    await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, bid),
+      { id: bid, tenantId, type:'team', audience: isRenter ? 'renters' : 'staff', participantIds: members }, { merge:true });
+    setOpenId(bid);
   };
 
   const threadName = (t: any) => {
-    if (t.type==='team') return 'Team Announcements';
+    if (t.type==='team') return t.id==='building_broadcast' ? 'Building Announcements' : 'Team Announcements';
     if (t.type==='group') return t.groupName || t.participantIds.filter((id:string)=>id!==staffMember.id).map((id:string)=>(allStaff||[]).find((s:any)=>s.id===id)?.name?.split(' ')[0]).filter(Boolean).join(', ');
     const other = (allStaff||[]).find((s:any)=>s.id===t.participantIds.find((id:string)=>id!==staffMember.id));
     return other?.name || 'Unknown';
@@ -3470,16 +3486,18 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   // ── List view ─────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 p-1 bg-muted/30 rounded-2xl border-2 w-fit">
-        <button onClick={()=>setSection('team')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='team' ? 'bg-white text-indigo-600 shadow-sm' : 'text-muted-foreground')}>Team</button>
-        <button onClick={()=>setSection('clients')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='clients' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground')}>Clients</button>
-      </div>
+      {!isRenter && (
+        <div className="flex gap-2 p-1 bg-muted/30 rounded-2xl border-2 w-fit">
+          <button onClick={()=>setSection('team')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='team' ? 'bg-white text-indigo-600 shadow-sm' : 'text-muted-foreground')}>Team</button>
+          <button onClick={()=>setSection('clients')} className={cn('h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest', section==='clients' ? 'bg-white text-primary shadow-sm' : 'text-muted-foreground')}>Clients</button>
+        </div>
+      )}
 
       {section==='team' ? (<>
         <button onClick={openTeamBroadcast} className="w-full text-left rounded-2xl border-2 border-indigo-200 bg-indigo-50/60 p-4 flex items-center gap-3">
           <div className="p-2.5 bg-indigo-600 rounded-xl shrink-0"><Users className="w-4 h-4 text-white"/></div>
           <div className="flex-1 min-w-0">
-            <p className="font-black uppercase text-xs">Team Announcements</p>
+            <p className="font-black uppercase text-xs">{isRenter ? 'Building Announcements' : 'Team Announcements'}</p>
             <p className="text-[11px] text-slate-500 truncate">{threads.find((t:any)=>t.type==='team')?.lastMessagePreview || 'Message everyone at once'}</p>
           </div>
           {threads.find((t:any)=>t.type==='team' && unread(t)) && <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 shrink-0"/>}
@@ -3492,7 +3510,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 
         {pickerOpen && (
           <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
-            {(allStaff||[]).filter((s:any)=>s.id!==staffMember.id).map((s:any) => {
+            {(allStaff||[]).filter((s:any)=>s.id!==staffMember.id && (isRenter ? (s.role==='owner'||s.role==='admin') : !s.isRenter)).map((s:any) => {
               const checked = selectedIds.includes(s.id);
               return (
                 <button key={s.id} onClick={()=>setSelectedIds(ids=>checked?ids.filter(i=>i!==s.id):[...ids,s.id])} className={cn('w-full flex items-center gap-2.5 p-2 rounded-xl border-2 text-left', checked ? 'border-indigo-400 bg-indigo-50' : 'border-transparent')}>
@@ -3542,7 +3560,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'>('today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'>(staffMember.role === 'renter' ? 'messages' : 'today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -3876,7 +3894,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     finally { setIsSubmitting(false); }
   };
 
-  const TABS = [
+  // v44 — SPRINT 1: one portal, role-scoped tabs. Renters (independent
+  // businesses inside the building) see Messages + Inbox only — no
+  // schedules, earnings, or studio requests. Same link, same PIN flow,
+  // different world once inside.
+  const isRenter = staffMember.role === 'renter';
+  const ALL_TABS = [
     { id:'today',    label:'Today',    icon:CalendarDays },
     { id:'schedule', label:'Schedule', icon:Calendar },
     { id:'earnings', label:'Earnings', icon:DollarSign },
@@ -3884,6 +3907,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge + teamBadge },
     { id:'inbox',    label:'Inbox',    icon:Bell, badge:unreadCount },
   ] as const;
+  const TABS = isRenter ? ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox') : ALL_TABS;
 
   const NOTIF_ICONS: Record<string,any> = {
     timesheet_approved: <CheckCircle2 className="w-4 h-4 text-green-500" />,
