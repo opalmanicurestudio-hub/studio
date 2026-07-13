@@ -10,12 +10,13 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { MessageSquare, Clock, User, Tag, Sparkles, Users, Plus } from 'lucide-react';
+import { MessageSquare, Clock, User, Tag, Sparkles, Users, Plus, Bot, Phone } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
-import { collection, doc, setDoc, query, orderBy, where } from 'firebase/firestore';
+import { collection, doc, setDoc, query, orderBy, where, limit } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { registerPushForStaff } from '@/lib/push-notifications';
@@ -109,6 +110,23 @@ export default function MessagesPage() {
   const teamThread = useMemo(() => (myStaffThreads || []).find((t: any) => t.type === 'team'), [myStaffThreads]);
   const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== activeStaffId), [staff, activeStaffId]);
 
+  // v37 — "Happening Now" data. Live calls read voiceCalls DEFENSIVELY:
+  // the exact schema the Retell webhook writes isn't verified from here,
+  // so this matches common shapes (status flags or a missing endedAt
+  // within the last 10 minutes) and simply renders nothing if no doc
+  // matches — never an error. Send the Retell webhook route to wire this
+  // precisely.
+  const voiceCallsQuery = useMemoFirebase(
+    () => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/voiceCalls`), orderBy('createdAt', 'desc'), limit(8)),
+    [firestore, tenantId],
+  );
+  const { data: recentCalls } = useCollection<any>(voiceCallsQuery);
+  const liveCalls = useMemo(() => (recentCalls || []).filter((c: any) => {
+    const active = ['ongoing', 'in_progress', 'in-progress', 'registered', 'active'].includes(c.status);
+    const recent = c.createdAt && (Date.now() - new Date(c.createdAt).getTime()) < 10 * 60 * 1000;
+    return active || (recent && !c.endedAt && !c.ended_at && !c.disconnectedAt);
+  }), [recentCalls]);
+
   const isThreadUnread = (t: any) =>
     !!t.lastMessageBy && t.lastMessageBy !== activeStaffId && !(t.readBy || []).includes(activeStaffId);
   const teamUnreadCount = (myStaffThreads || []).filter(isThreadUnread).length;
@@ -132,22 +150,23 @@ export default function MessagesPage() {
   // time); two or more = a real group thread with its own id and optional
   // name. This is the "certain members vs the whole team" middle ground —
   // the team broadcast stays for announcements; groups are for a subset.
-  const handleStartConversation = async () => {
-    if (!firestore || !tenantId || !activeStaffId || selectedIds.length === 0) return;
+  const handleStartConversation = async (overrideIds?: string[]) => {
+    const ids = overrideIds ?? selectedIds;
+    if (!firestore || !tenantId || !activeStaffId || ids.length === 0) return;
     const now = new Date().toISOString();
     let threadId: string;
-    if (selectedIds.length === 1) {
-      threadId = dmThreadId(activeStaffId, selectedIds[0]);
+    if (ids.length === 1) {
+      threadId = dmThreadId(activeStaffId, ids[0]);
       await setDoc(
         doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-        { id: threadId, tenantId, type: 'dm', participantIds: [activeStaffId, selectedIds[0]], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
+        { id: threadId, tenantId, type: 'dm', participantIds: [activeStaffId, ids[0]], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
         { merge: true },
       );
     } else {
       threadId = `group_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await setDoc(
         doc(firestore, `tenants/${tenantId}/staffThreads`, threadId),
-        { id: threadId, tenantId, type: 'group', groupName: groupName.trim() || null, participantIds: [activeStaffId, ...selectedIds], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
+        { id: threadId, tenantId, type: 'group', groupName: groupName.trim() || null, participantIds: [activeStaffId, ...ids], createdAt: now, lastMessageAt: now, readBy: [activeStaffId] },
         { merge: true },
       );
     }
@@ -183,6 +202,68 @@ export default function MessagesPage() {
     <div className="min-h-screen bg-muted/10">
       <AppHeader title="Messages" />
       <main className="p-4 md:p-8 max-w-4xl mx-auto space-y-6">
+
+        {/* v37 — Happening Now: the command-center strip. Live AI calls
+            (defensive schema match) + the whole team's presence at a
+            glance, so opening Messages answers "what's going on right
+            now" before a single thread is tapped. */}
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="rounded-[2rem] bg-slate-900 p-5 space-y-4 shadow-xl">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+            </span>
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/50">Happening Now</p>
+          </div>
+
+          {liveCalls.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {liveCalls.map((call: any) => (
+                <motion.div key={call.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="shrink-0 flex items-center gap-3 rounded-2xl border-2 border-green-500/30 bg-green-500/10 px-4 py-2.5">
+                  <div className="relative">
+                    <div className="p-2 bg-green-500 rounded-xl"><Bot className="w-4 h-4 text-white" /></div>
+                    <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-400" />
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase text-white truncate">{call.callerName || call.from_number || call.fromNumber || 'Caller'}</p>
+                    <p className="text-[9px] font-bold uppercase text-green-300/80 flex items-center gap-1"><Phone className="w-2.5 h-2.5" /> AI on the line{call.intent ? ` · ${call.intent}` : ''}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+            {(staff || []).map((s: any, i: number) => {
+              const mode = s.notificationAvailability?.mode || 'business_hours_only';
+              const away = mode === 'away' && (!s.notificationAvailability?.awayUntil || new Date(s.notificationAvailability.awayUntil) > new Date());
+              const dotColor = away ? 'bg-slate-500' : mode === 'always' ? 'bg-green-400' : 'bg-amber-400';
+              return (
+                <motion.button
+                  key={s.id}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  onClick={() => { if (s.id !== activeStaffId) handleStartConversation([s.id]); }}
+                  className="shrink-0 flex flex-col items-center gap-1.5 group"
+                  title={away ? 'Away' : mode === 'always' ? 'Available' : 'Business hours'}
+                >
+                  <div className="relative">
+                    <Avatar className={cn('h-11 w-11 rounded-2xl border-2 transition-all group-hover:scale-105', away ? 'border-white/10 opacity-50' : 'border-white/20')}>
+                      <AvatarImage src={s.avatarUrl} className="object-cover" />
+                      <AvatarFallback className="font-black text-xs bg-indigo-500/30 text-indigo-200">{(s.name || '?').charAt(0)}</AvatarFallback>
+                    </Avatar>
+                    <span className={cn('absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-900', dotColor)} />
+                  </div>
+                  <p className={cn('text-[8px] font-black uppercase tracking-wider', away ? 'text-white/30' : 'text-white/60')}>{(s.name || '').split(' ')[0]}</p>
+                </motion.button>
+              );
+            })}
+          </div>
+        </motion.div>
 
         {/* Section toggle — the one thing that replaces having two pages */}
         <div className="flex gap-2 p-1.5 bg-muted/30 rounded-2xl border-2 w-fit">
