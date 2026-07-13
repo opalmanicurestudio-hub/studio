@@ -945,6 +945,7 @@ export async function createRenter(
     phone: input.phone,
     businessName: input.businessName,
     specialty: input.specialty,
+    linkedStaffId: (input as any).linkedStaffId || null,
     notes: input.notes,
     status: 'prospective',
     stripeCustomerId: null,
