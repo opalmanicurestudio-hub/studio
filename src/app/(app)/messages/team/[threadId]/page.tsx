@@ -7,7 +7,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText, User, Pin, X } from 'lucide-react';
+import { ArrowLeft, Send, Loader, AlertCircle, Check, CheckCheck, Users, MoreHorizontal, Copy, Trash2, ImagePlus, Mic, Square, Paperclip, FileText, User, Pin, X, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { format, parseISO } from 'date-fns';
 import { useFirebase, useCollection, useDoc, useMemoFirebase, useUser } from '@/firebase';
@@ -126,8 +126,18 @@ export default function TeamThreadPage() {
     // Snapshot the essentials onto the message itself — rendering never
     // needs a join, and the card stays meaningful even if the client is
     // later renamed or removed. The composer text (if any) rides along as
-    // the note.
-    await handleSend({ clientId: cl.id, name: cl.name || 'Client', phone: cl.phone || '' });
+    // the note. Financials are DELIBERATELY excluded from the snapshot:
+    // message content is visible to everyone in the thread regardless of
+    // role, so "owes $X" here would leak straight past the privacy gate.
+    await handleSend({
+      clientId: cl.id,
+      name: cl.name || 'Client',
+      phone: cl.phone || '',
+      avatarUrl: cl.avatarUrl || null,
+      member: cl.subscription?.status === 'past_due' ? 'past_due' : (cl.subscription?.status === 'active' || cl.activeMembershipId) ? 'active' : null,
+      careFlag: !!(cl.medicalNotes || cl.allergyNotes || cl.sensoryNeeds),
+      lastVisit: cl.lastAppointment || null,
+    });
   };
 
   const handleDeleteMessage = async (msgId: string) => {
@@ -389,8 +399,14 @@ export default function TeamThreadPage() {
       // participantIds — membership was frozen at creation, so anyone
       // hired after the thread first existed would otherwise silently
       // never be notified.
+      // v44 — audience-correct broadcasts: team reaches employees (staff
+      // now includes mirrored renter docs, so exclude them), building
+      // reaches renters + management.
       const recipients = isTeamThread
-        ? (staff || []).map((s: any) => s.id).filter((id: string) => id !== activeStaffId)
+        ? (staff || []).filter((s: any) => threadId === 'building_broadcast'
+            ? (s.isRenter || s.role === 'owner' || s.role === 'admin')
+            : !s.isRenter)
+          .map((s: any) => s.id).filter((id: string) => id !== activeStaffId)
         : (thread?.participantIds || []).filter((id: string) => id !== activeStaffId);
       for (const recipientId of recipients) {
         const recipient = (staff || []).find((s: any) => s.id === recipientId);
@@ -429,7 +445,7 @@ export default function TeamThreadPage() {
 
   return (
     <div className="min-h-screen bg-muted/10 flex flex-col">
-      <AppHeader title={isTeamThread ? 'Team Announcements' : isGroupThread ? (groupTitle || 'Group') : (otherPerson?.name || 'Conversation')} />
+      <AppHeader title={isTeamThread ? (threadId === 'building_broadcast' ? 'Building Announcements' : 'Team Announcements') : isGroupThread ? (groupTitle || 'Group') : (otherPerson?.name || 'Conversation')} />
       <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full flex flex-col gap-4">
 
         <div className="flex items-center justify-between">
@@ -558,14 +574,42 @@ export default function TeamThreadPage() {
                             </a>
                           )}
                           {msg.clientRef && (
-                            <a href={`/clients/${msg.clientRef.clientId}`} className={cn('flex items-center gap-2.5 rounded-xl border-2 px-3 py-2.5 my-0.5', isMine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-indigo-50/60')}>
-                              <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', isMine ? 'bg-white/20' : 'bg-indigo-600')}>
-                                <User className="w-4 h-4 text-white" />
+                            <a
+                              href={`/clients/${msg.clientRef.clientId}`}
+                              className={cn(
+                                'block rounded-2xl border-2 px-3.5 py-3 my-0.5 transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.99]',
+                                isMine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-gradient-to-br from-indigo-50 to-white',
+                              )}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Avatar className={cn('h-10 w-10 rounded-xl border-2 shrink-0', isMine ? 'border-white/40' : 'border-indigo-200')}>
+                                  <AvatarImage src={msg.clientRef.avatarUrl} className="object-cover" />
+                                  <AvatarFallback className={cn('font-black text-xs', isMine ? 'bg-white/20 text-white' : 'bg-indigo-600 text-white')}>
+                                    {(msg.clientRef.name || '?').charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  <p className={cn('text-xs font-black uppercase truncate', isMine ? 'text-white' : 'text-slate-900')}>{msg.clientRef.name}</p>
+                                  <p className={cn('text-[10px] font-bold', isMine ? 'text-white/70' : 'text-slate-500')}>{msg.clientRef.phone || 'Client'}</p>
+                                </div>
+                                <ChevronRight className={cn('w-4 h-4 shrink-0', isMine ? 'text-white/60' : 'text-indigo-400')} />
                               </div>
-                              <div className="min-w-0">
-                                <p className={cn('text-xs font-black uppercase truncate', isMine ? 'text-white' : 'text-slate-900')}>{msg.clientRef.name}</p>
-                                <p className={cn('text-[10px] font-bold', isMine ? 'text-white/70' : 'text-slate-500')}>{msg.clientRef.phone || 'View profile'}</p>
-                              </div>
+                              {(msg.clientRef.member || msg.clientRef.careFlag || msg.clientRef.lastVisit) && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {msg.clientRef.member === 'active' && (
+                                    <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', isMine ? 'bg-emerald-400/20 text-emerald-200 border-emerald-300/30' : 'bg-emerald-100 text-emerald-700 border-emerald-300')}>Member</span>
+                                  )}
+                                  {msg.clientRef.member === 'past_due' && (
+                                    <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', isMine ? 'bg-red-400/20 text-red-200 border-red-300/30' : 'bg-red-100 text-red-700 border-red-300')}>Past due</span>
+                                  )}
+                                  {msg.clientRef.careFlag && (
+                                    <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', isMine ? 'bg-sky-400/20 text-sky-200 border-sky-300/30' : 'bg-sky-100 text-sky-700 border-sky-300')}>Care notes</span>
+                                  )}
+                                  {msg.clientRef.lastVisit && (
+                                    <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', isMine ? 'bg-white/10 text-white/60 border-white/20' : 'bg-slate-100 text-slate-500 border-slate-200')}>Last visit {format(parseISO(msg.clientRef.lastVisit), 'MMM d')}</span>
+                                  )}
+                                </div>
+                              )}
                             </a>
                           )}
                           {msg.body && <p>{renderBody(msg.body)}</p>}
