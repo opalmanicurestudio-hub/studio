@@ -108,7 +108,7 @@ export default function MessagesPage() {
     [myStaffThreads],
   );
   const teamThread = useMemo(() => (myStaffThreads || []).find((t: any) => t.type === 'team'), [myStaffThreads]);
-  const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== activeStaffId), [staff, activeStaffId]);
+  const otherStaff = useMemo(() => (staff || []).filter((s: any) => s.id !== activeStaffId && !s.isRenter), [staff, activeStaffId]);
 
   // v37 — "Happening Now" data. Live calls read voiceCalls DEFENSIVELY:
   // the exact schema the Retell webhook writes isn't verified from here,
@@ -190,7 +190,7 @@ export default function MessagesPage() {
         id: TEAM_THREAD_ID,
         tenantId,
         type: 'team',
-        participantIds: (staff || []).map((s: any) => s.id),
+        participantIds: (staff || []).filter((s: any) => !s.isRenter).map((s: any) => s.id),
         ...(teamThread ? {} : { createdAt: now, lastMessageAt: now, readBy: [] }),
       },
       { merge: true },
@@ -441,6 +441,32 @@ export default function MessagesPage() {
                 </CardContent>
               </Card>
             </button>
+            {isOwnerOrAdmin && (
+              <button
+                onClick={async () => {
+                  if (!firestore || !tenantId) return;
+                  const members = (staff || []).filter((s: any) => s.isRenter || s.role === 'owner' || s.role === 'admin').map((s: any) => s.id);
+                  await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, 'building_broadcast'),
+                    { id: 'building_broadcast', tenantId, type: 'team', audience: 'renters', participantIds: members }, { merge: true });
+                  router.push('/messages/team/building_broadcast');
+                }}
+                className="w-full text-left"
+              >
+                <Card className="border-4 border-amber-200 bg-amber-50/50 rounded-[2rem] shadow-sm hover:border-amber-300 transition-colors">
+                  <CardContent className="p-5 flex items-center gap-4">
+                    <div className="p-3 bg-amber-600 rounded-2xl shadow-lg shrink-0">
+                      <Users className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-black uppercase text-sm text-slate-900">Building Announcements</p>
+                      <p className="text-xs font-bold text-slate-500 truncate">
+                        {(myStaffThreads || []).find((t: any) => t.id === 'building_broadcast')?.lastMessagePreview || 'Reaches every booth renter'}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            )}
 
             <Card className="border-4 rounded-[2.5rem] shadow-sm overflow-hidden">
               <CardHeader className="p-6 border-b bg-muted/5 flex flex-row items-center justify-between">
