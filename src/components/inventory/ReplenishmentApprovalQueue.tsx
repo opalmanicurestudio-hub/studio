@@ -15,6 +15,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { useCurrentStaff } from '@/hooks/use-current-staff';
 import { type StaffReplenishmentRequest, type OverflowEvent, type Staff } from '@/lib/data';
 import {
   approveReplenishmentRequestTx,
@@ -185,16 +186,15 @@ const RequestRow = ({
 };
 
 export const ReplenishmentApprovalQueue = () => {
-  const { staffReplenishmentRequests, overflowEvents, staff, isLoading } = useInventory();
+  const { staffReplenishmentRequests, overflowEvents, isLoading: isInventoryLoading } = useInventory();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
   const [processingId, setProcessingId] = useState<string | null>(null);
 
-  // TODO: replace with your real current-user/session lookup for the acting manager.
-  // Placeholder assumes the first admin/owner in staff — swap for your actual auth context.
-  const currentManager = useMemo(() => staff.find(s => s.role === 'admin' || s.role === 'owner'), [staff]);
+  const { currentStaff, isLoading: isStaffLoading, isUnrecognized, isManager } = useCurrentStaff();
+  const isLoading = isInventoryLoading || isStaffLoading;
 
   const pendingRequests = useMemo(
     () => staffReplenishmentRequests.filter(r => r.status === 'pending').sort((a, b) => a.requestedAt.localeCompare(b.requestedAt)),
@@ -202,10 +202,10 @@ export const ReplenishmentApprovalQueue = () => {
   );
 
   const handleApprove = async (request: StaffReplenishmentRequest) => {
-    if (!firestore || !tenantId || !currentManager) return;
+    if (!firestore || !tenantId || !currentStaff) return;
     setProcessingId(request.id);
     const unresolved = overflowEvents.filter(e => e.staffId === request.staffId && !e.resolved);
-    const result = await approveReplenishmentRequestTx(firestore, tenantId, request.id, currentManager, unresolved);
+    const result = await approveReplenishmentRequestTx(firestore, tenantId, request.id, currentStaff, unresolved);
     setProcessingId(null);
     if (result.success) {
       toast({ title: "Replenishment Approved", description: `${request.itemName} sent to ${request.staffName}'s station.` });
@@ -215,9 +215,9 @@ export const ReplenishmentApprovalQueue = () => {
   };
 
   const handleDeny = async (request: StaffReplenishmentRequest, reason: string) => {
-    if (!firestore || !tenantId || !currentManager) return;
+    if (!firestore || !tenantId || !currentStaff) return;
     setProcessingId(request.id);
-    const result = await denyReplenishmentRequestTx(firestore, tenantId, request, currentManager, reason);
+    const result = await denyReplenishmentRequestTx(firestore, tenantId, request, currentStaff, reason);
     setProcessingId(null);
     if (result.success) {
       toast({ title: "Request Denied" });
@@ -227,14 +227,52 @@ export const ReplenishmentApprovalQueue = () => {
   };
 
   const handleResolveOverflow = async (event: OverflowEvent, note: string) => {
-    if (!firestore || !tenantId || !currentManager) return;
-    const result = await resolveOverflowEventTx(firestore, tenantId, event, currentManager, note);
+    if (!firestore || !tenantId || !currentStaff) return;
+    const result = await resolveOverflowEventTx(firestore, tenantId, event, currentStaff, note);
     if (result.success) {
       toast({ title: "Overflow Flag Resolved" });
     } else {
       toast({ variant: 'destructive', title: "Failed to Resolve", description: result.error });
     }
   };
+
+  if (isLoading) {
+    return (
+      <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+        <CardContent className="flex flex-col items-center justify-center p-16 gap-4">
+          <Loader className="animate-spin h-8 w-8 text-primary" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isUnrecognized) {
+    return (
+      <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+        <CardContent className="text-center py-16 opacity-60 flex flex-col items-center gap-4">
+          <ShieldAlert className="w-10 h-10 text-destructive" />
+          <p className="font-black uppercase tracking-widest text-sm">Account Not Linked to Staff Record</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest max-w-xs">
+            Your login isn't matched to a Staff document for this tenant. Ask an owner to check your staff record's ID.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!isManager) {
+    return (
+      <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
+        <CardContent className="text-center py-16 opacity-40 flex flex-col items-center gap-4">
+          <ShieldAlert className="w-10 h-10" />
+          <p className="font-black uppercase tracking-widest text-sm">Manager Access Required</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest max-w-xs">
+            Only admin or owner accounts can approve replenishment requests.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white">
@@ -248,11 +286,7 @@ export const ReplenishmentApprovalQueue = () => {
         </p>
       </CardHeader>
       <CardContent className="p-6 md:p-8">
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center p-16 gap-4">
-            <Loader className="animate-spin h-8 w-8 text-primary" />
-          </div>
-        ) : pendingRequests.length === 0 ? (
+        {pendingRequests.length === 0 ? (
           <div className="text-center py-16 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
             <Check className="w-12 h-12" />
             <p className="font-black uppercase tracking-widest text-sm">Queue Clear</p>
@@ -264,7 +298,7 @@ export const ReplenishmentApprovalQueue = () => {
                 key={request.id}
                 request={request}
                 unresolvedOverflows={overflowEvents.filter(e => e.staffId === request.staffId && !e.resolved)}
-                currentManager={currentManager as Staff}
+                currentManager={currentStaff as Staff}
                 onApprove={handleApprove}
                 onDeny={handleDeny}
                 onResolveOverflow={handleResolveOverflow}
