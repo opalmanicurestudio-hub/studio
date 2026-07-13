@@ -83,6 +83,7 @@ export function BoothListingsSection({
       await setDoc(appRef, {
         id: appRef.id, tenantId, createdAt: now, status: 'new',
         boothId: applyFor.id, boothName: applyFor.name || 'Booth',
+        locationId: applyFor.locationId || null,
         rentalType: isLease(applyFor) ? 'lease' : 'day_rental',
         name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
         specialty: form.specialty.trim(), timing: form.timing.trim(), message: form.message.trim(),
