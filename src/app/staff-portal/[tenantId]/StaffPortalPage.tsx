@@ -3116,7 +3116,14 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 
   const shareClientCard = async (cl: any) => {
     setClPickerOpen(false); setClSearch('');
-    await sendTeamText({ clientId: cl.id, name: cl.name || 'Client', phone: cl.phone || '' });
+    // Financials deliberately excluded — thread content bypasses role gates.
+    await sendTeamText({
+      clientId: cl.id, name: cl.name || 'Client', phone: cl.phone || '',
+      avatarUrl: cl.avatarUrl || null,
+      member: cl.subscription?.status === 'past_due' ? 'past_due' : (cl.subscription?.status === 'active' || cl.activeMembershipId) ? 'active' : null,
+      careFlag: !!(cl.medicalNotes || cl.allergyNotes || cl.sensoryNeeds),
+      lastVisit: cl.lastAppointment || null,
+    });
   };
 
   const uploadAndSend = async (blob: Blob, fileName: string, kind: 'image'|'audio'|'file') => {
@@ -3343,12 +3350,29 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
                       {m.audioUrl && <audio controls src={m.audioUrl} className="max-w-full h-10 my-0.5"/>}
                       {m.fileUrl && <a href={m.fileUrl} target="_blank" rel="noreferrer" className={cn('flex items-center gap-2 rounded-xl border-2 px-3 py-2 my-0.5 text-xs font-bold', mine ? 'border-white/30 text-white' : 'border-slate-200 text-slate-700')}><FileText className="w-4 h-4 shrink-0"/><span className="truncate">{m.fileName||'Attachment'}</span></a>}
                       {m.clientRef && (
-                        <div className={cn('flex items-center gap-2.5 rounded-xl border-2 px-3 py-2.5 my-0.5', mine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-indigo-50/60')}>
-                          <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', mine ? 'bg-white/20' : 'bg-indigo-600')}><User className="w-4 h-4 text-white"/></div>
-                          <div className="min-w-0">
-                            <p className={cn('text-xs font-black uppercase truncate', mine ? 'text-white' : 'text-slate-900')}>{m.clientRef.name}</p>
-                            {m.clientRef.phone && <a href={`tel:${m.clientRef.phone}`} className={cn('text-[10px] font-bold underline', mine ? 'text-white/80' : 'text-indigo-600')}>{m.clientRef.phone}</a>}
+                        <div className={cn('rounded-2xl border-2 px-3 py-2.5 my-0.5 active:scale-[0.98] transition-transform', mine ? 'border-white/30 bg-white/10' : 'border-indigo-200 bg-gradient-to-br from-indigo-50 to-white')}>
+                          <div className="flex items-center gap-2.5">
+                            <div className={cn('w-9 h-9 rounded-xl overflow-hidden border-2 flex items-center justify-center shrink-0 font-black text-xs', mine ? 'border-white/40 bg-white/20 text-white' : 'border-indigo-200 bg-indigo-600 text-white')}>
+                              {m.clientRef.avatarUrl ? <img src={m.clientRef.avatarUrl} alt="" className="w-full h-full object-cover" /> : (m.clientRef.name || '?').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className={cn('text-xs font-black uppercase truncate', mine ? 'text-white' : 'text-slate-900')}>{m.clientRef.name}</p>
+                              {m.clientRef.phone && <a href={`tel:${m.clientRef.phone}`} className={cn('text-[10px] font-bold underline', mine ? 'text-white/80' : 'text-indigo-600')}>{m.clientRef.phone}</a>}
+                            </div>
+                            {m.clientRef.phone && (
+                              <a href={`tel:${m.clientRef.phone}`} className={cn('h-8 w-8 rounded-lg border-2 flex items-center justify-center shrink-0', mine ? 'border-white/30 text-white' : 'border-emerald-300 bg-emerald-50 text-emerald-600')}>
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
+                            )}
                           </div>
+                          {(m.clientRef.member || m.clientRef.careFlag || m.clientRef.lastVisit) && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {m.clientRef.member === 'active' && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-emerald-400/20 text-emerald-200 border-emerald-300/30' : 'bg-emerald-100 text-emerald-700 border-emerald-300')}>Member</span>}
+                              {m.clientRef.member === 'past_due' && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-red-400/20 text-red-200 border-red-300/30' : 'bg-red-100 text-red-700 border-red-300')}>Past due</span>}
+                              {m.clientRef.careFlag && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-sky-400/20 text-sky-200 border-sky-300/30' : 'bg-sky-100 text-sky-700 border-sky-300')}>Care notes</span>}
+                              {m.clientRef.lastVisit && <span className={cn('text-[7px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 border', mine ? 'bg-white/10 text-white/60 border-white/20' : 'bg-slate-100 text-slate-500 border-slate-200')}>Last {format(parseISO(m.clientRef.lastVisit), 'MMM d')}</span>}
+                            </div>
+                          )}
                         </div>
                       )}
                       {m.body && <p>{renderBody(m.body)}</p>}
