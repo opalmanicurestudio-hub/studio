@@ -877,6 +877,7 @@ export async function createBooth(
     status: 'vacant',
     baseRentCents: input.baseRentCents,
     baseRentFrequency: input.baseRentFrequency,
+    photoUrls: (input as any).photoUrls || [],
     amenities: input.amenities,
     notes: input.notes,
     currentLeaseId: null,
