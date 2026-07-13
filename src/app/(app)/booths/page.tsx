@@ -169,6 +169,7 @@ import {
   useOccupyingLeaseByBooth,
 } from '@/lib/booth-rental-hooks';
 import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
+import { ImageUpload } from '@/components/shared/ImageUpload';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
 
@@ -249,6 +250,7 @@ interface BoothFormState {
   baseRentFrequency: RentFrequency;
   status: BoothStatus;
   amenities: string[];
+  photoUrls: string[];
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -259,6 +261,7 @@ const EMPTY_FORM: BoothFormState = {
   baseRentFrequency: 'weekly',
   status: 'vacant',
   amenities: [],
+  photoUrls: [],
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -1726,6 +1729,7 @@ export default function BoothsPage() {
       baseRentFrequency: booth.baseRentFrequency,
       status: booth.status,
       amenities: booth.amenities ?? [],
+      photoUrls: (booth as any).photoUrls ?? [],
     });
     setDialogOpen(true);
   };
@@ -1755,6 +1759,7 @@ export default function BoothsPage() {
             baseRentFrequency: form.baseRentFrequency,
             status: form.status,
             amenities: form.amenities,
+            photoUrls: form.photoUrls,
             updatedAt: now,
           }
         );
@@ -1772,6 +1777,7 @@ export default function BoothsPage() {
           baseRentCents: Math.round(toNumber(form.baseRentDollars) * 100),
           baseRentFrequency: form.baseRentFrequency,
           amenities: form.amenities,
+          photoUrls: form.photoUrls,
         });
       }
       setDialogOpen(false);
@@ -2605,6 +2611,25 @@ export default function BoothsPage() {
                     </Badge>
                   );
                 })}
+              </div>
+
+              {/* v47 — listing photos. Shared ImageUpload pipeline
+                  (Storage-backed); first photo is the listing hero. */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Listing photos</p>
+                {form.photoUrls.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {form.photoUrls.map((u, i) => (
+                      <div key={u} className="relative w-16 h-16 rounded-xl overflow-hidden border-2">
+                        <img src={u} alt="" className="w-full h-full object-cover" />
+                        {i === 0 && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[7px] font-black uppercase text-center">Hero</span>}
+                        <button type="button" onClick={() => setForm(prev => ({ ...prev, photoUrls: prev.photoUrls.filter(x => x !== u) }))} className="absolute top-0 right-0 bg-black/60 text-white w-4 h-4 text-[9px] leading-none">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
+                  onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
               </div>
             </div>
 
