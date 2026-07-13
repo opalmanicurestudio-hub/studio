@@ -14,6 +14,7 @@ import { collection, doc, query, orderBy, setDoc, arrayUnion, arrayRemove, getDo
 import { useTenant } from '@/context/TenantContext';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { canSeeFinancials } from '@/lib/privacy';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -27,12 +28,10 @@ export default function MessageThreadPage() {
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
   const { selectedTenant, role } = useTenant();
-  // v41 — financial data (balance owed, lifetime value) is gated to
-  // owner/admin. UI-level gating: real workflow privacy, not
-  // cryptographic security — see the shared-login ceiling notes in
-  // staff-identity.ts. Server enforcement arrives with the rules
-  // catch-all retirement project.
-  const canSeeFinancials = role === 'owner' || role === 'admin';
+  // v42 — visibility now reads through the single source of truth
+  // (lib/privacy.ts + tenant.staffPrivacy, owner-configured in Settings).
+  // No more hard-coded role checks scattered across surfaces.
+  const showFinancials = canSeeFinancials(selectedTenant, role);
   const { staff } = useInventory();
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
@@ -208,12 +207,12 @@ export default function MessageThreadPage() {
                 {guestCtx.visitCount > 0 && (
                   <span className="text-[9px] font-bold uppercase text-white/50">{guestCtx.visitCount} visit{guestCtx.visitCount === 1 ? '' : 's'}</span>
                 )}
-                {canSeeFinancials && guestCtx.lifetimeValue > 0 && (
+                {showFinancials && guestCtx.lifetimeValue > 0 && (
                   <span className="text-[9px] font-bold uppercase text-white/50">${Math.round(guestCtx.lifetimeValue / 100).toLocaleString()} lifetime</span>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                {canSeeFinancials && guestCtx.owes > 0 && (
+                {showFinancials && guestCtx.owes > 0 && (
                   <span className="text-[8px] font-black uppercase tracking-widest bg-red-500/30 text-red-200 border border-red-400/40 rounded-full px-2 py-0.5">Owes ${guestCtx.owes.toFixed(2)}</span>
                 )}
                 {guestCtx.packageSessions > 0 && (
