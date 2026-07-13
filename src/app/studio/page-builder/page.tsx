@@ -218,17 +218,20 @@ const POLICY_ICONS = [
 
 const SECTION_DEFS: Record<SectionType, SectionDef> = {
   booths: { label: 'Booth Rentals', icon: Home, color: '#B45309', fields: [
-    { k: 'title',          t: 'text',     l: 'Section headline',              d: 'Rent a Chair at Our Studio' },
-    { k: 'subtitle',       t: 'textarea', l: 'Subheadline',                   d: 'Beautiful, fully-equipped stations for independent beauty professionals.' },
+    { k: 'title',          t: 'text',     l: 'Section headline',              d: 'Space Available' },
+    { k: 'subtitle',       t: 'textarea', l: 'Subheadline',                   d: 'Fully-equipped private stations for independent professionals.' },
     { k: 'showMonthly',    t: 'toggle',   l: 'Show monthly lease listings',   d: true },
     { k: 'showDaily',      t: 'toggle',   l: 'Show hourly/daily rentals',     d: true },
     { k: 'applyCtaText',   t: 'text',     l: 'Monthly CTA label',             d: 'Apply Now' },
     { k: 'reserveCtaText', t: 'text',     l: 'Hourly/Daily CTA label',        d: 'Reserve a Day' },
     { k: 'showAmenities',  t: 'toggle',   l: 'Show amenity chips',            d: true },
-    { k: 'emptyMessage',   t: 'text',     l: 'Message when nothing is vacant', d: 'All stations are currently occupied — join the waitlist below.' },
+    { k: 'emptyMessage',   t: 'text',     l: 'Message when nothing is vacant', d: 'All spaces are currently occupied — check back soon.' },
+    { k: 'nicheOptions',   t: 'tag-list', l: 'Applicant niches (prefilled options)', d: ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'] },
+    { k: 'requiredDocs',   t: 'tag-list', l: 'Required application documents (e.g. License, Insurance)', d: [] },
   ], layouts: [
-    { id: 'grid',     label: 'Listing Grid', preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
-    { id: 'showcase', label: 'Showcase',     preview: '[   🏠 featured   ]' },
+    { id: 'grid',     label: 'Listing Grid',   preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
+    { id: 'showcase', label: 'Magazine',       preview: '[ 📷 | featured  ]' },
+    { id: 'luxe',     label: 'Luxe Editorial', preview: '[  full-bleed 📷 ]' },
   ]},
   nav: { label: 'Navigation', icon: Navigation, color: '#3B6D11', fields: [
     { k: 'logoUrl',           t: 'image',  l: 'Logo (primary)',                      d: '' },
