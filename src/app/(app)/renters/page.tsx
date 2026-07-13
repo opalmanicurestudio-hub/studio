@@ -54,12 +54,15 @@ export const dynamic = 'force-dynamic';
  * data-layer rewrite, not a redesign.
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import {
   doc,
   updateDoc,
   setDoc,
+  collection,
+  query,
+  onSnapshot,
 } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFirebase } from '@/firebase';
@@ -267,6 +270,75 @@ export default function RentersPage() {
   // ['active','on_leave','pending_signature']) with the canonical
   // definition shared across all pages.
   const occupyingLeaseByRenter = useOccupyingLeaseByRenter(leases.data);
+
+  // ── v45 — WEBSITE APPLICATION PIPELINE ─────────────────────────────────
+  // Applications from the public booth-listings section land HERE, live.
+  // Lifecycle: new → in_review (you've contacted them) → approved |
+  // declined. Records are never deleted — an audit trail of who applied
+  // and what you decided is worth keeping.
+  const [applications, setApplications] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'boothApplications')), (snap) => {
+      setApplications(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+
+  const pendingApps = useMemo(() =>
+    applications
+      .filter(a => (a.status === 'new' || a.status === 'in_review')
+        && (!a.locationId || a.locationId === selectedLocationId))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [applications, selectedLocationId]);
+  const processedCount = useMemo(() =>
+    applications.filter(a => a.status === 'approved' || a.status === 'declined').length,
+    [applications]);
+
+  const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
+  const setAppStatus = async (app: any, status: string, extra: any = {}) => {
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', app.id), { status, decidedAt: new Date().toISOString(), ...extra }).catch(() => {});
+  };
+
+  const approveApplication = async (app: any) => {
+    if (decidingAppId) return;
+    setDecidingAppId(app.id);
+    try {
+      if (app.rentalType === 'lease') {
+        // Approval accepts the PERSON — the renter record spawns through
+        // the same canonical createRenter() the manual dialog uses, so
+        // locationId + portal-identity fields are handled identically.
+        // Booth assignment deliberately stays with the existing lease
+        // flow: the booth they applied for may have been taken while the
+        // application sat, and the lease UI already handles conflicts.
+        const parts = (app.name || '').trim().split(' ');
+        const firstName = parts[0] || 'New';
+        const lastName = parts.slice(1).join(' ') || 'Renter';
+        await createRenter(firestore, {
+          tenantId,
+          locationId: app.locationId || selectedLocationId,
+          firstName,
+          lastName,
+          email: app.email || '',
+          phone: app.phone || undefined,
+          specialty: app.specialty || undefined,
+          notes: `Applied via website for ${app.boothName || 'a booth'}${app.timing ? ` · timing: ${app.timing}` : ''}${app.message ? ` · "${app.message}"` : ''}`,
+        });
+        await setAppStatus(app, 'approved');
+        toast({ title: 'Approved — renter created', description: `${firstName} is in your renters list. Send their portal invite from the card, and assign their booth from the Booths page.` });
+      } else {
+        // Day/hourly rentals are transactional — no renter record. You
+        // reach out to arrange the date (instant pay-and-book is the next
+        // sprint on this pipeline).
+        await setAppStatus(app, 'approved');
+        toast({ title: 'Day rental approved', description: `Reach out to ${app.name} to lock in dates — their contact is on the card.` });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not approve', description: 'Check required fields (email may be missing) and try again.' });
+    } finally {
+      setDecidingAppId(null);
+    }
+  };
 
   const [renterDialogOpen, setRenterDialogOpen] = useState(false);
   const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
@@ -609,6 +681,53 @@ export default function RentersPage() {
             <Button onClick={openCreateRenter}><Plus className="h-4 w-4 mr-2" />Add your first renter</Button>
           </CardContent>
         </Card>
+      )}
+
+      {pendingApps.length > 0 && (
+        <div className="mb-8 space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-black uppercase tracking-widest text-slate-900">Applications</h2>
+            <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">{pendingApps.length}</span>
+            {processedCount > 0 && <span className="text-[10px] font-bold text-muted-foreground uppercase">· {processedCount} processed</span>}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {pendingApps.map((app) => (
+              <div key={app.id} className={`rounded-2xl border-2 p-4 space-y-3 animate-in fade-in duration-300 ${app.status === 'in_review' ? 'border-sky-200 bg-sky-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-black text-sm uppercase truncate">{app.name}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                      {app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'} · {app.boothName || 'Any booth'}
+                      {app.specialty ? ` · ${app.specialty}` : ''}
+                    </p>
+                  </div>
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>
+                    {app.status === 'in_review' ? 'Contacted' : 'New'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-600">
+                  {app.phone && <a href={`tel:${app.phone}`} className="underline underline-offset-2 text-indigo-600">{app.phone}</a>}
+                  {app.email && <a href={`mailto:${app.email}`} className="underline underline-offset-2 text-indigo-600 truncate">{app.email}</a>}
+                  {app.timing && <span className="text-slate-500">Timing: {app.timing}</span>}
+                </div>
+                {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                    {decidingAppId === app.id ? 'Working...' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}
+                  </button>
+                  {app.status === 'new' && (
+                    <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">
+                      Contacted
+                    </button>
+                  )}
+                  <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">
+                    Decline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
