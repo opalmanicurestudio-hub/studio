@@ -1296,10 +1296,21 @@ export default function BoothsPage() {
       () => {});
     return () => unsub();
   }, [firestore, tenantId, view]);
+  // Dates in the ledger can be ISO strings OR Firestore Timestamps
+  // (service-written rent entries) — normalize before any string method.
+  const txnDateStr = (t: any): string => {
+    const v = t.date || t.createdAt;
+    if (!v) return '';
+    if (typeof v === 'string') return v.slice(0, 10);
+    if (typeof v?.toDate === 'function') { try { return v.toDate().toISOString().slice(0, 10); } catch { return ''; } }
+    if (typeof v?.seconds === 'number') return new Date(v.seconds * 1000).toISOString().slice(0, 10);
+    return '';
+  };
+  const txnDollars = (t: any): number => typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100;
   const sortedTxns = useMemo(() =>
-    [...boothTxns].sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || '')),
+    [...boothTxns].sort((a, b) => txnDateStr(b).localeCompare(txnDateStr(a))),
     [boothTxns]);
-  const txnTotalCents = useMemo(() => sortedTxns.reduce((s, t) => s + (Number(t.amountCents) || 0), 0), [sortedTxns]);
+  const txnTotalCents = useMemo(() => sortedTxns.reduce((s, t) => s + Math.round(txnDollars(t) * 100), 0), [sortedTxns]);
 
   const setResStatus = async (r: any, status: string) => {
     await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
@@ -2352,9 +2363,9 @@ export default function BoothsPage() {
                       <div key={t.id} className="rounded-xl border-2 px-4 py-3 flex items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-black truncate">{t.description || t.category || 'Booth payment'}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase">{(t.date || t.createdAt || '').slice(0, 10)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
                         </div>
-                        <p className="font-black text-emerald-700 shrink-0">${((Number(t.amountCents) || 0) / 100).toFixed(2)}</p>
+                        <p className="font-black text-emerald-700 shrink-0">${txnDollars(t).toFixed(2)}</p>
                       </div>
                     ))}
                   </div>
