@@ -57,7 +57,7 @@ async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, b
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl } = body || {};
+    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted } = body || {};
     if (!tenantId || !boothId || !startDate || !endDate || !name || (!phone && !email) || !returnUrl) {
       return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
     }
@@ -98,6 +98,7 @@ export async function POST(req: NextRequest) {
       name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
       startDate, endDate, numDays, amountCents,
       status: 'pending_payment', createdAt: nowIso,
+      consentAccepted: !!consentAccepted, consentAcceptedAt: consentAccepted ? nowIso : null,
     });
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
