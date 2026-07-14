@@ -52,7 +52,6 @@
  */
 export const dynamic = 'force-dynamic';
 
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   doc,
   updateDoc,
@@ -253,6 +252,8 @@ interface BoothFormState {
   status: BoothStatus;
   amenities: string[];
   photoUrls: string[];
+  listingDescription: string;
+  videoUrl: string;
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -1091,9 +1092,6 @@ function DetailPanel({
           )}
           <p className="text-xs text-muted-foreground">{renter.email}</p>
           <Badge className="text-[10px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
-          {(renter as any).linkedStaffId && (
-            <p className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid · Team member</p>
-          )}
         </div>
       )}
 
@@ -1237,6 +1235,10 @@ export default function BoothsPage() {
   const occupyingLeaseByRenter = useOccupyingLeaseByRenter(leases.data);
 
   const [view, setView] = useState<'floor' | 'list' | 'renters' | 'money'>('floor');
+  // v61 — three-tab command center (declared here, with the other hooks,
+  // never after an early return)
+  const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
+  const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1265,8 +1267,8 @@ export default function BoothsPage() {
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [applications, selectedLocationId]);
-  // v53 — owner's view of paid day rentals: who's in, when, and any
-  // paid-but-conflicted bookings needing a refund decision.
+
+  // v53 — owner's view of paid day rentals
   const [reservations, setReservations] = useState<any[]>([]);
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -1275,10 +1277,7 @@ export default function BoothsPage() {
     }, () => {});
     return () => unsub();
   }, [firestore, tenantId]);
-  // v56 — DAY-RENTER WORKFLOW: confirmed → checked_in → completed, with
-  // cancel (refund-pending) as the exit ramp. Completed and cancelled
-  // records leave the strip but stay in the collection — the paper trail
-  // never deletes.
+  // v56 — day-renter workflow: confirmed → checked_in → completed
   const upcomingReservations = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return reservations
@@ -1286,33 +1285,32 @@ export default function BoothsPage() {
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
-  // v63 — W-9 compliance map: loads once, keyed by renterId
+
+  // v63 — W-9 compliance map. FIXED: reads renters.data (declared above via
+  // the collections hook), never sortedRenters (declared later — TDZ crash).
   const [w9Map, setW9Map] = useState<Record<string, any>>({});
   useEffect(() => {
-    if (!sortedRenters.length) return;
-    sortedRenters.forEach((r: Renter) => {
+    const list = (renters.data ?? []) as Renter[];
+    if (!list.length || !tenantId) return;
+    list.forEach((r: Renter) => {
       if (w9Map[r.id] !== undefined) return;
       fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`)
         .then(res => res.json())
         .then(d => setW9Map(prev => ({ ...prev, [r.id]: d.w9 || null })))
         .catch(() => setW9Map(prev => ({ ...prev, [r.id]: null })));
     });
-  }, [sortedRenters.length, tenantId]);
+  }, [renters.data, tenantId]);
 
-  // v57 — TRANSACTIONS: the money record. Reads the same ledger the
-  // service and the pay-and-book route write (tenants/{tid}/transactions),
-  // filtered server-side to booth income only (single-field query).
+  // v57 — transactions (booth income ledger view)
   const [boothTxns, setBoothTxns] = useState<any[]>([]);
   useEffect(() => {
-    if (!firestore || !tenantId || view !== 'money') return;
+    if (!firestore || !tenantId || tab !== 'money') return;
     const unsub = onSnapshot(
       query(collection(firestore, 'tenants', tenantId, 'transactions'), where('source', '==', 'booth_rent')),
       (snap) => setBoothTxns(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
       () => {});
     return () => unsub();
-  }, [firestore, tenantId, view]);
-  // Dates in the ledger can be ISO strings OR Firestore Timestamps
-  // (service-written rent entries) — normalize before any string method.
+  }, [firestore, tenantId, tab]);
   const txnDateStr = (t: any): string => {
     const v = t.date || t.createdAt;
     if (!v) return '';
@@ -1880,6 +1878,7 @@ export default function BoothsPage() {
     setDialogOpen(true);
   };
 
+
   const toggleAmenity = (amenity: string) => {
     setForm((prev) => ({
       ...prev,
@@ -1910,18 +1909,12 @@ export default function BoothsPage() {
             status: form.status,
             amenities: form.amenities,
             photoUrls: form.photoUrls,
-          listingDescription: form.listingDescription.trim(),
-          videoUrl: form.videoUrl.trim(),
             listingDescription: form.listingDescription.trim(),
             videoUrl: form.videoUrl.trim(),
             updatedAt: now,
           }
         );
       } else {
-        // createBooth() always creates as 'vacant' (hardcoded in the
-        // service function) — the Status selector is hidden for new
-        // booths in the dialog below for exactly this reason; form.status
-        // is only meaningful when editing.
         await createBooth(firestore, {
           tenantId,
           locationId: selectedLocationId,
@@ -1936,13 +1929,16 @@ export default function BoothsPage() {
           ],
           amenities: form.amenities,
           photoUrls: form.photoUrls,
-        });
+          listingDescription: form.listingDescription.trim(),
+          videoUrl: form.videoUrl.trim(),
+        } as any);
       }
       setDialogOpen(false);
     } finally {
       setSaving(false);
     }
   };
+
 
   const handleDelete = async (boothId: string) => {
     if (!tenantId) return;
@@ -1961,7 +1957,8 @@ export default function BoothsPage() {
     setEditingRenterId(renter.id);
     setRenterForm({ firstName: renter.firstName, lastName: renter.lastName, email: renter.email,
       phone: renter.phone ?? '', businessName: renter.businessName ?? '',
-      specialty: renter.specialty ?? '', notes: renter.notes ?? '' });
+      specialty: renter.specialty ?? '', notes: renter.notes ?? '',
+      linkedStaffId: (renter as any).linkedStaffId ?? '' });
     setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
   const handleRenterDialogOpenChange = (open: boolean) => {
@@ -2007,6 +2004,7 @@ export default function BoothsPage() {
       setRenterError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally { setSavingRenter(false); }
   };
+
 
   // ── Lease wizard ─────────────────────────────────────────────────────────────
 
@@ -2187,13 +2185,6 @@ export default function BoothsPage() {
   const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
 
-  // ── v61 UI: THREE-TAB COMMAND CENTER ──────────────────────────────────────
-  // Spaces (floor + booth list) · Operations (applications + rentals + renters)
-  // · Money (transactions). Badge counts on tabs make inbound demand
-  // impossible to miss. The view sub-switch inside Spaces keeps the floor
-  // plan and list accessible without cluttering the top nav.
-  const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
-  const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
   const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length;
 
   return (
@@ -2211,7 +2202,8 @@ export default function BoothsPage() {
               {metrics.occupancyPct}% occupied · {metrics.activeRenters} active renter{metrics.activeRenters !== 1 ? 's' : ''}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <LocationSwitcher />
             <Button size="sm" variant="outline" className="relative" onClick={() => setCommandCenterOpen(true)}>
               <ActivityIcon className="h-4 w-4" />
               {alertBadgeSeverity && (
@@ -2220,7 +2212,7 @@ export default function BoothsPage() {
                 </span>
               )}
             </Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)}>
+            <Button size="sm" onClick={openCreate}>
               <Plus className="h-4 w-4 mr-1" /> Space
             </Button>
           </div>
@@ -2267,8 +2259,7 @@ export default function BoothsPage() {
       {/* ── SPACES TAB ───────────────────────────────────────────────── */}
       {tab === 'spaces' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
-          {/* Sub-toggle: floor vs list */}
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex gap-1 p-1 bg-white rounded-xl border">
               <button onClick={() => setSpaceView('floor')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'floor' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
                 <LayoutGrid className="h-3 w-3 inline mr-1" />Floor
@@ -2281,15 +2272,19 @@ export default function BoothsPage() {
               <Button size="sm" variant="outline" onClick={() => setPricingOpen(true)}>
                 <Calculator className="h-3.5 w-3.5 mr-1" />Pricing
               </Button>
-              {spaceView === 'floor' && (
-                <Button size="sm" variant={locked ? 'default' : 'secondary'} onClick={() => setLocked(l => !l)}>
-                  {locked ? <><Lock className="h-3.5 w-3.5 mr-1" />Locked</> : <><Unlock className="h-3.5 w-3.5 mr-1" />Editing</>}
-                </Button>
+              {spaceView === 'floor' && !isMobile && (
+                <>
+                  <Button size="sm" variant="outline" onClick={autoArrangeBooths} disabled={layoutSaving}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" />Arrange
+                  </Button>
+                  <Button size="sm" variant={locked ? 'default' : 'secondary'} onClick={() => setLocked(l => !l)}>
+                    {locked ? <><Lock className="h-3.5 w-3.5 mr-1" />Locked</> : <><Unlock className="h-3.5 w-3.5 mr-1" />Editing</>}
+                  </Button>
+                </>
               )}
             </div>
           </div>
 
-          {/* Status legend */}
           {spaceView === 'floor' && (
             <div className="flex flex-wrap gap-3">
               {(Object.entries(BOOTH_STATUS_COLORS) as [Booth['status'], (typeof BOOTH_STATUS_COLORS)[Booth['status']]][]).map(([status, sc]) => (
@@ -2307,18 +2302,18 @@ export default function BoothsPage() {
             <div className="py-12 text-center space-y-3">
               <Armchair className="h-10 w-10 mx-auto text-muted-foreground" />
               <p className="font-medium text-muted-foreground">No spaces yet</p>
-              <Button onClick={() => setDialogOpen(true)}>Add your first space</Button>
+              <Button onClick={openCreate}>Add your first space</Button>
             </div>
           ) : spaceView === 'list' ? (
             <div className="space-y-3">
               {sortedBooths.map((booth: Booth) => {
                 const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
-                const renter = renters.data?.find(r => r.id === booth.currentRenterId);
                 const lease = activeLeaseByBooth.get(booth.id);
+                const renter = lease ? renterById.get(lease.renterId) : undefined;
                 return (
-                  <button key={booth.id} onClick={() => { openEditBooth(booth); }} className="w-full text-left rounded-2xl border-2 bg-white p-4 hover:shadow-md transition-shadow">
+                  <button key={booth.id} onClick={() => openEdit(booth)} className="w-full text-left rounded-2xl border-2 bg-white p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-center gap-3">
-                      <div className="w-3 h-full self-stretch rounded-full shrink-0" style={{ background: sc.bg, border: `2px solid ${sc.border}`, minHeight: 40, width: 6 }} />
+                      <div className="self-stretch rounded-full shrink-0" style={{ background: sc.bg, border: `2px solid ${sc.border}`, minHeight: 40, width: 6 }} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-black text-sm uppercase">{booth.name}</p>
@@ -2338,10 +2333,10 @@ export default function BoothsPage() {
               })}
             </div>
           ) : isMobile ? (
-            /* Mobile floor: 2-col status cards */
             <div className="grid grid-cols-2 gap-3">
               {sortedBooths.map((booth: Booth) => {
-                const renter = renters.data?.find(r => r.id === booth.currentRenterId);
+                const lease = activeLeaseByBooth.get(booth.id);
+                const renter = lease ? renterById.get(lease.renterId) : undefined;
                 const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
                 return (
                   <button key={booth.id} onClick={() => setSelectedId(booth.id)} className="rounded-2xl border-2 p-3 text-left space-y-1 active:scale-[0.98] transition-transform" style={{ borderColor: sc.border, background: sc.bg }}>
@@ -2356,11 +2351,10 @@ export default function BoothsPage() {
               })}
             </div>
           ) : (
-            /* Desktop floor canvas */
             <div className="relative">
               {!locked && (
                 <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-1.5">
-                  <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition. Click a booth to edit.
+                  <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize. Click a booth to select it.
                 </div>
               )}
               <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
@@ -2369,18 +2363,24 @@ export default function BoothsPage() {
                   style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: locked ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
                   onClick={e => { if (e.target === e.currentTarget) setSelectedId(null); }}
                 >
-                  {sortedBooths.map((booth: Booth) => (
-                    <BoothCard
-                      key={booth.id}
-                      booth={booth}
-                      renter={renters.data?.find(r => r.id === booth.currentRenterId)}
-                      lease={activeLeaseByBooth.get(booth.id)}
-                      selected={selectedId === booth.id}
-                      locked={locked}
-                      onSelect={id => setSelectedId(id)}
-                      onDragEnd={(id, x, y) => handleBoothDragEnd(id, x, y)}
-                    />
-                  ))}
+                  {sortedBooths.map((b: Booth) => {
+                    const eb = effectiveBooth(b);
+                    const lease = activeLeaseByBooth.get(b.id);
+                    const renter = lease ? renterById.get(lease.renterId) : undefined;
+                    return (
+                      <BoothCanvasCard
+                        key={b.id}
+                        booth={eb}
+                        renter={renter}
+                        lease={lease}
+                        selected={selectedId === b.id}
+                        locked={locked}
+                        onDragStart={handleDragStart}
+                        onResizeStart={handleResizeStart}
+                        onClick={setSelectedId}
+                      />
+                    );
+                  })}
                 </div>
               </div>
               {selectedBooth && (
@@ -2389,13 +2389,21 @@ export default function BoothsPage() {
                   renter={selectedRenter}
                   lease={selectedLease}
                   onClose={() => setSelectedId(null)}
-                  onEdit={booth => { openEditBooth(booth); }}
-                  onAddLease={() => { setLeaseTarget(selectedBooth); setLeaseDialogOpen(true); }}
-                  onEndLease={() => setEndLeaseTarget(selectedBooth)}
-                  onAddRenter={() => { setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff(); }}
+                  onEdit={(booth) => openEdit(booth)}
                 />
               )}
             </div>
+          )}
+
+          {/* Mobile: selected booth detail */}
+          {isMobile && selectedBooth && (
+            <DetailPanel
+              booth={effectiveBooth(selectedBooth)}
+              renter={selectedRenter}
+              lease={selectedLease}
+              onClose={() => setSelectedId(null)}
+              onEdit={(booth) => openEdit(booth)}
+            />
           )}
         </div>
       )}
@@ -2410,7 +2418,7 @@ export default function BoothsPage() {
                 <h2 className="text-xs font-black uppercase tracking-widest">Applications</h2>
                 {pendingApps.length > 0 && <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{pendingApps.length}</span>}
               </div>
-              <Button size="sm" variant="outline" onClick={() => { setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff(); }}>
+              <Button size="sm" variant="outline" onClick={openCreateRenter}>
                 <Plus className="h-3.5 w-3.5 mr-1" />Add renter
               </Button>
             </div>
@@ -2462,7 +2470,7 @@ export default function BoothsPage() {
             )}
           </div>
 
-          {/* Upcoming day rentals */}
+          {/* Day rentals */}
           {upcomingReservations.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -2485,7 +2493,7 @@ export default function BoothsPage() {
                     {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
                       <p className="text-[10px] font-black uppercase text-red-600">⚠ Refund needed · {r.stripePaymentIntentId || ''}</p>
                     )}
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'checked_in')} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
                       {r.status === 'checked_in' && <button onClick={() => setResStatus(r, 'completed')} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Complete Stay</button>}
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
@@ -2500,11 +2508,9 @@ export default function BoothsPage() {
 
           {/* Renters */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black uppercase tracking-widest">Renters</h2>
-                {sortedRenters.length > 0 && <span className="text-[10px] font-bold text-muted-foreground">{sortedRenters.length}</span>}
-              </div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-black uppercase tracking-widest">Renters</h2>
+              {sortedRenters.length > 0 && <span className="text-[10px] font-bold text-muted-foreground">{sortedRenters.length}</span>}
             </div>
             {renters.isLoading ? (
               <p className="text-xs text-muted-foreground py-3">Loading renters…</p>
@@ -2513,7 +2519,6 @@ export default function BoothsPage() {
             ) : (
               <div className="grid gap-3 md:grid-cols-2">
                 {sortedRenters.map((renter: Renter) => {
-                  const sc = RENTER_STATUS_CONFIG[renter.status] ?? RENTER_STATUS_CONFIG.prospective;
                   const lease = occupyingLeaseByRenter.get(renter.id);
                   const booth = lease ? boothById.get(lease.boothId) : undefined;
                   return (
@@ -2530,9 +2535,9 @@ export default function BoothsPage() {
                             {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
                           </div>
                         </div>
-                        <div className="flex gap-1.5 shrink-0">
-                          {renter.email && <a href={`mailto:${renter.email}`} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Mail className="h-3.5 w-3.5" /></a>}
-                          {renter.phone && <a href={`tel:${renter.phone}`} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Phone className="h-3.5 w-3.5" /></a>}
+                        <div className="flex gap-2 shrink-0 items-center">
+                          {renter.email && <a href={`mailto:${renter.email}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Email</a>}
+                          {renter.phone && <a href={`tel:${renter.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Call</a>}
                           <button onClick={() => openEditRenter(renter)} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Pencil className="h-3.5 w-3.5" /></button>
                         </div>
                       </div>
@@ -2542,29 +2547,18 @@ export default function BoothsPage() {
                             <p className="text-[10px] font-black uppercase">{booth.name}</p>
                             <p className="text-[9px] font-bold text-muted-foreground">{formatCents(lease.rentAmountCents)}/{lease.frequency} · ends {lease.endDate || '—'}</p>
                           </div>
-                          <div className="flex gap-1.5">
-                            <button onClick={() => { setLeaseTarget(boothById.get(lease.boothId) ?? null); setLeaseDialogOpen(true); }} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Lease</button>
-                            <button onClick={() => setEndLeaseTarget(boothById.get(lease.boothId) ?? null)} className="text-[9px] font-black uppercase tracking-widest text-red-500 underline underline-offset-2">End</button>
-                          </div>
+                          <button onClick={() => setEndLeaseTarget(renter)} className="text-[9px] font-black uppercase tracking-widest text-red-500 underline underline-offset-2 shrink-0">End lease</button>
                         </div>
                       )}
-                      {!lease && renter.status === 'active' && (
-                        <button onClick={() => { setLeaseTarget(null); setLeaseDialogOpen(true); }} className="w-full h-8 rounded-xl border-2 border-dashed text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-slate-400 hover:text-slate-700 transition-colors">
+                      {!lease && (renter.status === 'active' || renter.status === 'prospective') && (
+                        <button onClick={() => openLeaseWizard(renter.id)} className="w-full h-8 rounded-xl border-2 border-dashed text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-slate-400 hover:text-slate-700 transition-colors">
                           + Assign booth
                         </button>
                       )}
-                      {!(renter as any).linkedStaffId && (
-                        <div className="pt-0.5">
-                          {(renter as any).portalEnabled ? (
-                            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Portal active · PIN {(renter as any).portalPin}</p>
-                          ) : (
-                            <button onClick={() => enablePortalAccess(renter)} disabled={provisioningId === renter.id} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 disabled:opacity-40">
-                              {provisioningId === renter.id ? 'Enabling…' : 'Enable portal access'}
-                            </button>
-                          )}
-                        </div>
-                      )}
                       <div className="flex items-center gap-3 pt-0.5 flex-wrap">
+                        <button onClick={() => { setStatusTarget(renter); setNewStatus(renter.status === 'active' ? 'on_leave' : 'active'); }} className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2">
+                          Status
+                        </button>
                         {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
                           <a key={yr} href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${yr}`} target="_blank" rel="noreferrer"
                             className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2">
@@ -2597,25 +2591,26 @@ export default function BoothsPage() {
             <CircleDollarSign className="h-8 w-8 text-white/20" />
           </div>
 
-          {/* Year-end W-9 compliance summary */}
+          {/* Year-end W-9 compliance */}
           {sortedRenters.length > 0 && (
-            <div className="rounded-2xl border-2 p-4 space-y-3">
+            <div className="rounded-2xl border-2 bg-white p-4 space-y-3">
               <p className="text-xs font-black uppercase tracking-widest">Year-end compliance</p>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-center">
                   <p className="text-2xl font-black text-emerald-700">{Object.values(w9Map).filter(Boolean).length}</p>
                   <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">W-9 on file</p>
                 </div>
-                <div className={`rounded-xl px-3 py-2 text-center border ${Object.values(w9Map).filter(v=>v===null).length>0?'bg-amber-50 border-amber-200':'bg-slate-50 border-slate-200'}`}>
-                  <p className={`text-2xl font-black ${Object.values(w9Map).filter(v=>v===null).length>0?'text-amber-700':'text-slate-400'}`}>{Object.values(w9Map).filter(v=>v===null).length}</p>
-                  <p className={`text-[9px] font-black uppercase tracking-widest ${Object.values(w9Map).filter(v=>v===null).length>0?'text-amber-600':'text-slate-400'}`}>W-9 missing</p>
+                <div className={`rounded-xl px-3 py-2 text-center border ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <p className={`text-2xl font-black ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'text-amber-700' : 'text-slate-400'}`}>{Object.values(w9Map).filter(v => v === null).length}</p>
+                  <p className={`text-[9px] font-black uppercase tracking-widest ${Object.values(w9Map).filter(v => v === null).length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>W-9 missing</p>
                 </div>
               </div>
-              {Object.values(w9Map).filter(v=>v===null).length > 0 && (
-                <p className="text-[10px] font-bold text-amber-700">Renters missing a W-9 are shown with ⚠ on their cards in Operations. Prompt them to complete it in their portal — they will see it in the Documents tab.</p>
+              {Object.values(w9Map).filter(v => v === null).length > 0 && (
+                <p className="text-[10px] font-bold text-amber-700">Renters missing a W-9 show ⚠ on their cards in Operations — they can complete it in their portal's Documents tab.</p>
               )}
             </div>
           )}
+
           {sortedTxns.length === 0 ? (
             <p className="text-sm text-muted-foreground font-medium text-center py-8">No booth transactions yet — rent payments and paid day rentals appear here.</p>
           ) : (
@@ -2635,8 +2630,546 @@ export default function BoothsPage() {
         </div>
       )}
 
-      {/* ── DIALOGS (unchanged) ─────────────────────────────────────── */}
-            <PricingAdvisor
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Edit booth' : 'Add booth'}</DialogTitle>
+            <DialogDescription>
+              Name it the way your renters know it.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="booth-name">Name</Label>
+              <Input
+                id="booth-name"
+                placeholder="Booth 1, Suite B, Chair 3…"
+                value={form.name}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, name: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Type</Label>
+              <Select
+                value={form.typeValue}
+                onValueChange={(value) =>
+                  setForm((prev) => ({ ...prev, typeValue: value as Booth['type'] }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="booth">Booth</SelectItem>
+                  <SelectItem value="chair">Chair</SelectItem>
+                  <SelectItem value="room">Room</SelectItem>
+                  <SelectItem value="suite">Suite</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="booth-rent">Base rent ($)</Label>
+                <Input
+                  id="booth-rent"
+                  type="number"
+                  placeholder="250"
+                  value={form.baseRentDollars}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      baseRentDollars: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Frequency</Label>
+                <Select
+                  value={form.baseRentFrequency}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      baseRentFrequency: value as RentFrequency,
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="link"
+              className="px-0 h-auto text-sm"
+              onClick={() => setPricingOpen(true)}
+            >
+              <Calculator className="h-3.5 w-3.5 mr-1.5" />
+              Not sure what to charge? Open the Pricing Advisor
+            </Button>
+
+            {editingId && (
+              <div className="space-y-1">
+                <Label>Status</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({ ...prev, status: value as BoothStatus }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="vacant">Vacant</SelectItem>
+                    <SelectItem value="occupied">Occupied</SelectItem>
+                    <SelectItem value="partial">Partial (shared)</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>Included with this booth</Label>
+              <div className="flex flex-wrap gap-2">
+                {AMENITY_OPTIONS.map((amenity) => {
+                  const selected = form.amenities.includes(amenity);
+                  const chipClass = selected
+                    ? 'cursor-pointer'
+                    : 'cursor-pointer opacity-60';
+                  return (
+                    <Badge
+                      key={amenity}
+                      variant={selected ? 'default' : 'outline'}
+                      className={chipClass}
+                      onClick={() => toggleAmenity(amenity)}
+                    >
+                      {amenity}
+                    </Badge>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="booth-notes">Notes (optional)</Label>
+              <Textarea
+                id="booth-notes"
+                placeholder="Window seat, private suite with door, near reception…"
+                value={form.notes}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, notes: e.target.value }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Photos</Label>
+              {form.photoUrls.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mb-2">
+                  {form.photoUrls.map((url, i) => (
+                    <div key={url} className="relative rounded-lg overflow-hidden border aspect-square">
+                      <img src={url} alt="" className="w-full h-full object-cover" />
+                      <button type="button" onClick={() => setForm(prev => ({ ...prev, photoUrls: prev.photoUrls.filter((_, j) => j !== i) }))}
+                        className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/60 text-white text-xs flex items-center justify-center">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
+                onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Listing description (public)</Label>
+              <Textarea rows={4} placeholder="Sell the space — light, equipment, vibe, what's included..."
+                value={form.listingDescription}
+                onChange={(e) => setForm(prev => ({ ...prev, listingDescription: e.target.value }))} />
+            </div>
+            <div className="space-y-1">
+              <Label>Video tour URL (YouTube, Vimeo, or direct .mp4)</Label>
+              <Input placeholder="https://youtube.com/watch?v=..."
+                value={form.videoUrl}
+                onChange={(e) => setForm(prev => ({ ...prev, videoUrl: e.target.value }))} />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Additional rates (optional)</Label>
+              {form.extraRates.map((r, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <Select value={r.frequency} onValueChange={(v) => setForm(prev => ({ ...prev, extraRates: prev.extraRates.map((x, j) => j === i ? { ...x, frequency: v } : x) }))}>
+                    <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {['hourly','daily','weekly','monthly'].map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" placeholder="$" className="flex-1" value={r.dollars}
+                    onChange={(e) => setForm(prev => ({ ...prev, extraRates: prev.extraRates.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x) }))} />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm(prev => ({ ...prev, extraRates: prev.extraRates.filter((_, j) => j !== i) }))}>×</Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, extraRates: [...prev.extraRates, { frequency: 'daily', dollars: '' }] }))}>
+                + Add rate
+              </Button>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
+              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add booth'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renter dialog */}
+      <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingRenterId ? 'Edit renter' : 'Add renter'}</DialogTitle>
+            <DialogDescription>Their independent business — your records.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
+                <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="r-last">Last name</Label>
+                <Input id="r-last" value={renterForm.lastName} onChange={(e) => setRenterForm((p) => ({ ...p, lastName: e.target.value }))} /></div>
+            </div>
+            <div className="space-y-1"><Label htmlFor="r-email">Email</Label>
+              <Input id="r-email" type="email" value={renterForm.email} onChange={(e) => setRenterForm((p) => ({ ...p, email: e.target.value }))} /></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label htmlFor="r-phone">Phone</Label>
+                <Input id="r-phone" value={renterForm.phone} onChange={(e) => setRenterForm((p) => ({ ...p, phone: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="r-specialty">Specialty</Label>
+                <Input id="r-specialty" placeholder="Nails, hair, lashes…" value={renterForm.specialty} onChange={(e) => setRenterForm((p) => ({ ...p, specialty: e.target.value }))} /></div>
+            </div>
+            <div className="space-y-1"><Label htmlFor="r-business">Business name (optional)</Label>
+              <Input id="r-business" value={renterForm.businessName} onChange={(e) => setRenterForm((p) => ({ ...p, businessName: e.target.value }))} /></div>
+            <div className="space-y-1"><Label htmlFor="r-notes">Notes (private)</Label>
+              <Textarea id="r-notes" value={renterForm.notes} onChange={(e) => setRenterForm((p) => ({ ...p, notes: e.target.value }))} /></div>
+            {renterError && (
+              <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertCircle className="h-4 w-4 shrink-0" />{renterError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleRenterDialogOpenChange(false)}>Cancel</Button>
+            <Button onClick={handleSaveRenter} disabled={savingRenter || !renterForm.firstName.trim() || !renterForm.email.trim()}>
+              {savingRenter ? 'Saving…' : editingRenterId ? 'Save changes' : 'Add renter'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Lease wizard */}
+      <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Set up lease</DialogTitle>
+            <DialogDescription>Step {leaseStep + 1} of {WIZARD_STEPS.length}: {WIZARD_STEPS[leaseStep]}</DialogDescription>
+          </DialogHeader>
+
+          {leaseStep === 0 && (
+            <div className="space-y-4">
+              <div className="space-y-1">
+                <Label>Booth</Label>
+                <Select value={leaseForm.boothId} onValueChange={handleBoothSelect}>
+                  <SelectTrigger><SelectValue placeholder="Choose a booth" /></SelectTrigger>
+                  <SelectContent>
+                    {availableBooths.length === 0 && <SelectItem value="none" disabled>No available booths</SelectItem>}
+                    {availableBooths.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.name} ({b.status === 'partial' ? 'shared' : 'vacant'}) — {formatCents(b.baseRentCents)} / {(FREQUENCY_LABELS[b.baseRentFrequency] ?? b.baseRentFrequency ?? 'period').toLowerCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">Shared / part-time booth</p>
+                  <p className="text-xs text-muted-foreground">Multiple renters share on different days</p>
+                </div>
+                <Switch checked={leaseForm.isShared}
+                  onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, isShared: c, scheduleDays: [] }))} />
+              </div>
+
+              {leaseForm.isShared && (
+                <div className="rounded-lg border p-3 space-y-3">
+                  <div className="space-y-2">
+                    <Label>Days of access</Label>
+                    <div className="flex gap-2 flex-wrap">
+                      {WEEKDAY_OPTIONS.map((opt) => {
+                        const taken = conflictingSlots.some((s) => s.days.includes(opt.value));
+                        const checked = leaseForm.scheduleDays.includes(opt.value);
+                        return (
+                          <button key={opt.value} type="button"
+                            disabled={taken && !checked}
+                            onClick={() => !taken && toggleScheduleDay(opt.value)}
+                            className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
+                              checked ? 'bg-primary text-primary-foreground border-primary'
+                              : taken ? 'opacity-40 cursor-not-allowed border-border'
+                              : 'border-border hover:bg-muted'
+                            }`}>
+                            {opt.label}{taken && !checked && <span className="ml-1 text-[10px] text-destructive">taken</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {hasSlotConflict && <p className="text-xs text-destructive">Selected days conflict with an existing lease.</p>}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1"><Label>Start time (optional)</Label>
+                      <Input type="time" value={leaseForm.scheduleStartTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleStartTime: e.target.value }))} /></div>
+                    <div className="space-y-1"><Label>End time (optional)</Label>
+                      <Input type="time" value={leaseForm.scheduleEndTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleEndTime: e.target.value }))} /></div>
+                  </div>
+                  <div className="space-y-1"><Label>Slot label (optional)</Label>
+                    <Input placeholder="e.g. Tuesday / Thursday mornings" value={leaseForm.scheduleLabel}
+                      onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleLabel: e.target.value }))} /></div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="l-rent">Rent ($)</Label>
+                  <Input id="l-rent" type="number" value={leaseForm.rentDollars} onChange={(e) => setLeaseForm((p) => ({ ...p, rentDollars: e.target.value }))} /></div>
+                <div className="space-y-1">
+                  <Label>Frequency</Label>
+                  <Select value={leaseForm.frequency} onValueChange={(v) => setLeaseForm((p) => ({ ...p, frequency: v as RentFrequency, dueDay: '1' }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="l-start">Lease start</Label>
+                  <Input id="l-start" type="date" value={leaseForm.startDate} onChange={(e) => setLeaseForm((p) => ({ ...p, startDate: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="l-end">End (blank = month-to-month)</Label>
+                  <Input id="l-end" type="date" min={leaseForm.startDate} value={leaseForm.endDate} onChange={(e) => setLeaseForm((p) => ({ ...p, endDate: e.target.value }))} /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label htmlFor="l-fc">First charge date</Label>
+                  <Input id="l-fc" type="date" min={toIsoDate(new Date())} value={leaseForm.firstChargeDate} onChange={(e) => setLeaseForm((p) => ({ ...p, firstChargeDate: e.target.value }))} /></div>
+                <div className="space-y-1"><Label htmlFor="l-notice">Notice days</Label>
+                  <Input id="l-notice" type="number" value={leaseForm.noticeDays} onChange={(e) => setLeaseForm((p) => ({ ...p, noticeDays: e.target.value }))} /></div>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div><p className="text-sm font-medium">Auto-renew</p>
+                  <p className="text-xs text-muted-foreground">Continues unless either party gives notice</p></div>
+                <Switch checked={leaseForm.autoRenew} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, autoRenew: c }))} />
+              </div>
+            </div>
+          )}
+
+          {leaseStep === 1 && (
+            <div className="space-y-4">
+              <div className="space-y-1"><Label htmlFor="l-deposit">Security deposit ($)</Label>
+                <Input id="l-deposit" type="number" placeholder="0 for none" value={leaseForm.depositDollars}
+                  onChange={(e) => setLeaseForm((p) => ({ ...p, depositDollars: e.target.value }))} /></div>
+              {toNumber(leaseForm.depositDollars) > 0 && (
+                <div className="space-y-3 rounded-lg border p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Deposit is refundable</p>
+                    <Switch checked={leaseForm.depositRefundable} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, depositRefundable: c }))} />
+                  </div>
+                  <div className="space-y-1"><Label htmlFor="l-depcond">Refund conditions</Label>
+                    <Textarea id="l-depcond" placeholder="Returned within 14 days of move-out…" value={leaseForm.depositConditions}
+                      onChange={(e) => setLeaseForm((p) => ({ ...p, depositConditions: e.target.value }))} /></div>
+                </div>
+              )}
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <div><p className="text-sm font-medium">Late fees</p>
+                    <p className="text-xs text-muted-foreground">Applied after grace period</p></div>
+                  <Switch checked={leaseForm.lateFeeEnabled} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, lateFeeEnabled: c }))} />
+                </div>
+                {leaseForm.lateFeeEnabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="space-y-1"><Label>Grace days</Label>
+                      <Input type="number" min={0} value={leaseForm.lateFeeGraceDays} onChange={(e) => setLeaseForm((p) => ({ ...p, lateFeeGraceDays: e.target.value }))} /></div>
+                    <div className="space-y-1"><Label>Type</Label>
+                      <Select value={leaseForm.lateFeeType} onValueChange={(v) => setLeaseForm((p) => ({ ...p, lateFeeType: v as 'flat' | 'percent' }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="flat">Flat $</SelectItem>
+                          <SelectItem value="percent">% of rent</SelectItem>
+                        </SelectContent>
+                      </Select></div>
+                    <div className="space-y-1"><Label>{leaseForm.lateFeeType === 'flat' ? 'Fee ($)' : 'Fee (%)'}</Label>
+                      <Input type="number" min={0.01}
+                        value={leaseForm.lateFeeType === 'flat' ? leaseForm.lateFeeAmountDollars : leaseForm.lateFeePercent}
+                        onChange={(e) => setLeaseForm((p) => p.lateFeeType === 'flat'
+                          ? { ...p, lateFeeAmountDollars: e.target.value }
+                          : { ...p, lateFeePercent: e.target.value })} /></div>
+                  </div>
+                )}
+                {leaseForm.lateFeeEnabled && !step1Valid && <p className="text-xs text-destructive">Enter a fee amount greater than 0.</p>}
+              </div>
+              <div className="space-y-1"><Label htmlFor="l-rules">House rules (optional)</Label>
+                <Textarea id="l-rules" placeholder="Shared space expectations, product policies…" value={leaseForm.houseRules}
+                  onChange={(e) => setLeaseForm((p) => ({ ...p, houseRules: e.target.value }))} /></div>
+              <div className="space-y-1"><Label htmlFor="l-doc">Signed agreement (PDF, optional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input id="l-doc" type="file" accept="application/pdf"
+                    onChange={(e) => setLeaseForm((p) => ({ ...p, signedFile: e.target.files?.[0] ?? null }))} />
+                  <Upload className="h-4 w-4 text-muted-foreground" />
+                </div></div>
+            </div>
+          )}
+
+          {leaseStep === 2 && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Perks are incentives attached to this lease — free weeks, discounts, or credits. They appear on receipts.
+              </p>
+              {leaseForm.perks.map((perk) => (
+                <PerkRow key={perk.id} perk={perk}
+                  onChange={(u) => updatePerk(perk.id, u)}
+                  onRemove={() => removePerk(perk.id)} />
+              ))}
+              <Button variant="outline" onClick={addPerk}><Gift className="h-4 w-4 mr-2" />Add perk</Button>
+              {leaseForm.perks.length === 0 && <p className="text-xs text-muted-foreground">No perks — skip to Review if not needed.</p>}
+            </div>
+          )}
+
+          {leaseStep === 3 && (
+            <div className="space-y-3">
+              <div className="rounded-lg border p-4 space-y-2 text-sm">
+                <p><span className="text-muted-foreground">Booth:</span>{' '}
+                  <span className="font-medium">{selectedLeaseBooth?.name ?? '—'}</span>
+                  {leaseForm.isShared && <Badge variant="outline" className="ml-2 text-[10px]">Shared</Badge>}</p>
+                {leaseForm.isShared && leaseForm.scheduleDays.length > 0 && (
+                  <p><span className="text-muted-foreground">Schedule:</span>{' '}
+                    <span className="font-medium">
+                      {leaseForm.scheduleLabel || leaseForm.scheduleDays.map((d) => WEEKDAY_LABELS[d]).join(', ')}
+                      {leaseForm.scheduleStartTime && ` · ${leaseForm.scheduleStartTime}`}
+                      {leaseForm.scheduleEndTime && `–${leaseForm.scheduleEndTime}`}
+                    </span></p>
+                )}
+                <p><span className="text-muted-foreground">Rent:</span>{' '}
+                  <span className="font-medium">{formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} / {(FREQUENCY_LABELS[leaseForm.frequency] ?? leaseForm.frequency ?? 'period').toLowerCase()}</span></p>
+                <p><span className="text-muted-foreground">First charge:</span>{' '}<span className="font-medium">{leaseForm.firstChargeDate}</span></p>
+                <p><span className="text-muted-foreground">Term:</span>{' '}
+                  <span className="font-medium">{leaseForm.startDate} — {leaseForm.endDate || 'month-to-month'}{leaseForm.autoRenew ? ' (auto-renews)' : ''}</span></p>
+                <p><span className="text-muted-foreground">Deposit:</span>{' '}
+                  <span className="font-medium">{toNumber(leaseForm.depositDollars) > 0
+                    ? `${formatCents(Math.round(toNumber(leaseForm.depositDollars) * 100))} (${leaseForm.depositRefundable ? 'refundable' : 'non-refundable'})`
+                    : 'None'}</span></p>
+                <p><span className="text-muted-foreground">Late fee:</span>{' '}
+                  <span className="font-medium">{leaseForm.lateFeeEnabled
+                    ? leaseForm.lateFeeType === 'flat'
+                      ? `${formatCents(Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100))} after ${leaseForm.lateFeeGraceDays} grace days`
+                      : `${leaseForm.lateFeePercent}% after ${leaseForm.lateFeeGraceDays} grace days`
+                    : 'None'}</span></p>
+                <p><span className="text-muted-foreground">Perks:</span>{' '}
+                  <span className="font-medium">{leaseForm.perks.length > 0 ? leaseForm.perks.map((p) => p.label).join(', ') : 'None'}</span></p>
+                <p><span className="text-muted-foreground">Agreement:</span>{' '}
+                  <span className="font-medium">{leaseForm.signedFile ? leaseForm.signedFile.name : 'Not uploaded'}</span></p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Creating this lease marks the booth {leaseForm.isShared ? 'as shared (partial)' : 'occupied'} and the renter active.
+              </p>
+              {leaseError && (
+                <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />{leaseError}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            {leaseStep > 0 && (
+              <Button variant="outline" onClick={() => setLeaseStep((s) => s - 1)} disabled={savingLease}>
+                <ChevronLeft className="h-4 w-4 mr-1" />Back
+              </Button>
+            )}
+            {leaseStep < WIZARD_STEPS.length - 1 && (
+              <Button onClick={() => setLeaseStep((s) => s + 1)} disabled={!wizardCanAdvance}>
+                Next<ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            )}
+            {leaseStep === WIZARD_STEPS.length - 1 && (
+              <Button onClick={handleCreateLease} disabled={savingLease}>
+                {savingLease ? 'Creating…' : 'Create lease'}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renter status change */}
+      <Dialog open={Boolean(statusTarget)} onOpenChange={(open) => { if (!open) setStatusTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change renter status</DialogTitle>
+            <DialogDescription>Leave and maternity leave pause billing while keeping the lease active.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>New status</Label>
+            <Select value={newStatus} onValueChange={(v) => setNewStatus(v as RenterStatus)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(['active', 'on_leave', 'maternity_leave', 'subletting'] as RenterStatus[]).map((s) => (
+                  <SelectItem key={s} value={s}>{RENTER_STATUS_LABELS[s]}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusTarget(null)}>Cancel</Button>
+            <Button onClick={handleStatusChange} disabled={savingStatus}>{savingStatus ? 'Updating…' : 'Update status'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* End lease */}
+      <AlertDialog open={Boolean(endLeaseTarget)} onOpenChange={(open) => { if (!open) setEndLeaseTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End lease?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This ends <strong>{endLeaseTarget?.firstName} {endLeaseTarget?.lastName}</strong>'s lease immediately,
+              frees the booth, and marks them as Past. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={savingEndLease}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleEndLease} disabled={savingEndLease}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {savingEndLease ? 'Ending…' : 'End lease'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+
+      <PricingAdvisor
         open={pricingOpen}
         onOpenChange={setPricingOpen}
         onApplyWeeklyRent={(dollars) =>
