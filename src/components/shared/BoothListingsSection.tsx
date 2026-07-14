@@ -60,15 +60,33 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   }, [firestore, tenantId]);
 
   const visible = useMemo(() => (booths || []).filter((b: any) => {
-    const lease = (b.baseRentFrequency || 'monthly') === 'monthly' || b.baseRentFrequency === 'weekly';
-    return lease ? config.showMonthly !== false : config.showDaily !== false;
+    const opts = Array.isArray(b.pricingOptions) && b.pricingOptions.length > 0
+      ? b.pricingOptions : [{ frequency: b.baseRentFrequency || 'monthly' }];
+    const hasLease = opts.some((o: any) => ['monthly', 'weekly', 'biweekly'].includes(o.frequency));
+    const hasDay = opts.some((o: any) => !['monthly', 'weekly', 'biweekly'].includes(o.frequency));
+    return (hasLease && config.showMonthly !== false) || (hasDay && config.showDaily !== false);
   }), [booths, config.showMonthly, config.showDaily]);
 
   const photosOf = (b: any): string[] => (Array.isArray(b.photoUrls) && b.photoUrls.length > 0) ? b.photoUrls : (b.photoUrl ? [b.photoUrl] : []);
-  const priceOf = (b: any) => ({ amount: Math.round((Number(b.baseRentCents) || 0) / 100), suffix: FREQ_LABEL[b.baseRentFrequency || 'monthly'] || '/mo' });
-  const isLease = (b: any) => (b.baseRentFrequency || 'monthly') === 'monthly' || b.baseRentFrequency === 'weekly';
+  // v50 — multi-pricing: pricingOptions[] is authoritative when present;
+  // legacy base fields remain the fallback so old assets render unchanged.
+  const ratesOf = (b: any): { frequency: string; amountCents: number }[] => {
+    const opts = Array.isArray(b.pricingOptions) ? b.pricingOptions.filter((o: any) => o && o.amountCents > 0) : [];
+    if (opts.length > 0) return opts;
+    return b.baseRentCents ? [{ frequency: b.baseRentFrequency || 'monthly', amountCents: b.baseRentCents }] : [];
+  };
+  const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
+  const leaseRates = (b: any) => ratesOf(b).filter(r => LEASE_FREQS.includes(r.frequency));
+  const dayRates = (b: any) => ratesOf(b).filter(r => !LEASE_FREQS.includes(r.frequency));
+  const primaryRate = (b: any) => leaseRates(b)[0] || ratesOf(b)[0] || { frequency: 'monthly', amountCents: 0 };
+  const priceOf = (b: any) => { const r = primaryRate(b); return { amount: Math.round(r.amountCents / 100), suffix: FREQ_LABEL[r.frequency] || '/mo' }; };
+  const isLease = (b: any) => leaseRates(b).length > 0;
 
-  const openApply = (b: any) => { setApplyFor(b); setPhotoIdx(0); setSubmitted(false); setDocs({}); };
+  const [applyMode, setApplyMode] = useState<'lease' | 'day'>('lease');
+  const openApply = (b: any, mode?: 'lease' | 'day') => {
+    setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
+    setPhotoIdx(0); setSubmitted(false); setDocs({});
+  };
 
   const uploadDoc = async (docName: string, file: File) => {
     setDocs(d => ({ ...d, [docName]: 'uploading' }));
@@ -93,16 +111,16 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     setSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const lease = isLease(applyFor);
+      const lease = applyMode === 'lease';
       const appRef = doc(collection(firestore, `tenants/${tenantId}/boothApplications`));
       await setDoc(appRef, {
         id: appRef.id, tenantId, createdAt: now, status: 'new',
         boothId: applyFor.id, boothName: applyFor.name || 'Space',
         locationId: applyFor.locationId || null,
-        rentalType: lease ? 'lease' : 'day_rental',
+        rentalType: applyMode === 'lease' ? 'lease' : 'day_rental',
         name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
         specialty: nicheValue,
-        timing: lease ? (form.moveIn ? `Move-in ${form.moveIn}` : '') : [form.startDate, form.endDate].filter(Boolean).join(' → '),
+        timing: applyMode === 'lease' ? (form.moveIn ? `Move-in ${form.moveIn}` : '') : [form.startDate, form.endDate].filter(Boolean).join(' → '),
         moveInDate: lease ? (form.moveIn || null) : null,
         startDate: !lease ? (form.startDate || null) : null,
         endDate: !lease ? (form.endDate || null) : null,
@@ -113,7 +131,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       await setDoc(nRef, {
         id: nRef.id, type: 'booth_application', read: false, createdAt: now,
         message: `${lease ? 'Space application' : 'Day-rental request'}: ${form.name.trim()} — ${applyFor.name || 'Space'}${nicheValue ? ` (${nicheValue})` : ''}`,
-        link: '/renters',
+        link: '/booths',
       });
       setSubmitted(true);
     } catch { /* dialog stays open for retry */ }
@@ -127,11 +145,19 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
   const PriceTag = ({ b, light }: { b: any; light?: boolean }) => {
     const { amount, suffix } = priceOf(b);
+    const others = ratesOf(b).slice(1);
     return (
-      <p className="shrink-0">
-        <span className={`text-2xl font-black tracking-tighter ${light ? 'text-white' : ''}`}>${amount.toLocaleString()}</span>
-        <span className={`text-xs font-bold ${light ? 'text-white/70' : 'opacity-50'}`}>{suffix}</span>
-      </p>
+      <div className="shrink-0 text-right">
+        <p>
+          <span className={`text-2xl font-black tracking-tighter ${light ? 'text-white' : ''}`}>${amount.toLocaleString()}</span>
+          <span className={`text-xs font-bold ${light ? 'text-white/70' : 'opacity-50'}`}>{suffix}</span>
+        </p>
+        {others.length > 0 && (
+          <p className={`text-[9px] font-bold ${light ? 'text-white/60' : 'opacity-50'}`}>
+            {others.map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ')}
+          </p>
+        )}
+      </div>
     );
   };
   const Chips = ({ b, light }: { b: any; light?: boolean }) => (
@@ -158,11 +184,21 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       </div>
     );
   };
-  const CTA = ({ b }: { b: any }) => (
-    <button onClick={() => openApply(b)} className={`w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white transition-transform active:scale-[0.98] ${isLease(b) ? 'bg-slate-900 hover:bg-slate-800' : 'bg-amber-600 hover:bg-amber-700'}`}>
-      {isLease(b) ? (config.applyCtaText || 'Apply Now') : (config.reserveCtaText || 'Reserve')}
-    </button>
-  );
+  const CTA = ({ b }: { b: any }) => {
+    const hasLease = leaseRates(b).length > 0;
+    const hasDay = dayRates(b).length > 0;
+    if (hasLease && hasDay) return (
+      <div className="flex gap-2">
+        <button onClick={() => openApply(b, 'lease')} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-slate-900 hover:bg-slate-800 transition-transform active:scale-[0.98]">{config.applyCtaText || 'Apply Now'}</button>
+        <button onClick={() => openApply(b, 'day')} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-amber-600 hover:bg-amber-700 transition-transform active:scale-[0.98]">{config.reserveCtaText || 'Reserve'}</button>
+      </div>
+    );
+    return (
+      <button onClick={() => openApply(b, hasLease ? 'lease' : 'day')} className={`w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white transition-transform active:scale-[0.98] ${hasLease ? 'bg-slate-900 hover:bg-slate-800' : 'bg-amber-600 hover:bg-amber-700'}`}>
+        {hasLease ? (config.applyCtaText || 'Apply Now') : (config.reserveCtaText || 'Reserve')}
+      </button>
+    );
+  };
 
   return (
     <section className="py-16 md:py-24 px-4">
@@ -268,8 +304,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                 )}
                 <div className="p-6 space-y-3.5 overflow-y-auto">
                   <div>
-                    <h3 className="font-black text-xl tracking-tight">{isLease(applyFor) ? 'Apply for' : 'Reserve'} {applyFor.name || 'this space'}</h3>
-                    <p className="text-xs opacity-60 font-bold mt-0.5">${priceOf(applyFor).amount.toLocaleString()}{priceOf(applyFor).suffix} · We respond within one business day.</p>
+                    <h3 className="font-black text-xl tracking-tight">{applyMode === 'lease' ? 'Apply for' : 'Reserve'} {applyFor.name || 'this space'}</h3>
+                    <p className="text-xs opacity-60 font-bold mt-0.5">{(applyMode === 'lease' ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ') || `$${priceOf(applyFor).amount.toLocaleString()}${priceOf(applyFor).suffix}`} · We respond within one business day.</p>
                   </div>
 
                   <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
@@ -292,7 +328,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   )}
 
                   {/* Dates — different question per product */}
-                  {isLease(applyFor) ? (
+                  {applyMode === 'lease' ? (
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Ideal move-in date</p>
                       <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
