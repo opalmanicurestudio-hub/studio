@@ -2173,1176 +2173,422 @@ export default function BoothsPage() {
     : undefined;
   const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
+
+  // ── v61 UI: THREE-TAB COMMAND CENTER ──────────────────────────────────────
+  // Spaces (floor + booth list) · Operations (applications + rentals + renters)
+  // · Money (transactions). Badge counts on tabs make inbound demand
+  // impossible to miss. The view sub-switch inside Spaces keeps the floor
+  // plan and list accessible without cluttering the top nav.
+  const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
+  const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
+  const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length;
+
   return (
-    <div className="p-4 sm:p-6 md:p-8 space-y-6">
+    <div className="min-h-screen bg-slate-50">
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
-      {/* v49 — website applications land here, top of the hub: inbound
-          demand gets first attention. Live via onSnapshot. */}
-      {pendingApps.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-black uppercase tracking-widest">Applications</h2>
-            <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">{pendingApps.length}</span>
+      {/* ── KPI HEADER STRIP ─────────────────────────────────────────── */}
+      <div className="bg-white border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
+              <Armchair className="h-5 w-5 text-slate-500" /> Spaces
+            </h1>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">
+              {metrics.occupancyPct}% occupied · {metrics.activeRenters} active renter{metrics.activeRenters !== 1 ? 's' : ''}
+            </p>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {pendingApps.map((app: any) => (
-              <div key={app.id} className={`rounded-2xl border-2 p-4 space-y-3 ${app.status === 'in_review' ? 'border-sky-200 bg-sky-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="font-black text-sm uppercase truncate">{app.name}</p>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                      {app.kind === 'tour' ? '🗓 Tour request' : app.kind === 'question' ? '💬 Question' : app.kind === 'waitlist' ? '⏳ Waitlist' : app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'}
-                      {' · '}{app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}
-                    </p>
-                  </div>
-                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>{app.status === 'in_review' ? 'Contacted' : 'New'}</span>
-                </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-600">
-                  {app.phone && <a href={`tel:${app.phone}`} className="underline underline-offset-2 text-indigo-600">{app.phone}</a>}
-                  {app.email && <a href={`mailto:${app.email}`} className="underline underline-offset-2 text-indigo-600 truncate">{app.email}</a>}
-                  {app.timing && <span className="text-slate-500">{app.timing}</span>}
-                </div>
-                {Array.isArray(app.attachments) && app.attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {app.attachments.map((at: any) => (
-                      <a key={at.url} href={at.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 underline underline-offset-2">📎 {at.label || at.name}</a>
-                    ))}
-                  </div>
-                )}
-                {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
-                <div className="flex gap-2 pt-1">
-                  {(!app.kind || app.kind === 'application') ? (
-                    <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{decidingAppId === app.id ? 'Working...' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}</button>
-                  ) : (
-                    <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
-                  )}
-                  {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
-                  {(!app.kind || app.kind === 'application') && <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {upcomingReservations.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-black uppercase tracking-widest">Upcoming Day Rentals</h2>
-            <span className="h-5 min-w-5 px-1.5 bg-emerald-600 text-white text-[10px] font-black rounded-full flex items-center justify-center">{upcomingReservations.length}</span>
-          </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {upcomingReservations.map((r: any) => (
-              <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 space-y-2 ${r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending' ? 'border-red-300 bg-red-50' : r.status === 'checked_in' ? 'border-indigo-300 bg-indigo-50/50' : 'border-emerald-200 bg-emerald-50/40'}`}>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-black text-sm uppercase truncate">{r.name} <span className="font-bold text-muted-foreground normal-case">· {r.boothName}</span></p>
-                    <p className="text-[10px] font-bold text-slate-600 uppercase">{r.startDate} → {r.endDate} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓ terms' : ''}</p>
-                  </div>
-                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
-                    {r.status === 'checked_in' ? 'Checked in' : r.status === 'confirmed' ? 'Upcoming' : r.status === 'cancelled_refund_pending' ? 'Refund pending' : 'Conflict'}
-                  </span>
-                  {r.phone && <a href={`tel:${r.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 shrink-0">Call</a>}
-                </div>
-                {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
-                  <p className="text-[10px] font-black uppercase text-red-600">
-                    {r.status === 'payment_received_conflict' ? '⚠ Paid but dates conflict — refund or rebook.' : '⚠ Refund in Stripe dashboard'}
-                    {r.stripePaymentIntentId ? ` · Payment ${r.stripePaymentIntentId}` : ''}
-                  </p>
-                )}
-                <div className="flex gap-2">
-                  {r.status === 'confirmed' && (
-                    <>
-                      <button onClick={() => setResStatus(r, 'checked_in')} className="flex-1 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>
-                      <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>
-                    </>
-                  )}
-                  {r.status === 'checked_in' && (
-                    <button onClick={() => setResStatus(r, 'completed')} className="flex-1 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[9px] tracking-widest">Complete Stay</button>
-                  )}
-                  {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
-                    <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded & Close</button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Armchair className="h-6 w-6" />
-            Booths
-          </h1>
-          <p className="text-sm text-muted-foreground mb-1.5">
-            Booths, renters, and leases — all in one place.
-          </p>
-          <div className="mb-1.5">
-            <LocationSwitcher />
-          </div>
-          <LivePulse lastSync={lastSync} />
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <div className="grid grid-cols-4 sm:flex rounded-lg border border-border p-0.5 gap-0.5 sm:gap-0">
-            <Button
-              variant={view === 'floor' ? 'default' : 'ghost'}
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => setView('floor')}
-            >
-              <LayoutGrid className="h-4 w-4 mr-1.5" />
-              <span className="sm:hidden">Floor</span>
-              <span className="hidden sm:inline">Floor plan</span>
-            </Button>
-            <Button
-              variant={view === 'list' ? 'default' : 'ghost'}
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => setView('list')}
-            >
-              <List className="h-4 w-4 mr-1.5" />
-              List
-            </Button>
-            <Button
-              variant={view === 'renters' ? 'default' : 'ghost'}
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => setView('renters')}
-            >
-              <Users className="h-4 w-4 mr-1.5" />
-              Renters
-            </Button>
-            <Button
-              variant={view === 'money' ? 'default' : 'ghost'}
-              size="sm"
-              className="w-full sm:w-auto"
-              onClick={() => setView('money')}
-            >
-              <CircleDollarSign className="h-4 w-4 mr-1.5" />
-              Money
-            </Button>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:gap-2">
-            <Button
-              variant="outline"
-              className="relative w-full sm:w-auto"
-              onClick={() => setCommandCenterOpen(true)}
-            >
-              <Bell className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
-              <span className="sm:hidden">Alerts</span>
-              <span className="hidden sm:inline">Command Center</span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" className="relative" onClick={() => setCommandCenterOpen(true)}>
+              <ActivityIcon className="h-4 w-4" />
               {alertBadgeSeverity && (
-                <span
-                  className={cn(
-                    'absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 rounded-full text-[10px] font-semibold flex items-center justify-center text-white',
-                    alertBadgeSeverity === 'danger' && 'bg-red-500',
-                    alertBadgeSeverity === 'warning' && 'bg-amber-500',
-                    alertBadgeSeverity === 'info' && 'bg-sky-500'
-                  )}
-                >
+                <span className={`absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full text-[9px] font-black text-white flex items-center justify-center ${alertBadgeSeverity === 'danger' ? 'bg-red-500' : alertBadgeSeverity === 'warning' ? 'bg-amber-500' : 'bg-sky-500'}`}>
                   {alerts.length}
                 </span>
               )}
             </Button>
-            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setPricingOpen(true)}>
-              <Calculator className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
-              <span className="sm:hidden">Pricing</span>
-              <span className="hidden sm:inline">Pricing Advisor</span>
+            <Button size="sm" onClick={() => setDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Space
             </Button>
-            {view === 'money' ? (
-              <div className="space-y-3">
-                <div className="rounded-2xl border-2 bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Booth income · all time</p>
-                  <p className="text-2xl font-black tracking-tighter">${(txnTotalCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
-                </div>
-                {sortedTxns.length === 0 ? (
-                  <p className="text-sm text-muted-foreground font-medium text-center py-8">No booth transactions yet — rent payments and paid day rentals will appear here.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {sortedTxns.map((t: any) => (
-                      <div key={t.id} className="rounded-xl border-2 px-4 py-3 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black truncate">{txnDesc(t)}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
-                        </div>
-                        <p className="font-black text-emerald-700 shrink-0">${txnDollars(t).toFixed(2)}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : view === 'renters' ? (
-              <Button className="w-full sm:w-auto" onClick={openCreateRenter}>
-                <UserPlus className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
-                <span className="sm:hidden">Add</span>
-                <span className="hidden sm:inline">Add renter</span>
-              </Button>
-            ) : (
-              <Button className="w-full sm:w-auto" onClick={openCreate}>
-                <Plus className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
-                <span className="sm:hidden">Add</span>
-                <span className="hidden sm:inline">Add booth</span>
-              </Button>
-            )}
           </div>
+        </div>
+
+        {/* KPI row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Monthly revenue', value: formatCents(metrics.monthlyRevenue), sub: `${metrics.occupancyPct}% occupancy`, color: 'text-emerald-700' },
+            { label: 'Occupied', value: `${metrics.occupied} / ${metrics.total}`, sub: 'spaces', color: 'text-slate-900' },
+            { label: 'Vacant', value: String(metrics.vacant), sub: metrics.vacancyCost > 0 ? `${formatCents(metrics.vacancyCost)}/mo uncollected` : 'all leased', color: metrics.vacant > 0 ? 'text-amber-600' : 'text-slate-900' },
+            { label: 'Potential', value: formatCents(metrics.potentialMonthly), sub: 'if fully leased', color: 'text-slate-500' },
+          ].map(k => (
+            <div key={k.label} className="rounded-xl border bg-white px-3.5 py-2.5 space-y-0.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
+              <p className={`text-xl font-black tracking-tighter ${k.color}`}>{k.value}</p>
+              <p className="text-[9px] font-bold text-muted-foreground">{k.sub}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Tab strip */}
+        <div className="flex gap-0 border-b -mb-4">
+          {([
+            { id: 'spaces', label: 'Spaces', badge: null },
+            { id: 'ops', label: 'Operations', badge: opsBadge > 0 ? opsBadge : null },
+            { id: 'money', label: 'Money', badge: null },
+          ] as const).map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`relative px-4 py-2 text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-1.5
+                ${tab === t.id ? 'text-slate-900 border-b-2 border-slate-900 -mb-px' : 'text-muted-foreground hover:text-slate-700'}`}
+            >
+              {t.label}
+              {t.badge && (
+                <span className="h-4 min-w-4 px-1 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{t.badge}</span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <MetricCard
-          label="Monthly revenue"
-          value={formatCents(metrics.monthlyRevenue)}
-          sub={`${metrics.occupancyPct}% occupancy`}
-          icon={CircleDollarSign}
-          accent="#185FA5"
-        />
-        <MetricCard
-          label="Occupied"
-          value={`${metrics.occupied} / ${metrics.total}`}
-          sub="booths"
-          icon={TrendingUp}
-          accent="#0F6E56"
-        />
-        <MetricCard
-          label="Vacant"
-          value={String(metrics.vacant)}
-          sub={
-            metrics.vacancyCost > 0
-              ? `${formatCents(metrics.vacancyCost)}/mo uncollected`
-              : 'No vacancies'
-          }
-          icon={DoorOpen}
-          accent={metrics.vacant > 0 ? '#BA7517' : '#3B6D11'}
-        />
-        <MetricCard
-          label="Potential rent"
-          value={formatCents(metrics.potentialMonthly)}
-          sub="if fully occupied"
-          icon={Calculator}
-          accent="#5B4A8A"
-        />
-        <MetricCard
-          label="Active renters"
-          value={String(metrics.activeRenters)}
-          sub={`${sortedRenters.length} total`}
-          icon={Users}
-          accent="#B23A6B"
-        />
-      </div>
+      {/* ── SPACES TAB ───────────────────────────────────────────────── */}
+      {tab === 'spaces' && (
+        <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
+          {/* Sub-toggle: floor vs list */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex gap-1 p-1 bg-white rounded-xl border">
+              <button onClick={() => setSpaceView('floor')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'floor' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+                <LayoutGrid className="h-3 w-3 inline mr-1" />Floor
+              </button>
+              <button onClick={() => setSpaceView('list')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'list' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+                <List className="h-3 w-3 inline mr-1" />List
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setPricingOpen(true)}>
+                <Calculator className="h-3.5 w-3.5 mr-1" />Pricing
+              </Button>
+              {spaceView === 'floor' && (
+                <Button size="sm" variant={locked ? 'default' : 'secondary'} onClick={() => setLocked(l => !l)}>
+                  {locked ? <><Lock className="h-3.5 w-3.5 mr-1" />Locked</> : <><Unlock className="h-3.5 w-3.5 mr-1" />Editing</>}
+                </Button>
+              )}
+            </div>
+          </div>
 
-      {(booths.isLoading || renters.isLoading) && (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      )}
-
-      {view === 'floor' && !booths.isLoading && sortedBooths.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center space-y-3">
-            <DoorOpen className="h-10 w-10 mx-auto text-muted-foreground" />
-            <p className="font-medium">No booths yet</p>
-            <p className="text-sm text-muted-foreground">
-              Add your first booth, then use the Pricing Advisor to set a rent
-              that actually covers your costs.
-            </p>
-            <Button onClick={openCreate}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add your first booth
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {view === 'floor' && sortedBooths.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex gap-3 flex-wrap">
-              {(Object.entries(BOOTH_STATUS_COLORS) as [
-                Booth['status'],
-                (typeof BOOTH_STATUS_COLORS)[Booth['status']]
-              ][]).map(([status, c]) => (
-                <span
-                  key={status}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-sm"
-                    style={{ background: c.bg, border: `1.5px solid ${c.border}` }}
-                  />
+          {/* Status legend */}
+          {spaceView === 'floor' && (
+            <div className="flex flex-wrap gap-3">
+              {(Object.entries(BOOTH_STATUS_COLORS) as [Booth['status'], (typeof BOOTH_STATUS_COLORS)[Booth['status']]][]).map(([status, sc]) => (
+                <span key={status} className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
+                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: sc.bg, border: `1.5px solid ${sc.border}` }} />
                   {BOOTH_STATUS_LABELS[status]}
                 </span>
               ))}
             </div>
-            <div className="flex items-center gap-2">
-              {layoutSaving && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3 animate-spin" /> Saving…
-                </span>
+          )}
+
+          {booths.isLoading ? (
+            <div className="py-12 text-center text-sm text-muted-foreground">Loading spaces…</div>
+          ) : sortedBooths.length === 0 ? (
+            <div className="py-12 text-center space-y-3">
+              <Armchair className="h-10 w-10 mx-auto text-muted-foreground" />
+              <p className="font-medium text-muted-foreground">No spaces yet</p>
+              <Button onClick={() => setDialogOpen(true)}>Add your first space</Button>
+            </div>
+          ) : spaceView === 'list' ? (
+            <div className="space-y-3">
+              {sortedBooths.map((booth: Booth) => {
+                const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+                const renter = renters.data?.find(r => r.id === booth.currentRenterId);
+                const lease = activeLeaseByBooth.get(booth.id);
+                return (
+                  <button key={booth.id} onClick={() => { openEditBooth(booth); }} className="w-full text-left rounded-2xl border-2 bg-white p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-center gap-3">
+                      <div className="w-3 h-full self-stretch rounded-full shrink-0" style={{ background: sc.bg, border: `2px solid ${sc.border}`, minHeight: 40, width: 6 }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-black text-sm uppercase">{booth.name}</p>
+                          <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 text-white" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[booth.status]}</span>
+                          {booth.type && <span className="text-[9px] font-bold text-muted-foreground uppercase">{booth.type}</span>}
+                        </div>
+                        {renter && <p className="text-xs font-bold text-muted-foreground truncate">{renter.firstName} {renter.lastName}{renter.businessName ? ` · ${renter.businessName}` : ''}</p>}
+                        {lease && <p className="text-[10px] font-bold text-muted-foreground">{formatCents(lease.rentAmountCents)}/{lease.frequency} · ends {lease.endDate || '—'}</p>}
+                      </div>
+                      <div className="text-right shrink-0">
+                        {booth.baseRentCents > 0 && <p className="font-black text-sm">{formatCents(booth.baseRentCents)}<span className="font-normal text-muted-foreground text-[10px]">/{booth.baseRentFrequency || 'mo'}</span></p>}
+                        {Array.isArray(booth.amenities) && booth.amenities.length > 0 && <p className="text-[9px] font-bold text-muted-foreground">{booth.amenities.slice(0, 2).join(' · ')}</p>}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          ) : isMobile ? (
+            /* Mobile floor: 2-col status cards */
+            <div className="grid grid-cols-2 gap-3">
+              {sortedBooths.map((booth: Booth) => {
+                const renter = renters.data?.find(r => r.id === booth.currentRenterId);
+                const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+                return (
+                  <button key={booth.id} onClick={() => setSelectedId(booth.id)} className="rounded-2xl border-2 p-3 text-left space-y-1 active:scale-[0.98] transition-transform" style={{ borderColor: sc.border, background: sc.bg }}>
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="font-black text-xs uppercase truncate">{booth.name}</p>
+                      <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[booth.status] ?? booth.status}</span>
+                    </div>
+                    {renter && <p className="text-[10px] font-bold truncate opacity-70">{renter.firstName} {renter.lastName}</p>}
+                    {booth.baseRentCents > 0 && <p className="text-[10px] font-black">{formatCents(booth.baseRentCents)}<span className="font-normal opacity-50">/{booth.baseRentFrequency || 'mo'}</span></p>}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            /* Desktop floor canvas */
+            <div className="relative">
+              {!locked && (
+                <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-1.5">
+                  <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition. Click a booth to edit.
+                </div>
               )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={autoArrangeBooths}
-                disabled={layoutSaving || locked}
-              >
-                <LayoutGrid className="h-4 w-4 mr-1.5" />
-                Auto-arrange
-              </Button>
-              <Button
-                variant={locked ? 'default' : 'secondary'}
-                size="sm"
-                onClick={() => setLocked((l) => !l)}
-              >
-                {locked ? (
-                  <>
-                    <Lock className="h-4 w-4 mr-1.5" />
-                    Layout locked
-                  </>
-                ) : (
-                  <>
-                    <Unlock className="h-4 w-4 mr-1.5" />
-                    Editing layout
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {!locked && (
-            <p className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Info className="h-3 w-3" />
-              Drag to move · drag corner to resize · changes save automatically
-            </p>
-          )}
-
-          <div className="relative">
-            {/* v60 — MOBILE FLOOR: canvas is desktop-only. On mobile,
-                booths render as status cards — geometry means nothing
-                on a 390px screen. */}
-            {isMobile ? (
-              <div className="grid grid-cols-2 gap-3">
-                {sortedBooths.map((booth: Booth) => {
-                  const renter = renters.data?.find((r) => r.id === booth.currentRenterId);
-                  const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
-                  return (
-                    <button
+              <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
+                <div
+                  className="relative"
+                  style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: locked ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
+                  onClick={e => { if (e.target === e.currentTarget) setSelectedId(null); }}
+                >
+                  {sortedBooths.map((booth: Booth) => (
+                    <BoothCard
                       key={booth.id}
-                      onClick={() => setSelectedId(booth.id)}
-                      className="rounded-2xl border-2 p-3 text-left space-y-1 active:scale-[0.98] transition-transform"
-                      style={{ borderColor: sc.border, background: sc.bg }}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="font-black text-xs uppercase truncate">{booth.name}</p>
-                        <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0"
-                          style={{ background: sc.border, color: '#fff' }}>
-                          {BOOTH_STATUS_LABELS[booth.status] ?? booth.status}
-                        </span>
-                      </div>
-                      {renter && <p className="text-[10px] font-bold truncate opacity-70">{renter.firstName} {renter.lastName}</p>}
-                      {booth.baseRentCents > 0 && (
-                        <p className="text-[10px] font-black">${(booth.baseRentCents / 100).toFixed(0)}<span className="font-normal opacity-50">/{booth.baseRentFrequency || 'mo'}</span></p>
-                      )}
-                    </button>
-                  );
-                })}
+                      booth={booth}
+                      renter={renters.data?.find(r => r.id === booth.currentRenterId)}
+                      lease={activeLeaseByBooth.get(booth.id)}
+                      selected={selectedId === booth.id}
+                      locked={locked}
+                      onSelect={id => setSelectedId(id)}
+                      onDragEnd={(id, x, y) => handleBoothDragEnd(id, x, y)}
+                    />
+                  ))}
+                </div>
               </div>
-            ) : (
-            <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
-              <div
-                className="relative"
-                style={{
-                  width: CANVAS_W,
-                  height: CANVAS_H,
-                  backgroundImage: locked
-                    ? undefined
-                    : 'radial-gradient(circle, var(--border) 1px, transparent 1px)',
-                  backgroundSize: `${GRID}px ${GRID}px`,
-                }}
-                onClick={(e) => {
-                  if (e.target === e.currentTarget) setSelectedId(null);
-                }}
-              >
-                {sortedBooths.map((b) => {
-                  const eb = effectiveBooth(b);
-                  const lease = activeLeaseByBooth.get(b.id);
-                  const renter = lease ? renterById.get(lease.renterId) : undefined;
-                  return (
-                    <TooltipProvider key={b.id}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
-                            <BoothCanvasCard
-                              booth={eb}
-                              renter={renter}
-                              lease={lease}
-                              selected={selectedId === b.id}
-                              locked={locked}
-                              onDragStart={handleDragStart}
-                              onResizeStart={handleResizeStart}
-                              onClick={setSelectedId}
-                            />
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="text-xs max-w-[200px]">
-                          <p className="font-medium">{b.name}</p>
-                          {(b.amenities?.length ?? 0) > 0 && (
-                            <p className="text-muted-foreground">
-                              {b.amenities.join(', ')}
-                            </p>
-                          )}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  );
-                })}
-              </div>
+              {selectedBooth && (
+                <DetailPanel
+                  booth={effectiveBooth(selectedBooth)}
+                  renter={selectedRenter}
+                  lease={selectedLease}
+                  onClose={() => setSelectedId(null)}
+                  onEdit={booth => { openEditBooth(booth); }}
+                  onAddLease={() => { setLeaseTarget(selectedBooth); setLeaseDialogOpen(true); }}
+                  onEndLease={() => setEndLeaseTarget(selectedBooth)}
+                  onAddRenter={() => { setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff(); }}
+                />
+              )}
             </div>
-            )}
-
-            {selectedBooth && (
-              <DetailPanel
-                booth={effectiveBooth(selectedBooth)}
-                renter={selectedRenter}
-                lease={selectedLease}
-                onClose={() => setSelectedId(null)}
-                onEdit={(booth) => {
-                  openEdit(booth);
-                }}
-              />
-            )}
-          </div>
-        </div>
-      )}
-
-      {view === 'list' && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {sortedBooths.map((booth) => {
-            const statusConfig = STATUS_CONFIG[booth.status] ?? STATUS_CONFIG.vacant;
-            return (
-              <Card key={booth.id} className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="text-base">{booth.name}</CardTitle>
-                    <Badge className={statusConfig.badgeClass}>
-                      {booth.status === 'maintenance' && (
-                        <Wrench className="h-3 w-3 mr-1" />
-                      )}
-                      {statusConfig.label}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="flex-1 flex flex-col gap-3">
-                  <p className="text-lg font-semibold">
-                    {formatCents(booth.baseRentCents)}
-                    <span className="text-sm font-normal text-muted-foreground">
-                      {' '}
-                      / {(FREQUENCY_LABELS[booth.baseRentFrequency] ?? booth.baseRentFrequency ?? 'period').toLowerCase()}
-                    </span>
-                  </p>
-                  {booth.notes && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {booth.notes}
-                    </p>
-                  )}
-                  {booth.amenities?.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {booth.amenities.map((amenity) => (
-                        <Badge key={amenity} variant="secondary" className="text-xs">
-                          {amenity}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  <div className="mt-auto flex gap-2 pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1"
-                      onClick={() => openEdit(booth)}
-                    >
-                      <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(booth.id)}
-                      disabled={booth.status === 'occupied'}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {view === 'renters' && (
-        <div className="space-y-4">
-          {!renters.isLoading && sortedRenters.length === 0 && (
-            <Card>
-              <CardContent className="py-12 text-center space-y-3">
-                <Users className="h-10 w-10 mx-auto text-muted-foreground" />
-                <p className="font-medium">No renters yet</p>
-                <p className="text-sm text-muted-foreground">Add a renter, then set up their lease with schedule, deposit, and perks.</p>
-                <Button onClick={openCreateRenter}><UserPlus className="h-4 w-4 mr-2" />Add your first renter</Button>
-              </CardContent>
-            </Card>
           )}
+        </div>
+      )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            {sortedRenters.map((renter) => {
-              const sc = RENTER_STATUS_CONFIG[renter.status] ?? RENTER_STATUS_CONFIG.prospective;
-              const lease = occupyingLeaseByRenter.get(renter.id);
-              const booth = lease ? boothById.get(lease.boothId) : undefined;
-              return (
-                <Card key={renter.id}>
-                  <CardHeader className="pb-3">
+      {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
+      {tab === 'ops' && (
+        <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
+          {/* Applications */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Applications</h2>
+                {pendingApps.length > 0 && <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{pendingApps.length}</span>}
+              </div>
+              <Button size="sm" variant="outline" onClick={() => { setEditingRenterId(null); setRenterForm(EMPTY_RENTER_FORM); setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff(); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" />Add renter
+              </Button>
+            </div>
+            {pendingApps.length === 0 ? (
+              <p className="text-xs text-muted-foreground font-medium py-3">No pending applications — new inquiries from the website appear here live.</p>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {pendingApps.map((app: any) => (
+                  <div key={app.id} className={`rounded-2xl border-2 p-4 space-y-3 ${app.status === 'in_review' ? 'border-sky-200 bg-sky-50/40' : 'border-amber-300 bg-amber-50/50'}`}>
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <CardTitle className="text-base">{renter.firstName} {renter.lastName}</CardTitle>
-                        {renter.businessName && <p className="text-sm text-muted-foreground">{renter.businessName}</p>}
+                      <div className="min-w-0">
+                        <p className="font-black text-sm uppercase truncate">{app.name}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                          {app.kind === 'tour' ? '🗓 Tour request' : app.kind === 'question' ? '💬 Question' : app.kind === 'waitlist' ? '⏳ Waitlist' : app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'}
+                          {' · '}{app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}
+                        </p>
                       </div>
-                      <Badge className={sc.badgeClass}>{sc.label}</Badge>
+                      <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>
+                        {app.status === 'in_review' ? 'Contacted' : 'New'}
+                      </span>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p>{renter.email}</p>
-                      {renter.phone && <p>{renter.phone}</p>}
-                      {renter.specialty && <p>Specialty: {renter.specialty}</p>}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-slate-600">
+                      {app.phone && <a href={`tel:${app.phone}`} className="underline underline-offset-2 text-indigo-600">{app.phone}</a>}
+                      {app.email && <a href={`mailto:${app.email}`} className="underline underline-offset-2 text-indigo-600 truncate">{app.email}</a>}
+                      {app.timing && <span className="text-slate-500">{app.timing}</span>}
                     </div>
-                    {lease && (
-                      <div className="rounded-lg border p-3 space-y-1.5">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <FileText className="h-4 w-4" />{booth ? booth.name : 'Lease'}
-                          {lease.scheduleSlot && <Badge variant="outline" className="text-[10px]">Shared</Badge>}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <CircleDollarSign className="h-4 w-4" />
-                          {formatCents(lease.rentAmountCents)} / {(FREQUENCY_LABELS[lease.frequency] ?? lease.frequency ?? 'period').toLowerCase()}
-                        </div>
-                        {lease.scheduleSlot && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Clock className="h-4 w-4" />
-                            {lease.scheduleSlot.label ?? lease.scheduleSlot.days.map((d) => WEEKDAY_LABELS[d]).join(', ')}
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <CalendarDays className="h-4 w-4" />
-                          {lease.endDate ? `Through ${lease.endDate}` : 'Month-to-month'}
-                        </div>
-                        {(lease.perks?.length ?? 0) > 0 && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Gift className="h-4 w-4" />{lease.perks.length} perk{lease.perks.length > 1 ? 's' : ''}
-                          </div>
-                        )}
-                        {lease.signedDocumentUrl && (
-                          <a href={lease.signedDocumentUrl} target="_blank" rel="noopener noreferrer"
-                            className="flex items-center gap-2 text-sm underline underline-offset-2">
-                            <FileSignature className="h-4 w-4" />Signed agreement
-                          </a>
-                        )}
+                    {Array.isArray(app.attachments) && app.attachments.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {app.attachments.map((at: any) => (
+                          <a key={at.url} href={at.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 underline underline-offset-2">📎 {at.label || at.name}</a>
+                        ))}
                       </div>
                     )}
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      <Button variant="outline" size="sm" onClick={() => openEditRenter(renter)}>
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />Edit
-                      </Button>
-                      {!lease && (
-                        <Button size="sm" onClick={() => openLeaseWizard(renter.id)}>
-                          <DoorOpen className="h-3.5 w-3.5 mr-1.5" />Set up lease
-                        </Button>
+                    {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
+                    <div className="flex gap-2 pt-1">
+                      {(!app.kind || app.kind === 'application') ? (
+                        <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                          {decidingAppId === app.id ? 'Working…' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}
+                        </button>
+                      ) : (
+                        <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
                       )}
-                      {(renter.status === 'active' || renter.status === 'on_leave' || renter.status === 'maternity_leave') && (
-                        <Button variant="outline" size="sm" onClick={() => {
-                          setStatusTarget(renter);
-                          setNewStatus(renter.status === 'active' ? 'on_leave' : 'active');
-                        }}>
-                          <Pause className="h-3.5 w-3.5 mr-1.5" />
-                          {renter.status === 'active' ? 'Put on leave' : 'Return from leave'}
-                        </Button>
+                      {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
+                      {(!app.kind || app.kind === 'application') && <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Upcoming day rentals */}
+          {upcomingReservations.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Day Rentals</h2>
+                <span className="h-5 min-w-5 px-1.5 bg-emerald-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">{upcomingReservations.length}</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {upcomingReservations.map((r: any) => (
+                  <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 space-y-2 ${r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending' ? 'border-red-300 bg-red-50' : r.status === 'checked_in' ? 'border-indigo-300 bg-indigo-50/50' : 'border-emerald-200 bg-emerald-50/40'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-sm truncate">{r.name} <span className="font-bold text-muted-foreground normal-case text-xs">· {r.boothName}</span></p>
+                        <p className="text-[10px] font-bold text-slate-600 uppercase">{r.startDate} → {r.endDate} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
+                      </div>
+                      <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
+                        {r.status === 'checked_in' ? 'In' : r.status === 'confirmed' ? 'Upcoming' : 'Issue'}
+                      </span>
+                      {r.phone && <a href={`tel:${r.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 shrink-0">Call</a>}
+                    </div>
+                    {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
+                      <p className="text-[10px] font-black uppercase text-red-600">⚠ Refund needed · {r.stripePaymentIntentId || ''}</p>
+                    )}
+                    <div className="flex gap-2">
+                      {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'checked_in')} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
+                      {r.status === 'checked_in' && <button onClick={() => setResStatus(r, 'completed')} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Complete Stay</button>}
+                      {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
+                      {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded</button>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Renters */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Renters</h2>
+                {sortedRenters.length > 0 && <span className="text-[10px] font-bold text-muted-foreground">{sortedRenters.length}</span>}
+              </div>
+            </div>
+            {renters.isLoading ? (
+              <p className="text-xs text-muted-foreground py-3">Loading renters…</p>
+            ) : sortedRenters.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3">No renters yet. Approve an application or add one manually.</p>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {sortedRenters.map((renter: Renter) => {
+                  const sc = RENTER_STATUS_CONFIG[renter.status] ?? RENTER_STATUS_CONFIG.prospective;
+                  const lease = occupyingLeaseByRenter.get(renter.id);
+                  const booth = lease ? boothById.get(lease.boothId) : undefined;
+                  return (
+                    <div key={renter.id} className="rounded-2xl border-2 bg-white p-4 space-y-2">
+                      <div className="flex items-start gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center font-black text-sm text-slate-600 shrink-0">
+                          {(renter.firstName || '?').charAt(0).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black text-sm">{renter.firstName} {renter.lastName}</p>
+                          {renter.businessName && <p className="text-[10px] font-bold text-muted-foreground truncate">{renter.businessName}</p>}
+                          <div className="flex gap-1.5 flex-wrap mt-1">
+                            <Badge className="text-[9px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
+                            {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5 shrink-0">
+                          {renter.email && <a href={`mailto:${renter.email}`} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Mail className="h-3.5 w-3.5" /></a>}
+                          {renter.phone && <a href={`tel:${renter.phone}`} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Phone className="h-3.5 w-3.5" /></a>}
+                          <button onClick={() => openEditRenter(renter)} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Pencil className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </div>
+                      {lease && booth && (
+                        <div className="rounded-xl bg-slate-50 border px-3 py-2 flex items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[10px] font-black uppercase">{booth.name}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground">{formatCents(lease.rentAmountCents)}/{lease.frequency} · ends {lease.endDate || '—'}</p>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button onClick={() => { setLeaseTarget(boothById.get(lease.boothId) ?? null); setLeaseDialogOpen(true); }} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Lease</button>
+                            <button onClick={() => setEndLeaseTarget(boothById.get(lease.boothId) ?? null)} className="text-[9px] font-black uppercase tracking-widest text-red-500 underline underline-offset-2">End</button>
+                          </div>
+                        </div>
                       )}
-                      {lease && (
-                        <Button variant="ghost" size="sm" onClick={() => setEndLeaseTarget(renter)}>
-                          <LogOut className="h-3.5 w-3.5 mr-1.5" />End lease
-                        </Button>
+                      {!lease && renter.status === 'active' && (
+                        <button onClick={() => { setLeaseTarget(null); setLeaseDialogOpen(true); }} className="w-full h-8 rounded-xl border-2 border-dashed text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-slate-400 hover:text-slate-700 transition-colors">
+                          + Assign booth
+                        </button>
+                      )}
+                      {!(renter as any).linkedStaffId && (
+                        <div className="pt-0.5">
+                          {(renter as any).portalEnabled ? (
+                            <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Portal active · PIN {(renter as any).portalPin}</p>
+                          ) : (
+                            <button onClick={() => enablePortalAccess(renter)} disabled={provisioningId === renter.id} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 disabled:opacity-40">
+                              {provisioningId === renter.id ? 'Enabling…' : 'Enable portal access'}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Booth dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit booth' : 'Add booth'}</DialogTitle>
-            <DialogDescription>
-              Name it the way your renters know it.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="booth-name">Name</Label>
-              <Input
-                id="booth-name"
-                placeholder="Booth 1, Suite B, Chair 3…"
-                value={form.name}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, name: e.target.value }))
-                }
-              />
+      {/* ── MONEY TAB ────────────────────────────────────────────────── */}
+      {tab === 'money' && (
+        <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
+          <div className="rounded-2xl border-2 bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Booth income · all time</p>
+              <p className="text-3xl font-black tracking-tighter mt-0.5">${(txnTotalCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
             </div>
-
-            <div className="space-y-1">
-              <Label>Type</Label>
-              <Select
-                value={form.typeValue}
-                onValueChange={(value) =>
-                  setForm((prev) => ({ ...prev, typeValue: value as Booth['type'] }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="booth">Booth</SelectItem>
-                  <SelectItem value="chair">Chair</SelectItem>
-                  <SelectItem value="room">Room</SelectItem>
-                  <SelectItem value="suite">Suite</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="booth-rent">Base rent ($)</Label>
-                <Input
-                  id="booth-rent"
-                  type="number"
-                  placeholder="250"
-                  value={form.baseRentDollars}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      baseRentDollars: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>Frequency</Label>
-                <Select
-                  value={form.baseRentFrequency}
-                  onValueChange={(value) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      baseRentFrequency: value as RentFrequency,
-                    }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="biweekly">Every 2 weeks</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            {/* v50 — MULTI-PRICING. One asset, many rates ("$25/hr ·
-                $450/wk · $1,500/mo"). The primary rate above stays the
-                lease anchor; these add transactional and alternative
-                rates. Stored as pricingOptions[] alongside the legacy
-                base fields for full backward compatibility. */}
+            <CircleDollarSign className="h-8 w-8 text-white/20" />
+          </div>
+          {sortedTxns.length === 0 ? (
+            <p className="text-sm text-muted-foreground font-medium text-center py-8">No booth transactions yet — rent payments and paid day rentals appear here.</p>
+          ) : (
             <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Additional rates (optional)</Label>
-              {form.extraRates.map((r, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <Input type="number" min="0" placeholder="0.00" value={r.dollars} className="w-28"
-                    onChange={(e) => setForm((prev) => ({ ...prev, extraRates: prev.extraRates.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x) }))} />
-                  <select value={r.frequency} className="h-10 rounded-lg border-2 px-3 text-sm font-medium bg-white"
-                    onChange={(e) => setForm((prev) => ({ ...prev, extraRates: prev.extraRates.map((x, j) => j === i ? { ...x, frequency: e.target.value } : x) }))}>
-                    <option value="hourly">Per hour</option>
-                    <option value="daily">Per day</option>
-                    <option value="weekly">Per week</option>
-                    <option value="monthly">Per month</option>
-                  </select>
-                  <button type="button" className="text-slate-400 font-black px-2"
-                    onClick={() => setForm((prev) => ({ ...prev, extraRates: prev.extraRates.filter((_, j) => j !== i) }))}>×</button>
+              {sortedTxns.map((t: any) => (
+                <div key={t.id} className="rounded-xl border-2 bg-white px-4 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-black truncate">{txnDesc(t)}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
+                  </div>
+                  <p className="font-black text-emerald-700 shrink-0">${txnDollars(t).toFixed(2)}</p>
                 </div>
               ))}
-              <Button type="button" variant="outline" size="sm"
-                onClick={() => setForm((prev) => ({ ...prev, extraRates: [...prev.extraRates, { frequency: 'daily', dollars: '' }] }))}>
-                + Add a rate
-              </Button>
-            </div>
-
-            <Button
-              type="button"
-              variant="link"
-              className="px-0 h-auto text-sm"
-              onClick={() => setPricingOpen(true)}
-            >
-              <Calculator className="h-3.5 w-3.5 mr-1.5" />
-              Not sure what to charge? Open the Pricing Advisor
-            </Button>
-
-            {editingId && (
-              <div className="space-y-1">
-                <Label>Status</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(value) =>
-                    setForm((prev) => ({ ...prev, status: value as BoothStatus }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vacant">Vacant</SelectItem>
-                    <SelectItem value="occupied">Occupied</SelectItem>
-                    <SelectItem value="partial">Partial (shared)</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>Included with this booth</Label>
-              <div className="flex flex-wrap gap-2">
-                {AMENITY_OPTIONS.map((amenity) => {
-                  const selected = form.amenities.includes(amenity);
-                  const chipClass = selected
-                    ? 'cursor-pointer'
-                    : 'cursor-pointer opacity-60';
-                  return (
-                    <Badge
-                      key={amenity}
-                      variant={selected ? 'default' : 'outline'}
-                      className={chipClass}
-                      onClick={() => toggleAmenity(amenity)}
-                    >
-                      {amenity}
-                    </Badge>
-                  );
-                })}
-              </div>
-
-              {/* v47 — listing photos. Shared ImageUpload pipeline
-                  (Storage-backed); first photo is the listing hero. */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Listing photos</p>
-                {form.photoUrls.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {form.photoUrls.map((u, i) => (
-                      <div key={u} className="relative w-16 h-16 rounded-xl overflow-hidden border-2">
-                        <img src={u} alt="" className="w-full h-full object-cover" />
-                        {i === 0 && <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[7px] font-black uppercase text-center">Hero</span>}
-                        <button type="button" onClick={() => setForm(prev => ({ ...prev, photoUrls: prev.photoUrls.filter(x => x !== u) }))} className="absolute top-0 right-0 bg-black/60 text-white w-4 h-4 text-[9px] leading-none">×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
-                  onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
-              </div>
-
-              {/* v55 — real-estate-grade listing content */}
-              <div className="space-y-1">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Listing description (public)</Label>
-                <Textarea rows={4} placeholder="Sell the space — light, equipment, vibe, what's included..."
-                  value={form.listingDescription}
-                  onChange={(e) => setForm(prev => ({ ...prev, listingDescription: e.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Video tour URL (YouTube, Vimeo, or direct .mp4)</Label>
-                <Input placeholder="https://youtube.com/watch?v=..."
-                  value={form.videoUrl}
-                  onChange={(e) => setForm(prev => ({ ...prev, videoUrl: e.target.value }))} />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="booth-notes">Notes (optional)</Label>
-              <Textarea
-                id="booth-notes"
-                placeholder="Window seat, private suite with door, near reception…"
-                value={form.notes}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, notes: e.target.value }))
-                }
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
-              {saving ? 'Saving…' : editingId ? 'Save changes' : 'Add booth'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Renter dialog */}
-      <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingRenterId ? 'Edit renter' : 'Add renter'}</DialogTitle>
-            <DialogDescription>Their independent business — your records.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            {!editingRenterId && convertibleStaff.length > 0 && (
-              <div className="space-y-1 rounded-xl border-2 border-indigo-100 bg-indigo-50/40 p-3">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-indigo-700">Converting an existing team member?</Label>
-                <select value={renterForm.linkedStaffId} onChange={(e) => pickStaffToConvert(e.target.value)} className="w-full h-10 rounded-lg border-2 px-3 text-sm font-medium bg-white">
-                  <option value="">No — this is a new person</option>
-                  {convertibleStaff.map((s: any) => (<option key={s.id} value={s.id}>{s.name}{s.role ? ` · ${s.role}` : ''}</option>))}
-                </select>
-                {renterForm.linkedStaffId && (
-                  <p className="text-[10px] font-bold text-indigo-600">Details prefilled. Their staff PIN stays their portal login — this adds the rent relationship only.</p>
-                )}
-              </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
-                <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
-              <div className="space-y-1"><Label htmlFor="r-last">Last name</Label>
-                <Input id="r-last" value={renterForm.lastName} onChange={(e) => setRenterForm((p) => ({ ...p, lastName: e.target.value }))} /></div>
-            </div>
-            <div className="space-y-1"><Label htmlFor="r-email">Email</Label>
-              <Input id="r-email" type="email" value={renterForm.email} onChange={(e) => setRenterForm((p) => ({ ...p, email: e.target.value }))} /></div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1"><Label htmlFor="r-phone">Phone</Label>
-                <Input id="r-phone" value={renterForm.phone} onChange={(e) => setRenterForm((p) => ({ ...p, phone: e.target.value }))} /></div>
-              <div className="space-y-1"><Label htmlFor="r-specialty">Specialty</Label>
-                <Input id="r-specialty" placeholder="Nails, hair, lashes…" value={renterForm.specialty} onChange={(e) => setRenterForm((p) => ({ ...p, specialty: e.target.value }))} /></div>
-            </div>
-            <div className="space-y-1"><Label htmlFor="r-business">Business name (optional)</Label>
-              <Input id="r-business" value={renterForm.businessName} onChange={(e) => setRenterForm((p) => ({ ...p, businessName: e.target.value }))} /></div>
-            <div className="space-y-1"><Label htmlFor="r-notes">Notes (private)</Label>
-              <Textarea id="r-notes" value={renterForm.notes} onChange={(e) => setRenterForm((p) => ({ ...p, notes: e.target.value }))} /></div>
-            {renterError && (
-              <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                <AlertCircle className="h-4 w-4 shrink-0" />{renterError}
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => handleRenterDialogOpenChange(false)}>Cancel</Button>
-            <Button onClick={handleSaveRenter} disabled={savingRenter || !renterForm.firstName.trim() || !renterForm.email.trim()}>
-              {savingRenter ? 'Saving…' : editingRenterId ? 'Save changes' : 'Add renter'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Lease wizard */}
-      <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Set up lease</DialogTitle>
-            <DialogDescription>Step {leaseStep + 1} of {WIZARD_STEPS.length}: {WIZARD_STEPS[leaseStep]}</DialogDescription>
-          </DialogHeader>
-
-          {leaseStep === 0 && (
-            <div className="space-y-4">
-              <div className="space-y-1">
-                <Label>Booth</Label>
-                <Select value={leaseForm.boothId} onValueChange={handleBoothSelect}>
-                  <SelectTrigger><SelectValue placeholder="Choose a booth" /></SelectTrigger>
-                  <SelectContent>
-                    {availableBooths.length === 0 && <SelectItem value="none" disabled>No available booths</SelectItem>}
-                    {availableBooths.map((b) => (
-                      <SelectItem key={b.id} value={b.id}>
-                        {b.name} ({b.status === 'partial' ? 'shared' : 'vacant'}) — {formatCents(b.baseRentCents)} / {(FREQUENCY_LABELS[b.baseRentFrequency] ?? b.baseRentFrequency ?? 'period').toLowerCase()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div>
-                  <p className="text-sm font-medium">Shared / part-time booth</p>
-                  <p className="text-xs text-muted-foreground">Multiple renters share on different days</p>
-                </div>
-                <Switch checked={leaseForm.isShared}
-                  onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, isShared: c, scheduleDays: [] }))} />
-              </div>
-
-              {leaseForm.isShared && (
-                <div className="rounded-lg border p-3 space-y-3">
-                  <div className="space-y-2">
-                    <Label>Days of access</Label>
-                    <div className="flex gap-2 flex-wrap">
-                      {WEEKDAY_OPTIONS.map((opt) => {
-                        const taken = conflictingSlots.some((s) => s.days.includes(opt.value));
-                        const checked = leaseForm.scheduleDays.includes(opt.value);
-                        return (
-                          <button key={opt.value} type="button"
-                            disabled={taken && !checked}
-                            onClick={() => !taken && toggleScheduleDay(opt.value)}
-                            className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
-                              checked ? 'bg-primary text-primary-foreground border-primary'
-                              : taken ? 'opacity-40 cursor-not-allowed border-border'
-                              : 'border-border hover:bg-muted'
-                            }`}>
-                            {opt.label}{taken && !checked && <span className="ml-1 text-[10px] text-destructive">taken</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {hasSlotConflict && <p className="text-xs text-destructive">Selected days conflict with an existing lease.</p>}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1"><Label>Start time (optional)</Label>
-                      <Input type="time" value={leaseForm.scheduleStartTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleStartTime: e.target.value }))} /></div>
-                    <div className="space-y-1"><Label>End time (optional)</Label>
-                      <Input type="time" value={leaseForm.scheduleEndTime} onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleEndTime: e.target.value }))} /></div>
-                  </div>
-                  <div className="space-y-1"><Label>Slot label (optional)</Label>
-                    <Input placeholder="e.g. Tuesday / Thursday mornings" value={leaseForm.scheduleLabel}
-                      onChange={(e) => setLeaseForm((p) => ({ ...p, scheduleLabel: e.target.value }))} /></div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label htmlFor="l-rent">Rent ($)</Label>
-                  <Input id="l-rent" type="number" value={leaseForm.rentDollars} onChange={(e) => setLeaseForm((p) => ({ ...p, rentDollars: e.target.value }))} /></div>
-                <div className="space-y-1">
-                  <Label>Frequency</Label>
-                  <Select value={leaseForm.frequency} onValueChange={(v) => setLeaseForm((p) => ({ ...p, frequency: v as RentFrequency, dueDay: '1' }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="daily">Daily</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="biweekly">Every 2 weeks</SelectItem>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label htmlFor="l-start">Lease start</Label>
-                  <Input id="l-start" type="date" value={leaseForm.startDate} onChange={(e) => setLeaseForm((p) => ({ ...p, startDate: e.target.value }))} /></div>
-                <div className="space-y-1"><Label htmlFor="l-end">End (blank = month-to-month)</Label>
-                  <Input id="l-end" type="date" min={leaseForm.startDate} value={leaseForm.endDate} onChange={(e) => setLeaseForm((p) => ({ ...p, endDate: e.target.value }))} /></div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label htmlFor="l-fc">First charge date</Label>
-                  <Input id="l-fc" type="date" min={toIsoDate(new Date())} value={leaseForm.firstChargeDate} onChange={(e) => setLeaseForm((p) => ({ ...p, firstChargeDate: e.target.value }))} /></div>
-                <div className="space-y-1"><Label htmlFor="l-notice">Notice days</Label>
-                  <Input id="l-notice" type="number" value={leaseForm.noticeDays} onChange={(e) => setLeaseForm((p) => ({ ...p, noticeDays: e.target.value }))} /></div>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border p-3">
-                <div><p className="text-sm font-medium">Auto-renew</p>
-                  <p className="text-xs text-muted-foreground">Continues unless either party gives notice</p></div>
-                <Switch checked={leaseForm.autoRenew} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, autoRenew: c }))} />
-              </div>
             </div>
           )}
+        </div>
+      )}
 
-          {leaseStep === 1 && (
-            <div className="space-y-4">
-              <div className="space-y-1"><Label htmlFor="l-deposit">Security deposit ($)</Label>
-                <Input id="l-deposit" type="number" placeholder="0 for none" value={leaseForm.depositDollars}
-                  onChange={(e) => setLeaseForm((p) => ({ ...p, depositDollars: e.target.value }))} /></div>
-              {toNumber(leaseForm.depositDollars) > 0 && (
-                <div className="space-y-3 rounded-lg border p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium">Deposit is refundable</p>
-                    <Switch checked={leaseForm.depositRefundable} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, depositRefundable: c }))} />
-                  </div>
-                  <div className="space-y-1"><Label htmlFor="l-depcond">Refund conditions</Label>
-                    <Textarea id="l-depcond" placeholder="Returned within 14 days of move-out…" value={leaseForm.depositConditions}
-                      onChange={(e) => setLeaseForm((p) => ({ ...p, depositConditions: e.target.value }))} /></div>
-                </div>
-              )}
-              <div className="space-y-3 rounded-lg border p-3">
-                <div className="flex items-center justify-between">
-                  <div><p className="text-sm font-medium">Late fees</p>
-                    <p className="text-xs text-muted-foreground">Applied after grace period</p></div>
-                  <Switch checked={leaseForm.lateFeeEnabled} onCheckedChange={(c) => setLeaseForm((p) => ({ ...p, lateFeeEnabled: c }))} />
-                </div>
-                {leaseForm.lateFeeEnabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="space-y-1"><Label>Grace days</Label>
-                      <Input type="number" min={0} value={leaseForm.lateFeeGraceDays} onChange={(e) => setLeaseForm((p) => ({ ...p, lateFeeGraceDays: e.target.value }))} /></div>
-                    <div className="space-y-1"><Label>Type</Label>
-                      <Select value={leaseForm.lateFeeType} onValueChange={(v) => setLeaseForm((p) => ({ ...p, lateFeeType: v as 'flat' | 'percent' }))}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="flat">Flat $</SelectItem>
-                          <SelectItem value="percent">% of rent</SelectItem>
-                        </SelectContent>
-                      </Select></div>
-                    <div className="space-y-1"><Label>{leaseForm.lateFeeType === 'flat' ? 'Fee ($)' : 'Fee (%)'}</Label>
-                      <Input type="number" min={0.01}
-                        value={leaseForm.lateFeeType === 'flat' ? leaseForm.lateFeeAmountDollars : leaseForm.lateFeePercent}
-                        onChange={(e) => setLeaseForm((p) => p.lateFeeType === 'flat'
-                          ? { ...p, lateFeeAmountDollars: e.target.value }
-                          : { ...p, lateFeePercent: e.target.value })} /></div>
-                  </div>
-                )}
-                {leaseForm.lateFeeEnabled && !step1Valid && <p className="text-xs text-destructive">Enter a fee amount greater than 0.</p>}
-              </div>
-              <div className="space-y-1"><Label htmlFor="l-rules">House rules (optional)</Label>
-                <Textarea id="l-rules" placeholder="Shared space expectations, product policies…" value={leaseForm.houseRules}
-                  onChange={(e) => setLeaseForm((p) => ({ ...p, houseRules: e.target.value }))} /></div>
-              <div className="space-y-1"><Label htmlFor="l-doc">Signed agreement (PDF, optional)</Label>
-                <div className="flex items-center gap-2">
-                  <Input id="l-doc" type="file" accept="application/pdf"
-                    onChange={(e) => setLeaseForm((p) => ({ ...p, signedFile: e.target.files?.[0] ?? null }))} />
-                  <Upload className="h-4 w-4 text-muted-foreground" />
-                </div></div>
-            </div>
-          )}
-
-          {leaseStep === 2 && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Perks are incentives attached to this lease — free weeks, discounts, or credits. They appear on receipts.
-              </p>
-              {leaseForm.perks.map((perk) => (
-                <PerkRow key={perk.id} perk={perk}
-                  onChange={(u) => updatePerk(perk.id, u)}
-                  onRemove={() => removePerk(perk.id)} />
-              ))}
-              <Button variant="outline" onClick={addPerk}><Gift className="h-4 w-4 mr-2" />Add perk</Button>
-              {leaseForm.perks.length === 0 && <p className="text-xs text-muted-foreground">No perks — skip to Review if not needed.</p>}
-            </div>
-          )}
-
-          {leaseStep === 3 && (
-            <div className="space-y-3">
-              <div className="rounded-lg border p-4 space-y-2 text-sm">
-                <p><span className="text-muted-foreground">Booth:</span>{' '}
-                  <span className="font-medium">{selectedLeaseBooth?.name ?? '—'}</span>
-                  {leaseForm.isShared && <Badge variant="outline" className="ml-2 text-[10px]">Shared</Badge>}</p>
-                {leaseForm.isShared && leaseForm.scheduleDays.length > 0 && (
-                  <p><span className="text-muted-foreground">Schedule:</span>{' '}
-                    <span className="font-medium">
-                      {leaseForm.scheduleLabel || leaseForm.scheduleDays.map((d) => WEEKDAY_LABELS[d]).join(', ')}
-                      {leaseForm.scheduleStartTime && ` · ${leaseForm.scheduleStartTime}`}
-                      {leaseForm.scheduleEndTime && `–${leaseForm.scheduleEndTime}`}
-                    </span></p>
-                )}
-                <p><span className="text-muted-foreground">Rent:</span>{' '}
-                  <span className="font-medium">{formatCents(Math.round(toNumber(leaseForm.rentDollars) * 100))} / {(FREQUENCY_LABELS[leaseForm.frequency] ?? leaseForm.frequency ?? 'period').toLowerCase()}</span></p>
-                <p><span className="text-muted-foreground">First charge:</span>{' '}<span className="font-medium">{leaseForm.firstChargeDate}</span></p>
-                <p><span className="text-muted-foreground">Term:</span>{' '}
-                  <span className="font-medium">{leaseForm.startDate} — {leaseForm.endDate || 'month-to-month'}{leaseForm.autoRenew ? ' (auto-renews)' : ''}</span></p>
-                <p><span className="text-muted-foreground">Deposit:</span>{' '}
-                  <span className="font-medium">{toNumber(leaseForm.depositDollars) > 0
-                    ? `${formatCents(Math.round(toNumber(leaseForm.depositDollars) * 100))} (${leaseForm.depositRefundable ? 'refundable' : 'non-refundable'})`
-                    : 'None'}</span></p>
-                <p><span className="text-muted-foreground">Late fee:</span>{' '}
-                  <span className="font-medium">{leaseForm.lateFeeEnabled
-                    ? leaseForm.lateFeeType === 'flat'
-                      ? `${formatCents(Math.round(toNumber(leaseForm.lateFeeAmountDollars) * 100))} after ${leaseForm.lateFeeGraceDays} grace days`
-                      : `${leaseForm.lateFeePercent}% after ${leaseForm.lateFeeGraceDays} grace days`
-                    : 'None'}</span></p>
-                <p><span className="text-muted-foreground">Perks:</span>{' '}
-                  <span className="font-medium">{leaseForm.perks.length > 0 ? leaseForm.perks.map((p) => p.label).join(', ') : 'None'}</span></p>
-                <p><span className="text-muted-foreground">Agreement:</span>{' '}
-                  <span className="font-medium">{leaseForm.signedFile ? leaseForm.signedFile.name : 'Not uploaded'}</span></p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Creating this lease marks the booth {leaseForm.isShared ? 'as shared (partial)' : 'occupied'} and the renter active.
-              </p>
-              {leaseError && (
-                <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  <AlertCircle className="h-4 w-4 shrink-0" />{leaseError}
-                </div>
-              )}
-            </div>
-          )}
-
-          <DialogFooter className="gap-2">
-            {leaseStep > 0 && (
-              <Button variant="outline" onClick={() => setLeaseStep((s) => s - 1)} disabled={savingLease}>
-                <ChevronLeft className="h-4 w-4 mr-1" />Back
-              </Button>
-            )}
-            {leaseStep < WIZARD_STEPS.length - 1 && (
-              <Button onClick={() => setLeaseStep((s) => s + 1)} disabled={!wizardCanAdvance}>
-                Next<ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            )}
-            {leaseStep === WIZARD_STEPS.length - 1 && (
-              <Button onClick={handleCreateLease} disabled={savingLease}>
-                {savingLease ? 'Creating…' : 'Create lease'}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Renter status change */}
-      <Dialog open={Boolean(statusTarget)} onOpenChange={(open) => { if (!open) setStatusTarget(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Change renter status</DialogTitle>
-            <DialogDescription>Leave and maternity leave pause billing while keeping the lease active.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>New status</Label>
-            <Select value={newStatus} onValueChange={(v) => setNewStatus(v as RenterStatus)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(['active', 'on_leave', 'maternity_leave', 'subletting'] as RenterStatus[]).map((s) => (
-                  <SelectItem key={s} value={s}>{RENTER_STATUS_LABELS[s]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStatusTarget(null)}>Cancel</Button>
-            <Button onClick={handleStatusChange} disabled={savingStatus}>{savingStatus ? 'Updating…' : 'Update status'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* End lease */}
-      <AlertDialog open={Boolean(endLeaseTarget)} onOpenChange={(open) => { if (!open) setEndLeaseTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>End lease?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This ends <strong>{endLeaseTarget?.firstName} {endLeaseTarget?.lastName}</strong>'s lease immediately,
-              frees the booth, and marks them as Past. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={savingEndLease}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleEndLease} disabled={savingEndLease}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {savingEndLease ? 'Ending…' : 'End lease'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <PricingAdvisor
+      {/* ── DIALOGS (unchanged) ─────────────────────────────────────── */}
+            <PricingAdvisor
         open={pricingOpen}
         onOpenChange={setPricingOpen}
         onApplyWeeklyRent={(dollars) =>
