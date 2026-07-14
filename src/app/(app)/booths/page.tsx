@@ -2551,6 +2551,14 @@ export default function BoothsPage() {
                           )}
                         </div>
                       )}
+                      <div className="flex items-center gap-3 pt-0.5">
+                        {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
+                          <a key={yr} href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${yr}`} target="_blank" rel="noreferrer"
+                            className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2">
+                            {yr} statement
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
