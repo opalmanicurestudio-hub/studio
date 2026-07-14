@@ -228,6 +228,8 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'emptyMessage',   t: 'text',     l: 'Message when nothing is vacant', d: 'All spaces are currently occupied — check back soon.' },
     { k: 'nicheOptions',   t: 'tag-list', l: 'Applicant niches (prefilled options)', d: ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'] },
     { k: 'requiredDocs',   t: 'tag-list', l: 'Required application documents (e.g. License, Insurance)', d: [] },
+    { k: 'tourSlots',      t: 'tag-list', l: 'Tour availability (e.g. "Tue 2:00 PM", "Sat mornings")', d: [] },
+    { k: 'applicationAgreement', t: 'textarea', l: 'Application agreement / consent text (shown as a required checkbox)', d: '' },
   ], layouts: [
     { id: 'grid',     label: 'Listing Grid',   preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
     { id: 'showcase', label: 'Magazine',       preview: '[ 📷 | featured  ]' },
