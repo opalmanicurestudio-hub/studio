@@ -2126,7 +2126,10 @@ export default function BoothsPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-black text-sm uppercase truncate">{app.name}</p>
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase">{app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'} · {app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                      {app.kind === 'tour' ? '🗓 Tour request' : app.kind === 'question' ? '💬 Question' : app.kind === 'waitlist' ? '⏳ Waitlist' : app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'}
+                      {' · '}{app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}
+                    </p>
                   </div>
                   <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${app.status === 'in_review' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>{app.status === 'in_review' ? 'Contacted' : 'New'}</span>
                 </div>
@@ -2144,9 +2147,13 @@ export default function BoothsPage() {
                 )}
                 {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
                 <div className="flex gap-2 pt-1">
-                  <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{decidingAppId === app.id ? 'Working...' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}</button>
+                  {(!app.kind || app.kind === 'application') ? (
+                    <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{decidingAppId === app.id ? 'Working...' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}</button>
+                  ) : (
+                    <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
+                  )}
                   {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
-                  <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>
+                  {(!app.kind || app.kind === 'application') && <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
                 </div>
               </div>
             ))}
