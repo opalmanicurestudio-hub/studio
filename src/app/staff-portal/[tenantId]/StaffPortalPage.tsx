@@ -7,6 +7,7 @@ import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
 import { RenterDocumentsTab } from '@/components/shared/RenterDocumentsTab';
+import { W9Form } from '@/components/shared/W9Form';
 import { canSeeFinancials } from '@/lib/privacy';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -2943,6 +2944,14 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   // owner/admin (decision: renters message management, not each other or
   // staff), and Building Announcements instead of Team Announcements.
   const isRenter = staffMember.role === 'renter';
+  const [w9Status, setW9Status] = useState<{tinMasked:string;legalName:string;collectedAt:string}|null|'loading'>('loading');
+  const [showW9Form, setShowW9Form] = useState(false);
+  useEffect(() => {
+    if (!isRenter) return;
+    fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(staffMember.id)}`)
+      .then(r=>r.json()).then(d => setW9Status(d.w9 ? { tinMasked: d.w9.tinMasked, legalName: d.w9.legalName, collectedAt: d.w9.collectedAt } : null))
+      .catch(()=>setW9Status(null));
+  }, [isRenter, tenantId, staffMember.id]);
   const { toast } = useToast();
   const { user: authUser } = useUser();
   const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
@@ -4309,6 +4318,41 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='documents' && isRenter && (
             <div className="space-y-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents & Receipts</p>
+              {/* W-9 status / collection */}
+              {w9Status === 'loading' ? null : w9Status && !showW9Form ? (
+                <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">W-9 on file ✓</p>
+                  <p className="text-xs font-bold text-emerald-800">{w9Status.legalName} · TIN {w9Status.tinMasked}</p>
+                  <button onClick={()=>setShowW9Form(true)} className="text-[9px] font-black uppercase tracking-widest text-emerald-600 underline underline-offset-2">Update</button>
+                </div>
+              ) : showW9Form || !w9Status ? (
+                <div className="rounded-2xl border-2 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-black uppercase text-slate-700">W-9 Information</p>
+                    {w9Status && <button onClick={()=>setShowW9Form(false)} className="text-[9px] font-black uppercase text-slate-400">Cancel</button>}
+                  </div>
+                  {!w9Status && !showW9Form && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-slate-600 font-medium">Your landlord needs your W-9 information to issue year-end tax documents and comply with IRS requirements.</p>
+                      <button onClick={()=>setShowW9Form(true)} className="w-full h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest">Provide W-9 Information</button>
+                    </div>
+                  )}
+                  {showW9Form && (
+                    <W9Form
+                      tenantId={tenantId}
+                      renterId={staffMember.id}
+                      onComplete={(masked) => { setW9Status(prev => ({ tinMasked: masked, legalName: (prev && prev !== 'loading' ? prev.legalName : ''), collectedAt: new Date().toISOString() })); setShowW9Form(false); }}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">W-9 required</p>
+                  <p className="text-xs text-amber-700">Your landlord needs your tax information to issue annual statements and comply with IRS rules.</p>
+                  <button onClick={()=>setShowW9Form(true)} className="w-full h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest">Provide W-9 Information</button>
+                </div>
+              )}
+
               <div className="rounded-2xl border-2 bg-slate-50 p-4 space-y-3">
                 <p className="text-xs font-black uppercase text-slate-700">Paid bookings</p>
                 <RenterDocumentsTab tenantId={tenantId} staffMember={staffMember} firestore={firestore} />
