@@ -164,6 +164,26 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
         </p>
       )}
 
+      {/* Annual statements */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Annual statements</p>
+        {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
+          <div key={yr} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-black">{yr} Annual Rent Statement</p>
+              <p className="text-[10px] font-bold text-muted-foreground">Full year summary · IRS Schedule C reference · auto-notes $600 threshold</p>
+            </div>
+            <a
+              href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(staffMember.id)}&year=${yr}`}
+              target="_blank" rel="noreferrer"
+              className="h-8 px-3 rounded-lg border-2 border-slate-200 text-slate-700 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 shrink-0 hover:border-slate-400 active:scale-95 transition-transform"
+            >
+              📋 Download
+            </a>
+          </div>
+        ))}
+      </div>
+
       {/* Tax note */}
       <div className="rounded-xl border bg-slate-50 px-4 py-3 space-y-1">
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tax guidance</p>
