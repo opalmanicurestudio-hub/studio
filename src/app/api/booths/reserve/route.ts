@@ -129,6 +129,29 @@ export async function POST(req: NextRequest) {
   }
 }
 
+
+// Canonical Transaction shape (verified against the Ledger page):
+// amount in DOLLARS, required type 'income'.
+async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, paymentIntentId: string | null) {
+  const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+  await txnRef.set({
+    id: txnRef.id,
+    type: 'income',
+    amount: (r.amountCents || 0) / 100,
+    amountCents: r.amountCents || 0,
+    source: 'booth_rent',
+    sourceId: reservationId,
+    sessionId: reservationId,
+    category: 'Booth Rent',
+    description: `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
+    clientOrVendor: r.name || 'Day renter',
+    date: r.startDate,
+    paymentMethod: 'card',
+    stripePaymentIntentId: paymentIntentId,
+    createdAt: new Date().toISOString(),
+  });
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -144,6 +167,11 @@ export async function GET(req: NextRequest) {
     if (!resSnap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
     const r = resSnap.data() as any;
     if (r.status === 'confirmed') {
+      // v59 — self-heal: reservations confirmed before ledger reporting
+      // existed (or whose txn write failed) get their entry on the next
+      // confirmation call instead of never.
+      const existing = await db.collection(`tenants/${tenantId}/transactions`).where('sourceId', '==', reservationId).limit(1).get();
+      if (existing.empty) await writeLedgerTxn(db, tenantId, reservationId, r, r.stripePaymentIntentId || null);
       return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
     }
     if (r.stripeSessionId !== sessionId) {
@@ -173,26 +201,7 @@ export async function GET(req: NextRequest) {
     // v54 — REPORT TO LEDGER. Same collection and shape as the service's
     // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
     // sits beside booth rent in every financial view.
-    // Canonical Transaction shape (verified against the Ledger page):
-    // amount in DOLLARS, required type 'income'. amountCents kept as a
-    // supplementary field only.
-    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    await txnRef.set({
-      id: txnRef.id,
-      type: 'income',
-      amount: (r.amountCents || 0) / 100,
-      amountCents: r.amountCents || 0,
-      source: 'booth_rent',
-      sourceId: reservationId,
-      sessionId: reservationId,
-      category: 'Booth Rent',
-      description: `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
-      clientOrVendor: r.name || 'Day renter',
-      date: r.startDate,
-      paymentMethod: 'card',
-      stripePaymentIntentId: session.payment_intent || null,
-      createdAt: nowIso,
-    });
+    await writeLedgerTxn(db, tenantId, reservationId, r, (session.payment_intent as string) || null);
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
       message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
