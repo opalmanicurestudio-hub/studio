@@ -2476,6 +2476,7 @@ export default function BoothsPage() {
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'checked_in')} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
                       {r.status === 'checked_in' && <button onClick={() => setResStatus(r, 'completed')} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Complete Stay</button>}
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
+                      <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
                       {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded</button>}
                     </div>
                   </div>
@@ -2579,7 +2580,8 @@ export default function BoothsPage() {
                     <p className="text-sm font-black truncate">{txnDesc(t)}</p>
                     <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
                   </div>
-                  <p className="font-black text-emerald-700 shrink-0">${txnDollars(t).toFixed(2)}</p>
+                  <p className="font-black text-emerald-700 shrink-0 mr-2">${txnDollars(t).toFixed(2)}</p>
+                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=ledger&id=${encodeURIComponent(t.id)}`} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2 shrink-0">PDF</a>
                 </div>
               ))}
             </div>
