@@ -248,6 +248,7 @@ interface BoothFormState {
   notes: string;
   baseRentDollars: string;
   baseRentFrequency: RentFrequency;
+  extraRates: { frequency: string; dollars: string }[];
   status: BoothStatus;
   amenities: string[];
   photoUrls: string[];
@@ -259,6 +260,7 @@ const EMPTY_FORM: BoothFormState = {
   notes: '',
   baseRentDollars: '',
   baseRentFrequency: 'weekly',
+  extraRates: [],
   status: 'vacant',
   amenities: [],
   photoUrls: [],
@@ -1794,6 +1796,9 @@ export default function BoothsPage() {
       notes: booth.notes ?? '',
       baseRentDollars: (booth.baseRentCents / 100).toString(),
       baseRentFrequency: booth.baseRentFrequency,
+      extraRates: (((booth as any).pricingOptions || []) as any[])
+        .filter((o) => !(o.frequency === booth.baseRentFrequency && o.amountCents === booth.baseRentCents))
+        .map((o) => ({ frequency: o.frequency, dollars: (o.amountCents / 100).toString() })),
       status: booth.status,
       amenities: booth.amenities ?? [],
       photoUrls: (booth as any).photoUrls ?? [],
@@ -1824,6 +1829,10 @@ export default function BoothsPage() {
             notes: form.notes.trim(),
             baseRentCents: Math.round(toNumber(form.baseRentDollars) * 100),
             baseRentFrequency: form.baseRentFrequency,
+            pricingOptions: [
+              { frequency: form.baseRentFrequency, amountCents: Math.round(toNumber(form.baseRentDollars) * 100) },
+              ...form.extraRates.filter((r) => toNumber(r.dollars) > 0).map((r) => ({ frequency: r.frequency, amountCents: Math.round(toNumber(r.dollars) * 100) })),
+            ],
             status: form.status,
             amenities: form.amenities,
             photoUrls: form.photoUrls,
@@ -1843,6 +1852,10 @@ export default function BoothsPage() {
           notes: form.notes.trim() || undefined,
           baseRentCents: Math.round(toNumber(form.baseRentDollars) * 100),
           baseRentFrequency: form.baseRentFrequency,
+          pricingOptions: [
+            { frequency: form.baseRentFrequency, amountCents: Math.round(toNumber(form.baseRentDollars) * 100) },
+            ...form.extraRates.filter((r) => toNumber(r.dollars) > 0).map((r) => ({ frequency: r.frequency, amountCents: Math.round(toNumber(r.dollars) * 100) })),
+          ],
           amenities: form.amenities,
           photoUrls: form.photoUrls,
         });
@@ -2667,6 +2680,34 @@ export default function BoothsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* v50 — MULTI-PRICING. One asset, many rates ("$25/hr ·
+                $450/wk · $1,500/mo"). The primary rate above stays the
+                lease anchor; these add transactional and alternative
+                rates. Stored as pricingOptions[] alongside the legacy
+                base fields for full backward compatibility. */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Additional rates (optional)</Label>
+              {form.extraRates.map((r, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <Input type="number" min="0" placeholder="0.00" value={r.dollars} className="w-28"
+                    onChange={(e) => setForm((prev) => ({ ...prev, extraRates: prev.extraRates.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x) }))} />
+                  <select value={r.frequency} className="h-10 rounded-lg border-2 px-3 text-sm font-medium bg-white"
+                    onChange={(e) => setForm((prev) => ({ ...prev, extraRates: prev.extraRates.map((x, j) => j === i ? { ...x, frequency: e.target.value } : x) }))}>
+                    <option value="hourly">Per hour</option>
+                    <option value="daily">Per day</option>
+                    <option value="weekly">Per week</option>
+                    <option value="monthly">Per month</option>
+                  </select>
+                  <button type="button" className="text-slate-400 font-black px-2"
+                    onClick={() => setForm((prev) => ({ ...prev, extraRates: prev.extraRates.filter((_, j) => j !== i) }))}>×</button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm"
+                onClick={() => setForm((prev) => ({ ...prev, extraRates: [...prev.extraRates, { frequency: 'daily', dollars: '' }] }))}>
+                + Add a rate
+              </Button>
             </div>
 
             <Button
