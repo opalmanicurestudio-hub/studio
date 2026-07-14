@@ -879,6 +879,8 @@ export async function createBooth(
     baseRentFrequency: input.baseRentFrequency,
     photoUrls: (input as any).photoUrls || [],
     pricingOptions: (input as any).pricingOptions || [],
+    listingDescription: (input as any).listingDescription || '',
+    videoUrl: (input as any).videoUrl || '',
     amenities: input.amenities,
     notes: input.notes,
     currentLeaseId: null,
