@@ -83,9 +83,17 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const isLease = (b: any) => leaseRates(b).length > 0;
 
   const [applyMode, setApplyMode] = useState<'lease' | 'day'>('lease');
+  // v51 — INQUIRY ENGINE: not everyone follows the same path. Apply and
+  // Reserve are full applications; tours, questions, and waitlist are
+  // lighter flows — same collection, a `kind` field, one owner queue.
+  const [inquiryKind, setInquiryKind] = useState<'application' | 'tour' | 'question' | 'waitlist'>('application');
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
-    setPhotoIdx(0); setSubmitted(false); setDocs({});
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({});
+  };
+  const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
+    setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
+    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({});
   };
 
   const uploadDoc = async (docName: string, file: File) => {
@@ -102,7 +110,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     }
   };
 
-  const allDocsAttached = requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
+  const allDocsAttached = inquiryKind !== 'application' || requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
   const nicheValue = form.niche === 'Other' ? (form.nicheOther || 'Other') : form.niche;
   const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && !submitting;
 
@@ -112,25 +120,30 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     try {
       const now = new Date().toISOString();
       const lease = applyMode === 'lease';
+      const isApp = inquiryKind === 'application';
       const appRef = doc(collection(firestore, `tenants/${tenantId}/boothApplications`));
       await setDoc(appRef, {
         id: appRef.id, tenantId, createdAt: now, status: 'new',
-        boothId: applyFor.id, boothName: applyFor.name || 'Space',
+        kind: inquiryKind,
+        boothId: applyFor.id || null, boothName: applyFor.name || (inquiryKind === 'waitlist' ? 'Any space' : 'Space'),
         locationId: applyFor.locationId || null,
-        rentalType: applyMode === 'lease' ? 'lease' : 'day_rental',
+        rentalType: isApp ? (applyMode === 'lease' ? 'lease' : 'day_rental') : null,
         name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
         specialty: nicheValue,
-        timing: applyMode === 'lease' ? (form.moveIn ? `Move-in ${form.moveIn}` : '') : [form.startDate, form.endDate].filter(Boolean).join(' → '),
+        timing: inquiryKind === 'tour' ? (form.moveIn ? `Tour ${form.moveIn}` : '')
+          : !isApp ? ''
+          : applyMode === 'lease' ? (form.moveIn ? `Move-in ${form.moveIn}` : '')
+          : [form.startDate, form.endDate].filter(Boolean).join(' → '),
         moveInDate: lease ? (form.moveIn || null) : null,
         startDate: !lease ? (form.startDate || null) : null,
         endDate: !lease ? (form.endDate || null) : null,
         message: form.message.trim(),
-        attachments: requiredDocs.map(rd => ({ label: rd, ...(docs[rd] as any) })).filter(a => a.url),
+        attachments: isApp ? requiredDocs.map(rd => ({ label: rd, ...(docs[rd] as any) })).filter(a => a.url) : [],
       });
       const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
       await setDoc(nRef, {
         id: nRef.id, type: 'booth_application', read: false, createdAt: now,
-        message: `${lease ? 'Space application' : 'Day-rental request'}: ${form.name.trim()} — ${applyFor.name || 'Space'}${nicheValue ? ` (${nicheValue})` : ''}`,
+        message: `${inquiryKind === 'tour' ? 'Tour request' : inquiryKind === 'question' ? 'Question' : inquiryKind === 'waitlist' ? 'Waitlist signup' : lease ? 'Space application' : 'Day-rental request'}: ${form.name.trim()} — ${applyFor.name || 'Any space'}${nicheValue ? ` (${nicheValue})` : ''}`,
         link: '/booths',
       });
       setSubmitted(true);
@@ -169,6 +182,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         {b.amenities.length > 5 && <span className={`text-[9px] font-black uppercase ${light ? 'text-white/60' : 'text-slate-400'}`}>+{b.amenities.length - 5}</span>}
       </div>
     ) : null
+  );
+  const InquiryRow = ({ b }: { b: any }) => (
+    <div className="flex justify-center gap-4 pt-1">
+      <button onClick={() => openInquiry(b, 'tour')} className="text-[9px] font-black uppercase tracking-widest opacity-50 hover:opacity-100 underline underline-offset-2 transition-opacity">Book a tour</button>
+      <button onClick={() => openInquiry(b, 'question')} className="text-[9px] font-black uppercase tracking-widest opacity-50 hover:opacity-100 underline underline-offset-2 transition-opacity">Ask a question</button>
+    </div>
   );
   const Photo = ({ b, className }: { b: any; className: string }) => {
     const ph = photosOf(b);
@@ -210,7 +229,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         </div>
 
         {visible.length === 0 ? (
-          <p className="text-center text-sm font-bold opacity-60">{config.emptyMessage}</p>
+          <div className="text-center space-y-4">
+            <p className="text-sm font-bold opacity-60">{config.emptyMessage}</p>
+            <button onClick={() => openInquiry(null, 'waitlist')} className="h-12 px-8 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest transition-transform active:scale-[0.98]">Join the Waitlist</button>
+          </div>
         ) : layout === 'luxe' ? (
           /* LUXE — full-bleed editorial cards */
           <div className="grid gap-6 md:grid-cols-2">
@@ -249,6 +271,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   {b.notes && <p className="text-sm opacity-70 font-medium leading-relaxed">{b.notes}</p>}
                   <Chips b={b} />
                   <CTA b={b} />
+                  <InquiryRow b={b} />
                 </div>
               </div>
             ))}
@@ -270,6 +293,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   {b.notes && <p className="text-xs opacity-70 font-medium line-clamp-2">{b.notes}</p>}
                   <Chips b={b} />
                   <CTA b={b} />
+                  <InquiryRow b={b} />
                 </div>
               </div>
             ))}
@@ -304,7 +328,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                 )}
                 <div className="p-6 space-y-3.5 overflow-y-auto">
                   <div>
-                    <h3 className="font-black text-xl tracking-tight">{applyMode === 'lease' ? 'Apply for' : 'Reserve'} {applyFor.name || 'this space'}</h3>
+                    <h3 className="font-black text-xl tracking-tight">
+                    {inquiryKind === 'tour' ? `Tour ${applyFor.name || 'the space'}`
+                      : inquiryKind === 'question' ? `Ask about ${applyFor.name || 'the space'}`
+                      : inquiryKind === 'waitlist' ? 'Join the waitlist'
+                      : `${applyMode === 'lease' ? 'Apply for' : 'Reserve'} ${applyFor.name || 'this space'}`}
+                  </h3>
                     <p className="text-xs opacity-60 font-bold mt-0.5">{(applyMode === 'lease' ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ') || `$${priceOf(applyFor).amount.toLocaleString()}${priceOf(applyFor).suffix}`} · We respond within one business day.</p>
                   </div>
 
@@ -328,7 +357,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   )}
 
                   {/* Dates — different question per product */}
-                  {applyMode === 'lease' ? (
+                  {inquiryKind === 'tour' ? (
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Preferred tour date</p>
+                      <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                    </div>
+                  ) : inquiryKind !== 'application' ? null : applyMode === 'lease' ? (
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Ideal move-in date</p>
                       <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
@@ -347,7 +381,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   )}
 
                   {/* Required documents — owner-configured */}
-                  {requiredDocs.map(rd => {
+                  {inquiryKind === 'application' && requiredDocs.map(rd => {
                     const state = docs[rd];
                     return (
                       <div key={rd} className="flex items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3">
@@ -371,7 +405,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   <textarea value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="Anything else we should know?" rows={2} className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
 
                   <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                    {submitting ? 'Sending...' : requiredDocs.length > 0 && !allDocsAttached ? 'Attach required documents' : 'Submit'}
+                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : 'Submit'}
                   </button>
                 </div>
               </>
