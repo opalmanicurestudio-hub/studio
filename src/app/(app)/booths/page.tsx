@@ -1239,7 +1239,7 @@ export default function BoothsPage() {
   // v61 — three-tab command center (declared here, with the other hooks,
   // never after an early return)
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
-  const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
+  const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -2268,6 +2268,9 @@ export default function BoothsPage() {
               <button onClick={() => setSpaceView('list')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'list' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
                 <List className="h-3 w-3 inline mr-1" />List
               </button>
+              <button onClick={() => setSpaceView('planner')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'planner' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+                <CalendarDays className="h-3 w-3 inline mr-1" />Planner
+              </button>
             </div>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setPricingOpen(true)}>
@@ -2333,6 +2336,104 @@ export default function BoothsPage() {
                 );
               })}
             </div>
+          ) : spaceView === 'planner' ? (
+            /* ── BOOKING PLANNER: rows = spaces, columns = next 14 days.
+                One glance answers "who is where, when, and what's open."
+                Lease occupancy fills the row; day rentals overlay their
+                exact dates; vacant days are tappable inventory. ── */
+            (() => {
+              const days: string[] = Array.from({ length: 14 }, (_, i) => {
+                const d = new Date(); d.setDate(d.getDate() + i);
+                return d.toISOString().slice(0, 10);
+              });
+              const dayLabel = (iso: string) => {
+                const d = new Date(iso + 'T00:00:00');
+                return { dow: d.toLocaleDateString('en-US', { weekday: 'short' }), num: d.getDate() };
+              };
+              const cellFor = (booth: Booth, iso: string): { kind: 'lease' | 'rental' | 'in' | 'issue' | 'open' | 'closed'; label?: string } => {
+                if (booth.status === 'maintenance' || booth.status === 'inactive') return { kind: 'closed' };
+                const lease = activeLeaseByBooth.get(booth.id);
+                if (lease) {
+                  const started = !lease.startDate || lease.startDate <= iso;
+                  const notEnded = !lease.endDate || lease.endDate >= iso;
+                  if (started && notEnded) {
+                    const renter = renterById.get(lease.renterId);
+                    return { kind: 'lease', label: renter ? renter.firstName : 'Leased' };
+                  }
+                }
+                const res = reservations.find(r =>
+                  r.boothId === booth.id && r.startDate <= iso && r.endDate >= iso &&
+                  ['confirmed', 'checked_in', 'payment_received_conflict'].includes(r.status));
+                if (res) {
+                  if (res.status === 'payment_received_conflict') return { kind: 'issue', label: res.name };
+                  if (res.status === 'checked_in') return { kind: 'in', label: res.name };
+                  return { kind: 'rental', label: res.name };
+                }
+                return { kind: 'open' };
+              };
+              const CELL_STYLE: Record<string, string> = {
+                lease:  'bg-slate-800 text-white',
+                rental: 'bg-emerald-500 text-white',
+                in:     'bg-indigo-500 text-white',
+                issue:  'bg-red-500 text-white',
+                open:   'bg-white border border-slate-200 text-slate-300',
+                closed: 'bg-slate-100 text-slate-300',
+              };
+              return (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-3 text-[10px] font-bold text-muted-foreground">
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-800" />Lease</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />Day rental</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-indigo-500" />Checked in</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" />Conflict</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-white border border-slate-300" />Open</span>
+                  </div>
+                  <div className="overflow-x-auto rounded-2xl border-2 bg-white">
+                    <table className="w-full border-collapse min-w-[720px]">
+                      <thead>
+                        <tr>
+                          <th className="sticky left-0 bg-white text-left px-3 py-2 text-[9px] font-black uppercase tracking-widest text-muted-foreground border-b-2 min-w-[110px]">Space</th>
+                          {days.map(iso => {
+                            const l = dayLabel(iso);
+                            const isToday = iso === days[0];
+                            return (
+                              <th key={iso} className={`px-1 py-2 text-center border-b-2 min-w-[42px] ${isToday ? 'bg-amber-50' : ''}`}>
+                                <p className="text-[8px] font-black uppercase text-muted-foreground">{l.dow}</p>
+                                <p className={`text-xs font-black ${isToday ? 'text-amber-600' : 'text-slate-700'}`}>{l.num}</p>
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedBooths.map((booth: Booth) => (
+                          <tr key={booth.id} className="border-b last:border-0">
+                            <td className="sticky left-0 bg-white px-3 py-1.5 border-r">
+                              <p className="text-[10px] font-black uppercase truncate max-w-[100px]">{booth.name}</p>
+                              <p className="text-[8px] font-bold text-muted-foreground uppercase">{booth.type}</p>
+                            </td>
+                            {days.map(iso => {
+                              const cell = cellFor(booth, iso);
+                              return (
+                                <td key={iso} className="p-0.5">
+                                  <div
+                                    className={`h-9 rounded-md flex items-center justify-center text-[8px] font-black uppercase overflow-hidden px-0.5 ${CELL_STYLE[cell.kind]}`}
+                                    title={cell.label ? `${cell.label} · ${iso}` : iso}
+                                  >
+                                    <span className="truncate">{cell.label ? cell.label.slice(0, 6) : cell.kind === 'open' ? '·' : ''}</span>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] font-bold text-muted-foreground">Open cells are bookable inventory — they're what the public pay-and-book flow offers. Conflicts always show red until refunded or rebooked.</p>
+                </div>
+              );
+            })()
           ) : isMobile ? (
             <div className="grid grid-cols-2 gap-3">
               {sortedBooths.map((booth: Booth) => {
