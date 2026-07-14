@@ -169,6 +169,24 @@ export async function GET(req: NextRequest) {
     }
 
     await resRef.set({ status: 'confirmed', confirmedAt: nowIso, stripePaymentIntentId: session.payment_intent || null }, { merge: true });
+
+    // v54 — REPORT TO LEDGER. Same collection and shape as the service's
+    // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
+    // sits beside booth rent in every financial view.
+    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    await txnRef.set({
+      id: txnRef.id,
+      source: 'booth_rent',
+      sourceId: reservationId,
+      amountCents: r.amountCents || 0,
+      category: 'Booth Rent',
+      description: `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
+      clientOrVendor: r.name || 'Day renter',
+      date: r.startDate,
+      paymentMethod: 'card',
+      stripePaymentIntentId: session.payment_intent || null,
+      createdAt: nowIso,
+    });
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
       message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
