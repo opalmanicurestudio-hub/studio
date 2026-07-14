@@ -59,6 +59,7 @@ import {
   deleteDoc, onSnapshot, getDocs, collection, query } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
@@ -1217,6 +1218,7 @@ function PerkRow({
 
 export default function BoothsPage() {
   const { firebaseApp, firestore } = useFirebase();
+  const isMobile = useIsMobile();
   const { toast } = useToast();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id ?? null;
@@ -1307,6 +1309,7 @@ export default function BoothsPage() {
     return '';
   };
   const txnDollars = (t: any): number => typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100;
+  const txnDesc = (t: any): string => t.description || t.category || 'Booth payment';
   const sortedTxns = useMemo(() =>
     [...boothTxns].sort((a, b) => txnDateStr(b).localeCompare(txnDateStr(a))),
     [boothTxns]);
@@ -2362,7 +2365,7 @@ export default function BoothsPage() {
                     {sortedTxns.map((t: any) => (
                       <div key={t.id} className="rounded-xl border-2 px-4 py-3 flex items-center gap-3">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-black truncate">{t.description || t.category || 'Booth payment'}</p>
+                          <p className="text-sm font-black truncate">{txnDesc(t)}</p>
                           <p className="text-[10px] font-bold text-muted-foreground uppercase">{txnDateStr(t)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
                         </div>
                         <p className="font-black text-emerald-700 shrink-0">${txnDollars(t).toFixed(2)}</p>
@@ -2514,6 +2517,37 @@ export default function BoothsPage() {
           )}
 
           <div className="relative">
+            {/* v60 — MOBILE FLOOR: canvas is desktop-only. On mobile,
+                booths render as status cards — geometry means nothing
+                on a 390px screen. */}
+            {isMobile ? (
+              <div className="grid grid-cols-2 gap-3">
+                {sortedBooths.map((booth: Booth) => {
+                  const renter = renters.data?.find((r) => r.id === booth.currentRenterId);
+                  const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+                  return (
+                    <button
+                      key={booth.id}
+                      onClick={() => setSelectedId(booth.id)}
+                      className="rounded-2xl border-2 p-3 text-left space-y-1 active:scale-[0.98] transition-transform"
+                      style={{ borderColor: sc.border, background: sc.bg }}
+                    >
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="font-black text-xs uppercase truncate">{booth.name}</p>
+                        <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0"
+                          style={{ background: sc.border, color: '#fff' }}>
+                          {BOOTH_STATUS_LABELS[booth.status] ?? booth.status}
+                        </span>
+                      </div>
+                      {renter && <p className="text-[10px] font-bold truncate opacity-70">{renter.firstName} {renter.lastName}</p>}
+                      {booth.baseRentCents > 0 && (
+                        <p className="text-[10px] font-black">${(booth.baseRentCents / 100).toFixed(0)}<span className="font-normal opacity-50">/{booth.baseRentFrequency || 'mo'}</span></p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
             <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
               <div
                 className="relative"
@@ -2564,6 +2598,7 @@ export default function BoothsPage() {
                 })}
               </div>
             </div>
+            )}
 
             {selectedBooth && (
               <DetailPanel
