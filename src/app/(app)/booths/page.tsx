@@ -56,7 +56,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   doc,
   updateDoc,
-  deleteDoc, onSnapshot, getDocs, collection, query } from 'firebase/firestore';
+  deleteDoc, onSnapshot, getDocs, collection, query, where } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -1530,14 +1530,14 @@ export default function BoothsPage() {
       const booth = boothById.get(l.boothId);
       const renter = renterById.get(l.renterId);
       const who = renter ? `${renter.firstName} ${renter.lastName}` : 'a renter';
-      const where = booth?.name ?? 'a booth';
+      const boothName = booth?.name ?? 'a booth';
       list.push({
         id: `lease-exp-${l.id}`,
         severity: days <= 3 ? 'danger' : 'warning',
         message:
           days === 0
-            ? `${where}'s lease with ${who} ends today`
-            : `${where}'s lease with ${who} ends in ${days} day${days === 1 ? '' : 's'}`,
+            ? `${boothName}'s lease with ${who} ends today`
+            : `${boothName}'s lease with ${who} ends in ${days} day${days === 1 ? '' : 's'}`,
       });
     });
 
