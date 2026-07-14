@@ -961,9 +961,13 @@ const LedgerPage = () => {
   // crashing the page.
   const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
     ...t,
-    amount: typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
-    type: t.type || 'income',
-    category: t.category || 'Uncategorized',
+    amount:        typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
+    type:          t.type || 'income',
+    context:       t.context || 'Business',
+    category:      t.category || 'Uncategorized',
+    description:   t.description || '',
+    clientOrVendor: t.clientOrVendor || '',
+    taxBucket:     t.taxBucket || 'revenue',
   })), [rawTransactions]);
 
   const [periodPreset, setPeriodPreset] = useState('30days');
