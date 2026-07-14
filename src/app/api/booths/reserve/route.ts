@@ -173,12 +173,18 @@ export async function GET(req: NextRequest) {
     // v54 — REPORT TO LEDGER. Same collection and shape as the service's
     // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
     // sits beside booth rent in every financial view.
+    // Canonical Transaction shape (verified against the Ledger page):
+    // amount in DOLLARS, required type 'income'. amountCents kept as a
+    // supplementary field only.
     const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
     await txnRef.set({
       id: txnRef.id,
+      type: 'income',
+      amount: (r.amountCents || 0) / 100,
+      amountCents: r.amountCents || 0,
       source: 'booth_rent',
       sourceId: reservationId,
-      amountCents: r.amountCents || 0,
+      sessionId: reservationId,
       category: 'Booth Rent',
       description: `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
       clientOrVendor: r.name || 'Day renter',
