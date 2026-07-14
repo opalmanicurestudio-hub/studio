@@ -134,21 +134,25 @@ export async function POST(req: NextRequest) {
 // amount in DOLLARS, required type 'income'.
 async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, paymentIntentId: string | null) {
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+  const nowIso = new Date().toISOString();
   await txnRef.set({
-    id: txnRef.id,
-    type: 'income',
-    amount: (r.amountCents || 0) / 100,
-    amountCents: r.amountCents || 0,
-    source: 'booth_rent',
-    sourceId: reservationId,
-    sessionId: reservationId,
-    category: 'Booth Rent',
-    description: `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
-    clientOrVendor: r.name || 'Day renter',
-    date: r.startDate,
-    paymentMethod: 'card',
+    id:                    txnRef.id,
+    type:                  'income',
+    context:               'Business',
+    taxBucket:             'revenue',
+    amount:                (r.amountCents || 0) / 100,
+    category:              'Booth Rent',
+    description:           `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
+    clientOrVendor:        r.name || 'Day renter',
+    date:                  nowIso,
+    paymentMethod:         'Card (Stripe)',
+    hasReceipt:            false,
+    checkoutSessionId:     r.stripeSessionId || null,
     stripePaymentIntentId: paymentIntentId,
-    createdAt: new Date().toISOString(),
+    stripeChargeId:        null,
+    sourceId:              reservationId,
+    tenantId,
+    createdAt:             nowIso,
   });
 }
 
