@@ -1,4 +1,4 @@
-'use client';
+''use client';
 
 /**
  * BoothListingsSection — v2 (immersive)
