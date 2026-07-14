@@ -46,6 +46,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [submitted, setSubmitted] = useState(false);
 
   const niches: string[] = (Array.isArray(config.nicheOptions) && config.nicheOptions.length > 0) ? config.nicheOptions : DEFAULT_NICHES;
+  // v53 — owner-configured tour availability + application agreement.
+  const tourSlots: string[] = Array.isArray(config.tourSlots) ? config.tourSlots.filter(Boolean) : [];
+  const agreementText: string = typeof config.applicationAgreement === 'string' ? config.applicationAgreement.trim() : '';
+  const [tourSlot, setTourSlot] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [agreementOpen, setAgreementOpen] = useState(false);
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
 
   // v52 — pay-and-book: returning from Stripe Checkout, confirm the
@@ -109,11 +115,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [inquiryKind, setInquiryKind] = useState<'application' | 'tour' | 'question' | 'waitlist'>('application');
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({});
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false);
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
-    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({});
+    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false);
   };
 
   const uploadDoc = async (docName: string, file: File) => {
@@ -132,7 +138,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
   const allDocsAttached = inquiryKind !== 'application' || requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
   const nicheValue = form.niche === 'Other' ? (form.nicheOther || 'Other') : form.niche;
-  const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && !submitting;
+  const agreementSatisfied = inquiryKind !== 'application' || !agreementText || agreed;
+  const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && agreementSatisfied && !submitting;
 
   const submitApplication = async () => {
     if (!applyFor || !canSubmit) return;
@@ -150,6 +157,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             startDate: form.startDate, endDate: form.endDate,
             name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
             returnUrl: window.location.href,
+            consentAccepted: !!agreementText && agreed,
           }),
         });
         const data = await res.json();
@@ -171,7 +179,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         rentalType: isApp ? (applyMode === 'lease' ? 'lease' : 'day_rental') : null,
         name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
         specialty: nicheValue,
-        timing: inquiryKind === 'tour' ? (form.moveIn ? `Tour ${form.moveIn}` : '')
+        timing: inquiryKind === 'tour' ? [form.moveIn ? `Tour ${form.moveIn}` : 'Tour', tourSlot].filter(Boolean).join(' · ')
           : !isApp ? ''
           : applyMode === 'lease' ? (form.moveIn ? `Move-in ${form.moveIn}` : '')
           : [form.startDate, form.endDate].filter(Boolean).join(' → '),
@@ -180,6 +188,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         endDate: !lease ? (form.endDate || null) : null,
         message: form.message.trim(),
         attachments: isApp ? requiredDocs.map(rd => ({ label: rd, ...(docs[rd] as any) })).filter(a => a.url) : [],
+        consentAccepted: isApp && !!agreementText ? true : null,
+        consentAcceptedAt: isApp && !!agreementText ? now : null,
       });
       const nRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
       await setDoc(nRef, {
@@ -411,9 +421,24 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
                   {/* Dates — different question per product */}
                   {inquiryKind === 'tour' ? (
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Preferred tour date</p>
-                      <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Preferred tour date</p>
+                        <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                      </div>
+                      {tourSlots.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Times we give tours</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {tourSlots.map(s => (
+                              <button key={s} type="button" onClick={() => setTourSlot(tourSlot === s ? '' : s)}
+                                className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === s ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : inquiryKind !== 'application' ? null : applyMode === 'lease' ? (
                     <div>
@@ -457,8 +482,22 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
                   <textarea value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="Anything else we should know?" rows={2} className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
 
+                  {inquiryKind === 'application' && agreementText && (
+                    <div className="rounded-xl border-2 p-3 space-y-2">
+                      <label className="flex items-start gap-2.5 cursor-pointer">
+                        <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} className="mt-0.5 h-4 w-4" />
+                        <span className="text-xs font-bold text-slate-700">
+                          I have read and agree to the terms.
+                          <button type="button" onClick={(e) => { e.preventDefault(); setAgreementOpen(o => !o); }} className="ml-1.5 text-indigo-600 underline underline-offset-2 font-black text-[10px] uppercase">{agreementOpen ? 'Hide' : 'Read terms'}</button>
+                        </span>
+                      </label>
+                      {agreementOpen && (
+                        <p className="text-[11px] leading-relaxed text-slate-600 whitespace-pre-wrap max-h-40 overflow-y-auto border-t pt-2">{agreementText}</p>
+                      )}
+                    </div>
+                  )}
                   <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : 'Submit'}
+                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : !agreementSatisfied ? 'Agree to the terms to continue' : 'Submit'}
                   </button>
                 </div>
               </>
