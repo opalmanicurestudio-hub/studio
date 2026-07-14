@@ -1234,7 +1234,7 @@ export default function BoothsPage() {
   const boothById = useBoothIndex(booths.data);
   const occupyingLeaseByRenter = useOccupyingLeaseByRenter(leases.data);
 
-  const [view, setView] = useState<'floor' | 'list' | 'renters'>('floor');
+  const [view, setView] = useState<'floor' | 'list' | 'renters' | 'money'>('floor');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -1284,6 +1284,23 @@ export default function BoothsPage() {
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
+  // v57 — TRANSACTIONS: the money record. Reads the same ledger the
+  // service and the pay-and-book route write (tenants/{tid}/transactions),
+  // filtered server-side to booth income only (single-field query).
+  const [boothTxns, setBoothTxns] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId || view !== 'money') return;
+    const unsub = onSnapshot(
+      query(collection(firestore, 'tenants', tenantId, 'transactions'), where('source', '==', 'booth_rent')),
+      (snap) => setBoothTxns(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => {});
+    return () => unsub();
+  }, [firestore, tenantId, view]);
+  const sortedTxns = useMemo(() =>
+    [...boothTxns].sort((a, b) => (b.date || b.createdAt || '').localeCompare(a.date || a.createdAt || '')),
+    [boothTxns]);
+  const txnTotalCents = useMemo(() => sortedTxns.reduce((s, t) => s + (Number(t.amountCents) || 0), 0), [sortedTxns]);
+
   const setResStatus = async (r: any, status: string) => {
     await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
       { status, [`${status}At`]: new Date().toISOString() }).catch(() => {});
@@ -2255,7 +2272,7 @@ export default function BoothsPage() {
           <LivePulse lastSync={lastSync} />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <div className="grid grid-cols-3 sm:flex rounded-lg border border-border p-0.5 gap-0.5 sm:gap-0">
+          <div className="grid grid-cols-4 sm:flex rounded-lg border border-border p-0.5 gap-0.5 sm:gap-0">
             <Button
               variant={view === 'floor' ? 'default' : 'ghost'}
               size="sm"
@@ -2283,6 +2300,15 @@ export default function BoothsPage() {
             >
               <Users className="h-4 w-4 mr-1.5" />
               Renters
+            </Button>
+            <Button
+              variant={view === 'money' ? 'default' : 'ghost'}
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => setView('money')}
+            >
+              <CircleDollarSign className="h-4 w-4 mr-1.5" />
+              Money
             </Button>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:flex sm:gap-2">
@@ -2312,7 +2338,29 @@ export default function BoothsPage() {
               <span className="sm:hidden">Pricing</span>
               <span className="hidden sm:inline">Pricing Advisor</span>
             </Button>
-            {view === 'renters' ? (
+            {view === 'money' ? (
+              <div className="space-y-3">
+                <div className="rounded-2xl border-2 bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Booth income · all time</p>
+                  <p className="text-2xl font-black tracking-tighter">${(txnTotalCents / 100).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                </div>
+                {sortedTxns.length === 0 ? (
+                  <p className="text-sm text-muted-foreground font-medium text-center py-8">No booth transactions yet — rent payments and paid day rentals will appear here.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {sortedTxns.map((t: any) => (
+                      <div key={t.id} className="rounded-xl border-2 px-4 py-3 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-black truncate">{t.description || t.category || 'Booth payment'}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase">{(t.date || t.createdAt || '').slice(0, 10)}{t.paymentMethod ? ` · ${t.paymentMethod}` : ''}{t.clientOrVendor ? ` · ${t.clientOrVendor}` : ''}</p>
+                        </div>
+                        <p className="font-black text-emerald-700 shrink-0">${((Number(t.amountCents) || 0) / 100).toFixed(2)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : view === 'renters' ? (
               <Button className="w-full sm:w-auto" onClick={openCreateRenter}>
                 <UserPlus className="h-4 w-4 mr-1.5 sm:mr-2 shrink-0" />
                 <span className="sm:hidden">Add</span>
