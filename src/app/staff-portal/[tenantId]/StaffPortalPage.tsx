@@ -6,6 +6,7 @@ import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
 import { registerPushForStaff } from '@/lib/push-notifications';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { GifPicker, GIF_ENABLED } from '@/components/shared/GifPicker';
+import { RenterDocumentsTab } from '@/components/shared/RenterDocumentsTab';
 import { canSeeFinancials } from '@/lib/privacy';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -3560,7 +3561,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'>(staffMember.role === 'renter' ? 'messages' : 'today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'>(staffMember.role === 'renter' ? 'messages' : 'today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -3907,7 +3908,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge + teamBadge },
     { id:'inbox',    label:'Inbox',    icon:Bell, badge:unreadCount },
   ] as const;
-  const TABS = isRenter ? ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox') : ALL_TABS;
+  // Renters get: Messages, Inbox, Documents (receipts + statements)
+  const TABS = isRenter
+    ? ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox').concat([{ id:'documents' as any, label:'Documents', icon:FileText as any }])
+    : ALL_TABS;
 
   const NOTIF_ICONS: Record<string,any> = {
     timesheet_approved: <CheckCircle2 className="w-4 h-4 text-green-500" />,
@@ -4300,6 +4304,19 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
                   {!n.read&&<div className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5"/>}
                 </div>
               ))}
+            </div>
+          )}
+          {activeTab==='documents' && isRenter && (
+            <div className="space-y-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents & Receipts</p>
+              <div className="rounded-2xl border-2 bg-slate-50 p-4 space-y-3">
+                <p className="text-xs font-black uppercase text-slate-700">Paid bookings</p>
+                <RenterDocumentsTab tenantId={tenantId} staffMember={staffMember} firestore={firestore} />
+              </div>
+              <div className="rounded-2xl border-2 p-4 space-y-2">
+                <p className="text-xs font-black uppercase text-slate-700">Tax & business notes</p>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">Rent paid for business space is typically deductible as a business expense on Schedule C. Each receipt above shows the amount paid, period covered, and your studio's business info. Retain all receipts and provide them to your tax preparer at year end.</p>
+              </div>
             </div>
           )}
 
