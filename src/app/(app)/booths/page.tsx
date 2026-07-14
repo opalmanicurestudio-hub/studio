@@ -1273,13 +1273,21 @@ export default function BoothsPage() {
     }, () => {});
     return () => unsub();
   }, [firestore, tenantId]);
+  // v56 — DAY-RENTER WORKFLOW: confirmed → checked_in → completed, with
+  // cancel (refund-pending) as the exit ramp. Completed and cancelled
+  // records leave the strip but stay in the collection — the paper trail
+  // never deletes.
   const upcomingReservations = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return reservations
-      .filter(r => (r.status === 'confirmed' || r.status === 'payment_received_conflict') && r.endDate >= today
+      .filter(r => (['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
+  const setResStatus = async (r: any, status: string) => {
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+      { status, [`${status}At`]: new Date().toISOString() }).catch(() => {});
+  };
 
   const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
   const setAppStatus = async (app: any, status: string) => {
@@ -2195,13 +2203,37 @@ export default function BoothsPage() {
           </div>
           <div className="grid gap-2 md:grid-cols-2">
             {upcomingReservations.map((r: any) => (
-              <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 flex items-center gap-3 ${r.status === 'payment_received_conflict' ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50/40'}`}>
-                <div className="flex-1 min-w-0">
-                  <p className="font-black text-sm uppercase truncate">{r.name} <span className="font-bold text-muted-foreground normal-case">· {r.boothName}</span></p>
-                  <p className="text-[10px] font-bold text-slate-600 uppercase">{r.startDate} → {r.endDate} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓ terms' : ''}</p>
-                  {r.status === 'payment_received_conflict' && <p className="text-[10px] font-black uppercase text-red-600">⚠ Paid but dates conflict — refund or rebook</p>}
+              <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 space-y-2 ${r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending' ? 'border-red-300 bg-red-50' : r.status === 'checked_in' ? 'border-indigo-300 bg-indigo-50/50' : 'border-emerald-200 bg-emerald-50/40'}`}>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-sm uppercase truncate">{r.name} <span className="font-bold text-muted-foreground normal-case">· {r.boothName}</span></p>
+                    <p className="text-[10px] font-bold text-slate-600 uppercase">{r.startDate} → {r.endDate} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓ terms' : ''}</p>
+                  </div>
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
+                    {r.status === 'checked_in' ? 'Checked in' : r.status === 'confirmed' ? 'Upcoming' : r.status === 'cancelled_refund_pending' ? 'Refund pending' : 'Conflict'}
+                  </span>
+                  {r.phone && <a href={`tel:${r.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 shrink-0">Call</a>}
                 </div>
-                {r.phone && <a href={`tel:${r.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 shrink-0">Call</a>}
+                {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
+                  <p className="text-[10px] font-black uppercase text-red-600">
+                    {r.status === 'payment_received_conflict' ? '⚠ Paid but dates conflict — refund or rebook.' : '⚠ Refund in Stripe dashboard'}
+                    {r.stripePaymentIntentId ? ` · Payment ${r.stripePaymentIntentId}` : ''}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  {r.status === 'confirmed' && (
+                    <>
+                      <button onClick={() => setResStatus(r, 'checked_in')} className="flex-1 h-8 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>
+                      <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>
+                    </>
+                  )}
+                  {r.status === 'checked_in' && (
+                    <button onClick={() => setResStatus(r, 'completed')} className="flex-1 h-8 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-black uppercase text-[9px] tracking-widest">Complete Stay</button>
+                  )}
+                  {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
+                    <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded & Close</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
