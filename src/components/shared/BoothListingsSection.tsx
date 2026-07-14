@@ -274,10 +274,25 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     <section className="py-16 md:py-24 px-4">
       <div className="max-w-6xl mx-auto">
         {confirmedRes && (
-          <div className="mb-8 rounded-3xl border-2 border-emerald-300 bg-emerald-50 p-6 text-center space-y-1">
-            <p className="text-3xl">🎉</p>
-            <p className="font-black text-lg text-emerald-800">You're booked!</p>
-            <p className="text-sm font-bold text-emerald-700">{confirmedRes.boothName} · {confirmedRes.startDate} → {confirmedRes.endDate}. A confirmation is on its way.</p>
+          <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-md rounded-3xl p-8 text-center space-y-4 animate-in fade-in zoom-in-95 duration-300">
+              <p className="text-6xl">🎉</p>
+              <div>
+                <h3 className="font-black text-2xl tracking-tight">You're booked!</h3>
+                <p className="text-sm font-bold text-slate-500 mt-1">Payment received — this space is yours.</p>
+              </div>
+              <div className="rounded-2xl border-2 bg-slate-50 p-4 text-left space-y-1">
+                <p className="font-black text-sm uppercase">{confirmedRes.boothName}</p>
+                <p className="text-xs font-bold text-slate-600">{confirmedRes.startDate} → {confirmedRes.endDate}</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase">Save or screenshot this confirmation</p>
+              </div>
+              <button
+                onClick={() => { setConfirmedRes(null); try { window.history.replaceState({}, '', window.location.pathname); } catch {} }}
+                className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest"
+              >
+                Done
+              </button>
+            </div>
           </div>
         )}
         {confirmError && (
