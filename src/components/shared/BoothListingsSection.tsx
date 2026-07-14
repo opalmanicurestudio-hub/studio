@@ -1,4 +1,4 @@
-''use client';
+'use client';
 
 /**
  * BoothListingsSection — v2 (immersive)
@@ -47,6 +47,26 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
   const niches: string[] = (Array.isArray(config.nicheOptions) && config.nicheOptions.length > 0) ? config.nicheOptions : DEFAULT_NICHES;
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
+
+  // v52 — pay-and-book: returning from Stripe Checkout, confirm the
+  // reservation server-side and celebrate.
+  const [confirmedRes, setConfirmedRes] = useState<any | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const rid = params.get('cfReservationId');
+    const sid = params.get('cfSession');
+    if (!rid || !sid) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/booths/reserve?tenantId=${encodeURIComponent(tenantId)}&reservationId=${encodeURIComponent(rid)}&sessionId=${encodeURIComponent(sid)}`);
+        const data = await res.json();
+        if (data.ok && data.confirmed) setConfirmedRes(data);
+        else if (data.error) setConfirmError(data.error);
+      } catch { /* silent — banner just won't show */ }
+    })();
+  }, [tenantId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +137,27 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const submitApplication = async () => {
     if (!applyFor || !canSubmit) return;
     setSubmitting(true);
+    // Pay-and-book path: a day-rental Reserve with dates goes straight to
+    // Stripe Checkout. If checkout can't start (no daily rate, conflict,
+    // or Stripe hiccup), fall through to the inquiry pipeline so the lead
+    // is never lost.
+    if (inquiryKind === 'application' && applyMode === 'day' && form.startDate && form.endDate) {
+      try {
+        const res = await fetch('/api/booths/reserve', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId, boothId: applyFor.id,
+            startDate: form.startDate, endDate: form.endDate,
+            name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
+            returnUrl: window.location.href,
+          }),
+        });
+        const data = await res.json();
+        if (data.ok && data.url) { window.location.href = data.url; return; }
+        if (res.status === 409 && data.error) { alert(data.error); setSubmitting(false); return; }
+        // any other failure → inquiry fallback below
+      } catch { /* fall through to inquiry */ }
+    }
     try {
       const now = new Date().toISOString();
       const lease = applyMode === 'lease';
@@ -222,6 +263,18 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   return (
     <section className="py-16 md:py-24 px-4">
       <div className="max-w-6xl mx-auto">
+        {confirmedRes && (
+          <div className="mb-8 rounded-3xl border-2 border-emerald-300 bg-emerald-50 p-6 text-center space-y-1">
+            <p className="text-3xl">🎉</p>
+            <p className="font-black text-lg text-emerald-800">You're booked!</p>
+            <p className="text-sm font-bold text-emerald-700">{confirmedRes.boothName} · {confirmedRes.startDate} → {confirmedRes.endDate}. A confirmation is on its way.</p>
+          </div>
+        )}
+        {confirmError && (
+          <div className="mb-8 rounded-3xl border-2 border-amber-300 bg-amber-50 p-5 text-center">
+            <p className="text-sm font-bold text-amber-800">{confirmError}</p>
+          </div>
+        )}
         <div className="text-center mb-10 md:mb-14">
           <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-50 mb-3">Now Leasing</p>
           <h2 className="text-3xl md:text-5xl font-black tracking-tight">{config.title || 'Space Available'}</h2>
