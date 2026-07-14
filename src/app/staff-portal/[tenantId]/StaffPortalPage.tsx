@@ -2944,14 +2944,6 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   // owner/admin (decision: renters message management, not each other or
   // staff), and Building Announcements instead of Team Announcements.
   const isRenter = staffMember.role === 'renter';
-  const [w9Status, setW9Status] = useState<{tinMasked:string;legalName:string;collectedAt:string}|null|'loading'>('loading');
-  const [showW9Form, setShowW9Form] = useState(false);
-  useEffect(() => {
-    if (!isRenter) return;
-    fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(staffMember.id)}`)
-      .then(r=>r.json()).then(d => setW9Status(d.w9 ? { tinMasked: d.w9.tinMasked, legalName: d.w9.legalName, collectedAt: d.w9.collectedAt } : null))
-      .catch(()=>setW9Status(null));
-  }, [isRenter, tenantId, staffMember.id]);
   const { toast } = useToast();
   const { user: authUser } = useUser();
   const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
@@ -3921,6 +3913,17 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const TABS = isRenter
     ? ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox').concat([{ id:'documents' as any, label:'Documents', icon:FileText as any }])
     : ALL_TABS;
+
+  // v63 — W-9 state lives in the main portal component so Documents tab can access it
+  const [w9Status, setW9Status] = useState<{tinMasked:string;legalName:string;collectedAt:string}|null|'loading'>('loading');
+  const [showW9Form, setShowW9Form] = useState(false);
+  useEffect(() => {
+    if (!isRenter) return;
+    fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(staffMember.id)}`)
+      .then(r=>r.json())
+      .then(d => setW9Status(d.w9 ? { tinMasked: d.w9.tinMasked, legalName: d.w9.legalName, collectedAt: d.w9.collectedAt } : null))
+      .catch(() => setW9Status(null));
+  }, [isRenter, tenantId, staffMember.id]);
 
   const NOTIF_ICONS: Record<string,any> = {
     timesheet_approved: <CheckCircle2 className="w-4 h-4 text-green-500" />,
