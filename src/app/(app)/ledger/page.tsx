@@ -954,7 +954,17 @@ const LedgerPage = () => {
   const isMobile = useIsMobile();
   const { toast } = useToast();
 
-  const { transactions, staff, tillSessions, services, appointments, inventory, clients, isLoading } = useInventory();
+  const { transactions: rawTransactions, staff, tillSessions, services, appointments, inventory, clients, isLoading } = useInventory();
+  // v58 — intake normalization: every consumer below assumes `amount`
+  // (dollars) and `type` exist. Entries written with amountCents or a
+  // missing type (early day-rental payments) are healed here instead of
+  // crashing the page.
+  const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
+    ...t,
+    amount: typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
+    type: t.type || 'income',
+    category: t.category || 'Uncategorized',
+  })), [rawTransactions]);
 
   const [periodPreset, setPeriodPreset] = useState('30days');
   const [date, setDate] = useState<DateRange | undefined>(undefined);
