@@ -1261,6 +1261,24 @@ export default function BoothsPage() {
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [applications, selectedLocationId]);
+  // v53 — owner's view of paid day rentals: who's in, when, and any
+  // paid-but-conflicted bookings needing a refund decision.
+  const [reservations, setReservations] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'boothReservations')), (snap) => {
+      setReservations(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const upcomingReservations = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return reservations
+      .filter(r => (r.status === 'confirmed' || r.status === 'payment_received_conflict') && r.endDate >= today
+        && (!r.locationId || r.locationId === selectedLocationId))
+      .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+  }, [reservations, selectedLocationId]);
+
   const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
   const setAppStatus = async (app: any, status: string) => {
     await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', app.id), { status, decidedAt: new Date().toISOString() }).catch(() => {});
@@ -2155,6 +2173,27 @@ export default function BoothsPage() {
                   {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
                   {(!app.kind || app.kind === 'application') && <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
                 </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {upcomingReservations.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-black uppercase tracking-widest">Upcoming Day Rentals</h2>
+            <span className="h-5 min-w-5 px-1.5 bg-emerald-600 text-white text-[10px] font-black rounded-full flex items-center justify-center">{upcomingReservations.length}</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            {upcomingReservations.map((r: any) => (
+              <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 flex items-center gap-3 ${r.status === 'payment_received_conflict' ? 'border-red-300 bg-red-50' : 'border-emerald-200 bg-emerald-50/40'}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-sm uppercase truncate">{r.name} <span className="font-bold text-muted-foreground normal-case">· {r.boothName}</span></p>
+                  <p className="text-[10px] font-bold text-slate-600 uppercase">{r.startDate} → {r.endDate} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓ terms' : ''}</p>
+                  {r.status === 'payment_received_conflict' && <p className="text-[10px] font-black uppercase text-red-600">⚠ Paid but dates conflict — refund or rebook</p>}
+                </div>
+                {r.phone && <a href={`tel:${r.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 shrink-0">Call</a>}
               </div>
             ))}
           </div>
