@@ -264,6 +264,8 @@ const EMPTY_FORM: BoothFormState = {
   status: 'vacant',
   amenities: [],
   photoUrls: [],
+  listingDescription: '',
+  videoUrl: '',
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -1820,6 +1822,8 @@ export default function BoothsPage() {
       status: booth.status,
       amenities: booth.amenities ?? [],
       photoUrls: (booth as any).photoUrls ?? [],
+      listingDescription: (booth as any).listingDescription ?? '',
+      videoUrl: (booth as any).videoUrl ?? '',
     });
     setDialogOpen(true);
   };
@@ -1854,6 +1858,10 @@ export default function BoothsPage() {
             status: form.status,
             amenities: form.amenities,
             photoUrls: form.photoUrls,
+          listingDescription: form.listingDescription.trim(),
+          videoUrl: form.videoUrl.trim(),
+            listingDescription: form.listingDescription.trim(),
+            videoUrl: form.videoUrl.trim(),
             updatedAt: now,
           }
         );
@@ -2827,6 +2835,20 @@ export default function BoothsPage() {
                 )}
                 <ImageUpload multiple clearOnUpload enableMarkup={false} storageFolder="uploads"
                   onImageUploaded={(url) => { if (url) setForm(prev => ({ ...prev, photoUrls: [...prev.photoUrls, url] })); }} />
+              </div>
+
+              {/* v55 — real-estate-grade listing content */}
+              <div className="space-y-1">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Listing description (public)</Label>
+                <Textarea rows={4} placeholder="Sell the space — light, equipment, vibe, what's included..."
+                  value={form.listingDescription}
+                  onChange={(e) => setForm(prev => ({ ...prev, listingDescription: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Video tour URL (YouTube, Vimeo, or direct .mp4)</Label>
+                <Input placeholder="https://youtube.com/watch?v=..."
+                  value={form.videoUrl}
+                  onChange={(e) => setForm(prev => ({ ...prev, videoUrl: e.target.value }))} />
               </div>
             </div>
 
