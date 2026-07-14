@@ -94,6 +94,19 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   }), [booths, config.showMonthly, config.showDaily]);
 
   const photosOf = (b: any): string[] => (Array.isArray(b.photoUrls) && b.photoUrls.length > 0) ? b.photoUrls : (b.photoUrl ? [b.photoUrl] : []);
+  // v55 — video tours: YouTube/Vimeo links become embeds, direct files
+  // become a <video> player.
+  const embedOf = (url: string): { kind: 'iframe' | 'video'; src: string } | null => {
+    if (!url) return null;
+    const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([\w-]{6,})/);
+    if (yt) return { kind: 'iframe', src: `https://www.youtube.com/embed/${yt[1]}` };
+    const vm = url.match(/vimeo\.com\/(\d+)/);
+    if (vm) return { kind: 'iframe', src: `https://player.vimeo.com/video/${vm[1]}` };
+    if (/\.(mp4|webm|mov)(\?|$)/i.test(url)) return { kind: 'video', src: url };
+    return null;
+  };
+  const [showVideo, setShowVideo] = useState(false);
+  const blurbOf = (b: any) => b.listingDescription || b.notes || '';
   // v50 — multi-pricing: pricingOptions[] is authoritative when present;
   // legacy base fields remain the fallback so old assets render unchanged.
   const ratesOf = (b: any): { frequency: string; amountCents: number }[] => {
@@ -115,11 +128,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [inquiryKind, setInquiryKind] = useState<'application' | 'tour' | 'question' | 'waitlist'>('application');
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false);
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
-    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false);
+    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
   };
 
   const uploadDoc = async (docName: string, file: File) => {
@@ -251,6 +264,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         )}
         <span className="absolute top-3 left-3 text-[9px] font-black uppercase tracking-widest bg-emerald-500 text-white rounded-full px-2.5 py-1 shadow">Available</span>
         {ph.length > 1 && <span className="absolute bottom-3 right-3 text-[9px] font-black bg-black/60 text-white rounded-full px-2 py-0.5 backdrop-blur">📷 {ph.length}</span>}
+        {embedOf(b.videoUrl) && <span className="absolute bottom-3 left-3 text-[9px] font-black bg-black/60 text-white rounded-full px-2 py-0.5 backdrop-blur">▶ Video tour</span>}
       </div>
     );
   };
@@ -346,7 +360,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       <PriceTag b={b} />
                     </div>
                   </div>
-                  {b.notes && <p className="text-sm opacity-70 font-medium leading-relaxed">{b.notes}</p>}
+                  {blurbOf(b) && <p className="text-sm opacity-70 font-medium leading-relaxed line-clamp-4">{blurbOf(b)}</p>}
                   <Chips b={b} />
                   <CTA b={b} />
                   <InquiryRow b={b} />
@@ -368,7 +382,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                     <PriceTag b={b} />
                   </div>
-                  {b.notes && <p className="text-xs opacity-70 font-medium line-clamp-2">{b.notes}</p>}
+                  {blurbOf(b) && <p className="text-xs opacity-70 font-medium line-clamp-2">{blurbOf(b)}</p>}
                   <Chips b={b} />
                   <CTA b={b} />
                   <InquiryRow b={b} />
@@ -392,15 +406,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
               </div>
             ) : (
               <>
-                {photosOf(applyFor).length > 0 && (
-                  <div className="relative h-48 shrink-0">
-                    <img src={photosOf(applyFor)[photoIdx]} alt="" className="w-full h-full object-cover" />
-                    {photosOf(applyFor).length > 1 && (
+                {(photosOf(applyFor).length > 0 || embedOf(applyFor.videoUrl)) && (
+                  <div className="relative h-48 shrink-0 bg-black">
+                    {showVideo && embedOf(applyFor.videoUrl) ? (
+                      embedOf(applyFor.videoUrl)!.kind === 'iframe' ? (
+                        <iframe src={embedOf(applyFor.videoUrl)!.src} className="w-full h-full" allow="autoplay; fullscreen" allowFullScreen />
+                      ) : (
+                        <video src={embedOf(applyFor.videoUrl)!.src} className="w-full h-full object-cover" controls autoPlay muted />
+                      )
+                    ) : photosOf(applyFor).length > 0 ? (
+                      <img src={photosOf(applyFor)[photoIdx]} alt="" className="w-full h-full object-cover" />
+                    ) : null}
+                    {!showVideo && photosOf(applyFor).length > 1 && (
                       <div className="absolute bottom-2 inset-x-0 flex justify-center gap-1.5">
                         {photosOf(applyFor).map((_, i) => (
                           <button key={i} onClick={() => setPhotoIdx(i)} className={`w-2 h-2 rounded-full ${i === photoIdx ? 'bg-white' : 'bg-white/40'}`} />
                         ))}
                       </div>
+                    )}
+                    {embedOf(applyFor.videoUrl) && (
+                      <button onClick={() => setShowVideo(v => !v)} className="absolute top-2 right-2 text-[9px] font-black uppercase tracking-widest bg-black/70 text-white rounded-full px-3 py-1.5 backdrop-blur">
+                        {showVideo ? '📷 Photos' : '▶ Video tour'}
+                      </button>
                     )}
                   </div>
                 )}
@@ -415,6 +442,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <p className="text-xs opacity-60 font-bold mt-0.5">{(applyMode === 'lease' ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ') || `$${priceOf(applyFor).amount.toLocaleString()}${priceOf(applyFor).suffix}`} · We respond within one business day.</p>
                   </div>
 
+                  {blurbOf(applyFor) && inquiryKind !== 'waitlist' && (
+                    <p className="text-xs leading-relaxed text-slate-600 font-medium whitespace-pre-wrap max-h-28 overflow-y-auto">{blurbOf(applyFor)}</p>
+                  )}
                   <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   <div className="grid grid-cols-2 gap-2">
                     <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone *" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
