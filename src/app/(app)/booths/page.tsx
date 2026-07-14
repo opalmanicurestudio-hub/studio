@@ -1286,6 +1286,19 @@ export default function BoothsPage() {
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
+  // v63 — W-9 compliance map: loads once, keyed by renterId
+  const [w9Map, setW9Map] = useState<Record<string, any>>({});
+  useEffect(() => {
+    if (!sortedRenters.length) return;
+    sortedRenters.forEach((r: Renter) => {
+      if (w9Map[r.id] !== undefined) return;
+      fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(r.id)}`)
+        .then(res => res.json())
+        .then(d => setW9Map(prev => ({ ...prev, [r.id]: d.w9 || null })))
+        .catch(() => setW9Map(prev => ({ ...prev, [r.id]: null })));
+    });
+  }, [sortedRenters.length, tenantId]);
+
   // v57 — TRANSACTIONS: the money record. Reads the same ledger the
   // service and the pay-and-book route write (tenants/{tid}/transactions),
   // filtered server-side to booth income only (single-field query).
@@ -2551,13 +2564,18 @@ export default function BoothsPage() {
                           )}
                         </div>
                       )}
-                      <div className="flex items-center gap-3 pt-0.5">
+                      <div className="flex items-center gap-3 pt-0.5 flex-wrap">
                         {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
                           <a key={yr} href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${yr}`} target="_blank" rel="noreferrer"
                             className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2">
                             {yr} statement
                           </a>
                         ))}
+                        {w9Map[renter.id] ? (
+                          <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">✓ W-9 on file</span>
+                        ) : w9Map[renter.id] === null ? (
+                          <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ W-9 missing</span>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -2578,6 +2596,26 @@ export default function BoothsPage() {
             </div>
             <CircleDollarSign className="h-8 w-8 text-white/20" />
           </div>
+
+          {/* Year-end W-9 compliance summary */}
+          {sortedRenters.length > 0 && (
+            <div className="rounded-2xl border-2 p-4 space-y-3">
+              <p className="text-xs font-black uppercase tracking-widest">Year-end compliance</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-center">
+                  <p className="text-2xl font-black text-emerald-700">{Object.values(w9Map).filter(Boolean).length}</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600">W-9 on file</p>
+                </div>
+                <div className={`rounded-xl px-3 py-2 text-center border ${Object.values(w9Map).filter(v=>v===null).length>0?'bg-amber-50 border-amber-200':'bg-slate-50 border-slate-200'}`}>
+                  <p className={`text-2xl font-black ${Object.values(w9Map).filter(v=>v===null).length>0?'text-amber-700':'text-slate-400'}`}>{Object.values(w9Map).filter(v=>v===null).length}</p>
+                  <p className={`text-[9px] font-black uppercase tracking-widest ${Object.values(w9Map).filter(v=>v===null).length>0?'text-amber-600':'text-slate-400'}`}>W-9 missing</p>
+                </div>
+              </div>
+              {Object.values(w9Map).filter(v=>v===null).length > 0 && (
+                <p className="text-[10px] font-bold text-amber-700">Renters missing a W-9 are shown with ⚠ on their cards in Operations. Prompt them to complete it in their portal — they will see it in the Documents tab.</p>
+              )}
+            </div>
+          )}
           {sortedTxns.length === 0 ? (
             <p className="text-sm text-muted-foreground font-medium text-center py-8">No booth transactions yet — rent payments and paid day rentals appear here.</p>
           ) : (
