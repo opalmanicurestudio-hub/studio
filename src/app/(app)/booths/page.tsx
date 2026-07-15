@@ -289,15 +289,12 @@ interface RenterFormState {
   firstName: string; lastName: string; email: string; phone: string;
   businessName: string; specialty: string; notes: string;
   linkedStaffId: string;
-  licenseNumber: string;
-  licenseExpiry: string;
-  insuranceCarrier: string;
-  insuranceExpiry: string;
+  credentials: { label: string; number: string; expiry: string }[];
 }
 const EMPTY_RENTER_FORM: RenterFormState = {
   firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
   linkedStaffId: '',
-  licenseNumber: '', licenseExpiry: '', insuranceCarrier: '', insuranceExpiry: '',
+  credentials: [],
 };
 
 // ─── Lease form ───────────────────────────────────────────────────────────────
@@ -1231,7 +1228,7 @@ function DetailPanel({
 
 // ─── Compliance status (v80) ─────────────────────────────────────────────────
 // green = valid >30d out · amber = expires ≤30d · red = expired or missing
-function complianceOf(r: any): { license: string; insurance: string; worst: string } {
+function complianceOf(r: any): { items: { label: string; number: string; expiry: string; state: string }[]; worst: string } {
   const judge = (expiry: any): string => {
     if (!expiry) return 'missing';
     const days = Math.floor((new Date(expiry + 'T00:00:00Z').getTime() - Date.now()) / 86400000);
@@ -1239,11 +1236,21 @@ function complianceOf(r: any): { license: string; insurance: string; worst: stri
     if (days <= 30) return 'expiring';
     return 'ok';
   };
-  const license = judge(r.licenseExpiry);
-  const insurance = judge(r.insuranceExpiry);
-  const rank: Record<string, number> = { expired: 0, missing: 1, expiring: 2, ok: 3 };
-  const worst = rank[license] < rank[insurance] ? license : insurance;
-  return { license, insurance, worst };
+  const items: { label: string; number: string; expiry: string; state: string }[] = [];
+  if (Array.isArray(r.credentials)) {
+    for (const cr of r.credentials) {
+      if (!cr?.label) continue;
+      items.push({ label: cr.label, number: cr.number || '', expiry: cr.expiry || '', state: judge(cr.expiry) });
+    }
+  }
+  // Legacy fields from the first compliance version — still honored
+  if (items.length === 0) {
+    if (r.licenseExpiry || r.licenseNumber) items.push({ label: 'Professional license', number: r.licenseNumber || '', expiry: r.licenseExpiry || '', state: judge(r.licenseExpiry) });
+    if (r.insuranceExpiry || r.insuranceCarrier) items.push({ label: `Liability insurance${r.insuranceCarrier ? ` (${r.insuranceCarrier})` : ''}`, number: '', expiry: r.insuranceExpiry || '', state: judge(r.insuranceExpiry) });
+  }
+  const rank: Record<string, number> = { expired: 0, expiring: 1, missing: 2, ok: 3 };
+  const worst = items.length === 0 ? 'none' : items.reduce((w, it) => rank[it.state] < rank[w] ? it.state : w, 'ok');
+  return { items, worst };
 }
 
 // ─── Renter profile drawer (v65) ─────────────────────────────────────────────
@@ -1406,13 +1413,18 @@ function RenterProfileDrawer({
                 const comp = complianceOf(renter as any);
                 const STYLE: Record<string, string> = { ok: 'text-emerald-600', expiring: 'text-amber-600', expired: 'text-red-600', missing: 'text-slate-400' };
                 const WORD: Record<string, (d: string) => string> = {
-                  ok: d => `valid · exp ${d}`, expiring: d => `⚠ expires ${d}`, expired: d => `🔴 EXPIRED ${d}`, missing: () => 'not on file',
+                  ok: d => `valid · exp ${d}`, expiring: d => `⚠ expires ${d}`, expired: d => `🔴 EXPIRED ${d}`, missing: () => 'no expiry on file',
                 };
                 return (
-                  <div className={`rounded-2xl border-2 p-4 space-y-1.5 ${comp.worst === 'ok' ? '' : comp.worst === 'expiring' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
-                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Compliance</p>
-                    <p className="text-xs font-bold">License{(renter as any).licenseNumber ? ` #${(renter as any).licenseNumber}` : ''}: <span className={STYLE[comp.license]}>{WORD[comp.license]((renter as any).licenseExpiry || '')}</span></p>
-                    <p className="text-xs font-bold">Insurance{(renter as any).insuranceCarrier ? ` (${(renter as any).insuranceCarrier})` : ''}: <span className={STYLE[comp.insurance]}>{WORD[comp.insurance]((renter as any).insuranceExpiry || '')}</span></p>
+                  <div className={`rounded-2xl border-2 p-4 space-y-1.5 ${comp.worst === 'ok' || comp.worst === 'none' ? '' : comp.worst === 'expiring' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Credentials & compliance</p>
+                    {comp.items.length === 0 ? (
+                      <p className="text-xs font-bold text-slate-400">Nothing tracked yet — add credentials via Edit.</p>
+                    ) : comp.items.map((it, i) => (
+                      <p key={i} className="text-xs font-bold">
+                        {it.label}{it.number ? ` #${it.number}` : ''}: <span className={STYLE[it.state]}>{WORD[it.state](it.expiry)}</span>
+                      </p>
+                    ))}
                   </div>
                 );
               })()}
@@ -2613,10 +2625,12 @@ export default function BoothsPage() {
       phone: renter.phone ?? '', businessName: renter.businessName ?? '',
       specialty: renter.specialty ?? '', notes: renter.notes ?? '',
       linkedStaffId: (renter as any).linkedStaffId ?? '',
-      licenseNumber: (renter as any).licenseNumber ?? '',
-      licenseExpiry: (renter as any).licenseExpiry ?? '',
-      insuranceCarrier: (renter as any).insuranceCarrier ?? '',
-      insuranceExpiry: (renter as any).insuranceExpiry ?? '' });
+      credentials: Array.isArray((renter as any).credentials)
+        ? (renter as any).credentials.map((cr: any) => ({ label: cr.label || '', number: cr.number || '', expiry: cr.expiry || '' }))
+        : [
+            ...((renter as any).licenseExpiry || (renter as any).licenseNumber ? [{ label: 'Professional license', number: (renter as any).licenseNumber || '', expiry: (renter as any).licenseExpiry || '' }] : []),
+            ...((renter as any).insuranceExpiry || (renter as any).insuranceCarrier ? [{ label: `Liability insurance${(renter as any).insuranceCarrier ? ` (${(renter as any).insuranceCarrier})` : ''}`, number: '', expiry: (renter as any).insuranceExpiry || '' }] : []),
+          ] });
     setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
   const handleRenterDialogOpenChange = (open: boolean) => {
@@ -2640,10 +2654,7 @@ export default function BoothsPage() {
             businessName: renterForm.businessName.trim(),
             specialty: renterForm.specialty.trim(),
             notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
-            licenseNumber: renterForm.licenseNumber.trim() || null,
-            licenseExpiry: renterForm.licenseExpiry || null,
-            insuranceCarrier: renterForm.insuranceCarrier.trim() || null,
-            insuranceExpiry: renterForm.insuranceExpiry || null,
+            credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null })),
             linkedStaffId: renterForm.linkedStaffId || undefined,
             updatedAt: now,
           }
@@ -2659,10 +2670,7 @@ export default function BoothsPage() {
           businessName: renterForm.businessName.trim() || undefined,
           specialty: renterForm.specialty.trim() || undefined,
           notes: renterForm.notes.trim() || undefined,
-          licenseNumber: renterForm.licenseNumber.trim() || undefined,
-          licenseExpiry: renterForm.licenseExpiry || undefined,
-          insuranceCarrier: renterForm.insuranceCarrier.trim() || undefined,
-          insuranceExpiry: renterForm.insuranceExpiry || undefined,
+          credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null })),
         });
       }
       setRenterDialogOpen(false); setEditingRenterId(null);
@@ -3946,18 +3954,32 @@ export default function BoothsPage() {
             <div className="space-y-1"><Label htmlFor="r-business">Business name (optional)</Label>
               <Input id="r-business" value={renterForm.businessName} onChange={(e) => setRenterForm((p) => ({ ...p, businessName: e.target.value }))} /></div>
             <div className="space-y-2 rounded-2xl border-2 border-slate-100 p-3.5">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Compliance</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1"><Label>Cosmetology license #</Label>
-                  <Input value={renterForm.licenseNumber} onChange={(e) => setRenterForm(p => ({ ...p, licenseNumber: e.target.value }))} /></div>
-                <div className="space-y-1"><Label>License expires</Label>
-                  <Input type="date" value={renterForm.licenseExpiry} onChange={(e) => setRenterForm(p => ({ ...p, licenseExpiry: e.target.value }))} /></div>
-                <div className="space-y-1"><Label>Insurance carrier</Label>
-                  <Input placeholder="e.g. Elite Beauty Ins." value={renterForm.insuranceCarrier} onChange={(e) => setRenterForm(p => ({ ...p, insuranceCarrier: e.target.value }))} /></div>
-                <div className="space-y-1"><Label>Insurance expires</Label>
-                  <Input type="date" value={renterForm.insuranceExpiry} onChange={(e) => setRenterForm(p => ({ ...p, insuranceExpiry: e.target.value }))} /></div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Credentials & compliance</p>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Track whatever their trade requires — licenses, permits, certifications, insurance. You'll be nagged 30 and 7 days before anything lapses.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {['Professional license', 'Liability insurance', 'Health permit', 'Certification', 'Business registration'].map(ql => (
+                  <button key={ql} type="button"
+                    onClick={() => setRenterForm(p => ({ ...p, credentials: [...p.credentials, { label: ql, number: '', expiry: '' }] }))}
+                    className="h-8 px-3 rounded-full border-2 border-slate-200 text-[9px] font-black uppercase tracking-wide text-slate-500 hover:border-slate-400">
+                    + {ql}
+                  </button>
+                ))}
               </div>
-              <p className="text-[10px] font-bold text-muted-foreground">You'll be nagged 30 and 7 days before anything lapses. An uninsured renter is your liability.</p>
+              {renterForm.credentials.map((cr, i) => (
+                <div key={i} className="grid grid-cols-[1fr_100px_120px_32px] gap-1.5 items-center">
+                  <Input placeholder="Credential (e.g. LMT license, Tattoo permit)" value={cr.label}
+                    onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, label: e.target.value } : x) }))} />
+                  <Input placeholder="#" value={cr.number}
+                    onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, number: e.target.value } : x) }))} />
+                  <Input type="date" value={cr.expiry}
+                    onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, expiry: e.target.value } : x) }))} />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setRenterForm(p => ({ ...p, credentials: p.credentials.filter((_, j) => j !== i) }))}>×</Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm"
+                onClick={() => setRenterForm(p => ({ ...p, credentials: [...p.credentials, { label: '', number: '', expiry: '' }] }))}>
+                + Add custom credential
+              </Button>
             </div>
 
             <div className="space-y-1"><Label htmlFor="r-notes">Notes (private)</Label>
