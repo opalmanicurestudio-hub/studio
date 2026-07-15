@@ -74,6 +74,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'This space is no longer available.' }, { status: 409 });
     }
 
+    // ── AVAILABILITY ENGINE (v66): the owner's declared schedule is law.
+    // Every day in the requested range must be an offerable weekday and
+    // not a blackout date. Client-side validation mirrors this, but the
+    // server is the enforcement point — never trust the picker.
+    const schedDays: number[] | undefined = Array.isArray(booth.dayRentalDays) ? booth.dayRentalDays : undefined;
+    const blackouts: string[] = Array.isArray(booth.blackoutDates) ? booth.blackoutDates : [];
+    if (schedDays && schedDays.length === 0) {
+      return NextResponse.json({ ok: false, error: 'This space does not offer day rentals.' }, { status: 400 });
+    }
+    for (let t = new Date(startDate + 'T00:00:00Z').getTime(), e = new Date(endDate + 'T00:00:00Z').getTime(); t <= e; t += DAY_MS) {
+      const iso = new Date(t).toISOString().slice(0, 10);
+      const dow = new Date(t).getUTCDay();
+      if (schedDays && !schedDays.includes(dow)) {
+        return NextResponse.json({ ok: false, error: `This space isn't available on ${iso} — check the available days and pick a different range.` }, { status: 400 });
+      }
+      if (blackouts.includes(iso)) {
+        return NextResponse.json({ ok: false, error: `${iso} is unavailable — pick a different range.` }, { status: 400 });
+      }
+    }
+
     // Rate: prefer an explicit daily rate; server-side pricing only —
     // the client never dictates the amount.
     const options: any[] = Array.isArray(booth.pricingOptions) && booth.pricingOptions.length > 0
