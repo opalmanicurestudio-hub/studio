@@ -15,9 +15,10 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import {
-  collection, query, where, getDocs, doc, getDoc,
+  collection, query, where, getDocs, doc, getDoc, updateDoc,
   type Firestore,
 } from 'firebase/firestore';
+import SignatureCanvas from 'react-signature-canvas';
 
 interface Props {
   tenantId:    string;
@@ -29,6 +30,11 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
   const [reservations, setReservations] = useState<any[] | null>(null);
   const [ledgerEntries, setLedgerEntries] = useState<any[] | null>(null);
   const [card, setCard] = useState<{ brand: string; last4: string } | null | 'loading'>('loading');
+  // v79 — e-signature: a lease awaiting this renter's signature
+  const [pendingLease, setPendingLease] = useState<any | null>(null);
+  const [signing, setSigning] = useState(false);
+  const [signed, setSigned] = useState(false);
+  const sigRef = React.useRef<any>(null);
   const [cardBusy, setCardBusy] = useState(false);
   const [cardMsg, setCardMsg] = useState('');
 
@@ -72,6 +78,39 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
       setCardMsg(d.error || 'Could not start card setup.');
     } catch { setCardMsg('Network error — try again.'); }
     finally { setCardBusy(false); }
+  };
+
+  // ── Lease awaiting signature ──
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDocs(query(
+          collection(firestore, `tenants/${tenantId}/leases`),
+          where('renterId', '==', staffMember.id),
+          where('status', '==', 'pending_signature')));
+        if (!cancelled) setPendingLease(snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as any) });
+      } catch { if (!cancelled) setPendingLease(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [firestore, tenantId, staffMember.id]);
+
+  const submitSignature = async () => {
+    if (!pendingLease || signing || !sigRef.current || sigRef.current.isEmpty()) return;
+    setSigning(true);
+    try {
+      const dataUrl = sigRef.current.getTrimmedCanvas().toDataURL('image/png');
+      await updateDoc(doc(firestore, `tenants/${tenantId}/leases`, pendingLease.id), {
+        status: 'active',
+        signedAt: new Date().toISOString(),
+        signatureDataUrl: dataUrl,
+        signedByName: staffMember.name || '',
+      });
+      setSigned(true);
+      setPendingLease(null);
+    } catch { /* leave the pad up — they can retry */ }
+    finally { setSigning(false); }
   };
 
   // ── Day/hourly rentals by phone/email ──
@@ -136,6 +175,43 @@ export function RenterDocumentsTab({ tenantId, staffMember, firestore }: Props) 
 
   return (
     <div className="space-y-4">
+      {/* ── Lease awaiting signature (v79) ── */}
+      {pendingLease && (
+        <div className="rounded-2xl border-2 border-indigo-300 bg-indigo-50/50 p-4 space-y-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">✍️ Your lease is ready to sign</p>
+          <div className="rounded-xl border bg-white p-3.5 max-h-56 overflow-y-auto">
+            <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
+              {pendingLease.leaseTerms || 'Your studio has prepared a lease for you. By signing below, you agree to the rental terms as discussed with the studio.'}
+            </p>
+          </div>
+          <p className="text-[10px] font-bold text-slate-500">
+            ${((pendingLease.rentAmountCents || 0) / 100).toFixed(2)}/{pendingLease.frequency}
+            {pendingLease.startDate ? ` · starts ${pendingLease.startDate}` : ''}
+            {pendingLease.endDate ? ` · ends ${pendingLease.endDate}` : ' · month-to-month'}
+          </p>
+          <div className="rounded-xl border-2 border-dashed border-slate-300 bg-white overflow-hidden">
+            <SignatureCanvas
+              ref={sigRef}
+              penColor="#0f172a"
+              canvasProps={{ className: 'w-full h-32', style: { width: '100%', height: '128px' } }}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => sigRef.current?.clear()} className="h-10 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Clear</button>
+            <button onClick={submitSignature} disabled={signing}
+              className="flex-1 h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+              {signing ? 'Signing…' : 'Sign & Accept Lease'}
+            </button>
+          </div>
+          <p className="text-[9px] font-bold text-slate-400">By signing you agree to the terms above. A timestamped copy of your signature is stored with the lease.</p>
+        </div>
+      )}
+      {signed && (
+        <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">✓ Lease signed — you're all set. Welcome!</p>
+        </div>
+      )}
+
       {/* ── Card on file ── */}
       <div className={`rounded-2xl border-2 p-4 space-y-2 ${card && card !== 'loading' ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200'}`}>
         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Card on file</p>
