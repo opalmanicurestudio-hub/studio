@@ -234,6 +234,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { id: 'grid',     label: 'Listing Grid',   preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
     { id: 'showcase', label: 'Magazine',       preview: '[ 📷 | featured  ]' },
     { id: 'luxe',     label: 'Luxe Editorial', preview: '[  full-bleed 📷 ]' },
+    { id: 'immersive', label: 'Immersive',     preview: '[ 📷 hero + overlay ]' },
   ]},
   nav: { label: 'Navigation', icon: Navigation, color: '#3B6D11', fields: [
     { k: 'logoUrl',           t: 'image',  l: 'Logo (primary)',                      d: '' },
