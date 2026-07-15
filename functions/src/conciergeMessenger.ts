@@ -32,6 +32,15 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 
 if (getApps().length === 0) initializeApp();
 
+const t12 = (t?: string | null): string => {
+  if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
+  const [h, m] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+};
+
+
 const TWILIO_SID   = defineSecret('TWILIO_ACCOUNT_SID');
 const TWILIO_TOKEN = defineSecret('TWILIO_AUTH_TOKEN');
 const TWILIO_FROM  = defineSecret('TWILIO_PHONE_NUMBER');
@@ -89,7 +98,7 @@ export const conciergeMessenger = onDocumentWritten(
     const space = after.boothName || 'your space';
     const isHourly = after.bookingType === 'hourly' && after.startTime && after.endTime;
     const when = isHourly
-      ? `${after.startDate}, ${after.startTime}–${after.endTime}`
+      ? `${after.startDate}, ${t12(after.startTime)}–${t12(after.endTime)}`
       : after.startDate === after.endDate ? after.startDate : `${after.startDate} → ${after.endDate}`;
 
     // 1. Booking confirmed (pending → confirmed) — with the stay link:
@@ -110,7 +119,7 @@ export const conciergeMessenger = onDocumentWritten(
       queue.push({
         key: 'checked_in',
         body: isHourly
-          ? `Welcome, ${first}! ${space} is yours until ${after.endTime}. Need anything? The concierge kiosk can bring it to your station. ☕`
+          ? `Welcome, ${first}! ${space} is yours until ${t12(after.endTime)}. Need anything? The concierge kiosk can bring it to your station. ☕`
           : `Welcome, ${first}! ${space} is all yours today. Need anything? The concierge kiosk can bring it to your station. ☕`,
       });
     }
@@ -121,6 +130,17 @@ export const conciergeMessenger = onDocumentWritten(
         key: 'credit',
         body: `Good news, ${first} — a $${(after.creditIssuedCents / 100).toFixed(2)} credit for your unused time is on your account. It applies automatically the next time you book. 💚`,
       });
+    }
+
+    // 3.5 How was your stay? (→ completed, with the review link)
+    if (after.status === 'completed' && before.status !== 'completed' && !sent.review) {
+      const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
+      if (appUrl) {
+        queue.push({
+          key: 'review',
+          body: `Thanks for visiting, ${first}! How was your stay at ${space}? Two taps: ${appUrl}/stay/${event.params.tenantId}/${event.params.resId} 💚`,
+        });
+      }
     }
 
     // 4. Overage charged to card
