@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
@@ -254,6 +253,10 @@ function ConciergeKioskContent() {
     const [guestName, setGuestName] = useState('');
     const [phonePadValue, setPhonePadValue] = useState('');
     const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
+    // v75 — booth-stay integration: a checked-in renter with a card on
+    // file can charge concierge orders to their station, hotel-style.
+    const [activeStay, setActiveStay] = useState<{ reservationId: string; boothName: string; cardOnFile: boolean } | null>(null);
+    const [stationCharging, setStationCharging] = useState(false);
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
     const isSubmittingRef = useRef(false);
@@ -335,6 +338,16 @@ function ConciergeKioskContent() {
                 setGuestName(c.name);
                 toast({ title: `Identity Verified`, description: `Welcome, ${c.name.split(' ')[0]}. perks unlocked.` });
                 setStep('menu');
+                // Booth-stay check (non-blocking — concierge works fine without it)
+                fetch('/api/booths/kiosk', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'active-stay', tenantId, phone: `+1${phonePadValue}` }),
+                }).then(res => res.json()).then(d => {
+                    if (d.ok && d.found) {
+                        setActiveStay({ reservationId: d.reservationId, boothName: d.boothName, cardOnFile: d.cardOnFile });
+                        if (d.cardOnFile) toast({ title: `Checked in at ${d.boothName}`, description: 'Orders can be charged to your card on file.' });
+                    }
+                }).catch(() => {});
             } else {
                 toast({ variant: 'destructive', title: 'Profile Not Found', description: "No record found with that mobile signature." });
             }
@@ -370,6 +383,32 @@ function ConciergeKioskContent() {
         isSubmittingRef.current = true;
         setIsVerifying(true);
         try {
+            // v75 — "charge to my station": run the card first; only
+            // dispatch the order if the charge succeeds. The server
+            // writes the ledger entry, so the local txn is skipped.
+            let chargedToStation = false;
+            const orderTotal = safeNumber(item.price) * qty;
+            const isComped = activeMembership?.includedProducts?.some((p: any) => p.id === item.id);
+            if (stationCharging && activeStay?.cardOnFile && orderTotal > 0 && !isComped) {
+                const chargeRes = await fetch('/api/booths/kiosk', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'charge', tenantId,
+                        reservationId: activeStay.reservationId,
+                        phone: `+1${phonePadValue}`,
+                        amountCents: Math.round(orderTotal * 100),
+                        description: `Concierge: ${item.name} (x${qty})`,
+                    }),
+                });
+                const chargeData = await chargeRes.json();
+                if (!chargeData.ok) {
+                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData.error || 'Please pay at the desk.' });
+                    isSubmittingRef.current = false;
+                    setIsVerifying(false);
+                    return;
+                }
+                chargedToStation = true;
+            }
             const requestId = nanoid();
             const batch = writeBatch(firestore);
             
@@ -384,14 +423,15 @@ function ConciergeKioskContent() {
                 quantity: qty,
                 status: 'pending',
                 requestedAt: new Date().toISOString(),
-                stationName: seatNumber ? `Seat/Table #${seatNumber}` : 'Lounge / Waiting Area',
+                stationName: seatNumber ? `Seat/Table #${seatNumber}` : (activeStay ? activeStay.boothName : 'Lounge / Waiting Area'),
+                chargedToStation,
                 guestDescription: guestDescription,
                 notes: orderNotes,
                 priceAtRequest: safeNumber(item.price),
                 isGuestKiosk: true
             });
 
-            if (safeNumber(item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === item.id)) {
+            if (!chargedToStation && safeNumber(item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === item.id)) {
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
                     id: txnRef.id,
@@ -629,6 +669,159 @@ function ConciergeKioskContent() {
                                             <Label htmlFor="seat-number" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
                                                 Table or Seat #
                                                 {seatParam && <Lock className="w-3 h-3" />}
+                                            </Label>
+                                            <Input 
+                                                id="seat-number"
+                                                value={seatNumber}
+                                                onChange={e => setSeatNumber(e.target.value)}
+                                                placeholder="e.g., 4"
+                                                disabled={!!seatParam}
+                                                className={cn(
+                                                    "h-14 rounded-2xl border-2 font-black text-xl shadow-inner text-center",
+                                                    seatParam ? "bg-muted/50 border-primary/20" : "bg-white/80"
+                                                )}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Visual Identifier</Label>
+                                            <Input 
+                                                value={guestDescription}
+                                                onChange={e => setGuestDescription(e.target.value)}
+                                                placeholder="e.g., Wearing a green hoodie"
+                                                className="h-14 rounded-2xl border-2 font-bold bg-white/80"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">General Notes</Label>
+                                            <Textarea 
+                                                value={orderNotes}
+                                                onChange={e => setOrderNotes(e.target.value)}
+                                                placeholder="Any special requests? (e.g., Extra ice)"
+                                                className="rounded-2xl border-2 bg-white/80 min-h-[100px] font-medium"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {activeStay?.cardOnFile && safeNumber(pendingItem.item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id) && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setStationCharging(v => !v)}
+                                            className={cn(
+                                                "w-full rounded-[2rem] border-2 p-4 flex items-center gap-4 text-left transition-colors",
+                                                stationCharging ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
+                                            )}
+                                        >
+                                            <span className={cn(
+                                                "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
+                                                stationCharging ? "border-primary bg-primary text-white" : "border-slate-300"
+                                            )}>{stationCharging ? '✓' : ''}</span>
+                                            <span className="min-w-0">
+                                                <span className="block text-sm font-black uppercase tracking-tight">Charge to my station</span>
+                                                <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                                                    {activeStay.boothName} · card on file · ${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    )}
+
+                                    <div className="flex flex-col gap-4">
+                                        <Button 
+                                            size="lg" 
+                                            onClick={handleDeliveryDetailSubmit}
+                                            className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
+                                        >
+                                            {stationCharging && activeStay ? 'Charge & Dispatch' : 'Confirm Details'} <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
+                                        </Button>
+                                        <Button variant="ghost" onClick={() => setStep('menu')} className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Change Item</Button>
+                                    </div>
+                                </FloatingContainer>
+                            )}
+
+                            {step === 'payment' && pendingItem && (
+                                <FloatingContainer key="payment" className="max-w-md text-center">
+                                    <div className="rounded-[3rem] border-4 border-white bg-white/60 backdrop-blur-3xl shadow-3xl overflow-hidden text-center">
+                                        <div className="p-8 md:p-10 border-b border-slate-900/5 bg-muted/5 text-center space-y-4">
+                                            <div className="p-3 md:p-4 bg-primary/10 rounded-full w-fit mx-auto">
+                                                <CreditCard className="w-6 h-6 md:w-8 md:h-8 text-primary" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <h2 className="text-2xl md:text-3xl font-black uppercase tracking-tighter leading-none">Secure Settlement</h2>
+                                                <p className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest opacity-60">Authorize: {pendingItem.item.name} (x{pendingItem.qty})</p>
+                                            </div>
+                                        </div>
+                                        <div className="p-8 md:p-10 space-y-10">
+                                            <div className="p-6 md:p-8 rounded-[2.5rem] bg-primary/5 border-4 border-primary/10 text-center space-y-2 shadow-inner">
+                                                <p className="text-[9px] md:text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Transaction Total</p>
+                                                <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
+                                            </div>
+
+                                            <div className="space-y-6 text-left">
+                                                <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
+                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
+                                            </div>
+                                            
+                                            <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
+                                                <Lock className="w-4 h-4"/><span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest">Encrypted Secure Tunnel</span>
+                                            </div>
+                                        </div>
+                                        <div className="p-8 md:p-10 pt-0 flex flex-col gap-3">
+                                            <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
+                                                {isVerifying ? <Loader className="animate-spin h-6 w-6" /> : 'Authorize Payment'}
+                                            </Button>
+                                            <Button variant="ghost" onClick={() => setStep('menu')} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Protocol</Button>
+                                        </div>
+                                    </div>
+                                </FloatingContainer>
+                            )}
+
+                            {step === 'success' && (
+                                <FloatingContainer key="success" className="p-8 md:p-24 text-center space-y-12 mx-auto">
+                                    <div className="w-24 h-24 md:w-48 md:h-48 bg-green-500/10 rounded-[3rem] md:rounded-[4rem] flex items-center justify-center mx-auto shadow-2xl rotate-6">
+                                        <CheckCircle2 className="w-12 h-12 md:w-24 md:h-24 text-green-500 -rotate-6" />
+                                    </div>
+                                    <div className="space-y-4 text-center">
+                                        <h2 className="text-3xl md:text-7xl font-black uppercase tracking-tighter text-slate-900 leading-none">Request Dispatched</h2>
+                                        <p className="text-xs md:text-2xl font-medium text-slate-500 leading-relaxed uppercase tracking-tight opacity-80 px-6 md:px-10">
+                                            Preparing your selection now. Please relax, we will be with you shortly.
+                                        </p>
+                                    </div>
+                                    <Button 
+                                        size="lg" 
+                                        onClick={() => setStep('menu')}
+                                        className="h-16 md:h-20 px-8 md:px-24 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
+                                    >
+                                        Complete Experience
+                                    </Button>
+                                </FloatingContainer>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {entered && step !== 'onboarding' && (
+                <footer className="fixed bottom-6 md:bottom-8 left-0 right-0 z-20 px-6 flex justify-center pointer-events-none">
+                    <div className="bg-white/40 backdrop-blur-xl border-2 border-white/50 px-6 md:px-8 py-3 md:py-4 rounded-full shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center gap-4 md:gap-8 pointer-events-auto ring-1 ring-white/20">
+                        <div className="flex items-center gap-2 md:gap-3">
+                            <MapPin className="w-3 h-3 md:w-4 md:h-4 text-primary opacity-40" />
+                            <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
+                        </div>
+                        <Separator orientation="vertical" className="h-4 md:h-5 bg-slate-900/10" />
+                        <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Boutique Terminal</p>
+                    </div>
+                </footer>
+            )}
+        </div>
+    );
+}
+
+export default function ConciergeKioskPage() {
+    return (
+        <Suspense fallback={<div className="h-screen flex items-center justify-center"><Loader className="animate-spin" /></div>}>
+            <ConciergeKioskContent />
+        </Suspense>
+    );
+}                                                {seatParam && <Lock className="w-3 h-3" />}
                                             </Label>
                                             <Input 
                                                 id="seat-number"
