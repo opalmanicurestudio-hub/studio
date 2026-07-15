@@ -41,7 +41,18 @@ function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): b
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string, startDate: string, endDate: string, ignoreId?: string) {
+// v67 — TIME-AWARE conflicts. Two reservations conflict when their date
+// ranges overlap AND their times overlap. A daily booking (no times)
+// occupies the whole day, so it conflicts with everything that day.
+// Hourly bookings only conflict when their hour windows intersect.
+function timesConflict(a: any, b: any): boolean {
+  const aHourly = a.bookingType === 'hourly' && a.startTime && a.endTime;
+  const bHourly = b.bookingType === 'hourly' && b.startTime && b.endTime;
+  if (!aHourly || !bHourly) return true;           // any daily involved → whole-day block
+  return a.startTime < b.endTime && b.startTime < a.endTime;
+}
+
+async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string, proposed: { startDate: string; endDate: string; bookingType?: string; startTime?: string; endTime?: string }, ignoreId?: string) {
   const snap = await db.collection(`tenants/${tenantId}/boothReservations`).where('boothId', '==', boothId).get();
   const now = Date.now();
   for (const d of snap.docs) {
@@ -49,7 +60,7 @@ async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, b
     if (ignoreId && d.id === ignoreId) continue;
     const holds = r.status === 'confirmed' ||
       (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < PENDING_HOLD_MS);
-    if (holds && overlaps(startDate, endDate, r.startDate, r.endDate)) return true;
+    if (holds && overlaps(proposed.startDate, proposed.endDate, r.startDate, r.endDate) && timesConflict(proposed, r)) return true;
   }
   return false;
 }
@@ -57,12 +68,18 @@ async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, b
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted } = body || {};
+    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime } = body || {};
     if (!tenantId || !boothId || !startDate || !endDate || !name || (!phone && !email) || !returnUrl) {
       return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
     }
+    const isHourly = bookingType === 'hourly';
     const numDays = daysInclusive(startDate, endDate);
-    if (numDays < 1 || numDays > 60) {
+    if (isHourly) {
+      if (startDate !== endDate) return NextResponse.json({ ok: false, error: 'Hourly bookings are for a single day.' }, { status: 400 });
+      if (!/^\d{2}:\d{2}$/.test(startTime || '') || !/^\d{2}:\d{2}$/.test(endTime || '') || startTime >= endTime) {
+        return NextResponse.json({ ok: false, error: 'Invalid time range.' }, { status: 400 });
+      }
+    } else if (numDays < 1 || numDays > 60) {
       return NextResponse.json({ ok: false, error: 'Invalid date range.' }, { status: 400 });
     }
 
@@ -93,19 +110,38 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: `${iso} is unavailable — pick a different range.` }, { status: 400 });
       }
     }
+    if (isHourly) {
+      const openT = booth.openTime || '00:00';
+      const closeT = booth.closeTime || '23:59';
+      if (startTime < openT || endTime > closeT) {
+        return NextResponse.json({ ok: false, error: `Hourly bookings are available ${openT} – ${closeT}.` }, { status: 400 });
+      }
+    }
 
     // Rate: prefer an explicit daily rate; server-side pricing only —
     // the client never dictates the amount.
     const options: any[] = Array.isArray(booth.pricingOptions) && booth.pricingOptions.length > 0
       ? booth.pricingOptions
       : [{ frequency: booth.baseRentFrequency || 'monthly', amountCents: booth.baseRentCents || 0 }];
-    const dayRate = options.find(o => o.frequency === 'daily' && o.amountCents > 0);
-    if (!dayRate) {
-      return NextResponse.json({ ok: false, error: 'This space does not offer daily booking.' }, { status: 400 });
+    let amountCents: number;
+    let unitsLabel: string;
+    if (isHourly) {
+      const hourRate = options.find(o => o.frequency === 'hourly' && o.amountCents > 0);
+      if (!hourRate) return NextResponse.json({ ok: false, error: 'This space does not offer hourly booking.' }, { status: 400 });
+      const numHours = Math.round(((new Date(`2000-01-01T${endTime}:00Z`).getTime() - new Date(`2000-01-01T${startTime}:00Z`).getTime()) / 3600000) * 2) / 2;
+      if (numHours < 1 || numHours > 14) return NextResponse.json({ ok: false, error: 'Hourly bookings are 1–14 hours.' }, { status: 400 });
+      amountCents = Math.round(hourRate.amountCents * numHours);
+      unitsLabel = `${numHours} hour${numHours === 1 ? '' : 's'} (${startTime}–${endTime})`;
+    } else {
+      const dayRate = options.find(o => o.frequency === 'daily' && o.amountCents > 0);
+      if (!dayRate) {
+        return NextResponse.json({ ok: false, error: 'This space does not offer daily booking.' }, { status: 400 });
+      }
+      amountCents = dayRate.amountCents * numDays;
+      unitsLabel = `${numDays} day${numDays === 1 ? '' : 's'}`;
     }
-    const amountCents = dayRate.amountCents * numDays;
 
-    if (await findConflict(db, tenantId, boothId, startDate, endDate)) {
+    if (await findConflict(db, tenantId, boothId, { startDate, endDate, bookingType: isHourly ? 'hourly' : 'daily', startTime, endTime })) {
       return NextResponse.json({ ok: false, error: 'Those dates were just taken — try different dates.' }, { status: 409 });
     }
 
@@ -117,6 +153,9 @@ export async function POST(req: NextRequest) {
       locationId: booth.locationId || null,
       name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
       startDate, endDate, numDays, amountCents,
+      bookingType: isHourly ? 'hourly' : 'daily',
+      startTime: isHourly ? startTime : null,
+      endTime: isHourly ? endTime : null,
       status: 'pending_payment', createdAt: nowIso,
       consentAccepted: !!consentAccepted, consentAcceptedAt: consentAccepted ? nowIso : null,
     });
@@ -132,8 +171,8 @@ export async function POST(req: NextRequest) {
           currency: 'usd',
           unit_amount: amountCents,
           product_data: {
-            name: `${booth.name || 'Space'} — ${numDays} day${numDays === 1 ? '' : 's'}`,
-            description: `${startDate} → ${endDate}`,
+            name: `${booth.name || 'Space'} — ${unitsLabel}`,
+            description: isHourly ? `${startDate} · ${startTime}–${endTime}` : `${startDate} → ${endDate}`,
           },
         },
       }],
@@ -162,7 +201,9 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
     taxBucket:             'revenue',
     amount:                (r.amountCents || 0) / 100,
     category:              'Booth Rent',
-    description:           `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
+    description:           r.bookingType === 'hourly'
+      ? `Hourly rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} ${r.startTime}–${r.endTime})`
+      : `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
     clientOrVendor:        r.name || 'Day renter',
     date:                  nowIso,
     paymentMethod:         'Card (Stripe)',
@@ -210,7 +251,7 @@ export async function GET(req: NextRequest) {
 
     // Close the race window: dates may have been confirmed by another
     // checkout while this one was on Stripe.
-    const conflicted = await findConflict(db, tenantId, r.boothId, r.startDate, r.endDate, reservationId);
+    const conflicted = await findConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }, reservationId);
     const nowIso = new Date().toISOString();
     if (conflicted) {
       await resRef.set({ status: 'payment_received_conflict', confirmedAt: nowIso }, { merge: true });
