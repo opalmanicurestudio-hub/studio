@@ -68,7 +68,7 @@ async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, b
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime } = body || {};
+    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime, slotLabel } = body || {};
     if (!tenantId || !boothId || !startDate || !endDate || !name || (!phone && !email) || !returnUrl) {
       return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
     }
@@ -126,12 +126,29 @@ export async function POST(req: NextRequest) {
     let amountCents: number;
     let unitsLabel: string;
     if (isHourly) {
+      // v73 — SLOTS: when the guest booked a pre-set slot, price and times
+      // come from the OWNER'S CONFIG, never the client. The submitted
+      // times must match the slot exactly.
+      const slots: any[] = Array.isArray(booth.bookingSlots) ? booth.bookingSlots : [];
+      const matchedSlot = slotLabel
+        ? slots.find(s => s.label === slotLabel && s.startTime === startTime && s.endTime === endTime && s.amountCents > 0)
+        : null;
+      if (slotLabel && !matchedSlot) {
+        return NextResponse.json({ ok: false, error: 'That time slot is no longer offered — refresh and pick again.' }, { status: 400 });
+      }
       const hourRate = options.find(o => o.frequency === 'hourly' && o.amountCents > 0);
-      if (!hourRate) return NextResponse.json({ ok: false, error: 'This space does not offer hourly booking.' }, { status: 400 });
+      if (!matchedSlot && !hourRate) {
+        return NextResponse.json({ ok: false, error: slots.length > 0 ? 'Pick one of the offered time slots.' : 'This space does not offer hourly booking.' }, { status: 400 });
+      }
+      if (matchedSlot) {
+        amountCents = matchedSlot.amountCents;
+        unitsLabel = matchedSlot.label + ` (${startTime}–${endTime})`;
+      } else {
       const numHours = Math.round(((new Date(`2000-01-01T${endTime}:00Z`).getTime() - new Date(`2000-01-01T${startTime}:00Z`).getTime()) / 3600000) * 2) / 2;
       if (numHours < 1 || numHours > 14) return NextResponse.json({ ok: false, error: 'Hourly bookings are 1–14 hours.' }, { status: 400 });
-      amountCents = Math.round(hourRate.amountCents * numHours);
+      amountCents = Math.round(hourRate!.amountCents * numHours);
       unitsLabel = `${numHours} hour${numHours === 1 ? '' : 's'} (${startTime}–${endTime})`;
+      }
     } else {
       const dayRate = options.find(o => o.frequency === 'daily' && o.amountCents > 0);
       if (!dayRate) {
@@ -186,6 +203,7 @@ export async function POST(req: NextRequest) {
       appliedCreditIds,
       stripeCustomerId: null as string | null,
       bookingType: isHourly ? 'hourly' : 'daily',
+      slotLabel: slotLabel || null,
       startTime: isHourly ? startTime : null,
       endTime: isHourly ? endTime : null,
       status: 'pending_payment', createdAt: nowIso,
