@@ -196,6 +196,22 @@ export default function ReceiptsPage() {
   const { data: leases } = useCollection<Lease>(leasesRef);
   const { data: receipts, isLoading } = useCollection<Receipt>(receiptsRef);
 
+  // v2 — day & hourly rental receipts. Paid reservations don't create
+  // documents in the receipts collection; their receipts render on
+  // demand from /api/booths/receipt. Listing them here makes this page
+  // the single index of every receipt of both kinds.
+  const reservationsRef = useMemoFirebase(
+    () => firestore && tenantId ? collection(firestore, 'tenants', tenantId, 'boothReservations') : null,
+    [firestore, tenantId]
+  );
+  const { data: reservations } = useCollection<any>(reservationsRef);
+  const paidReservations = useMemo(
+    () => (reservations ?? [])
+      .filter((r: any) => ['confirmed', 'checked_in', 'completed'].includes(r.status))
+      .sort((a: any, b: any) => (b.startDate || '').localeCompare(a.startDate || '')),
+    [reservations]
+  );
+
   // Generate dialog state
   const [genOpen, setGenOpen] = useState(false);
   const [genRenterId, setGenRenterId] = useState('');
@@ -421,6 +437,51 @@ export default function ReceiptsPage() {
           );
         })}
       </div>
+
+      {/* ── Day & hourly rental receipts ─────────────────────────────── */}
+      {paidReservations.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <div>
+            <h2 className="text-sm font-black uppercase tracking-widest">Day & hourly rentals</h2>
+            <p className="text-xs text-muted-foreground">
+              Paid bookings from your public page — receipts generate on demand, print-ready.
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {paidReservations.map((r: any) => (
+              <Card key={r.id}>
+                <CardContent className="pt-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-black text-sm truncate">{r.name}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase truncate">{r.boothName}</p>
+                    </div>
+                    <Badge className="text-[9px] shrink-0">
+                      {r.bookingType === 'hourly' ? 'Hourly' : 'Day'}
+                    </Badge>
+                  </div>
+                  <p className="text-xs font-bold text-muted-foreground">
+                    {r.bookingType === 'hourly' && r.startTime
+                      ? `${r.startDate} · ${r.startTime}–${r.endTime}`
+                      : r.startDate === r.endDate ? r.startDate : `${r.startDate} → ${r.endDate}`}
+                    {' · '}${((r.amountCents || 0) / 100).toFixed(2)}
+                  </p>
+                  <a
+                    href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId ?? '')}&type=reservation&id=${encodeURIComponent(r.id)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Button variant="outline" size="sm" className="w-full">
+                      <Printer className="h-3.5 w-3.5 mr-1.5" />
+                      Print receipt
+                    </Button>
+                  </a>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Generate dialog */}
       <Dialog open={genOpen} onOpenChange={(open) => { if (!open) setGenError(null); setGenOpen(open); }}>
