@@ -152,7 +152,27 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const allDocsAttached = inquiryKind !== 'application' || requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
   const nicheValue = form.niche === 'Other' ? (form.nicheOther || 'Other') : form.niche;
   const agreementSatisfied = inquiryKind !== 'application' || !agreementText || agreed;
-  const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && agreementSatisfied && !submitting;
+  // v66 — AVAILABILITY: mirror the server's schedule check so visitors
+  // learn a date is closed before paying, not after. The route enforces
+  // the same rules authoritatively.
+  const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const scheduleIssue = useMemo(() => {
+    if (!applyFor || applyMode !== 'day' || !form.startDate || !form.endDate) return null;
+    const schedDays: number[] | undefined = Array.isArray((applyFor as any).dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
+    const blackouts: string[] = Array.isArray((applyFor as any).blackoutDates) ? (applyFor as any).blackoutDates : [];
+    if (schedDays && schedDays.length === 0) return 'This space does not offer day rentals.';
+    const s = new Date(form.startDate + 'T00:00:00Z').getTime();
+    const e = new Date(form.endDate + 'T00:00:00Z').getTime();
+    if (Number.isNaN(s) || Number.isNaN(e) || e < s) return null;
+    for (let t = s; t <= e; t += 86400000) {
+      const iso = new Date(t).toISOString().slice(0, 10);
+      const dow = new Date(t).getUTCDay();
+      if (schedDays && !schedDays.includes(dow)) return `${DOW_NAMES[dow]} ${iso} isn't available — this space is open ${schedDays.map(d => DOW_NAMES[d]).join(', ')}.`;
+      if (blackouts.includes(iso)) return `${iso} is unavailable — pick a different range.`;
+    }
+    return null;
+  }, [applyFor, applyMode, form.startDate, form.endDate]);
+  const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && agreementSatisfied && !scheduleIssue && !submitting;
 
   const submitApplication = async () => {
     if (!applyFor || !canSubmit) return;
@@ -491,15 +511,25 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
-                        <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                    <div className="space-y-2">
+                      {Array.isArray((applyFor as any)?.dayRentalDays) && (applyFor as any).dayRentalDays.length > 0 && (applyFor as any).dayRentalDays.length < 7 && (
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                          Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
+                          <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
+                          <input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
-                        <input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                      </div>
+                      {scheduleIssue && (
+                        <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>
+                      )}
                     </div>
                   )}
 
@@ -542,7 +572,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                   )}
                   <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : !agreementSatisfied ? 'Agree to the terms to continue' : 'Submit'}
+                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? 'Agree to the terms to continue' : 'Submit'}
                   </button>
                 </div>
               </>
