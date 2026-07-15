@@ -410,13 +410,12 @@ function PricingAdvisor(props: {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5" />
+          <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+            <Calculator className="h-5 w-5 text-slate-500" />
             Pricing Advisor
           </DialogTitle>
-          <DialogDescription>
-            Find your break-even floor, then check whether a renter can
-            actually thrive at that rent.
+          <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+            Break-even floor · renter viability check
           </DialogDescription>
         </DialogHeader>
 
@@ -810,8 +809,8 @@ function CommandCenterPanel({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ActivityIcon className="h-5 w-5" />
+          <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+            <ActivityIcon className="h-5 w-5 text-slate-500" />
             Command Center
           </DialogTitle>
           <DialogDescription>
@@ -2983,9 +2982,12 @@ export default function BoothsPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit booth' : 'Add booth'}</DialogTitle>
-            <DialogDescription>
-              Name it the way your renters know it.
+            <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+              <Armchair className="h-5 w-5 text-slate-500" />
+              {editingId ? 'Edit space' : 'Add space'}
+            </DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              Name it the way your renters know it
             </DialogDescription>
           </DialogHeader>
 
@@ -3194,10 +3196,29 @@ export default function BoothsPage() {
       <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingRenterId ? 'Edit renter' : 'Add renter'}</DialogTitle>
-            <DialogDescription>Their independent business — your records.</DialogDescription>
+            <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+              <UserPlus className="h-5 w-5 text-slate-500" />
+              {editingRenterId ? 'Edit renter' : 'Add renter'}
+            </DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Their independent business · your records</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
+            {!editingRenterId && convertibleStaff.length > 0 && (
+              <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/60 p-3.5 space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-violet-700">Convert a team member (hybrid)</p>
+                <p className="text-[11px] text-violet-700/80 leading-relaxed">Someone on your team also renting a space? Pick them — one identity, one PIN, two financial relationships.</p>
+                <Select value={renterForm.linkedStaffId || 'none'} onValueChange={(v) => pickStaffToConvert(v === 'none' ? '' : v)}>
+                  <SelectTrigger className="bg-white"><SelectValue placeholder="Start fresh — not a team member" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Start fresh — not a team member</SelectItem>
+                    {convertibleStaff.map((s: any) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}{s.specialty ? ` · ${s.specialty}` : ''}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {renterForm.linkedStaffId && <p className="text-[9px] font-black uppercase tracking-widest text-violet-600">✓ Details pre-filled from their staff record</p>}
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
                 <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
@@ -3235,9 +3256,25 @@ export default function BoothsPage() {
       <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Set up lease</DialogTitle>
-            <DialogDescription>Step {leaseStep + 1} of {WIZARD_STEPS.length}: {WIZARD_STEPS[leaseStep]}</DialogDescription>
+            <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+              <FileSignature className="h-5 w-5 text-slate-500" />
+              Set up lease
+            </DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{WIZARD_STEPS[leaseStep]}</DialogDescription>
           </DialogHeader>
+
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 pb-1">
+            {WIZARD_STEPS.map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <div className={`h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-black transition-colors ${i === leaseStep ? 'bg-slate-900 text-white' : i < leaseStep ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                  {i < leaseStep ? '✓' : i + 1}
+                </div>
+                {i < WIZARD_STEPS.length - 1 && <div className={`h-0.5 w-5 rounded ${i < leaseStep ? 'bg-emerald-500' : 'bg-slate-200'}`} />}
+              </div>
+            ))}
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">{leaseStep + 1} / {WIZARD_STEPS.length}</p>
+          </div>
 
           {leaseStep === 0 && (
             <div className="space-y-4">
