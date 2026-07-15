@@ -1,4 +1,4 @@
-'u'use client';
+'use client';
 
 /**
  * BoothsPage — the single unified surface for booths, renters, and
@@ -1697,6 +1697,16 @@ export default function BoothsPage() {
     return () => unsub();
   }, [firestore, tenantId]);
   // v56 — day-renter workflow: confirmed → checked_in → completed
+  // v78 — RENT ROLL: invoices from the rentCollector function.
+  const [rentInvoices, setRentInvoices] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'rentInvoices'),
+      (snap) => setRentInvoices(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setRentInvoices([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
+
   // v77 — GUEST BOOK: every paying day/hourly guest, deduped by contact.
   // The answer to "where did their contact info go" — it goes here,
   // permanently, with visit history and lifetime value.
@@ -2006,6 +2016,23 @@ export default function BoothsPage() {
   >({});
 
   const renterById = useRenterIndex(renters.data);
+
+  const rentRoll = useMemo(() => {
+    const occupying = (leases.data || []).filter((l: any) => ['active', 'on_leave'].includes(l.status));
+    return occupying.map((l: any) => {
+      const renter = renterById.get(l.renterId);
+      const booth = boothById.get(l.boothId);
+      const myInv = rentInvoices.filter(i => i.leaseId === l.id).sort((a, b) => (b.dueDate || '').localeCompare(a.dueDate || ''));
+      const open = myInv.find(i => ['due', 'late'].includes(i.status));
+      const owedCents = open ? (open.amountCents || 0) + (open.lateFeeCents || 0) : 0;
+      return { lease: l, renter, booth, open, owedCents, lastPaid: myInv.find(i => i.status === 'paid') };
+    }).sort((a, b) => (b.owedCents - a.owedCents));
+  }, [leases.data, rentInvoices, renterById, boothById]);
+  const toggleAutoCollect = async (l: any) => {
+    const dueDay = Math.min(28, new Date((l.startDate || new Date().toISOString().slice(0, 10)) + 'T00:00:00Z').getUTCDate());
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', l.id),
+      { autoCollect: !l.autoCollect, dueDay: l.dueDay ?? dueDay }).catch(() => {});
+  };
 
   // Canonical, boothId-keyed occupancy — confirmed via booth-rental-hooks.ts
   // to use OCCUPYING_LEASE_STATUSES (active, on_leave, pending_signature),
@@ -3418,6 +3445,51 @@ export default function BoothsPage() {
       {/* ── MONEY TAB ────────────────────────────────────────────────── */}
       {tab === 'money' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
+          {/* ── RENT ROLL (v78): every active lease, collection status ── */}
+          {rentRoll.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Rent roll</h2>
+                {rentRoll.some(r => r.owedCents > 0) && (
+                  <span className="h-5 px-2 bg-red-600 text-white text-[9px] font-black rounded-full flex items-center">
+                    ${(rentRoll.reduce((s, r) => s + r.owedCents, 0) / 100).toFixed(0)} outstanding
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                {rentRoll.map(({ lease: l, renter: rt, booth: bt, open, owedCents, lastPaid }) => (
+                  <div key={l.id} className={`rounded-xl border-2 bg-white px-4 py-3 flex items-center gap-3 flex-wrap ${open?.status === 'late' ? 'border-red-300' : open ? 'border-amber-300' : ''}`}>
+                    <div className="flex-1 min-w-[140px]">
+                      <p className="text-xs font-black truncate">{rt ? `${rt.firstName} ${rt.lastName}` : 'Renter'} · {bt?.name || '—'}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                        {formatCents(l.rentAmountCents)}/{l.frequency}
+                        {l.autoCollect ? ` · auto on day ${l.dueDay ?? '1'}` : ''}
+                        {lastPaid ? ` · last paid ${lastPaid.dueDate}` : ''}
+                      </p>
+                    </div>
+                    {open ? (
+                      <span className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${open.status === 'late' ? 'text-red-600' : 'text-amber-600'}`}>
+                        {open.status === 'late' ? `🔴 Late · $${(owedCents / 100).toFixed(2)} owed` : `⏳ Due ${open.dueDate}`}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 shrink-0">✓ Current</span>
+                    )}
+                    <button onClick={() => toggleAutoCollect(l)}
+                      className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest shrink-0 transition-colors ${l.autoCollect ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-500'}`}>
+                      {l.autoCollect ? 'Auto-collect ON' : 'Auto-collect OFF'}
+                    </button>
+                    {(rt as any)?.cardOnFile ? (
+                      <span className="text-[9px] font-black uppercase text-emerald-600 shrink-0">💳 Card ✓</span>
+                    ) : (
+                      <span className="text-[9px] font-black uppercase text-amber-600 shrink-0" title="Renter adds a card in their portal Documents tab">No card</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">Auto-collect charges the card on file on each due date (8 AM ET). Grace 3 days → late fee + retry → final retry day 7. Renters without a card get a due notification instead.</p>
+            </div>
+          )}
+
           <div className="rounded-2xl border-2 bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-white/60">Booth income · all time</p>
