@@ -1,427 +1,323 @@
 /**
- * /api/booths/reserve — v1 (SPRINT 3: pay-and-book for day rentals)
+ * /api/booths/kiosk — v1 (self check-in kiosk)
  *
- * POST — creates a conflict-checked reservation and a Stripe Checkout
- *        session. The visitor pays on Stripe's hosted page and returns.
- * GET  — confirms payment (idempotent): verifies the Checkout session is
- *        paid, flips the reservation to 'confirmed', notifies the owner.
+ * Public endpoint powering the front-desk tablet at /kiosk/[tenantId].
+ * Admin SDK — anonymous guests can't write reservations through rules,
+ * and lookups must never leak other guests' data. Responses carry the
+ * minimum: first name, space, time window.
  *
- * Design decisions:
- *  - Admin SDK (getAdminDb) — reservations carry PII, so they are NEVER
- *    publicly readable; all checks happen server-side. No rules changes.
- *  - Conflict engine: a booth-day can be sold once. Confirmed
- *    reservations always block; pending ones block for 30 minutes (a
- *    checkout in progress holds the dates, then expires — no deadlocks
- *    from abandoned carts).
- *  - The Stripe race window (two checkouts completing for the same dates)
- *    is closed at confirm time: if the dates got taken while paying, the
- *    reservation is NOT confirmed and the response tells the client to
- *    contact the studio for a refund — flagged in the owner notification.
- *    Rare by construction (30-min holds), handled honestly when it happens.
- *
- * ENV: STRIPE_SECRET_KEY (already set — charge-card uses it).
+ * POST { action: 'lookup',  tenantId, phoneLast4 }
+ *   → today's confirmed bookings whose phone ends with those 4 digits.
+ * POST { action: 'checkin', tenantId, reservationId, phoneLast4 }
+ *   → re-verifies the match, stamps checked_in + actualCheckIn (the same
+ *     fields the owner's Check In button writes — Operations updates
+ *     live, the time clock runs, settlement works unchanged), plus a
+ *     kiosk consent-reconfirmation timestamp. Notifies the owner.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 
-const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
-const DAY_MS = 24 * 60 * 60 * 1000;
-const PENDING_HOLD_MS = 30 * 60 * 1000;
+const digits = (s: any) => String(s || '').replace(/\D/g, '');
 
-function daysInclusive(start: string, end: string): number {
-  const s = new Date(start + 'T00:00:00Z').getTime();
-  const e = new Date(end + 'T00:00:00Z').getTime();
-  if (Number.isNaN(s) || Number.isNaN(e) || e < s) return 0;
-  return Math.round((e - s) / DAY_MS) + 1;
-}
-
-function overlaps(aStart: string, aEnd: string, bStart: string, bEnd: string): boolean {
-  return aStart <= bEnd && bStart <= aEnd;
-}
-
-// v67 — TIME-AWARE conflicts. Two reservations conflict when their date
-// ranges overlap AND their times overlap. A daily booking (no times)
-// occupies the whole day, so it conflicts with everything that day.
-// Hourly bookings only conflict when their hour windows intersect.
-function timesConflict(a: any, b: any): boolean {
-  const aHourly = a.bookingType === 'hourly' && a.startTime && a.endTime;
-  const bHourly = b.bookingType === 'hourly' && b.startTime && b.endTime;
-  if (!aHourly || !bHourly) return true;           // any daily involved → whole-day block
-  return a.startTime < b.endTime && b.startTime < a.endTime;
-}
-
-async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string, proposed: { startDate: string; endDate: string; bookingType?: string; startTime?: string; endTime?: string }, ignoreId?: string) {
-  const snap = await db.collection(`tenants/${tenantId}/boothReservations`).where('boothId', '==', boothId).get();
-  const now = Date.now();
-  for (const d of snap.docs) {
-    const r = d.data() as any;
-    if (ignoreId && d.id === ignoreId) continue;
-    const holds = r.status === 'confirmed' ||
-      (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < PENDING_HOLD_MS);
-    if (holds && overlaps(proposed.startDate, proposed.endDate, r.startDate, r.endDate) && timesConflict(proposed, r)) return true;
+async function findAgreement(db: FirebaseFirestore.Firestore, tenantId: string): Promise<string> {
+  // The booking page's application agreement lives in the page-builder
+  // config. Try the plausible locations defensively; a miss is fine —
+  // the kiosk falls back to reconfirmation language.
+  const candidates = [
+    `tenants/${tenantId}/settings/bookingPage`,
+    `tenants/${tenantId}/bookingPageSettings/config`,
+    `tenants/${tenantId}`,
+  ];
+  for (const path of candidates) {
+    try {
+      const snap = await db.doc(path).get();
+      if (!snap.exists) continue;
+      const data = snap.data() as any;
+      const cfg = data?.cfPageConfig || data;
+      const sections: any[] = Array.isArray(cfg?.sections) ? cfg.sections : [];
+      for (const s of sections) {
+        const txt = s?.config?.applicationAgreement;
+        if (typeof txt === 'string' && txt.trim()) return txt.trim();
+      }
+    } catch { /* keep trying */ }
   }
-  return false;
+  return '';
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime, slotLabel } = body || {};
-    if (!tenantId || !boothId || !startDate || !endDate || !name || (!phone && !email) || !returnUrl) {
-      return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
-    }
-    const isHourly = bookingType === 'hourly';
-    const numDays = daysInclusive(startDate, endDate);
-    if (isHourly) {
-      if (startDate !== endDate) return NextResponse.json({ ok: false, error: 'Hourly bookings are for a single day.' }, { status: 400 });
-      if (!/^\d{2}:\d{2}$/.test(startTime || '') || !/^\d{2}:\d{2}$/.test(endTime || '') || startTime >= endTime) {
-        return NextResponse.json({ ok: false, error: 'Invalid time range.' }, { status: 400 });
-      }
-    } else if (numDays < 1 || numDays > 60) {
-      return NextResponse.json({ ok: false, error: 'Invalid date range.' }, { status: 400 });
-    }
-
-    const db = getAdminDb();
-    const boothSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
-    if (!boothSnap.exists) return NextResponse.json({ ok: false, error: 'Space not found.' }, { status: 404 });
-    const booth = boothSnap.data() as any;
-    if (booth.status !== 'vacant') {
-      return NextResponse.json({ ok: false, error: 'This space is no longer available.' }, { status: 409 });
-    }
-
-    // ── AVAILABILITY ENGINE (v66): the owner's declared schedule is law.
-    // Every day in the requested range must be an offerable weekday and
-    // not a blackout date. Client-side validation mirrors this, but the
-    // server is the enforcement point — never trust the picker.
-    const schedDays: number[] | undefined = Array.isArray(booth.dayRentalDays) ? booth.dayRentalDays : undefined;
-    const blackouts: string[] = Array.isArray(booth.blackoutDates) ? booth.blackoutDates : [];
-    if (schedDays && schedDays.length === 0) {
-      return NextResponse.json({ ok: false, error: 'This space does not offer day rentals.' }, { status: 400 });
-    }
-    for (let t = new Date(startDate + 'T00:00:00Z').getTime(), e = new Date(endDate + 'T00:00:00Z').getTime(); t <= e; t += DAY_MS) {
-      const iso = new Date(t).toISOString().slice(0, 10);
-      const dow = new Date(t).getUTCDay();
-      if (schedDays && !schedDays.includes(dow)) {
-        return NextResponse.json({ ok: false, error: `This space isn't available on ${iso} — check the available days and pick a different range.` }, { status: 400 });
-      }
-      if (blackouts.includes(iso)) {
-        return NextResponse.json({ ok: false, error: `${iso} is unavailable — pick a different range.` }, { status: 400 });
-      }
-    }
-    if (isHourly) {
-      const openT = booth.openTime || '00:00';
-      const closeT = booth.closeTime || '23:59';
-      if (startTime < openT || endTime > closeT) {
-        return NextResponse.json({ ok: false, error: `Hourly bookings are available ${openT} – ${closeT}.` }, { status: 400 });
-      }
-    }
-
-    // Rate: prefer an explicit daily rate; server-side pricing only —
-    // the client never dictates the amount.
-    const options: any[] = Array.isArray(booth.pricingOptions) && booth.pricingOptions.length > 0
-      ? booth.pricingOptions
-      : [{ frequency: booth.baseRentFrequency || 'monthly', amountCents: booth.baseRentCents || 0 }];
-    let amountCents: number;
-    let unitsLabel: string;
-    if (isHourly) {
-      // v73 — SLOTS: when the guest booked a pre-set slot, price and times
-      // come from the OWNER'S CONFIG, never the client. The submitted
-      // times must match the slot exactly.
-      const slots: any[] = Array.isArray(booth.bookingSlots) ? booth.bookingSlots : [];
-      const matchedSlot = slotLabel
-        ? slots.find(s => s.label === slotLabel && s.startTime === startTime && s.endTime === endTime && s.amountCents > 0)
-        : null;
-      if (slotLabel && !matchedSlot) {
-        return NextResponse.json({ ok: false, error: 'That time slot is no longer offered — refresh and pick again.' }, { status: 400 });
-      }
-      const hourRate = options.find(o => o.frequency === 'hourly' && o.amountCents > 0);
-      if (!matchedSlot && !hourRate) {
-        return NextResponse.json({ ok: false, error: slots.length > 0 ? 'Pick one of the offered time slots.' : 'This space does not offer hourly booking.' }, { status: 400 });
-      }
-      if (matchedSlot) {
-        amountCents = matchedSlot.amountCents;
-        unitsLabel = matchedSlot.label + ` (${startTime}–${endTime})`;
-      } else {
-      const numHours = Math.round(((new Date(`2000-01-01T${endTime}:00Z`).getTime() - new Date(`2000-01-01T${startTime}:00Z`).getTime()) / 3600000) * 2) / 2;
-      if (numHours < 1 || numHours > 14) return NextResponse.json({ ok: false, error: 'Hourly bookings are 1–14 hours.' }, { status: 400 });
-      amountCents = Math.round(hourRate!.amountCents * numHours);
-      unitsLabel = `${numHours} hour${numHours === 1 ? '' : 's'} (${startTime}–${endTime})`;
-      }
-    } else {
-      const dayRate = options.find(o => o.frequency === 'daily' && o.amountCents > 0);
-      if (!dayRate) {
-        return NextResponse.json({ ok: false, error: 'This space does not offer daily booking.' }, { status: 400 });
-      }
-      amountCents = dayRate.amountCents * numDays;
-      unitsLabel = `${numDays} day${numDays === 1 ? '' : 's'}`;
-    }
-
-    if (await findConflict(db, tenantId, boothId, { startDate, endDate, bookingType: isHourly ? 'hourly' : 'daily', startTime, endTime })) {
-      return NextResponse.json({ ok: false, error: 'Those dates were just taken — try different dates.' }, { status: 409 });
-    }
-
-    // ── v69 CREDITS: unused-time credits from past stays auto-apply.
-    // Matched by phone or email. Credits are 'reserved' at checkout and
-    // 'consumed' on payment confirmation; stale reservations (>1h old,
-    // payment never completed) are released back to available here.
-    let creditAppliedCents = 0;
-    const appliedCreditIds: string[] = [];
-    try {
-      const contactKeys = [phone, email].map(v => (v || '').trim()).filter(Boolean);
-      if (contactKeys.length) {
-        const credSnap = await db.collection(`tenants/${tenantId}/boothCredits`).where('contactKey', 'in', contactKeys.slice(0, 2)).get();
-        const staleCutoff = Date.now() - 60 * 60 * 1000;
-        for (const cd of credSnap.docs) {
-          const cr = cd.data() as any;
-          if (cr.status === 'reserved' && cr.reservedAt && new Date(cr.reservedAt).getTime() < staleCutoff) {
-            await cd.ref.set({ status: 'available', reservedAt: null, reservedForReservationId: null }, { merge: true });
-            cr.status = 'available';
-          }
-          if (cr.status !== 'available') continue;
-          if (creditAppliedCents >= amountCents - 100) break;   // always charge ≥ $1 (Stripe minimum ~$0.50; $1 keeps it clean)
-          const usable = Math.min(cr.amountCents, amountCents - 100 - creditAppliedCents);
-          if (usable <= 0) break;
-          creditAppliedCents += usable;
-          appliedCreditIds.push(cd.id);
-        }
-      }
-    } catch { /* credits are a bonus — never block a booking over them */ }
-    const chargeCents = amountCents - creditAppliedCents;
-
-    const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
-    const nowIso = new Date().toISOString();
-    await resRef.set({
-      id: resRef.id, tenantId, boothId,
-      boothName: booth.name || 'Space',
-      locationId: booth.locationId || null,
-      name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
-      startDate, endDate, numDays, amountCents: chargeCents,
-      originalAmountCents: amountCents,
-      creditAppliedCents,
-      appliedCreditIds,
-      stripeCustomerId: null as string | null,
-      bookingType: isHourly ? 'hourly' : 'daily',
-      slotLabel: slotLabel || null,
-      startTime: isHourly ? startTime : null,
-      endTime: isHourly ? endTime : null,
-      status: 'pending_payment', createdAt: nowIso,
-      consentAccepted: !!consentAccepted, consentAcceptedAt: consentAccepted ? nowIso : null,
-    });
-
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const base = String(returnUrl).split('?')[0];
-    for (const cid of appliedCreditIds) {
-      await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set(
-        { status: 'reserved', reservedAt: nowIso, reservedForReservationId: resRef.id }, { merge: true });
-    }
-
-    // ── v70 CARD ON FILE (hotel model): every day/hourly booking saves
-    // the card to a Stripe Customer for off-session incidental charges
-    // (overages, damages). Stripe Checkout shows the card-save consent
-    // language automatically when setup_future_usage is set.
-    let customerId: string | null = null;
-    try {
-      if (email) {
-        const existing = await stripe.customers.list({ email, limit: 1 });
-        customerId = existing.data[0]?.id || null;
-      }
-      if (!customerId) {
-        const created = await stripe.customers.create({
-          email: email || undefined, phone: phone || undefined, name: name || undefined,
-          metadata: { tenantId },
-        });
-        customerId = created.id;
-      }
-    } catch { customerId = null; /* booking must never fail over customer creation */ }
-
-    const session = await stripe.checkout.sessions.create({
-      ...(customerId ? { customer: customerId } : {}),
-      payment_intent_data: { setup_future_usage: 'off_session' },
-      mode: 'payment',
-      customer_email: email || undefined,
-      line_items: [{
-        quantity: 1,
-        price_data: {
-          currency: 'usd',
-          unit_amount: chargeCents,
-          product_data: {
-            name: `${booth.name || 'Space'} — ${unitsLabel}`,
-            description: (isHourly ? `${startDate} · ${startTime}–${endTime}` : `${startDate} → ${endDate}`)
-              + (creditAppliedCents > 0 ? ` · $${(creditAppliedCents / 100).toFixed(2)} credit applied` : ''),
-          },
-        },
-      }],
-      success_url: `${base}?cfReservationId=${resRef.id}&cfSession={CHECKOUT_SESSION_ID}`,
-      cancel_url: base,
-      metadata: { tenantId, reservationId: resRef.id },
-    });
-    await resRef.set({ stripeSessionId: session.id, stripeCustomerId: customerId }, { merge: true });
-    return NextResponse.json({ ok: true, url: session.url });
-  } catch (err) {
-    console.error('[booth-reserve] POST failed', err);
-    return NextResponse.json({ ok: false, error: 'Could not start checkout.' }, { status: 500 });
-  }
-}
-
-
-// Canonical Transaction shape (verified against the Ledger page):
-// amount in DOLLARS, required type 'income'.
-async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, paymentIntentId: string | null) {
-  const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-  const nowIso = new Date().toISOString();
-  await txnRef.set({
-    id:                    txnRef.id,
-    type:                  'income',
-    context:               'Business',
-    taxBucket:             'revenue',
-    amount:                (r.amountCents || 0) / 100,
-    category:              'Booth Rent',
-    description:           r.bookingType === 'hourly'
-      ? `Hourly rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} ${r.startTime}–${r.endTime})`
-      : `Day rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} → ${r.endDate})`,
-    clientOrVendor:        r.name || 'Day renter',
-    date:                  nowIso,
-    paymentMethod:         'Card (Stripe)',
-    hasReceipt:            false,
-    checkoutSessionId:     r.stripeSessionId || null,
-    stripePaymentIntentId: paymentIntentId,
-    stripeChargeId:        null,
-    sourceId:              reservationId,
-    tenantId,
-    createdAt:             nowIso,
-  });
-}
-
-export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const tenantId = searchParams.get('tenantId');
-    const reservationId = searchParams.get('reservationId');
-    const sessionId = searchParams.get('sessionId');
-    if (!tenantId || !reservationId || !sessionId) {
+    const { action, tenantId } = body || {};
+    if (!tenantId || !action) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
     const db = getAdminDb();
-    const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-    const resSnap = await resRef.get();
-    if (!resSnap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
-    const r = resSnap.data() as any;
-    if (r.status === 'confirmed') {
-      // v59 — self-heal: reservations confirmed before ledger reporting
-      // existed (or whose txn write failed) get their entry on the next
-      // confirmation call instead of never.
-      const existing = await db.collection(`tenants/${tenantId}/transactions`).where('sourceId', '==', reservationId).limit(1).get();
-      if (existing.empty) await writeLedgerTxn(db, tenantId, reservationId, r, r.stripePaymentIntentId || null);
-      return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
-    }
-    if (r.stripeSessionId !== sessionId) {
-      return NextResponse.json({ ok: false, error: 'Session mismatch.' }, { status: 400 });
-    }
+    const today = new Date().toISOString().slice(0, 10);
 
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
-    const pi: any = session.payment_intent;
-    const savedPaymentMethodId: string | null = (pi && typeof pi === 'object' && pi.payment_method) ? String(pi.payment_method) : null;
-    if (session.payment_status !== 'paid') {
-      return NextResponse.json({ ok: false, confirmed: false, error: 'Payment not completed.' });
-    }
-
-    // Close the race window: dates may have been confirmed by another
-    // checkout while this one was on Stripe.
-    const conflicted = await findConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }, reservationId);
-    const nowIso = new Date().toISOString();
-    if (conflicted) {
-      await resRef.set({ status: 'payment_received_conflict', confirmedAt: nowIso }, { merge: true });
-      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
-        message: `⚠ PAID but dates conflict: ${r.name} paid for ${r.boothName} ${r.startDate} → ${r.endDate}. Refund or rebook needed.` });
-      return NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
-    }
-
-    await resRef.set({
-      status: 'confirmed', confirmedAt: nowIso,
-      stripePaymentIntentId: (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null,
-      stripePaymentMethodId: savedPaymentMethodId,
-      cardOnFile: !!savedPaymentMethodId,
-    }, { merge: true });
-    for (const cid of (r.appliedCreditIds || [])) {
-      await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set(
-        { status: 'consumed', consumedAt: nowIso, consumedByReservationId: reservationId }, { merge: true });
-    }
-
-    // v54 — REPORT TO LEDGER. Same collection and shape as the service's
-    // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
-    // sits beside booth rent in every financial view.
-    await writeLedgerTxn(db, tenantId, reservationId, r, (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null);
-    const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-    await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
-      message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
-    return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
-  } catch (err) {
-    console.error('[booth-reserve] GET failed', err);
-    return NextResponse.json({ ok: false, error: 'Could not confirm reservation.' }, { status: 500 });
-  }
-}
-
-// ── PUT: charge an incidental (overage) to the card on file ──────────────────
-// Body: { tenantId, reservationId }
-// Charges reservation.overageDueCents off-session to the saved payment
-// method. On success: ledger entry + overageStatus 'charged'. On card
-// failure (declined/expired): returns the error so the owner falls back
-// to in-person collection — the flag stays 'due'.
-export async function PUT(req: NextRequest) {
-  try {
-    const { tenantId, reservationId } = await req.json();
-    if (!tenantId || !reservationId) {
-      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
-    }
-    const db = getAdminDb();
-    const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
-    const snap = await resRef.get();
-    if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
-    const r = snap.data() as any;
-
-    if (r.overageStatus !== 'due' || !(r.overageDueCents > 0)) {
-      return NextResponse.json({ ok: false, error: 'No overage due on this reservation.' }, { status: 400 });
-    }
-    if (!r.stripeCustomerId || !r.stripePaymentMethodId) {
-      return NextResponse.json({ ok: false, error: 'No card on file for this booking — collect in person.' }, { status: 400 });
-    }
-
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    let intent;
-    try {
-      intent = await stripe.paymentIntents.create({
-        amount: r.overageDueCents,
-        currency: 'usd',
-        customer: r.stripeCustomerId,
-        payment_method: r.stripePaymentMethodId,
-        off_session: true,
-        confirm: true,
-        description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
-        metadata: { tenantId, reservationId, kind: 'booth_overage' },
+    if (action === 'lookup') {
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Enter the last 4 digits of your phone number.' }, { status: 400 });
+      }
+      const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
+        .where('startDate', '<=', today).get();
+      const matches = snap.docs
+        .map(d => ({ id: d.id, ...(d.data() as any) }))
+        .filter(r =>
+          ['confirmed', 'checked_in'].includes(r.status) &&
+          r.endDate >= today &&
+          digits(r.phone).slice(-4) === last4);
+      if (matches.length === 0) {
+        return NextResponse.json({ ok: false, error: "No booking found for today with that number. Double-check the digits, or see the front desk." });
+      }
+      const agreement = await findAgreement(db, tenantId);
+      return NextResponse.json({
+        ok: true,
+        agreement,
+        bookings: matches.map(r => ({
+          id: r.id,
+          firstName: (r.name || 'Guest').split(' ')[0],
+          boothName: r.boothName || 'Space',
+          startDate: r.startDate,
+          endDate: r.endDate,
+          bookingType: r.bookingType || 'daily',
+          startTime: r.startTime || null,
+          endTime: r.endTime || null,
+          slotLabel: r.slotLabel || null,
+          alreadyCheckedIn: r.status === 'checked_in',
+        })),
       });
-    } catch (err: any) {
-      const msg = err?.raw?.message || err?.message || 'Card charge failed.';
-      return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
     }
 
-    const nowIso = new Date().toISOString();
-    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-    await txnRef.set({
-      id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-      amount: r.overageDueCents / 100, category: 'Booth Rent',
-      description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
-      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
-      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
-    });
-    await resRef.set({ overageStatus: 'charged', overageChargedAt: nowIso, overagePaymentIntentId: intent.id }, { merge: true });
+    if (action === 'checkin') {
+      const { reservationId } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (!reservationId || last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      if (r.status === 'checked_in') {
+        return NextResponse.json({ ok: true, already: true, firstName: (r.name || 'Guest').split(' ')[0], boothName: r.boothName, endTime: r.endTime || null });
+      }
+      if (r.status !== 'confirmed' || r.startDate > today || r.endDate < today) {
+        return NextResponse.json({ ok: false, error: 'This booking is not active today — see the front desk.' }, { status: 400 });
+      }
+      const nowIso = new Date().toISOString();
+      await ref.set({
+        status: 'checked_in',
+        checked_inAt: nowIso,
+        actualCheckIn: nowIso,
+        kioskCheckIn: true,
+        policiesReconfirmedAt: nowIso,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+        message: `👋 Kiosk check-in: ${r.name} — ${r.boothName}${r.bookingType === 'hourly' && r.endTime ? ` (until ${r.endTime})` : ''}`,
+      });
+      return NextResponse.json({ ok: true, firstName: (r.name || 'Guest').split(' ')[0], boothName: r.boothName, endTime: r.bookingType === 'hourly' ? r.endTime : null });
+    }
 
-    return NextResponse.json({ ok: true, chargedCents: r.overageDueCents });
+    // ── v75 CONCIERGE INTEGRATION ─────────────────────────────────────
+    // 'active-stay': does this phone have a checked-in booth stay today,
+    // and is there a card on file? Powers the concierge kiosk's
+    // "charge to my station" option. Full phone number (the concierge
+    // identity step collects it) — matched on last 10 digits.
+    if (action === 'active-stay') {
+      const ph = digits(body.phone).slice(-10);
+      if (ph.length !== 10) return NextResponse.json({ ok: true, found: false });
+      const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
+        .where('startDate', '<=', today).get();
+      const stay = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+        .find(r => r.status === 'checked_in' && r.endDate >= today && digits(r.phone).slice(-10) === ph);
+      if (!stay) return NextResponse.json({ ok: true, found: false });
+      return NextResponse.json({
+        ok: true, found: true,
+        reservationId: stay.id,
+        boothName: stay.boothName || 'your station',
+        cardOnFile: !!(stay.cardOnFile && stay.stripeCustomerId && stay.stripePaymentMethodId),
+      });
+    }
+
+    // 'charge': room-service model — charge a concierge order to the
+    // checked-in guest's card on file. Verifies phone + active stay
+    // server-side; price cap keeps a kiosk bug from becoming a disaster.
+    if (action === 'charge') {
+      const { reservationId, amountCents, description } = body;
+      const ph = digits(body.phone).slice(-10);
+      if (!reservationId || !(amountCents > 0) || !description?.trim() || ph.length !== 10) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      if (amountCents > 50000) {
+        return NextResponse.json({ ok: false, error: 'Order too large for station charging — please pay at the desk.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Stay not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-10) !== ph || r.status !== 'checked_in' || r.endDate < today) {
+        return NextResponse.json({ ok: false, error: 'No active stay found — please pay at the desk.' }, { status: 400 });
+      }
+      if (!r.cardOnFile || !r.stripeCustomerId || !r.stripePaymentMethodId) {
+        return NextResponse.json({ ok: false, error: 'No card on file for this stay — please pay at the desk.' }, { status: 400 });
+      }
+
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      let intent;
+      try {
+        intent = await stripe.paymentIntents.create({
+          amount: amountCents, currency: 'usd',
+          customer: r.stripeCustomerId, payment_method: r.stripePaymentMethodId,
+          off_session: true, confirm: true,
+          description: `${description.trim()} — ${r.name} (${r.boothName})`,
+          metadata: { tenantId, reservationId, kind: 'concierge_charge' },
+        });
+      } catch (err: any) {
+        const msg = err?.raw?.message || err?.message || 'Card charge failed.';
+        return NextResponse.json({ ok: false, error: `Card declined: ${msg} — please pay at the desk.` }, { status: 402 });
+      }
+
+      const nowIso = new Date().toISOString();
+      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      await txnRef.set({
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+        amount: amountCents / 100, category: 'Hospitality Revenue',
+        description: `${description.trim()} — charged to ${r.boothName}`,
+        clientOrVendor: r.name || 'Guest', date: nowIso, paymentMethod: 'Card on file (Stripe)',
+        hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
+      });
+
+      return NextResponse.json({ ok: true, chargedCents: amountCents, boothName: r.boothName });
+    }
+
+    // ── v81 STAY LINK: the renter confirmation page (/stay/...) ──────
+    // 'stay-view': booking details + house rules, gated by phone last-4.
+    if (action === 'stay-view') {
+      const { reservationId } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (!reservationId || last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Enter the last 4 digits of the phone number on the booking.' }, { status: 400 });
+      }
+      const snap = await db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`).get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      const agreement = await findAgreement(db, tenantId);
+      let studioName = 'The studio';
+      try {
+        const t = await db.doc(`tenants/${tenantId}`).get();
+        studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
+      } catch { /* cosmetic */ }
+      return NextResponse.json({
+        ok: true,
+        studioName,
+        agreement,
+        booking: {
+          id: snap.id,
+          firstName: (r.name || 'Guest').split(' ')[0],
+          name: r.name, boothName: r.boothName || 'Space',
+          startDate: r.startDate, endDate: r.endDate,
+          bookingType: r.bookingType || 'daily',
+          startTime: r.startTime || null, endTime: r.endTime || null,
+          slotLabel: r.slotLabel || null,
+          amountCents: r.amountCents || 0,
+          status: r.status,
+          rulesAcknowledgedAt: r.rulesAcknowledgedAt || null,
+          emergencyContact: r.emergencyContact || null,
+          rating: r.rating || null,
+        },
+      });
+    }
+
+    // 'stay-onboard': acknowledge house rules + save emergency contact.
+    // Timestamped — this is the day-guest equivalent of the signed lease.
+    if (action === 'stay-onboard') {
+      const { reservationId, emergencyName, emergencyPhone } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (!reservationId || last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      const nowIso = new Date().toISOString();
+      const updates: any = { rulesAcknowledgedAt: nowIso };
+      if (emergencyName?.trim() || emergencyPhone?.trim()) {
+        updates.emergencyContact = {
+          name: String(emergencyName || '').slice(0, 100),
+          phone: String(emergencyPhone || '').slice(0, 30),
+          addedAt: nowIso,
+        };
+      }
+      await ref.set(updates, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── v82 AVAILABILITY: dates only, zero PII — powers the public
+    // booking calendar's disabled dates. Daily bookings block their
+    // whole range; hourly days stay open (multiple can coexist).
+    if (action === 'availability') {
+      const { boothId } = body;
+      if (!boothId) return NextResponse.json({ ok: false, error: 'Missing boothId.' }, { status: 400 });
+      const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
+        .where('boothId', '==', boothId).get();
+      const now = Date.now();
+      const HOLD_MS = 30 * 60 * 1000;
+      const booked = new Set<string>();
+      for (const d of snap.docs) {
+        const r = d.data() as any;
+        const holds = ['confirmed', 'checked_in'].includes(r.status) ||
+          (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < HOLD_MS);
+        if (!holds) continue;
+        if (r.bookingType === 'hourly') continue;   // hourly days remain bookable
+        let t = new Date(r.startDate + 'T00:00:00Z').getTime();
+        const e = new Date(r.endDate + 'T00:00:00Z').getTime();
+        for (; t <= e; t += 86400000) booked.add(new Date(t).toISOString().slice(0, 10));
+      }
+      return NextResponse.json({ ok: true, bookedDates: Array.from(booked) });
+    }
+
+    // ── v82 REVIEW: "how was your stay" — rating + note on the
+    // reservation, phone-gated like everything else.
+    if (action === 'stay-review') {
+      const { reservationId, rating, reviewText } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      const stars = Number(rating);
+      if (!reservationId || last4.length !== 4 || !(stars >= 1 && stars <= 5)) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      const nowIso = new Date().toISOString();
+      await ref.set({ rating: stars, reviewText: String(reviewText || '').slice(0, 1000), reviewedAt: nowIso }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_review', read: false, createdAt: nowIso, link: '/booths',
+        message: `${'⭐'.repeat(stars)} ${r.name} rated their stay at ${r.boothName}${reviewText ? `: "${String(reviewText).slice(0, 120)}"` : ''}` });
+      return NextResponse.json({ ok: true });
+    }
+
+    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
-    console.error('[booth-reserve] PUT failed', err);
-    return NextResponse.json({ ok: false, error: 'Could not charge overage.' }, { status: 500 });
+    console.error('[kiosk] failed', err);
+    return NextResponse.json({ ok: false, error: 'Something went wrong — see the front desk.' }, { status: 500 });
   }
 }
