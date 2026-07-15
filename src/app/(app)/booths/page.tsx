@@ -976,19 +976,32 @@ function BoothCanvasCard({
       <div
         className={`w-full h-full flex flex-col overflow-hidden transition-shadow ${
           (booth as any).shape === 'round' ? 'rounded-full items-center justify-center text-center p-1.5'
-          : (booth as any).shape === 'chair' ? 'rounded-2xl items-center justify-center text-center p-1'
-          : (booth as any).shape === 'wall' ? 'rounded-sm justify-center p-1'
+          : (booth as any).shape === 'oval' ? 'rounded-[50%] items-center justify-center text-center p-1.5'
+          : ['chair', 'pedicure', 'sink', 'dryer', 'plant'].includes((booth as any).shape) ? 'rounded-2xl items-center justify-center text-center p-1'
+          : (booth as any).shape === 'desk' ? 'rounded-t-3xl rounded-b-lg items-center justify-center text-center p-1.5'
+          : ['wall', 'door'].includes((booth as any).shape) ? 'rounded-sm justify-center p-1'
           : (booth as any).shape === 'square' ? 'rounded-lg p-2.5'
           : 'rounded-xl p-2.5'
         }`}
         style={{
-          background: (booth as any).shape === 'wall' ? '#cbd5e1' : colors.bg,
-          border: (booth as any).shape === 'wall' ? '2px solid #94a3b8' : `2px solid ${selected ? colors.border : colors.border + '99'}`,
+          background: (booth as any).shape === 'wall' ? '#cbd5e1'
+            : (booth as any).shape === 'door' ? 'repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 4px,#f8fafc 4px,#f8fafc 8px)'
+            : (booth as any).shape === 'plant' ? '#ecfdf5'
+            : colors.bg,
+          border: (booth as any).shape === 'wall' ? '2px solid #94a3b8'
+            : (booth as any).shape === 'door' ? '2px dashed #94a3b8'
+            : (booth as any).shape === 'plant' ? '2px solid #a7f3d0'
+            : `2px solid ${selected ? colors.border : colors.border + '99'}`,
           boxShadow: selected ? `0 0 0 2px ${colors.border}44` : undefined,
           cursor: locked ? 'pointer' : 'grab',
         }}
       >
         {(booth as any).shape === 'chair' && <span className="text-base leading-none">🪑</span>}
+        {(booth as any).shape === 'pedicure' && <span className="text-base leading-none">💺</span>}
+        {(booth as any).shape === 'sink' && <span className="text-base leading-none">🚿</span>}
+        {(booth as any).shape === 'dryer' && <span className="text-base leading-none">💨</span>}
+        {(booth as any).shape === 'plant' && <span className="text-base leading-none">🪴</span>}
+        {(booth as any).shape === 'door' && <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Entry</span>}
         <div className="flex items-center justify-between gap-1 mb-1">
           <span
             className="text-xs font-semibold truncate leading-none"
@@ -1564,6 +1577,7 @@ export default function BoothsPage() {
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [kioskOpen, setKioskOpen] = useState(false);
+  const [plannerDay, setPlannerDay] = useState<string>(new Date().toISOString().slice(0, 10));
   const [kioskCopied, setKioskCopied] = useState(false);
   const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
 
@@ -2868,6 +2882,48 @@ export default function BoothsPage() {
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-white border border-slate-300" />Open to book</span>
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-100" />Not offered (— )</span>
                   </div>
+                  {isMobile ? (
+                    /* ── MOBILE PLANNER: pick a day, see every space ── */
+                    <div className="space-y-3">
+                      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                        {days.map(iso => {
+                          const l = dayLabel(iso);
+                          const isSel = iso === plannerDay;
+                          const isToday = iso === days[0];
+                          return (
+                            <button key={iso} onClick={() => setPlannerDay(iso)}
+                              className={`shrink-0 w-12 py-2 rounded-xl border-2 text-center transition-colors ${isSel ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200'}`}>
+                              <p className={`text-[8px] font-black uppercase ${isSel ? 'text-white/60' : isToday ? 'text-amber-600' : 'text-muted-foreground'}`}>{isToday ? 'Today' : l.dow}</p>
+                              <p className="text-sm font-black">{l.num}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="space-y-2">
+                        {sortedBooths.map((booth: Booth) => {
+                          const cell = cellFor(booth, plannerDay);
+                          return (
+                            <div key={booth.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
+                              <span className={`h-3 w-3 rounded-full shrink-0 ${
+                                cell.kind === 'lease' ? 'bg-slate-800' : cell.kind === 'rental' ? 'bg-emerald-500'
+                                : cell.kind === 'in' ? 'bg-indigo-500' : cell.kind === 'issue' ? 'bg-red-500'
+                                : cell.kind === 'closed' ? 'bg-slate-200' : 'bg-white border-2 border-emerald-400'}`} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-black uppercase truncate">{booth.name}</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase">{booth.type}</p>
+                              </div>
+                              <p className={`text-[10px] font-black uppercase shrink-0 ${
+                                cell.kind === 'lease' ? 'text-slate-700' : cell.kind === 'rental' ? 'text-emerald-600'
+                                : cell.kind === 'in' ? 'text-indigo-600' : cell.kind === 'issue' ? 'text-red-600'
+                                : cell.kind === 'closed' ? 'text-slate-300' : 'text-emerald-600'}`}>
+                                {cell.kind === 'open' ? 'Open' : cell.kind === 'closed' ? 'Not offered' : cell.kind === 'issue' ? `⚠ ${cell.label}` : cell.label || cell.kind}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
                   <div className="overflow-x-auto rounded-2xl border-2 bg-white">
                     <table className="w-full border-collapse min-w-[720px]">
                       <thead>
@@ -2914,6 +2970,7 @@ export default function BoothsPage() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                   <p className="text-[10px] font-bold text-muted-foreground">Open cells are bookable inventory — they're what the public pay-and-book flow offers. Conflicts always show red until refunded or rebooked.</p>
                 </div>
               );
@@ -3458,7 +3515,20 @@ export default function BoothsPage() {
             <div className="space-y-1.5">
               <Label>Shape on the floor plan</Label>
               <div className="flex flex-wrap gap-1.5">
-                {([['rect','▭ Booth'],['square','◻ Square table'],['round','● Round table'],['chair','🪑 Chair'],['wall','▬ Wall / divider']] as const).map(([v, l]) => (
+                {([
+                  ['rect', '▭ Booth / suite'],
+                  ['square', '◻ Square table'],
+                  ['round', '● Round table'],
+                  ['oval', '⬭ Oval table'],
+                  ['chair', '🪑 Styling chair'],
+                  ['pedicure', '💺 Pedicure station'],
+                  ['sink', '🚿 Shampoo / sink'],
+                  ['dryer', '💨 Drying station'],
+                  ['desk', '🛎 Reception desk'],
+                  ['wall', '▬ Wall / divider'],
+                  ['door', '🚪 Door / entry'],
+                  ['plant', '🪴 Décor'],
+                ] as const).map(([v, l]) => (
                   <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, shape: v }))}
                     className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
                     {l}
