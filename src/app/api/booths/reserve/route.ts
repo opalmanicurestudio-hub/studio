@@ -145,6 +145,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Those dates were just taken — try different dates.' }, { status: 409 });
     }
 
+    // ── v69 CREDITS: unused-time credits from past stays auto-apply.
+    // Matched by phone or email. Credits are 'reserved' at checkout and
+    // 'consumed' on payment confirmation; stale reservations (>1h old,
+    // payment never completed) are released back to available here.
+    let creditAppliedCents = 0;
+    const appliedCreditIds: string[] = [];
+    try {
+      const contactKeys = [phone, email].map(v => (v || '').trim()).filter(Boolean);
+      if (contactKeys.length) {
+        const credSnap = await db.collection(`tenants/${tenantId}/boothCredits`).where('contactKey', 'in', contactKeys.slice(0, 2)).get();
+        const staleCutoff = Date.now() - 60 * 60 * 1000;
+        for (const cd of credSnap.docs) {
+          const cr = cd.data() as any;
+          if (cr.status === 'reserved' && cr.reservedAt && new Date(cr.reservedAt).getTime() < staleCutoff) {
+            await cd.ref.set({ status: 'available', reservedAt: null, reservedForReservationId: null }, { merge: true });
+            cr.status = 'available';
+          }
+          if (cr.status !== 'available') continue;
+          if (creditAppliedCents >= amountCents - 100) break;   // always charge ≥ $1 (Stripe minimum ~$0.50; $1 keeps it clean)
+          const usable = Math.min(cr.amountCents, amountCents - 100 - creditAppliedCents);
+          if (usable <= 0) break;
+          creditAppliedCents += usable;
+          appliedCreditIds.push(cd.id);
+        }
+      }
+    } catch { /* credits are a bonus — never block a booking over them */ }
+    const chargeCents = amountCents - creditAppliedCents;
+
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
     const nowIso = new Date().toISOString();
     await resRef.set({
@@ -152,7 +180,10 @@ export async function POST(req: NextRequest) {
       boothName: booth.name || 'Space',
       locationId: booth.locationId || null,
       name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
-      startDate, endDate, numDays, amountCents,
+      startDate, endDate, numDays, amountCents: chargeCents,
+      originalAmountCents: amountCents,
+      creditAppliedCents,
+      appliedCreditIds,
       bookingType: isHourly ? 'hourly' : 'daily',
       startTime: isHourly ? startTime : null,
       endTime: isHourly ? endTime : null,
@@ -162,6 +193,11 @@ export async function POST(req: NextRequest) {
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     const base = String(returnUrl).split('?')[0];
+    for (const cid of appliedCreditIds) {
+      await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set(
+        { status: 'reserved', reservedAt: nowIso, reservedForReservationId: resRef.id }, { merge: true });
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       customer_email: email || undefined,
@@ -169,10 +205,11 @@ export async function POST(req: NextRequest) {
         quantity: 1,
         price_data: {
           currency: 'usd',
-          unit_amount: amountCents,
+          unit_amount: chargeCents,
           product_data: {
             name: `${booth.name || 'Space'} — ${unitsLabel}`,
-            description: isHourly ? `${startDate} · ${startTime}–${endTime}` : `${startDate} → ${endDate}`,
+            description: (isHourly ? `${startDate} · ${startTime}–${endTime}` : `${startDate} → ${endDate}`)
+              + (creditAppliedCents > 0 ? ` · $${(creditAppliedCents / 100).toFixed(2)} credit applied` : ''),
           },
         },
       }],
@@ -262,6 +299,10 @@ export async function GET(req: NextRequest) {
     }
 
     await resRef.set({ status: 'confirmed', confirmedAt: nowIso, stripePaymentIntentId: session.payment_intent || null }, { merge: true });
+    for (const cid of (r.appliedCreditIds || [])) {
+      await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set(
+        { status: 'consumed', consumedAt: nowIso, consumedByReservationId: reservationId }, { merge: true });
+    }
 
     // v54 — REPORT TO LEDGER. Same collection and shape as the service's
     // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
