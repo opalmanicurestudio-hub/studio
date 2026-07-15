@@ -1670,6 +1670,7 @@ export default function BoothsPage() {
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [kioskOpen, setKioskOpen] = useState(false);
+  const [viewingApp, setViewingApp] = useState<any | null>(null);
   const [plannerDay, setPlannerDay] = useState<string>(new Date().toISOString().slice(0, 10));
 
   const [kioskCopied, setKioskCopied] = useState(false);
@@ -3315,6 +3316,9 @@ export default function BoothsPage() {
                       </div>
                     )}
                     {app.message && <p className="text-xs font-medium text-slate-600 italic line-clamp-2">"{app.message}"</p>}
+                    <button onClick={() => setViewingApp(app)} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2 text-left">
+                      View full application →
+                    </button>
                     <div className="flex gap-2 pt-1">
                       {(!app.kind || app.kind === 'application') ? (
                         <button onClick={() => approveApplication(app)} disabled={decidingAppId === app.id} className="flex-1 h-9 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
@@ -4317,6 +4321,59 @@ export default function BoothsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+
+      {/* ── Full application dialog (v81) ── */}
+      <Dialog open={!!viewingApp} onOpenChange={(o) => { if (!o) setViewingApp(null); }}>
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+          {viewingApp && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl font-black tracking-tight">{viewingApp.name}</DialogTitle>
+                <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+                  {viewingApp.kind || 'application'} · {viewingApp.boothName || 'General'} · {String(viewingApp.createdAt || '').slice(0, 10)}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="rounded-xl border-2 p-3.5 space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
+                  {viewingApp.phone && <p className="text-xs font-bold">{viewingApp.phone} <a href={`tel:${viewingApp.phone}`} className="text-indigo-600 font-black text-[9px] uppercase ml-2">Call</a> <a href={`sms:${viewingApp.phone}`} className="text-indigo-600 font-black text-[9px] uppercase ml-1">Text</a></p>}
+                  {viewingApp.email && <p className="text-xs font-bold">{viewingApp.email} <a href={`mailto:${viewingApp.email}`} className="text-indigo-600 font-black text-[9px] uppercase ml-2">Email</a></p>}
+                </div>
+                {(viewingApp.specialty || viewingApp.timing || viewingApp.niche) && (
+                  <div className="rounded-xl border-2 p-3.5 space-y-1.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Details</p>
+                    {viewingApp.specialty && <p className="text-xs font-bold">Specialty: {viewingApp.specialty}</p>}
+                    {viewingApp.niche && <p className="text-xs font-bold">Niche: {viewingApp.niche}</p>}
+                    {viewingApp.timing && <p className="text-xs font-bold">Timing: {viewingApp.timing}</p>}
+                    {viewingApp.startDate && <p className="text-xs font-bold">Requested: {viewingApp.startDate}{viewingApp.endDate && viewingApp.endDate !== viewingApp.startDate ? ` → ${viewingApp.endDate}` : ''}</p>}
+                  </div>
+                )}
+                {viewingApp.message && (
+                  <div className="rounded-xl border-2 p-3.5 space-y-1.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Their message</p>
+                    <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">{viewingApp.message}</p>
+                  </div>
+                )}
+                {Array.isArray(viewingApp.attachments) && viewingApp.attachments.length > 0 && (
+                  <div className="rounded-xl border-2 p-3.5 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Documents ({viewingApp.attachments.length})</p>
+                    {viewingApp.attachments.map((at: any) => (
+                      <a key={at.url} href={at.url} target="_blank" rel="noreferrer"
+                        className="rounded-lg border px-3 py-2 flex items-center justify-between hover:border-slate-400 transition-colors">
+                        <span className="text-xs font-black truncate">📎 {at.label || at.name || 'Document'}</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">Open →</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {viewingApp.consentAccepted && (
+                  <p className="text-[10px] font-bold text-emerald-600">✓ Agreed to terms {viewingApp.consentAcceptedAt ? `· ${String(viewingApp.consentAcceptedAt).slice(0, 10)}` : ''}</p>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ── Kiosk link dialog (v74) ── */}
       <Dialog open={kioskOpen} onOpenChange={setKioskOpen}>
