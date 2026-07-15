@@ -257,6 +257,8 @@ interface BoothFormState {
   videoUrl: string;
   dayRentalDays: number[];
   blackoutDatesText: string;
+  openTime: string;
+  closeTime: string;
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -273,6 +275,8 @@ const EMPTY_FORM: BoothFormState = {
   videoUrl: '',
   dayRentalDays: [0, 1, 2, 3, 4, 5, 6],
   blackoutDatesText: '',
+  openTime: '',
+  closeTime: '',
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -2128,6 +2132,8 @@ export default function BoothsPage() {
       videoUrl: (booth as any).videoUrl ?? '',
       dayRentalDays: Array.isArray((booth as any).dayRentalDays) ? (booth as any).dayRentalDays : [0, 1, 2, 3, 4, 5, 6],
       blackoutDatesText: (Array.isArray((booth as any).blackoutDates) ? (booth as any).blackoutDates : []).join(', '),
+      openTime: (booth as any).openTime ?? '',
+      closeTime: (booth as any).closeTime ?? '',
     });
     setDialogOpen(true);
   };
@@ -2167,6 +2173,8 @@ export default function BoothsPage() {
             videoUrl: form.videoUrl.trim(),
             dayRentalDays: form.dayRentalDays,
             blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
+            openTime: form.openTime || null,
+            closeTime: form.closeTime || null,
             updatedAt: now,
           }
         );
@@ -2189,6 +2197,8 @@ export default function BoothsPage() {
           videoUrl: form.videoUrl.trim(),
           dayRentalDays: form.dayRentalDays,
           blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
+          openTime: form.openTime || null,
+          closeTime: form.closeTime || null,
         } as any);
       }
       setDialogOpen(false);
@@ -2618,13 +2628,18 @@ export default function BoothsPage() {
                     return { kind: 'lease', label: renter ? renter.firstName : 'Leased' };
                   }
                 }
-                const res = reservations.find(r =>
+                const dayRes = reservations.filter(r =>
                   r.boothId === booth.id && r.startDate <= iso && r.endDate >= iso &&
                   ['confirmed', 'checked_in', 'payment_received_conflict'].includes(r.status));
-                if (res) {
-                  if (res.status === 'payment_received_conflict') return { kind: 'issue', label: res.name };
-                  if (res.status === 'checked_in') return { kind: 'in', label: res.name };
-                  return { kind: 'rental', label: res.name };
+                if (dayRes.length > 0) {
+                  const issue = dayRes.find(r => r.status === 'payment_received_conflict');
+                  if (issue) return { kind: 'issue', label: issue.name };
+                  const checkedIn = dayRes.find(r => r.status === 'checked_in');
+                  if (checkedIn) return { kind: 'in', label: checkedIn.name };
+                  const hourlies = dayRes.filter(r => r.bookingType === 'hourly');
+                  if (hourlies.length > 1) return { kind: 'rental', label: `${hourlies.length}× hrly` };
+                  const r0 = dayRes[0];
+                  return { kind: 'rental', label: r0.bookingType === 'hourly' ? `${r0.startTime}` : r0.name };
                 }
                 // Availability engine: owner-declared schedule closes cells
                 const schedDays = (booth as any).dayRentalDays;
@@ -2848,7 +2863,7 @@ export default function BoothsPage() {
                     <div className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="font-black text-sm truncate">{r.name} <span className="font-bold text-muted-foreground normal-case text-xs">· {r.boothName}</span></p>
-                        <p className="text-[10px] font-bold text-slate-600 uppercase">{r.startDate} → {r.endDate} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
+                        <p className="text-[10px] font-bold text-slate-600 uppercase">{r.bookingType === 'hourly' ? `${r.startDate} · ${r.startTime}–${r.endTime}` : `${r.startDate} → ${r.endDate}`} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
                       </div>
                       <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
                         {r.status === 'checked_in' ? 'In' : r.status === 'confirmed' ? 'Upcoming' : 'Issue'}
@@ -3205,6 +3220,15 @@ export default function BoothsPage() {
                 value={form.blackoutDatesText}
                 onChange={(e) => setForm(prev => ({ ...prev, blackoutDatesText: e.target.value }))} />
               <p className="text-[10px] font-bold text-muted-foreground">Format YYYY-MM-DD. These dates show closed in the planner and can't be booked.</p>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Hourly booking window</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Only applies when this space has an hourly rate. Leave blank for all day.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input type="time" value={form.openTime} onChange={(e) => setForm(prev => ({ ...prev, openTime: e.target.value }))} />
+                <Input type="time" value={form.closeTime} onChange={(e) => setForm(prev => ({ ...prev, closeTime: e.target.value }))} />
+              </div>
             </div>
 
             <div className="space-y-1">
