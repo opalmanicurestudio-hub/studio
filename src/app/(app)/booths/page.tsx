@@ -56,7 +56,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   doc,
   updateDoc,
-  deleteDoc, onSnapshot, getDocs, collection, query, where } from 'firebase/firestore';
+  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -1550,7 +1550,7 @@ export default function BoothsPage() {
   const upcomingReservations = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return reservations
-      .filter(r => (['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today
+      .filter(r => ((['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today || r.overageStatus === 'due')
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
@@ -1598,6 +1598,86 @@ export default function BoothsPage() {
   const setResStatus = async (r: any, status: string) => {
     await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
       { status, [`${status}At`]: new Date().toISOString() }).catch(() => {});
+  };
+
+  // ── v69 TIME CLOCK: check-in/out are real timestamps, not status flips.
+  // On check-out we settle the stay against the booked window:
+  //   over  → overageDueCents recorded (15-min increments, 10-min grace),
+  //           surfaced as a Collect action — charged via POS/link since
+  //           checkout payments don't save a card for off-session charges.
+  //   under → unused time becomes a credit (boothCredits, keyed by the
+  //           guest's phone/email) that auto-applies to their next booking.
+  const hourlyCentsOf = (boothId: string): number => {
+    const b = boothById.get(boothId) as any;
+    const opts = Array.isArray(b?.pricingOptions) ? b.pricingOptions : [];
+    return opts.find((o: any) => o.frequency === 'hourly' && o.amountCents > 0)?.amountCents || 0;
+  };
+  const checkInRes = async (r: any) => {
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), {
+      status: 'checked_in',
+      checked_inAt: new Date().toISOString(),
+      actualCheckIn: new Date().toISOString(),
+    }).catch(() => {});
+  };
+  const checkOutRes = async (r: any) => {
+    const now = new Date();
+    const updates: any = {
+      status: 'completed',
+      completedAt: now.toISOString(),
+      actualCheckOut: now.toISOString(),
+    };
+    // Settlement only makes sense for hourly stays with a booked window.
+    if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
+      const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
+      const rate = hourlyCentsOf(r.boothId);
+      const GRACE_MS = 10 * 60 * 1000;
+      const diffMs = now.getTime() - bookedEnd.getTime();
+      if (diffMs > GRACE_MS && rate > 0) {
+        const overQuarters = Math.ceil((diffMs - GRACE_MS) / (15 * 60 * 1000));
+        updates.overageMinutes = overQuarters * 15;
+        updates.overageDueCents = Math.round(rate * (overQuarters * 15) / 60);
+        updates.overageStatus = 'due';
+      } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
+        // Left 30+ min early: unused time becomes a credit, rounded down
+        // to 15-min increments so credits never exceed what went unused.
+        const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
+        const creditCents = Math.round(rate * (underQuarters * 15) / 60);
+        if (creditCents >= 100) {
+          const contactKey = (r.phone || r.email || '').trim();
+          if (contactKey) {
+            const credRef = doc(collection(firestore, 'tenants', tenantId, 'boothCredits'));
+            await setDoc(credRef, {
+              id: credRef.id,
+              contactKey,
+              phone: r.phone || null,
+              email: r.email || null,
+              name: r.name || '',
+              amountCents: creditCents,
+              minutes: underQuarters * 15,
+              sourceReservationId: r.id,
+              sourceBoothName: r.boothName || '',
+              status: 'available',
+              createdAt: now.toISOString(),
+            }).catch(() => {});
+            updates.creditIssuedCents = creditCents;
+          }
+        }
+      }
+    }
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), updates).catch(() => {});
+  };
+  const markOverageCollected = async (r: any) => {
+    const nowIso = new Date().toISOString();
+    const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+    await setDoc(txnRef, {
+      id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+      amount: (r.overageDueCents || 0) / 100, category: 'Booth Rent',
+      description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
+      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
+      hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
+    }).catch(() => {});
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+      { overageStatus: 'collected', overageCollectedAt: nowIso }).catch(() => {});
   };
 
   const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
@@ -2679,14 +2759,22 @@ export default function BoothsPage() {
                 open:   'bg-white border border-slate-200 text-slate-300',
                 closed: 'bg-slate-100 text-slate-300',
               };
+              const monthLabel = new Date(days[0] + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
               return (
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <p className="text-sm font-black tracking-tight">{monthLabel} · next 14 days</p>
+                      <p className="text-[10px] font-bold text-muted-foreground">Each row is a space, each column a day. Colors say who's in; white dots are open to book.</p>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-3 text-[10px] font-bold text-muted-foreground">
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-800" />Lease</span>
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />Day rental</span>
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-indigo-500" />Checked in</span>
                     <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" />Conflict</span>
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-white border border-slate-300" />Open</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-white border border-slate-300" />Open to book</span>
+                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-100" />Not offered (— )</span>
                   </div>
                   <div className="overflow-x-auto rounded-2xl border-2 bg-white">
                     <table className="w-full border-collapse min-w-[720px]">
@@ -2697,9 +2785,13 @@ export default function BoothsPage() {
                             const l = dayLabel(iso);
                             const isToday = iso === days[0];
                             return (
-                              <th key={iso} className={`px-1 py-2 text-center border-b-2 min-w-[42px] ${isToday ? 'bg-amber-50' : ''}`}>
-                                <p className="text-[8px] font-black uppercase text-muted-foreground">{l.dow}</p>
-                                <p className={`text-xs font-black ${isToday ? 'text-amber-600' : 'text-slate-700'}`}>{l.num}</p>
+                              <th key={iso} className={`px-1 py-2 text-center border-b-2 min-w-[48px] ${isToday ? 'bg-amber-50' : ''}`}>
+                                {isToday ? (
+                                  <p className="text-[7px] font-black uppercase tracking-widest text-amber-600">Today</p>
+                                ) : (
+                                  <p className="text-[8px] font-black uppercase text-muted-foreground">{l.dow}</p>
+                                )}
+                                <p className={`text-sm font-black ${isToday ? 'text-amber-600' : 'text-slate-700'}`}>{l.num}</p>
                               </th>
                             );
                           })}
@@ -2717,10 +2809,10 @@ export default function BoothsPage() {
                               return (
                                 <td key={iso} className="p-0.5">
                                   <div
-                                    className={`h-9 rounded-md flex items-center justify-center text-[8px] font-black uppercase overflow-hidden px-0.5 ${CELL_STYLE[cell.kind]}`}
-                                    title={cell.label ? `${cell.label} · ${iso}` : iso}
+                                    className={`h-11 rounded-md flex flex-col items-center justify-center text-[8px] font-black uppercase overflow-hidden px-0.5 leading-tight ${CELL_STYLE[cell.kind]}`}
+                                    title={cell.label ? `${cell.label} · ${iso}` : cell.kind === 'open' ? `Open · ${iso}` : cell.kind === 'closed' ? `Not offered · ${iso}` : iso}
                                   >
-                                    <span className="truncate">{cell.label ? cell.label.slice(0, 6) : cell.kind === 'open' ? '·' : ''}</span>
+                                    <span className="truncate max-w-full">{cell.label ? cell.label.split(' ')[0].slice(0, 8) : cell.kind === 'open' ? '·' : cell.kind === 'closed' ? '—' : ''}</span>
                                   </div>
                                 </td>
                               );
@@ -2895,9 +2987,22 @@ export default function BoothsPage() {
                     {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && (
                       <p className="text-[10px] font-black uppercase text-red-600">⚠ Refund needed · {r.stripePaymentIntentId || ''}</p>
                     )}
+                    {r.status === 'checked_in' && r.actualCheckIn && (
+                      <p className="text-[10px] font-black uppercase text-indigo-700">
+                        ⏱ In since {new Date(r.actualCheckIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        {r.bookingType === 'hourly' && r.endTime ? ` · booked until ${r.endTime}` : ''}
+                      </p>
+                    )}
+                    {r.overageStatus === 'due' && (
+                      <p className="text-[10px] font-black uppercase text-red-600">⏱ Ran {r.overageMinutes} min over · ${((r.overageDueCents || 0) / 100).toFixed(2)} due</p>
+                    )}
+                    {r.creditIssuedCents > 0 && (
+                      <p className="text-[10px] font-black uppercase text-emerald-600">✓ ${(r.creditIssuedCents / 100).toFixed(2)} credit issued for unused time — auto-applies to their next booking</p>
+                    )}
                     <div className="flex gap-2 flex-wrap">
-                      {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'checked_in')} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
-                      {r.status === 'checked_in' && <button onClick={() => setResStatus(r, 'completed')} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Complete Stay</button>}
+                      {r.status === 'confirmed' && <button onClick={() => checkInRes(r)} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
+                      {r.status === 'checked_in' && <button onClick={() => checkOutRes(r)} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Check Out</button>}
+                      {r.overageStatus === 'due' && <button onClick={() => markOverageCollected(r)} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest">Collect ${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger</button>}
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
                       <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
                       {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded</button>}
