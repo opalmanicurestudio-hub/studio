@@ -102,14 +102,23 @@ export const boothAutomation = onSchedule(
           await notify(db, tenantId, `🔔 Arriving ${when}: ${r.name} — ${r.boothName}. Space ready?`);
         }
 
-        // ── 2.5 Compliance expiry ladder (v80): license + insurance ──
+        // ── 2.5 Credential expiry ladder (v80, niche-neutral): any
+        // tracked credential — license, permit, certification, insurance,
+        // whatever the renter's trade requires. Exact-day rungs: 30/7/0.
         const rentersSnap = await db.collection(`tenants/${tenantId}/renters`).get();
         for (const rd of rentersSnap.docs) {
           const r = rd.data() as any;
           if (r.status && !['active', 'on_leave', 'pending'].includes(r.status)) continue;
           const who = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'A renter';
-          for (const [field, label] of [['licenseExpiry', 'cosmetology license'], ['insuranceExpiry', 'liability insurance']] as const) {
-            const exp = r[field];
+          const creds: { label: string; expiry?: string }[] = Array.isArray(r.credentials) && r.credentials.length > 0
+            ? r.credentials
+            : [
+                ...(r.licenseExpiry ? [{ label: 'professional license', expiry: r.licenseExpiry }] : []),
+                ...(r.insuranceExpiry ? [{ label: 'liability insurance', expiry: r.insuranceExpiry }] : []),
+              ];
+          for (const cred of creds) {
+            const exp = cred?.expiry;
+            const label = (cred?.label || 'credential').toLowerCase();
             if (!exp) continue;
             for (const rung of [30, 7, 0]) {
               if (exp === isoDaysFromNow(rung)) {
