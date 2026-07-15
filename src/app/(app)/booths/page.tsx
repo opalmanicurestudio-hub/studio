@@ -1149,6 +1149,253 @@ function DetailPanel({
   );
 }
 
+// ─── Renter profile drawer (v65) ─────────────────────────────────────────────
+// Tap a renter card → full profile: identity, lease, money, documents,
+// activity. Self-contained: fetches this renter's ledger entries on open.
+
+function RenterProfileDrawer({
+  renter, lease, booth, reservations, w9, tenantId, firestore,
+  onClose, onEdit, onLease, onEndLease,
+}: {
+  renter: Renter;
+  lease?: Lease;
+  booth?: Booth;
+  reservations: any[];
+  w9: any;
+  tenantId: string;
+  firestore: any;
+  onClose: () => void;
+  onEdit: () => void;
+  onLease: () => void;
+  onEndLease: () => void;
+}) {
+  const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'activity'>('overview');
+  const [txns, setTxns] = useState<any[] | null>(null);
+
+  const fullName = `${renter.firstName} ${renter.lastName}`.trim();
+
+  // This renter's day rentals — matched by phone/email
+  const myReservations = useMemo(() =>
+    reservations.filter(r =>
+      (renter.phone && r.phone === renter.phone) ||
+      (renter.email && r.email === renter.email)
+    ).sort((a, b) => (b.startDate || '').localeCompare(a.startDate || '')),
+    [reservations, renter.phone, renter.email]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const byName = await getDocs(query(
+          collection(firestore, 'tenants', tenantId, 'transactions'),
+          where('source', '==', 'booth_rent'),
+          where('clientOrVendor', '==', fullName)));
+        if (cancelled) return;
+        setTxns(byName.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+          .sort((a, b) => ((b.date || b.createdAt || '') + '').localeCompare((a.date || a.createdAt || '') + '')));
+      } catch { if (!cancelled) setTxns([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [firestore, tenantId, fullName]);
+
+  const dollars = (t: any) => typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100;
+  const dateStr = (v: any) => {
+    if (!v) return '';
+    if (typeof v === 'string') return v.slice(0, 10);
+    if (typeof v?.toDate === 'function') { try { return v.toDate().toISOString().slice(0, 10); } catch { return ''; } }
+    if (typeof v?.seconds === 'number') return new Date(v.seconds * 1000).toISOString().slice(0, 10);
+    return '';
+  };
+  const thisYear = new Date().getFullYear().toString();
+  const ytdTotal = useMemo(() => {
+    const fromTxns = (txns || []).filter(t => dateStr(t.date || t.createdAt).startsWith(thisYear)).reduce((s, t) => s + dollars(t), 0);
+    const fromRes = myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status) && (r.startDate || '').startsWith(thisYear)).reduce((s, r) => s + (r.amountCents || 0) / 100, 0);
+    return fromTxns + fromRes;
+  }, [txns, myReservations, thisYear]);
+
+  // Activity timeline: lease events + reservation lifecycle stamps
+  const activity = useMemo(() => {
+    const items: { at: string; label: string }[] = [];
+    if (lease) {
+      if (lease.startDate) items.push({ at: lease.startDate, label: `Lease started · ${booth?.name ?? ''}` });
+      if (lease.endDate) items.push({ at: lease.endDate, label: `Lease ends · ${booth?.name ?? ''}` });
+    }
+    myReservations.forEach(r => {
+      if (r.createdAt) items.push({ at: dateStr(r.createdAt), label: `Booked ${r.boothName} (${r.startDate} → ${r.endDate})` });
+      if (r.checked_inAt) items.push({ at: dateStr(r.checked_inAt), label: `Checked in · ${r.boothName}` });
+      if (r.completedAt) items.push({ at: dateStr(r.completedAt), label: `Completed stay · ${r.boothName}` });
+      if (r.cancelled_refund_pendingAt) items.push({ at: dateStr(r.cancelled_refund_pendingAt), label: `Cancelled — refund pending · ${r.boothName}` });
+    });
+    return items.filter(i => i.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 30);
+  }, [lease, booth, myReservations]);
+
+  const PTABS = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'money', label: 'Money' },
+    { id: 'documents', label: 'Docs' },
+    { id: 'activity', label: 'Activity' },
+  ] as const;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative w-full sm:w-[420px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+        {/* Header */}
+        <div className="px-5 pt-5 pb-4 border-b space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+                {(renter.firstName || '?').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="font-black text-base truncate">{fullName}</p>
+                {renter.businessName && <p className="text-[10px] font-bold text-muted-foreground truncate">{renter.businessName}</p>}
+                <div className="flex gap-1.5 mt-1 flex-wrap">
+                  <Badge className="text-[9px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</Badge>
+                  {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
+                  {w9 ? <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">✓ W-9</span> : w9 === null ? <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ W-9</span> : null}
+                </div>
+              </div>
+            </div>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 shrink-0"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={onEdit} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">Edit</button>
+            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Call</a>}
+            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Email</a>}
+          </div>
+          <div className="flex gap-0 -mb-4 border-b-0">
+            {PTABS.map(t => (
+              <button key={t.id} onClick={() => setPtab(t.id)}
+                className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${ptab === t.id ? 'text-slate-900 border-b-2 border-slate-900' : 'text-muted-foreground'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {ptab === 'overview' && (
+            <>
+              <div className="rounded-2xl border-2 p-4 space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
+                {renter.email && <p className="text-xs font-bold">{renter.email}</p>}
+                {renter.phone && <p className="text-xs font-bold">{renter.phone}</p>}
+                {renter.specialty && <p className="text-[10px] font-bold text-muted-foreground">{renter.specialty}</p>}
+                {renter.notes && <p className="text-[11px] text-muted-foreground leading-relaxed border-t pt-2">{renter.notes}</p>}
+              </div>
+              {lease && booth ? (
+                <div className="rounded-2xl border-2 border-slate-800 bg-slate-900 text-white p-4 space-y-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Current lease</p>
+                  <p className="font-black text-sm uppercase">{booth.name}</p>
+                  <p className="text-xs font-bold text-white/80">{formatCents(lease.rentAmountCents)}/{lease.frequency} · {lease.endDate ? `ends ${lease.endDate}` : 'month-to-month'}</p>
+                  <button onClick={onEndLease} className="text-[9px] font-black uppercase tracking-widest text-red-300 underline underline-offset-2">End lease</button>
+                </div>
+              ) : (
+                <button onClick={onLease} className="w-full h-11 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:border-slate-400">
+                  + Assign a space
+                </button>
+              )}
+              {(renter as any).portalEnabled && (
+                <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Portal active · PIN {(renter as any).portalPin}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {ptab === 'money' && (
+            <>
+              <div className="rounded-2xl bg-slate-900 text-white px-4 py-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{thisYear} total paid</p>
+                <p className="text-2xl font-black tracking-tighter">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+              </div>
+              {txns === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p> : (
+                <>
+                  {(txns.length + myReservations.length) === 0 && <p className="text-xs text-muted-foreground text-center py-4">No payments on record.</p>}
+                  {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).map(r => (
+                    <div key={r.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black truncate">Day rental · {r.boothName}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground">{r.startDate} → {r.endDate}</p>
+                      </div>
+                      <p className="font-black text-emerald-700 text-sm shrink-0">${((r.amountCents || 0) / 100).toFixed(2)}</p>
+                    </div>
+                  ))}
+                  {txns.map(t => (
+                    <div key={t.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black truncate">{t.description || 'Booth rent'}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground">{dateStr(t.date || t.createdAt)}</p>
+                      </div>
+                      <p className="font-black text-emerald-700 text-sm shrink-0">${dollars(t).toFixed(2)}</p>
+                    </div>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+
+          {ptab === 'documents' && (
+            <>
+              <div className={`rounded-2xl border-2 p-4 space-y-1 ${w9 ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+                <p className={`text-[9px] font-black uppercase tracking-widest ${w9 ? 'text-emerald-700' : 'text-amber-700'}`}>{w9 ? 'W-9 on file ✓' : 'W-9 missing'}</p>
+                {w9 ? (
+                  <p className="text-xs font-bold text-emerald-800">{w9.legalName} · TIN {w9.tinMasked}</p>
+                ) : (
+                  <p className="text-[11px] text-amber-700">Renter completes this in their portal → Documents tab.</p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Annual statements</p>
+                {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
+                  <a key={yr} href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${yr}`} target="_blank" rel="noreferrer"
+                    className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
+                    <p className="text-xs font-black">{yr} Rent Statement</p>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600">Open →</span>
+                  </a>
+                ))}
+              </div>
+              {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Receipts</p>
+                  {myReservations.filter(r => ['confirmed','checked_in','completed'].includes(r.status)).map(r => (
+                    <a key={r.id} href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer"
+                      className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
+                      <p className="text-xs font-black truncate">{r.boothName} · {r.startDate}</p>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">📄 Receipt</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {ptab === 'activity' && (
+            activity.length === 0 ? <p className="text-xs text-muted-foreground text-center py-6">No activity yet.</p> : (
+              <div className="space-y-0">
+                {activity.map((a, i) => (
+                  <div key={i} className="flex gap-3 pb-4 relative">
+                    <div className="flex flex-col items-center">
+                      <div className="h-2.5 w-2.5 rounded-full bg-slate-900 mt-1 shrink-0" />
+                      {i < activity.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                    </div>
+                    <div className="min-w-0 -mt-0.5">
+                      <p className="text-xs font-bold leading-snug">{a.label}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground">{a.at}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Perk row (lease wizard) ──────────────────────────────────────────────────
 
 function PerkRow({
@@ -1239,6 +1486,7 @@ export default function BoothsPage() {
   // v61 — three-tab command center (declared here, with the other hooks,
   // never after an early return)
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
+  const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
@@ -2626,17 +2874,17 @@ export default function BoothsPage() {
                   return (
                     <div key={renter.id} className="rounded-2xl border-2 bg-white p-4 space-y-2">
                       <div className="flex items-start gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center font-black text-sm text-slate-600 shrink-0">
+                        <button onClick={() => setProfileRenter(renter)} className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shrink-0 active:scale-95 transition-transform">
                           {(renter.firstName || '?').charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-black text-sm">{renter.firstName} {renter.lastName}</p>
+                        </button>
+                        <button onClick={() => setProfileRenter(renter)} className="flex-1 min-w-0 text-left">
+                          <p className="font-black text-sm underline-offset-2 hover:underline">{renter.firstName} {renter.lastName}</p>
                           {renter.businessName && <p className="text-[10px] font-bold text-muted-foreground truncate">{renter.businessName}</p>}
                           <div className="flex gap-1.5 flex-wrap mt-1">
                             <Badge className="text-[9px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
                             {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
                           </div>
-                        </div>
+                        </button>
                         <div className="flex gap-2 shrink-0 items-center">
                           {renter.email && <a href={`mailto:${renter.email}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Email</a>}
                           {renter.phone && <a href={`tel:${renter.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Call</a>}
@@ -3270,6 +3518,22 @@ export default function BoothsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+
+      {profileRenter && (
+        <RenterProfileDrawer
+          renter={profileRenter}
+          lease={occupyingLeaseByRenter.get(profileRenter.id)}
+          booth={(() => { const l = occupyingLeaseByRenter.get(profileRenter.id); return l ? boothById.get(l.boothId) : undefined; })()}
+          reservations={reservations}
+          w9={w9Map[profileRenter.id]}
+          tenantId={tenantId}
+          firestore={firestore}
+          onClose={() => setProfileRenter(null)}
+          onEdit={() => { const r = profileRenter; setProfileRenter(null); openEditRenter(r); }}
+          onLease={() => { const r = profileRenter; setProfileRenter(null); openLeaseWizard(r.id); }}
+          onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEndLeaseTarget(r); }}
+        />
+      )}
 
       <PricingAdvisor
         open={pricingOpen}
