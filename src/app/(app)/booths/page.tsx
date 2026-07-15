@@ -1620,6 +1620,40 @@ export default function BoothsPage() {
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [kioskOpen, setKioskOpen] = useState(false);
   const [plannerDay, setPlannerDay] = useState<string>(new Date().toISOString().slice(0, 10));
+
+  const [kioskCopied, setKioskCopied] = useState(false);
+  const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
+
+  // ── Booth dialog state ──────────────────────────────────────────────────────
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState<BoothFormState>(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+
+  // ── Renter dialog state ─────────────────────────────────────────────────────
+  const [renterDialogOpen, setRenterDialogOpen] = useState(false);
+  const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
+  const [renterForm, setRenterForm] = useState<RenterFormState>(EMPTY_RENTER_FORM);
+
+  // ── v49 — CONSOLIDATION: BoothsPage is THE booth-rental hub. The
+  // application pipeline and employee→renter conversion live here now;
+  // the standalone Renters page is decommissioned.
+  const [applications, setApplications] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'boothApplications')), (snap) => {
+      setApplications(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const pendingApps = useMemo(() =>
+    applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
+    [applications, selectedLocationId]);
+
+  // v53 — owner's view of paid day rentals
+  const [reservations, setReservations] = useState<any[]>([]);
   // v76 — LIVE FLOOR: a slow heartbeat so time-remaining bars tick.
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
@@ -1655,39 +1689,6 @@ export default function BoothsPage() {
     }
     return evts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
   }, [reservations]);
-  const [kioskCopied, setKioskCopied] = useState(false);
-  const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
-
-  // ── Booth dialog state ──────────────────────────────────────────────────────
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [pricingOpen, setPricingOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<BoothFormState>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-
-  // ── Renter dialog state ─────────────────────────────────────────────────────
-  const [renterDialogOpen, setRenterDialogOpen] = useState(false);
-  const [editingRenterId, setEditingRenterId] = useState<string | null>(null);
-  const [renterForm, setRenterForm] = useState<RenterFormState>(EMPTY_RENTER_FORM);
-
-  // ── v49 — CONSOLIDATION: BoothsPage is THE booth-rental hub. The
-  // application pipeline and employee→renter conversion live here now;
-  // the standalone Renters page is decommissioned.
-  const [applications, setApplications] = useState<any[]>([]);
-  useEffect(() => {
-    if (!firestore || !tenantId) return;
-    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'boothApplications')), (snap) => {
-      setApplications(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
-    }, () => {});
-    return () => unsub();
-  }, [firestore, tenantId]);
-  const pendingApps = useMemo(() =>
-    applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
-    [applications, selectedLocationId]);
-
-  // v53 — owner's view of paid day rentals
-  const [reservations, setReservations] = useState<any[]>([]);
   useEffect(() => {
     if (!firestore || !tenantId) return;
     const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'boothReservations')), (snap) => {
