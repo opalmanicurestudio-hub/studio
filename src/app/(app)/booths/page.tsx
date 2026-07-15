@@ -1223,6 +1223,7 @@ function RenterProfileDrawer({
   // Activity timeline: lease events + reservation lifecycle stamps
   const activity = useMemo(() => {
     const items: { at: string; label: string }[] = [];
+    if ((renter as any).appliedAt) items.push({ at: String((renter as any).appliedAt).slice(0, 10), label: 'Applied via website' });
     if (lease) {
       if (lease.startDate) items.push({ at: lease.startDate, label: `Lease started · ${booth?.name ?? ''}` });
       if (lease.endDate) items.push({ at: lease.endDate, label: `Lease ends · ${booth?.name ?? ''}` });
@@ -1354,6 +1355,18 @@ function RenterProfileDrawer({
                   <p className="text-[11px] text-amber-700">Renter completes this in their portal → Documents tab.</p>
                 )}
               </div>
+              {Array.isArray((renter as any).applicationAttachments) && (renter as any).applicationAttachments.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Application documents</p>
+                  {(renter as any).applicationAttachments.map((at: any) => (
+                    <a key={at.url} href={at.url} target="_blank" rel="noreferrer"
+                      className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
+                      <p className="text-xs font-black truncate">📎 {at.label || at.name || 'Document'}</p>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">Open →</span>
+                    </a>
+                  ))}
+                </div>
+              )}
               <div className="space-y-2">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Annual statements</p>
                 {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
@@ -1597,6 +1610,9 @@ export default function BoothsPage() {
     try {
       if (app.rentalType === 'lease') {
         const parts = (app.name || '').trim().split(' ');
+        // v68 — context carry-over: nothing from the application dies at
+        // conversion. Attachments, message, timing, and consent all land
+        // on the renter record and surface in the profile drawer.
         await createRenter(firestore, {
           tenantId,
           locationId: app.locationId || selectedLocationId,
@@ -1606,6 +1622,12 @@ export default function BoothsPage() {
           phone: app.phone || undefined,
           specialty: app.specialty || undefined,
           notes: `Applied via website for ${app.boothName || 'a booth'}${app.timing ? ` · ${app.timing}` : ''}${app.message ? ` · "${app.message}"` : ''}`,
+          sourceApplicationId: app.id,
+          applicationAttachments: Array.isArray(app.attachments) ? app.attachments : [],
+          applicationMessage: app.message || '',
+          appliedAt: app.createdAt || null,
+          consentAccepted: app.consentAccepted ?? null,
+          consentAcceptedAt: app.consentAcceptedAt ?? null,
         } as any);
         await setAppStatus(app, 'approved');
         toast({ title: 'Approved — renter created', description: 'Assign their booth via a lease below.' });
