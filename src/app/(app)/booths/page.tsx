@@ -108,7 +108,7 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Calculator,
+  Calculator, MonitorSmartphone,
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
@@ -260,6 +260,7 @@ interface BoothFormState {
   openTime: string;
   closeTime: string;
   bookingSlots: { label: string; start: string; end: string; dollars: string }[];
+  shape: string;
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -279,6 +280,7 @@ const EMPTY_FORM: BoothFormState = {
   openTime: '',
   closeTime: '',
   bookingSlots: [],
+  shape: 'rect',
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -972,14 +974,21 @@ function BoothCanvasCard({
       onClick={() => onClick(booth.id)}
     >
       <div
-        className="w-full h-full rounded-xl flex flex-col p-2.5 overflow-hidden transition-shadow"
+        className={`w-full h-full flex flex-col overflow-hidden transition-shadow ${
+          (booth as any).shape === 'round' ? 'rounded-full items-center justify-center text-center p-1.5'
+          : (booth as any).shape === 'chair' ? 'rounded-2xl items-center justify-center text-center p-1'
+          : (booth as any).shape === 'wall' ? 'rounded-sm justify-center p-1'
+          : (booth as any).shape === 'square' ? 'rounded-lg p-2.5'
+          : 'rounded-xl p-2.5'
+        }`}
         style={{
-          background: colors.bg,
-          border: `2px solid ${selected ? colors.border : colors.border + '99'}`,
+          background: (booth as any).shape === 'wall' ? '#cbd5e1' : colors.bg,
+          border: (booth as any).shape === 'wall' ? '2px solid #94a3b8' : `2px solid ${selected ? colors.border : colors.border + '99'}`,
           boxShadow: selected ? `0 0 0 2px ${colors.border}44` : undefined,
           cursor: locked ? 'pointer' : 'grab',
         }}
       >
+        {(booth as any).shape === 'chair' && <span className="text-base leading-none">🪑</span>}
         <div className="flex items-center justify-between gap-1 mb-1">
           <span
             className="text-xs font-semibold truncate leading-none"
@@ -1554,6 +1563,8 @@ export default function BoothsPage() {
   // never after an early return)
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
+  const [kioskOpen, setKioskOpen] = useState(false);
+  const [kioskCopied, setKioskCopied] = useState(false);
   const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
@@ -2305,6 +2316,7 @@ export default function BoothsPage() {
       closeTime: (booth as any).closeTime ?? '',
       bookingSlots: (Array.isArray((booth as any).bookingSlots) ? (booth as any).bookingSlots : [])
         .map((s: any) => ({ label: s.label, start: s.startTime, end: s.endTime, dollars: (s.amountCents / 100).toString() })),
+      shape: (booth as any).shape ?? 'rect',
     });
     setDialogOpen(true);
   };
@@ -2349,6 +2361,7 @@ export default function BoothsPage() {
             bookingSlots: form.bookingSlots
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
+            shape: form.shape || 'rect',
             updatedAt: now,
           }
         );
@@ -2376,6 +2389,7 @@ export default function BoothsPage() {
           bookingSlots: form.bookingSlots
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
+          shape: form.shape || 'rect',
         } as any);
       }
       setDialogOpen(false);
@@ -2719,6 +2733,9 @@ export default function BoothsPage() {
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setPricingOpen(true)}>
                 <Calculator className="h-3.5 w-3.5 mr-1" />Pricing
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setKioskOpen(true)}>
+                <MonitorSmartphone className="h-3.5 w-3.5 mr-1" />Kiosk
               </Button>
               {spaceView === 'floor' && !isMobile && (
                 <>
@@ -3438,6 +3455,19 @@ export default function BoothsPage() {
               <p className="text-[10px] font-bold text-muted-foreground">Format YYYY-MM-DD. These dates show closed in the planner and can't be booked.</p>
             </div>
 
+            <div className="space-y-1.5">
+              <Label>Shape on the floor plan</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {([['rect','▭ Booth'],['square','◻ Square table'],['round','● Round table'],['chair','🪑 Chair'],['wall','▬ Wall / divider']] as const).map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, shape: v }))}
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.shape === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">Purely visual — changes how this space draws on the floor plan.</p>
+            </div>
+
             <div className="space-y-2">
               <Label>Booking slots (pre-set time products)</Label>
               <p className="text-[10px] font-bold text-muted-foreground -mt-1">Define the exact packages guests can buy — half days, evenings, full days. When slots exist, guests pick from these instead of free times: you stay in control.</p>
@@ -3871,6 +3901,44 @@ export default function BoothsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+
+      {/* ── Kiosk link dialog (v74) ── */}
+      <Dialog open={kioskOpen} onOpenChange={setKioskOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
+              <MonitorSmartphone className="h-5 w-5 text-slate-500" />
+              Check-in kiosk
+            </DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              Self check-in for renters · front-desk tablet
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-xl border-2 bg-slate-50 px-3 py-2.5 font-mono text-[11px] font-bold break-all select-all">
+              {typeof window !== 'undefined' ? `${window.location.origin}/kiosk/${tenantId}` : `/kiosk/${tenantId}`}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={() => {
+                navigator.clipboard?.writeText(`${window.location.origin}/kiosk/${tenantId}`).then(() => {
+                  setKioskCopied(true); setTimeout(() => setKioskCopied(false), 2000);
+                }).catch(() => {});
+              }}>
+                {kioskCopied ? '✓ Copied' : 'Copy link'}
+              </Button>
+              <Button onClick={() => window.open(`/kiosk/${tenantId}`, '_blank')}>
+                Open kiosk →
+              </Button>
+            </div>
+            <div className="rounded-xl border bg-white p-3 space-y-1">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">iPad setup (once)</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Open the link in Safari on the iPad → tap the Share icon → <strong>Add to Home Screen</strong>. It launches full-screen like an app. Enable Guided Access (Settings → Accessibility) to lock the iPad to the kiosk.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {profileRenter && (
         <RenterProfileDrawer
