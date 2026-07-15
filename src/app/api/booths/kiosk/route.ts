@@ -125,6 +125,79 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, firstName: (r.name || 'Guest').split(' ')[0], boothName: r.boothName, endTime: r.bookingType === 'hourly' ? r.endTime : null });
     }
 
+    // ── v75 CONCIERGE INTEGRATION ─────────────────────────────────────
+    // 'active-stay': does this phone have a checked-in booth stay today,
+    // and is there a card on file? Powers the concierge kiosk's
+    // "charge to my station" option. Full phone number (the concierge
+    // identity step collects it) — matched on last 10 digits.
+    if (action === 'active-stay') {
+      const ph = digits(body.phone).slice(-10);
+      if (ph.length !== 10) return NextResponse.json({ ok: true, found: false });
+      const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
+        .where('startDate', '<=', today).get();
+      const stay = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+        .find(r => r.status === 'checked_in' && r.endDate >= today && digits(r.phone).slice(-10) === ph);
+      if (!stay) return NextResponse.json({ ok: true, found: false });
+      return NextResponse.json({
+        ok: true, found: true,
+        reservationId: stay.id,
+        boothName: stay.boothName || 'your station',
+        cardOnFile: !!(stay.cardOnFile && stay.stripeCustomerId && stay.stripePaymentMethodId),
+      });
+    }
+
+    // 'charge': room-service model — charge a concierge order to the
+    // checked-in guest's card on file. Verifies phone + active stay
+    // server-side; price cap keeps a kiosk bug from becoming a disaster.
+    if (action === 'charge') {
+      const { reservationId, amountCents, description } = body;
+      const ph = digits(body.phone).slice(-10);
+      if (!reservationId || !(amountCents > 0) || !description?.trim() || ph.length !== 10) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      if (amountCents > 50000) {
+        return NextResponse.json({ ok: false, error: 'Order too large for station charging — please pay at the desk.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Stay not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-10) !== ph || r.status !== 'checked_in' || r.endDate < today) {
+        return NextResponse.json({ ok: false, error: 'No active stay found — please pay at the desk.' }, { status: 400 });
+      }
+      if (!r.cardOnFile || !r.stripeCustomerId || !r.stripePaymentMethodId) {
+        return NextResponse.json({ ok: false, error: 'No card on file for this stay — please pay at the desk.' }, { status: 400 });
+      }
+
+      const Stripe = (await import('stripe')).default;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      let intent;
+      try {
+        intent = await stripe.paymentIntents.create({
+          amount: amountCents, currency: 'usd',
+          customer: r.stripeCustomerId, payment_method: r.stripePaymentMethodId,
+          off_session: true, confirm: true,
+          description: `${description.trim()} — ${r.name} (${r.boothName})`,
+          metadata: { tenantId, reservationId, kind: 'concierge_charge' },
+        });
+      } catch (err: any) {
+        const msg = err?.raw?.message || err?.message || 'Card charge failed.';
+        return NextResponse.json({ ok: false, error: `Card declined: ${msg} — please pay at the desk.` }, { status: 402 });
+      }
+
+      const nowIso = new Date().toISOString();
+      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      await txnRef.set({
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+        amount: amountCents / 100, category: 'Hospitality Revenue',
+        description: `${description.trim()} — charged to ${r.boothName}`,
+        clientOrVendor: r.name || 'Guest', date: nowIso, paymentMethod: 'Card on file (Stripe)',
+        hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
+      });
+
+      return NextResponse.json({ ok: true, chargedCents: amountCents, boothName: r.boothName });
+    }
+
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
     console.error('[kiosk] failed', err);
