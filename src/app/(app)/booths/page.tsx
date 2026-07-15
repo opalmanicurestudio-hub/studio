@@ -1550,7 +1550,7 @@ export default function BoothsPage() {
   const upcomingReservations = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return reservations
-      .filter(r => ((['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today || r.overageStatus === 'due')
+      .filter(r => ((['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today || r.overageStatus === 'due' || r.creditDecision === 'pending')
         && (!r.locationId || r.locationId === selectedLocationId))
       .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
   }, [reservations, selectedLocationId]);
@@ -1638,33 +1638,53 @@ export default function BoothsPage() {
         updates.overageDueCents = Math.round(rate * (overQuarters * 15) / 60);
         updates.overageStatus = 'due';
       } else if (diffMs < -(30 * 60 * 1000) && rate > 0) {
-        // Left 30+ min early: unused time becomes a credit, rounded down
-        // to 15-min increments so credits never exceed what went unused.
+        // Left 30+ min early: unused time is recorded as a POTENTIAL
+        // credit — issuing it is the owner's call (v70: discretionary,
+        // per business decision), via the Issue Credit button on the card.
         const underQuarters = Math.floor(-diffMs / (15 * 60 * 1000));
         const creditCents = Math.round(rate * (underQuarters * 15) / 60);
         if (creditCents >= 100) {
-          const contactKey = (r.phone || r.email || '').trim();
-          if (contactKey) {
-            const credRef = doc(collection(firestore, 'tenants', tenantId, 'boothCredits'));
-            await setDoc(credRef, {
-              id: credRef.id,
-              contactKey,
-              phone: r.phone || null,
-              email: r.email || null,
-              name: r.name || '',
-              amountCents: creditCents,
-              minutes: underQuarters * 15,
-              sourceReservationId: r.id,
-              sourceBoothName: r.boothName || '',
-              status: 'available',
-              createdAt: now.toISOString(),
-            }).catch(() => {});
-            updates.creditIssuedCents = creditCents;
-          }
+          updates.unusedMinutes = underQuarters * 15;
+          updates.potentialCreditCents = creditCents;
+          updates.creditDecision = 'pending';
         }
       }
     }
     await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), updates).catch(() => {});
+  };
+  const issueCredit = async (r: any) => {
+    const contactKey = (r.phone || r.email || '').trim();
+    if (!contactKey || !(r.potentialCreditCents > 0)) return;
+    const credRef = doc(collection(firestore, 'tenants', tenantId, 'boothCredits'));
+    await setDoc(credRef, {
+      id: credRef.id, contactKey, phone: r.phone || null, email: r.email || null,
+      name: r.name || '', amountCents: r.potentialCreditCents, minutes: r.unusedMinutes || 0,
+      sourceReservationId: r.id, sourceBoothName: r.boothName || '',
+      status: 'available', createdAt: new Date().toISOString(),
+    }).catch(() => {});
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+      { creditDecision: 'issued', creditIssuedCents: r.potentialCreditCents, creditIssuedAt: new Date().toISOString() }).catch(() => {});
+    toast({ title: 'Credit issued', description: `$${(r.potentialCreditCents / 100).toFixed(2)} will auto-apply to ${r.name}'s next booking.` });
+  };
+  const declineCredit = async (r: any) => {
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+      { creditDecision: 'declined' }).catch(() => {});
+  };
+  const [chargingId, setChargingId] = useState<string | null>(null);
+  const chargeOverageToCard = async (r: any) => {
+    if (chargingId) return;
+    setChargingId(r.id);
+    try {
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, reservationId: r.id }),
+      });
+      const data = await res.json();
+      if (data.ok) toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} collected and recorded in the ledger.` });
+      else toast({ variant: 'destructive', title: 'Charge failed', description: data.error || 'Collect in person instead.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Charge failed', description: 'Network error — try again or collect in person.' });
+    } finally { setChargingId(null); }
   };
   const markOverageCollected = async (r: any) => {
     const nowIso = new Date().toISOString();
@@ -2996,13 +3016,27 @@ export default function BoothsPage() {
                     {r.overageStatus === 'due' && (
                       <p className="text-[10px] font-black uppercase text-red-600">⏱ Ran {r.overageMinutes} min over · ${((r.overageDueCents || 0) / 100).toFixed(2)} due</p>
                     )}
-                    {r.creditIssuedCents > 0 && (
-                      <p className="text-[10px] font-black uppercase text-emerald-600">✓ ${(r.creditIssuedCents / 100).toFixed(2)} credit issued for unused time — auto-applies to their next booking</p>
+                    {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 space-y-1.5">
+                        <p className="text-[10px] font-black uppercase text-emerald-700">Left {r.unusedMinutes} min early — issue ${(r.potentialCreditCents / 100).toFixed(2)} credit toward their next booking?</p>
+                        <div className="flex gap-2">
+                          <button onClick={() => issueCredit(r)} className="flex-1 h-7 rounded-lg bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Issue Credit</button>
+                          <button onClick={() => declineCredit(r)} className="h-7 px-3 rounded-lg border font-black uppercase text-[9px] tracking-widest text-slate-500">No Credit</button>
+                        </div>
+                      </div>
+                    )}
+                    {r.creditDecision === 'issued' && r.creditIssuedCents > 0 && (
+                      <p className="text-[10px] font-black uppercase text-emerald-600">✓ ${(r.creditIssuedCents / 100).toFixed(2)} credit issued — auto-applies to their next booking</p>
                     )}
                     <div className="flex gap-2 flex-wrap">
                       {r.status === 'confirmed' && <button onClick={() => checkInRes(r)} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
                       {r.status === 'checked_in' && <button onClick={() => checkOutRes(r)} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Check Out</button>}
-                      {r.overageStatus === 'due' && <button onClick={() => markOverageCollected(r)} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest">Collect ${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger</button>}
+                      {r.overageStatus === 'due' && r.cardOnFile && (
+                        <button onClick={() => chargeOverageToCard(r)} disabled={chargingId === r.id} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                          {chargingId === r.id ? 'Charging…' : `Charge Card $${((r.overageDueCents || 0) / 100).toFixed(2)}`}
+                        </button>
+                      )}
+                      {r.overageStatus === 'due' && <button onClick={() => markOverageCollected(r)} className={`${r.cardOnFile ? 'h-8 px-3 border-2 text-red-600 border-red-300' : 'flex-1 h-8 bg-red-600 text-white'} rounded-lg font-black uppercase text-[9px] tracking-widest`}>{r.cardOnFile ? 'Paid in person' : `Collect $${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger`}</button>}
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
                       <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
                       {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded</button>}
