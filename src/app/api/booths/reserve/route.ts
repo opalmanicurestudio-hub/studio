@@ -184,6 +184,7 @@ export async function POST(req: NextRequest) {
       originalAmountCents: amountCents,
       creditAppliedCents,
       appliedCreditIds,
+      stripeCustomerId: null as string | null,
       bookingType: isHourly ? 'hourly' : 'daily',
       startTime: isHourly ? startTime : null,
       endTime: isHourly ? endTime : null,
@@ -198,7 +199,28 @@ export async function POST(req: NextRequest) {
         { status: 'reserved', reservedAt: nowIso, reservedForReservationId: resRef.id }, { merge: true });
     }
 
+    // ── v70 CARD ON FILE (hotel model): every day/hourly booking saves
+    // the card to a Stripe Customer for off-session incidental charges
+    // (overages, damages). Stripe Checkout shows the card-save consent
+    // language automatically when setup_future_usage is set.
+    let customerId: string | null = null;
+    try {
+      if (email) {
+        const existing = await stripe.customers.list({ email, limit: 1 });
+        customerId = existing.data[0]?.id || null;
+      }
+      if (!customerId) {
+        const created = await stripe.customers.create({
+          email: email || undefined, phone: phone || undefined, name: name || undefined,
+          metadata: { tenantId },
+        });
+        customerId = created.id;
+      }
+    } catch { customerId = null; /* booking must never fail over customer creation */ }
+
     const session = await stripe.checkout.sessions.create({
+      ...(customerId ? { customer: customerId } : {}),
+      payment_intent_data: { setup_future_usage: 'off_session' },
       mode: 'payment',
       customer_email: email || undefined,
       line_items: [{
@@ -217,7 +239,7 @@ export async function POST(req: NextRequest) {
       cancel_url: base,
       metadata: { tenantId, reservationId: resRef.id },
     });
-    await resRef.set({ stripeSessionId: session.id }, { merge: true });
+    await resRef.set({ stripeSessionId: session.id, stripeCustomerId: customerId }, { merge: true });
     return NextResponse.json({ ok: true, url: session.url });
   } catch (err) {
     console.error('[booth-reserve] POST failed', err);
@@ -281,7 +303,9 @@ export async function GET(req: NextRequest) {
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+    const pi: any = session.payment_intent;
+    const savedPaymentMethodId: string | null = (pi && typeof pi === 'object' && pi.payment_method) ? String(pi.payment_method) : null;
     if (session.payment_status !== 'paid') {
       return NextResponse.json({ ok: false, confirmed: false, error: 'Payment not completed.' });
     }
@@ -298,7 +322,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, confirmed: false, error: 'Payment received, but those dates were just taken. The studio will contact you to reschedule or refund.' });
     }
 
-    await resRef.set({ status: 'confirmed', confirmedAt: nowIso, stripePaymentIntentId: session.payment_intent || null }, { merge: true });
+    await resRef.set({
+      status: 'confirmed', confirmedAt: nowIso,
+      stripePaymentIntentId: (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null,
+      stripePaymentMethodId: savedPaymentMethodId,
+      cardOnFile: !!savedPaymentMethodId,
+    }, { merge: true });
     for (const cid of (r.appliedCreditIds || [])) {
       await db.doc(`tenants/${tenantId}/boothCredits/${cid}`).set(
         { status: 'consumed', consumedAt: nowIso, consumedByReservationId: reservationId }, { merge: true });
@@ -307,7 +336,7 @@ export async function GET(req: NextRequest) {
     // v54 — REPORT TO LEDGER. Same collection and shape as the service's
     // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
     // sits beside booth rent in every financial view.
-    await writeLedgerTxn(db, tenantId, reservationId, r, (session.payment_intent as string) || null);
+    await writeLedgerTxn(db, tenantId, reservationId, r, (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null);
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
       message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
@@ -315,5 +344,66 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error('[booth-reserve] GET failed', err);
     return NextResponse.json({ ok: false, error: 'Could not confirm reservation.' }, { status: 500 });
+  }
+}
+
+// ── PUT: charge an incidental (overage) to the card on file ──────────────────
+// Body: { tenantId, reservationId }
+// Charges reservation.overageDueCents off-session to the saved payment
+// method. On success: ledger entry + overageStatus 'charged'. On card
+// failure (declined/expired): returns the error so the owner falls back
+// to in-person collection — the flag stays 'due'.
+export async function PUT(req: NextRequest) {
+  try {
+    const { tenantId, reservationId } = await req.json();
+    if (!tenantId || !reservationId) {
+      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+    }
+    const db = getAdminDb();
+    const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+    const snap = await resRef.get();
+    if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
+    const r = snap.data() as any;
+
+    if (r.overageStatus !== 'due' || !(r.overageDueCents > 0)) {
+      return NextResponse.json({ ok: false, error: 'No overage due on this reservation.' }, { status: 400 });
+    }
+    if (!r.stripeCustomerId || !r.stripePaymentMethodId) {
+      return NextResponse.json({ ok: false, error: 'No card on file for this booking — collect in person.' }, { status: 400 });
+    }
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+    let intent;
+    try {
+      intent = await stripe.paymentIntents.create({
+        amount: r.overageDueCents,
+        currency: 'usd',
+        customer: r.stripeCustomerId,
+        payment_method: r.stripePaymentMethodId,
+        off_session: true,
+        confirm: true,
+        description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
+        metadata: { tenantId, reservationId, kind: 'booth_overage' },
+      });
+    } catch (err: any) {
+      const msg = err?.raw?.message || err?.message || 'Card charge failed.';
+      return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
+    }
+
+    const nowIso = new Date().toISOString();
+    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    await txnRef.set({
+      id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+      amount: r.overageDueCents / 100, category: 'Booth Rent',
+      description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
+      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
+      hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
+    });
+    await resRef.set({ overageStatus: 'charged', overageChargedAt: nowIso, overagePaymentIntentId: intent.id }, { merge: true });
+
+    return NextResponse.json({ ok: true, chargedCents: r.overageDueCents });
+  } catch (err) {
+    console.error('[booth-reserve] PUT failed', err);
+    return NextResponse.json({ ok: false, error: 'Could not charge overage.' }, { status: 500 });
   }
 }
