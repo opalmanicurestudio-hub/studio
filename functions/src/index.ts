@@ -19,3 +19,4 @@ if (!admin.apps.length) {
 
 export { onCancellationEvent } from './onCancellationEvent';
 export { autoCancel } from './autoCancel';
+export { boothAutomation } from './boothAutomation';
