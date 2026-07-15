@@ -198,6 +198,74 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, chargedCents: amountCents, boothName: r.boothName });
     }
 
+    // ── v81 STAY LINK: the renter confirmation page (/stay/...) ──────
+    // 'stay-view': booking details + house rules, gated by phone last-4.
+    if (action === 'stay-view') {
+      const { reservationId } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (!reservationId || last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Enter the last 4 digits of the phone number on the booking.' }, { status: 400 });
+      }
+      const snap = await db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`).get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      const agreement = await findAgreement(db, tenantId);
+      let studioName = 'The studio';
+      try {
+        const t = await db.doc(`tenants/${tenantId}`).get();
+        studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
+      } catch { /* cosmetic */ }
+      return NextResponse.json({
+        ok: true,
+        studioName,
+        agreement,
+        booking: {
+          id: snap.id,
+          firstName: (r.name || 'Guest').split(' ')[0],
+          name: r.name, boothName: r.boothName || 'Space',
+          startDate: r.startDate, endDate: r.endDate,
+          bookingType: r.bookingType || 'daily',
+          startTime: r.startTime || null, endTime: r.endTime || null,
+          slotLabel: r.slotLabel || null,
+          amountCents: r.amountCents || 0,
+          status: r.status,
+          rulesAcknowledgedAt: r.rulesAcknowledgedAt || null,
+          emergencyContact: r.emergencyContact || null,
+        },
+      });
+    }
+
+    // 'stay-onboard': acknowledge house rules + save emergency contact.
+    // Timestamped — this is the day-guest equivalent of the signed lease.
+    if (action === 'stay-onboard') {
+      const { reservationId, emergencyName, emergencyPhone } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (!reservationId || last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      const nowIso = new Date().toISOString();
+      const updates: any = { rulesAcknowledgedAt: nowIso };
+      if (emergencyName?.trim() || emergencyPhone?.trim()) {
+        updates.emergencyContact = {
+          name: String(emergencyName || '').slice(0, 100),
+          phone: String(emergencyPhone || '').slice(0, 30),
+          addedAt: nowIso,
+        };
+      }
+      await ref.set(updates, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
     console.error('[kiosk] failed', err);
