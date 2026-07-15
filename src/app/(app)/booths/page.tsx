@@ -259,6 +259,7 @@ interface BoothFormState {
   blackoutDatesText: string;
   openTime: string;
   closeTime: string;
+  bookingSlots: { label: string; start: string; end: string; dollars: string }[];
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -277,6 +278,7 @@ const EMPTY_FORM: BoothFormState = {
   blackoutDatesText: '',
   openTime: '',
   closeTime: '',
+  bookingSlots: [],
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -2301,6 +2303,8 @@ export default function BoothsPage() {
       blackoutDatesText: (Array.isArray((booth as any).blackoutDates) ? (booth as any).blackoutDates : []).join(', '),
       openTime: (booth as any).openTime ?? '',
       closeTime: (booth as any).closeTime ?? '',
+      bookingSlots: (Array.isArray((booth as any).bookingSlots) ? (booth as any).bookingSlots : [])
+        .map((s: any) => ({ label: s.label, start: s.startTime, end: s.endTime, dollars: (s.amountCents / 100).toString() })),
     });
     setDialogOpen(true);
   };
@@ -2342,6 +2346,9 @@ export default function BoothsPage() {
             blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
             openTime: form.openTime || null,
             closeTime: form.closeTime || null,
+            bookingSlots: form.bookingSlots
+              .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
+              .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
             updatedAt: now,
           }
         );
@@ -2366,6 +2373,9 @@ export default function BoothsPage() {
           blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
           openTime: form.openTime || null,
           closeTime: form.closeTime || null,
+          bookingSlots: form.bookingSlots
+              .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
+              .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
         } as any);
       }
       setDialogOpen(false);
@@ -3426,6 +3436,35 @@ export default function BoothsPage() {
                 value={form.blackoutDatesText}
                 onChange={(e) => setForm(prev => ({ ...prev, blackoutDatesText: e.target.value }))} />
               <p className="text-[10px] font-bold text-muted-foreground">Format YYYY-MM-DD. These dates show closed in the planner and can't be booked.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Booking slots (pre-set time products)</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Define the exact packages guests can buy — half days, evenings, full days. When slots exist, guests pick from these instead of free times: you stay in control.</p>
+              <div className="flex flex-wrap gap-1.5">
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
+                  { label: 'Morning half-day', start: '09:00', end: '13:00', dollars: '' },
+                  { label: 'Afternoon half-day', start: '13:00', end: '17:00', dollars: '' },
+                ] }))}>AM / PM halves</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
+                  { label: 'Full day', start: '09:00', end: '19:00', dollars: '' },
+                ] }))}>Full day</Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [
+                  { label: 'Morning', start: '09:00', end: '13:00', dollars: '' },
+                  { label: 'Afternoon', start: '13:00', end: '17:00', dollars: '' },
+                  { label: 'Evening', start: '17:00', end: '21:00', dollars: '' },
+                ] }))}>Thirds</Button>
+              </div>
+              {form.bookingSlots.map((s, i) => (
+                <div key={i} className="grid grid-cols-[1fr_82px_82px_72px_32px] gap-1.5 items-center">
+                  <Input placeholder="Label" value={s.label} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, label: e.target.value } : x) }))} />
+                  <Input type="time" value={s.start} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, start: e.target.value } : x) }))} />
+                  <Input type="time" value={s.end} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, end: e.target.value } : x) }))} />
+                  <Input type="number" placeholder="$" value={s.dollars} onChange={(e) => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x) }))} />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: prev.bookingSlots.filter((_, j) => j !== i) }))}>×</Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => setForm(prev => ({ ...prev, bookingSlots: [...prev.bookingSlots, { label: '', start: '09:00', end: '13:00', dollars: '' }] }))}>+ Add slot</Button>
             </div>
 
             <div className="space-y-1">
