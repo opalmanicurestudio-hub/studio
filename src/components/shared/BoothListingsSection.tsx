@@ -42,6 +42,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [photoIdx, setPhotoIdx] = useState(0);
   const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '', startTime: '', endTime: '' });
   const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
+  const [pickedSlot, setPickedSlot] = useState<any>(null);
+  const slotsOf = (bb: any): any[] => Array.isArray(bb?.bookingSlots) ? bb.bookingSlots.filter((s: any) => s.label && s.startTime && s.endTime && s.amountCents > 0) : [];
   const [docs, setDocs] = useState<Record<string, { name: string; url: string } | 'uploading' | null>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -131,7 +133,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [inquiryKind, setInquiryKind] = useState<'application' | 'tour' | 'question' | 'waitlist'>('application');
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
-    setGranularity(dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
+    setPickedSlot(null);
+    setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
     setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
@@ -214,6 +217,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             bookingType: granularity,
             startTime: granularity === 'hourly' ? form.startTime : undefined,
             endTime: granularity === 'hourly' ? form.endTime : undefined,
+            slotLabel: granularity === 'hourly' && pickedSlot ? pickedSlot.label : undefined,
             name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
             returnUrl: window.location.href,
             consentAccepted: !!agreementText && agreed,
@@ -604,12 +608,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {dailyRateOf(applyFor) && hourlyRateOf(applyFor) && (
+                      {dailyRateOf(applyFor) && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0) && (
                         <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
                           {(['daily', 'hourly'] as const).map(g => (
                             <button key={g} type="button" onClick={() => setGranularity(g)}
                               className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${granularity === g ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
-                              {g === 'daily' ? `Daily · $${(dailyRateOf(applyFor).amountCents / 100).toFixed(0)}/day` : `Hourly · $${(hourlyRateOf(applyFor).amountCents / 100).toFixed(0)}/hr`}
+                              {g === 'daily' ? `Daily · $${(dailyRateOf(applyFor).amountCents / 100).toFixed(0)}/day` : slotsOf(applyFor).length > 0 ? 'Time slots' : `Hourly · $${(hourlyRateOf(applyFor).amountCents / 100).toFixed(0)}/hr`}
                             </button>
                           ))}
                         </div>
@@ -619,12 +623,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                           Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}
                         </p>
                       )}
-                      {granularity === 'hourly' && hourlyRateOf(applyFor) ? (
+                      {granularity === 'hourly' && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0) ? (
                         <>
                           <div>
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Date</p>
                             <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                           </div>
+                          {slotsOf(applyFor).length > 0 ? (
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Pick your time</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {slotsOf(applyFor).map((s: any) => (
+                                  <button key={s.label + s.startTime} type="button"
+                                    onClick={() => { setPickedSlot(s); setForm(f => ({ ...f, startTime: s.startTime, endTime: s.endTime })); }}
+                                    className={`rounded-xl border-2 p-3 text-left transition-colors ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-400'}`}>
+                                    <p className="text-xs font-black">{s.label}</p>
+                                    <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{s.startTime}–{s.endTime}</p>
+                                    <p className="text-sm font-black mt-0.5">${(s.amountCents / 100).toFixed(s.amountCents % 100 === 0 ? 0 : 2)}</p>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
@@ -635,10 +655,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               <input type="time" step={1800} value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                             </div>
                           </div>
+                          )}
                           {((applyFor as any).openTime || (applyFor as any).closeTime) && (
                             <p className="text-[10px] font-bold text-slate-400">Bookable {(applyFor as any).openTime || '00:00'} – {(applyFor as any).closeTime || '23:59'}</p>
                           )}
-                          {form.startTime && form.endTime && form.startTime < form.endTime && !scheduleIssue && (
+                          {!pickedSlot && form.startTime && form.endTime && form.startTime < form.endTime && !scheduleIssue && hourlyRateOf(applyFor) && (
                             <p className="text-xs font-black text-emerald-700 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
                               {(() => {
                                 const hrs = (new Date(`2000-01-01T${form.endTime}:00`).getTime() - new Date(`2000-01-01T${form.startTime}:00`).getTime()) / 3600000;
