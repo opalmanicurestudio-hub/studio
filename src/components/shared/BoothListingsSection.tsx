@@ -29,6 +29,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { Calendar } from '@/components/ui/calendar';
 import { getFirestore, collection, query, where, getDocs, doc, setDoc, type Firestore } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -134,6 +135,13 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
     setPickedSlot(null);
+    setBookedDates(new Set());
+    fetch('/api/booths/kiosk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'availability', tenantId, boothId: b.id }),
+    }).then(res => res.json()).then(d => {
+      if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
+    }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
     setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
   };
@@ -163,6 +171,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // learn a date is closed before paying, not after. The route enforces
   // the same rules authoritatively.
   const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  // v82 — humans don't book in military time
+  const t12 = (t?: string | null): string => {
+    if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
+    const [h, m] = t.split(':').map(Number);
+    const ap = h >= 12 ? 'PM' : 'AM';
+    const hr = h % 12 === 0 ? 12 : h % 12;
+    return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+  };
+  const [bookedDates, setBookedDates] = useState<Set<string>>(new Set());
   const scheduleIssue = useMemo(() => {
     if (!applyFor || applyMode !== 'day') return null;
     if (granularity === 'hourly') {
@@ -625,9 +642,24 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       )}
                       {granularity === 'hourly' && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0) ? (
                         <>
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Date</p>
-                            <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                          <div className="rounded-2xl border-2 p-2 flex justify-center">
+                            <Calendar
+                              mode="single"
+                              selected={form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined}
+                              onSelect={(d: any) => {
+                                if (!d) return;
+                                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                setForm(f => ({ ...f, startDate: iso, endDate: iso }));
+                              }}
+                              disabled={(d: Date) => {
+                                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                if (iso < new Date().toISOString().slice(0, 10)) return true;
+                                const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
+                                if (sched && !sched.includes(d.getDay())) return true;
+                                const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
+                                return bl.includes(iso);
+                              }}
+                            />
                           </div>
                           {slotsOf(applyFor).length > 0 ? (
                             <div>
@@ -638,7 +670,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     onClick={() => { setPickedSlot(s); setForm(f => ({ ...f, startTime: s.startTime, endTime: s.endTime })); }}
                                     className={`rounded-xl border-2 p-3 text-left transition-colors ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-400'}`}>
                                     <p className="text-xs font-black">{s.label}</p>
-                                    <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{s.startTime}–{s.endTime}</p>
+                                    <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{t12(s.startTime)} – {t12(s.endTime)}</p>
                                     <p className="text-sm font-black mt-0.5">${(s.amountCents / 100).toFixed(s.amountCents % 100 === 0 ? 0 : 2)}</p>
                                   </button>
                                 ))}
@@ -657,7 +689,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                           </div>
                           )}
                           {((applyFor as any).openTime || (applyFor as any).closeTime) && (
-                            <p className="text-[10px] font-bold text-slate-400">Bookable {(applyFor as any).openTime || '00:00'} – {(applyFor as any).closeTime || '23:59'}</p>
+                            <p className="text-[10px] font-bold text-slate-400">Bookable {t12((applyFor as any).openTime || '00:00')} – {t12((applyFor as any).closeTime || '23:59')}</p>
                           )}
                           {!pickedSlot && form.startTime && form.endTime && form.startTime < form.endTime && !scheduleIssue && hourlyRateOf(applyFor) && (
                             <p className="text-xs font-black text-emerald-700 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
@@ -669,15 +701,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                           )}
                         </>
                       ) : (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
-                            <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
-                            <input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                          </div>
+                        <div className="rounded-2xl border-2 p-2 flex justify-center">
+                          <Calendar
+                            mode="range"
+                            numberOfMonths={1}
+                            selected={{
+                              from: form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined,
+                              to: form.endDate ? new Date(form.endDate + 'T00:00:00') : undefined,
+                            }}
+                            onSelect={(range: any) => {
+                              const toIso = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+                              setForm(f => ({ ...f, startDate: toIso(range?.from), endDate: toIso(range?.to || range?.from) }));
+                            }}
+                            disabled={(d: Date) => {
+                              const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                              if (iso < new Date().toISOString().slice(0, 10)) return true;
+                              if (bookedDates.has(iso)) return true;
+                              const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
+                              if (sched && !sched.includes(d.getDay())) return true;
+                              const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
+                              return bl.includes(iso);
+                            }}
+                          />
                         </div>
                       )}
                       {scheduleIssue && (
