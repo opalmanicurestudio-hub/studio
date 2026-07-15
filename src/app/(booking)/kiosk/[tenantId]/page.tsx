@@ -26,6 +26,14 @@ type Booking = {
   alreadyCheckedIn: boolean;
 };
 
+const t12 = (t?: string | null): string => {
+  if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
+  const [h, m] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+};
+
 export default function KioskPage() {
   const params = useParams<{ tenantId: string }>();
   const tenantId = params?.tenantId ?? '';
@@ -92,7 +100,7 @@ export default function KioskPage() {
   const keypad = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
   const whenLine = (b: Booking) =>
     b.bookingType === 'hourly' && b.startTime
-      ? `${b.slotLabel ? b.slotLabel + ' · ' : ''}${b.startTime}–${b.endTime}`
+      ? `${b.slotLabel ? b.slotLabel + ' · ' : ''}${t12(b.startTime)} – ${t12(b.endTime)}`
       : b.startDate === b.endDate ? 'Today' : `${b.startDate} → ${b.endDate}`;
 
   return (
@@ -200,7 +208,7 @@ export default function KioskPage() {
             <p className="text-6xl">🎉</p>
             <p className="text-3xl font-black tracking-tight">You're in, {welcome.firstName}!</p>
             <p className="text-lg font-bold text-white/70">
-              {welcome.boothName} is yours{welcome.endTime ? ` until ${welcome.endTime}` : ' — enjoy your day'}.
+              {welcome.boothName} is yours{welcome.endTime ? ` until ${t12(welcome.endTime)}` : ' — enjoy your day'}.
             </p>
             <p className="text-[10px] font-black uppercase tracking-widest text-white/30 pt-6">This screen resets in a few seconds</p>
             <button onClick={reset} className="text-[11px] font-black uppercase tracking-widest text-white/50 underline underline-offset-4">Done — next guest</button>
