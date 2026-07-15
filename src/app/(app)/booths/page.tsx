@@ -255,6 +255,8 @@ interface BoothFormState {
   photoUrls: string[];
   listingDescription: string;
   videoUrl: string;
+  dayRentalDays: number[];
+  blackoutDatesText: string;
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -269,6 +271,8 @@ const EMPTY_FORM: BoothFormState = {
   photoUrls: [],
   listingDescription: '',
   videoUrl: '',
+  dayRentalDays: [0, 1, 2, 3, 4, 5, 6],
+  blackoutDatesText: '',
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -2122,6 +2126,8 @@ export default function BoothsPage() {
       photoUrls: (booth as any).photoUrls ?? [],
       listingDescription: (booth as any).listingDescription ?? '',
       videoUrl: (booth as any).videoUrl ?? '',
+      dayRentalDays: Array.isArray((booth as any).dayRentalDays) ? (booth as any).dayRentalDays : [0, 1, 2, 3, 4, 5, 6],
+      blackoutDatesText: (Array.isArray((booth as any).blackoutDates) ? (booth as any).blackoutDates : []).join(', '),
     });
     setDialogOpen(true);
   };
@@ -2159,6 +2165,8 @@ export default function BoothsPage() {
             photoUrls: form.photoUrls,
             listingDescription: form.listingDescription.trim(),
             videoUrl: form.videoUrl.trim(),
+            dayRentalDays: form.dayRentalDays,
+            blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
             updatedAt: now,
           }
         );
@@ -2179,6 +2187,8 @@ export default function BoothsPage() {
           photoUrls: form.photoUrls,
           listingDescription: form.listingDescription.trim(),
           videoUrl: form.videoUrl.trim(),
+          dayRentalDays: form.dayRentalDays,
+          blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
         } as any);
       }
       setDialogOpen(false);
@@ -2616,6 +2626,12 @@ export default function BoothsPage() {
                   if (res.status === 'checked_in') return { kind: 'in', label: res.name };
                   return { kind: 'rental', label: res.name };
                 }
+                // Availability engine: owner-declared schedule closes cells
+                const schedDays = (booth as any).dayRentalDays;
+                const blackouts = (booth as any).blackoutDates;
+                const dow = new Date(iso + 'T00:00:00').getDay();
+                if (Array.isArray(schedDays) && !schedDays.includes(dow)) return { kind: 'closed' };
+                if (Array.isArray(blackouts) && blackouts.includes(iso)) return { kind: 'closed' };
                 return { kind: 'open' };
               };
               const CELL_STYLE: Record<string, string> = {
@@ -3158,6 +3174,37 @@ export default function BoothsPage() {
               <Input placeholder="https://youtube.com/watch?v=..."
                 value={form.videoUrl}
                 onChange={(e) => setForm(prev => ({ ...prev, videoUrl: e.target.value }))} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Day-rental availability</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-1">Which days can this space be booked for day rentals? Leases are unaffected.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAY_OPTIONS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setForm(prev => ({
+                      ...prev,
+                      dayRentalDays: prev.dayRentalDays.includes(value)
+                        ? prev.dayRentalDays.filter(d => d !== value)
+                        : [...prev.dayRentalDays, value],
+                    }))}
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.dayRentalDays.includes(value) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-400'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {form.dayRentalDays.length === 0 && <p className="text-[10px] font-black uppercase text-amber-600">⚠ No days selected — this space won't be bookable for day rentals at all.</p>}
+            </div>
+
+            <div className="space-y-1">
+              <Label>Blackout dates</Label>
+              <Textarea rows={2} placeholder="2026-08-15, 2026-12-25 — closed dates, comma or newline separated"
+                value={form.blackoutDatesText}
+                onChange={(e) => setForm(prev => ({ ...prev, blackoutDatesText: e.target.value }))} />
+              <p className="text-[10px] font-bold text-muted-foreground">Format YYYY-MM-DD. These dates show closed in the planner and can't be booked.</p>
             </div>
 
             <div className="space-y-1">
