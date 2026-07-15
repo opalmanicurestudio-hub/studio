@@ -92,11 +92,16 @@ export const conciergeMessenger = onDocumentWritten(
       ? `${after.startDate}, ${after.startTime}–${after.endTime}`
       : after.startDate === after.endDate ? after.startDate : `${after.startDate} → ${after.endDate}`;
 
-    // 1. Booking confirmed (pending → confirmed)
+    // 1. Booking confirmed (pending → confirmed) — with the stay link:
+    // details, house rules acknowledgment, add-to-calendar. Set APP_URL
+    // once: firebase functions:secrets:set APP_URL  (or env config) —
+    // e.g. https://studio-one-blue.vercel.app
     if (after.status === 'confirmed' && before.status !== 'confirmed' && !sent.confirmed) {
+      const appUrl = (process.env.APP_URL || '').replace(/\/$/, '');
+      const link = appUrl ? ` Your booking page: ${appUrl}/stay/${event.params.tenantId}/${event.params.resId}` : '';
       queue.push({
         key: 'confirmed',
-        body: `You're booked! ${space} · ${when}. When you arrive, check in at the front tablet with the last 4 digits of this number. See you soon! ✨`,
+        body: `You're booked! ${space} · ${when}.${link} When you arrive, check in at the front tablet with the last 4 digits of this number. ✨`,
       });
     }
 
