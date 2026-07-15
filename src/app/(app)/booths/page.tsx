@@ -316,6 +316,8 @@ function buildEmptyLeaseForm(): LeaseFormState {
     boothId: '', rentDollars: '', frequency: 'weekly', dueDay: '1',
     firstChargeDate: today, startDate: today, endDate: '', autoRenew: true, noticeDays: '30',
     isShared: false, scheduleDays: [], scheduleStartTime: '', scheduleEndTime: '', scheduleLabel: '',
+    leaseTerms: '',
+    requireSignature: false,
     depositDollars: '', depositRefundable: true, depositConditions: '',
     lateFeeEnabled: true, lateFeeGraceDays: '3', lateFeeType: 'flat',
     lateFeeAmountDollars: '25', lateFeePercent: '5',
@@ -2018,7 +2020,7 @@ export default function BoothsPage() {
   const renterById = useRenterIndex(renters.data);
 
   const rentRoll = useMemo(() => {
-    const occupying = (leases.data || []).filter((l: any) => ['active', 'on_leave'].includes(l.status));
+    const occupying = (leases.data || []).filter((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status));
     return occupying.map((l: any) => {
       const renter = renterById.get(l.renterId);
       const booth = boothById.get(l.boothId);
@@ -2694,6 +2696,9 @@ export default function BoothsPage() {
       await createLease(firestore, {
         tenantId,
         locationId: booth?.locationId ?? selectedLocationId,
+        leaseTerms: leaseForm.leaseTerms.trim() || null,
+        requireSignature: leaseForm.requireSignature,
+        status: leaseForm.requireSignature ? 'pending_signature' : undefined,
         boothId: leaseForm.boothId,
         renterId: leaseRenterId,
         rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
@@ -3467,7 +3472,9 @@ export default function BoothsPage() {
                         {lastPaid ? ` · last paid ${lastPaid.dueDate}` : ''}
                       </p>
                     </div>
-                    {open ? (
+                    {l.status === 'pending_signature' ? (
+                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 shrink-0">✍️ Awaiting signature</span>
+                    ) : open ? (
                       <span className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${open.status === 'late' ? 'text-red-600' : 'text-amber-600'}`}>
                         {open.status === 'late' ? `🔴 Late · $${(owedCents / 100).toFixed(2)} owed` : `⏳ Due ${open.dueDate}`}
                       </span>
@@ -4100,6 +4107,21 @@ export default function BoothsPage() {
 
           {leaseStep === 3 && (
             <div className="space-y-3">
+              {/* v79 — e-signature */}
+              <div className="space-y-1.5">
+                <Label>Lease terms (shown to the renter)</Label>
+                <Textarea rows={4} placeholder="Paste your lease / independent contractor agreement terms here…"
+                  value={leaseForm.leaseTerms}
+                  onChange={(e) => setLeaseForm(prev => ({ ...prev, leaseTerms: e.target.value }))} />
+              </div>
+              <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, requireSignature: !prev.requireSignature }))}
+                className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.requireSignature ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
+                <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${leaseForm.requireSignature ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300'}`}>{leaseForm.requireSignature ? '✓' : ''}</span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-black uppercase tracking-tight">Require e-signature before activation</span>
+                  <span className="block text-[10px] font-bold text-muted-foreground">The lease starts as "awaiting signature" — the renter reviews the terms and signs in their portal (Documents tab). Rent auto-collection begins only after they sign.</span>
+                </span>
+              </button>
               <div className="rounded-lg border p-4 space-y-2 text-sm">
                 <p><span className="text-muted-foreground">Booth:</span>{' '}
                   <span className="font-medium">{selectedLeaseBooth?.name ?? '—'}</span>
