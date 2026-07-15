@@ -371,6 +371,42 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             <p className="text-sm font-bold opacity-60">{config.emptyMessage}</p>
             <button onClick={() => openInquiry(null, 'waitlist')} className="h-12 px-8 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest transition-transform active:scale-[0.98]">Join the Waitlist</button>
           </div>
+        ) : layout === 'immersive' ? (
+          /* v72 — IMMERSIVE: Airbnb-style full-bleed cards. Photo carries
+             the card; content overlays the lower third on a gradient. */
+          <div className="grid gap-6 md:grid-cols-2">
+            {visibleBooths.map((b: any) => {
+              const ph = photosOf(b);
+              const rates = dayRates(b);
+              const lease = leaseRates(b);
+              return (
+                <button key={b.id} onClick={() => openApply(b)} className="relative rounded-3xl overflow-hidden text-left group h-[420px] block w-full">
+                  {ph.length > 0 ? (
+                    <img src={ph[0]} alt={b.name} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                  ) : (
+                    <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+                  {embedOf(b.videoUrl) && <span className="absolute top-4 right-4 text-[9px] font-black bg-black/60 text-white rounded-full px-2.5 py-1 backdrop-blur">▶ Video tour</span>}
+                  {ph.length > 1 && <span className="absolute top-4 left-4 text-[9px] font-black bg-black/60 text-white rounded-full px-2.5 py-1 backdrop-blur">📷 {ph.length}</span>}
+                  <div className="absolute bottom-0 inset-x-0 p-5 space-y-2">
+                    <p className="font-black text-white text-xl tracking-tight">{b.name}</p>
+                    {blurbOf(b) && <p className="text-white/70 text-xs font-medium leading-relaxed line-clamp-2">{blurbOf(b)}</p>}
+                    {Array.isArray(b.amenities) && b.amenities.length > 0 && (
+                      <p className="text-[10px] font-bold text-white/60 uppercase tracking-wide">{b.amenities.slice(0, 3).join(' · ')}</p>
+                    )}
+                    <div className="flex items-end justify-between gap-3 pt-1">
+                      <div className="flex gap-3 flex-wrap">
+                        {lease[0] && <p className="text-white font-black text-sm">${(lease[0].amountCents / 100).toFixed(0)}<span className="text-white/50 font-bold text-[10px]">/{lease[0].frequency}</span></p>}
+                        {rates[0] && <p className="text-white font-black text-sm">${(rates[0].amountCents / 100).toFixed(0)}<span className="text-white/50 font-bold text-[10px]">/{rates[0].frequency === 'hourly' ? 'hr' : 'day'}</span></p>}
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-white bg-white/20 backdrop-blur rounded-full px-3 py-1.5">View space →</span>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         ) : layout === 'luxe' ? (
           /* LUXE — full-bleed editorial cards */
           <div className="grid gap-6 md:grid-cols-2">
@@ -488,8 +524,38 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <p className="text-xs opacity-60 font-bold mt-0.5">{(applyMode === 'lease' ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ') || `$${priceOf(applyFor).amount.toLocaleString()}${priceOf(applyFor).suffix}`} · We respond within one business day.</p>
                   </div>
 
-                  {blurbOf(applyFor) && inquiryKind !== 'waitlist' && (
-                    <p className="text-xs leading-relaxed text-slate-600 font-medium whitespace-pre-wrap max-h-28 overflow-y-auto">{blurbOf(applyFor)}</p>
+                  {inquiryKind !== 'waitlist' && (
+                    <div className="space-y-3">
+                      {blurbOf(applyFor) && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">About this space</p>
+                          <p className="text-xs leading-relaxed text-slate-600 font-medium whitespace-pre-wrap max-h-28 overflow-y-auto">{blurbOf(applyFor)}</p>
+                        </div>
+                      )}
+                      {Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0 && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">What this space offers</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {applyFor.amenities.map((a: string) => (
+                              <span key={a} className="text-[10px] font-bold text-slate-600 bg-slate-100 rounded-full px-2.5 py-1">✓ {a}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {ratesOf(applyFor).length > 1 && (
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">All rates</p>
+                          <div className="rounded-xl border divide-y">
+                            {ratesOf(applyFor).map((rt: any) => (
+                              <div key={rt.frequency} className="flex items-center justify-between px-3 py-2">
+                                <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">{rt.frequency}</span>
+                                <span className="text-xs font-black">${(rt.amountCents / 100).toFixed(rt.amountCents % 100 === 0 ? 0 : 2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                   <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   <div className="grid grid-cols-2 gap-2">
