@@ -931,6 +931,8 @@ function CommandCenterPanel({
 // ─── Booth card on canvas ─────────────────────────────────────────────────────
 
 interface BoothCanvasCardProps {
+  liveRes?: any;
+  nowTick?: number;
   booth: Booth;
   renter?: Renter;
   lease?: Lease;
@@ -945,6 +947,8 @@ function BoothCanvasCard({
   booth,
   renter,
   lease,
+  liveRes,
+  nowTick,
   selected,
   locked,
   onDragStart,
@@ -959,6 +963,25 @@ function BoothCanvasCard({
       lease.rentAmountCents * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)
     );
   }, [lease]);
+
+  // v76 — live state: who's here now, how long they have left.
+  const isLive = liveRes?.status === 'checked_in';
+  const isExpected = liveRes?.status === 'confirmed';
+  const guestFirst = liveRes ? String(liveRes.name || 'Guest').split(' ')[0] : '';
+  let timePct: number | null = null;
+  let timeLabel = '';
+  let overtime = false;
+  if (isLive && liveRes.bookingType === 'hourly' && liveRes.startTime && liveRes.endTime && nowTick) {
+    const dayStr = new Date(nowTick).toISOString().slice(0, 10);
+    const startMs = new Date(`${liveRes.startDate}T${liveRes.startTime}:00`).getTime();
+    const endMs = new Date(`${liveRes.startDate}T${liveRes.endTime}:00`).getTime();
+    if (endMs > startMs && liveRes.startDate === dayStr) {
+      timePct = Math.min(100, Math.max(0, ((nowTick - startMs) / (endMs - startMs)) * 100));
+      const leftMin = Math.round((endMs - nowTick) / 60000);
+      overtime = leftMin < 0;
+      timeLabel = overtime ? `+${Math.abs(leftMin)}m over` : `${leftMin}m left`;
+    }
+  }
 
   return (
     <div
@@ -992,10 +1015,18 @@ function BoothCanvasCard({
             : (booth as any).shape === 'door' ? '2px dashed #94a3b8'
             : (booth as any).shape === 'plant' ? '2px solid #a7f3d0'
             : `2px solid ${selected ? colors.border : colors.border + '99'}`,
-          boxShadow: selected ? `0 0 0 2px ${colors.border}44` : undefined,
+          boxShadow: overtime ? '0 0 0 3px #ef444455, 0 0 18px 2px #ef444466'
+            : isLive ? '0 0 0 3px #6366f155, 0 0 16px 2px #6366f144'
+            : selected ? `0 0 0 2px ${colors.border}44` : undefined,
           cursor: locked ? 'pointer' : 'grab',
         }}
       >
+        {(isLive || isExpected) && (
+          <span className="absolute -top-1.5 -right-1.5 flex h-3.5 w-3.5">
+            {isLive && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${overtime ? 'bg-red-500' : 'bg-indigo-500'}`} />}
+            <span className={`relative inline-flex rounded-full h-3.5 w-3.5 border-2 border-white ${overtime ? 'bg-red-500' : isLive ? 'bg-indigo-500' : 'bg-emerald-400'}`} />
+          </span>
+        )}
         {(booth as any).shape === 'chair' && <span className="text-base leading-none">🪑</span>}
         {(booth as any).shape === 'pedicure' && <span className="text-base leading-none">💺</span>}
         {(booth as any).shape === 'sink' && <span className="text-base leading-none">🚿</span>}
@@ -1023,7 +1054,18 @@ function BoothCanvasCard({
             {renter.firstName} {renter.lastName}
           </span>
         )}
-        {!renter && booth.status === 'vacant' && (
+        {liveRes && (
+          <span className={`text-[10px] font-black leading-none mb-1 truncate ${overtime ? 'text-red-600' : isLive ? 'text-indigo-700' : 'text-emerald-700'}`}>
+            {isLive ? '● ' : '◷ '}{guestFirst}{timeLabel ? ` · ${timeLabel}` : isExpected && liveRes.startTime ? ` · ${liveRes.startTime}` : ''}
+          </span>
+        )}
+        {timePct !== null && (
+          <div className="h-1 w-full rounded-full bg-black/10 overflow-hidden mb-1">
+            <div className={`h-full rounded-full transition-all ${overtime ? 'bg-red-500' : timePct > 85 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+              style={{ width: `${overtime ? 100 : timePct}%` }} />
+          </div>
+        )}
+        {!renter && !liveRes && booth.status === 'vacant' && (
           <span
             className="text-[11px] italic leading-none mb-1"
             style={{ color: colors.text + '88' }}
@@ -1578,6 +1620,41 @@ export default function BoothsPage() {
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [kioskOpen, setKioskOpen] = useState(false);
   const [plannerDay, setPlannerDay] = useState<string>(new Date().toISOString().slice(0, 10));
+  // v76 — LIVE FLOOR: a slow heartbeat so time-remaining bars tick.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+  const liveResByBooth = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const m = new Map<string, any>();
+    for (const r of reservations) {
+      if (r.startDate > today || r.endDate < today) continue;
+      if (!['checked_in', 'confirmed'].includes(r.status)) continue;
+      const prev = m.get(r.boothId);
+      // checked_in beats confirmed; earliest start wins among hourlies
+      if (!prev || (r.status === 'checked_in' && prev.status !== 'checked_in')) m.set(r.boothId, r);
+    }
+    return m;
+  }, [reservations]);
+  // Today's floor events, newest first — the game log.
+  const floorEvents = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const evts: { at: string; text: string; tone: string }[] = [];
+    for (const r of reservations) {
+      const first = (r.name || 'Guest').split(' ')[0];
+      if (typeof r.checked_inAt === 'string' && r.checked_inAt.startsWith(today))
+        evts.push({ at: r.checked_inAt, text: `${first} checked in · ${r.boothName}${r.kioskCheckIn ? ' (kiosk)' : ''}`, tone: 'in' });
+      if (typeof r.completedAt === 'string' && r.completedAt.startsWith(today))
+        evts.push({ at: r.completedAt, text: `${first} checked out · ${r.boothName}`, tone: 'out' });
+      if (typeof r.confirmedAt === 'string' && r.confirmedAt.startsWith(today))
+        evts.push({ at: r.confirmedAt, text: `${first} booked & paid · ${r.boothName} ($${((r.amountCents || 0) / 100).toFixed(0)})`, tone: 'money' });
+      if (typeof r.overageChargedAt === 'string' && r.overageChargedAt.startsWith(today))
+        evts.push({ at: r.overageChargedAt, text: `Overage charged · ${first} ($${((r.overageDueCents || 0) / 100).toFixed(2)})`, tone: 'money' });
+    }
+    return evts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
+  }, [reservations]);
   const [kioskCopied, setKioskCopied] = useState(false);
   const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
 
@@ -3001,6 +3078,19 @@ export default function BoothsPage() {
                 </div>
               )}
               <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
+                {floorEvents.length > 0 && (
+                  <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0 flex items-center gap-1.5">
+                      <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span>
+                      Live
+                    </span>
+                    {floorEvents.map((e, i) => (
+                      <span key={i} className={`shrink-0 text-[10px] font-bold rounded-full px-2.5 py-1 border ${e.tone === 'in' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : e.tone === 'money' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                        {new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · {e.text}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <div
                   className="relative"
                   style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: locked ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
@@ -3016,6 +3106,8 @@ export default function BoothsPage() {
                         booth={eb}
                         renter={renter}
                         lease={lease}
+                        liveRes={liveResByBooth.get(b.id)}
+                        nowTick={nowTick}
                         selected={selectedId === b.id}
                         locked={locked}
                         onDragStart={handleDragStart}
