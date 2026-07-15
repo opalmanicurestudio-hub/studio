@@ -1177,6 +1177,24 @@ function RenterProfileDrawer({
   onEndLease: () => void;
 }) {
   const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'activity'>('overview');
+  const [chargeAmt, setChargeAmt] = useState('');
+  const [chargeDesc, setChargeDesc] = useState('');
+  const [renterChargingId, setRenterChargingId] = useState<string | null>(null);
+  const chargeRenterCard = async (rt: Renter) => {
+    const cents = Math.round(parseFloat(chargeAmt) * 100);
+    if (!(cents > 0) || !chargeDesc.trim() || renterChargingId) return;
+    setRenterChargingId(rt.id);
+    try {
+      const res = await fetch('/api/booths/setup-card', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, renterId: rt.id, amountCents: cents, description: chargeDesc.trim() }),
+      });
+      const d = await res.json();
+      if (d.ok) { setChargeAmt(''); setChargeDesc(''); alert(`Charged $${(d.chargedCents / 100).toFixed(2)} — recorded in the ledger.`); }
+      else alert(d.error || 'Charge failed.');
+    } catch { alert('Network error — try again.'); }
+    finally { setRenterChargingId(null); }
+  };
   const [txns, setTxns] = useState<any[] | null>(null);
 
   const fullName = `${renter.firstName} ${renter.lastName}`.trim();
@@ -1308,6 +1326,33 @@ function RenterProfileDrawer({
               {(renter as any).portalEnabled && (
                 <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Portal active · PIN {(renter as any).portalPin}</p>
+                </div>
+              )}
+
+              {/* v71 — card on file + incidental charge */}
+              {(renter as any).cardOnFile ? (
+                <div className="rounded-2xl border-2 p-4 space-y-2">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Card on file · {(renter as any).cardBrand} ····{(renter as any).cardLast4}</p>
+                  <div className="grid grid-cols-[90px_1fr] gap-2">
+                    <input type="number" inputMode="decimal" placeholder="$" value={chargeAmt}
+                      onChange={e => setChargeAmt(e.target.value)}
+                      className="h-10 rounded-xl border-2 px-3 text-sm font-bold" />
+                    <input type="text" placeholder="What for? (product, damage, fee…)" value={chargeDesc}
+                      onChange={e => setChargeDesc(e.target.value)}
+                      className="h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+                  </div>
+                  <button
+                    onClick={() => chargeRenterCard(renter)}
+                    disabled={!(parseFloat(chargeAmt) > 0) || !chargeDesc.trim() || renterChargingId === renter.id}
+                    className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40"
+                  >
+                    {renterChargingId === renter.id ? 'Charging…' : `Charge Card${parseFloat(chargeAmt) > 0 ? ` $${parseFloat(chargeAmt).toFixed(2)}` : ''}`}
+                  </button>
+                  <p className="text-[9px] font-bold text-muted-foreground">Charges off-session and records under "Renter Incidental" in the ledger.</p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border-2 border-dashed p-3">
+                  <p className="text-[10px] font-bold text-muted-foreground">No card on file — the renter adds one in their portal's Documents tab. Once added, incidentals charge from right here.</p>
                 </div>
               )}
             </>
