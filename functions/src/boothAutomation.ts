@@ -102,6 +102,25 @@ export const boothAutomation = onSchedule(
           await notify(db, tenantId, `🔔 Arriving ${when}: ${r.name} — ${r.boothName}. Space ready?`);
         }
 
+        // ── 2.5 Compliance expiry ladder (v80): license + insurance ──
+        const rentersSnap = await db.collection(`tenants/${tenantId}/renters`).get();
+        for (const rd of rentersSnap.docs) {
+          const r = rd.data() as any;
+          if (r.status && !['active', 'on_leave', 'pending'].includes(r.status)) continue;
+          const who = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'A renter';
+          for (const [field, label] of [['licenseExpiry', 'cosmetology license'], ['insuranceExpiry', 'liability insurance']] as const) {
+            const exp = r[field];
+            if (!exp) continue;
+            for (const rung of [30, 7, 0]) {
+              if (exp === isoDaysFromNow(rung)) {
+                await notify(db, tenantId, rung === 0
+                  ? `🔴 ${who}'s ${label} EXPIRES TODAY. They should not work until renewed — this is your liability.`
+                  : `⚠ ${who}'s ${label} expires in ${rung} days (${exp}). Ask for the renewal now.`);
+              }
+            }
+          }
+        }
+
         // ── 3. Auto-relist ────────────────────────────────────────────
         const endedYesterday = leases.filter(l => l.endDate === yesterday && OCCUPYING.includes(l.status));
         for (const l of endedYesterday) {
