@@ -1,4 +1,4 @@
-'use client';
+'u'use client';
 
 /**
  * BoothsPage — the single unified surface for booths, renters, and
@@ -1697,6 +1697,43 @@ export default function BoothsPage() {
     return () => unsub();
   }, [firestore, tenantId]);
   // v56 — day-renter workflow: confirmed → checked_in → completed
+  // v77 — GUEST BOOK: every paying day/hourly guest, deduped by contact.
+  // The answer to "where did their contact info go" — it goes here,
+  // permanently, with visit history and lifetime value.
+  const guestBook = useMemo(() => {
+    const byContact = new Map<string, any>();
+    for (const r of reservations) {
+      if (!['confirmed', 'checked_in', 'completed'].includes(r.status)) continue;
+      const key = (r.phone || r.email || '').trim().toLowerCase();
+      if (!key) continue;
+      const g = byContact.get(key) || {
+        key, name: r.name || 'Guest', phone: r.phone || '', email: r.email || '',
+        visits: 0, totalCents: 0, lastDate: '', firstDate: '9999',
+      };
+      g.visits += 1;
+      g.totalCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
+      if ((r.startDate || '') > g.lastDate) { g.lastDate = r.startDate; g.name = r.name || g.name; }
+      if ((r.startDate || '') < g.firstDate) g.firstDate = r.startDate;
+      byContact.set(key, g);
+    }
+    // Approved inquiries who haven't booked yet — the contact must not
+    // vanish the moment you tap Approve.
+    for (const app of applications) {
+      if (app.status !== 'approved') continue;
+      const key = (app.phone || app.email || '').trim().toLowerCase();
+      if (!key || byContact.has(key)) continue;   // already a paying guest
+      byContact.set(key, {
+        key, name: app.name || 'Guest', phone: app.phone || '', email: app.email || '',
+        visits: 0, totalCents: 0,
+        lastDate: String(app.decidedAt || app.createdAt || '').slice(0, 10),
+        firstDate: String(app.createdAt || '').slice(0, 10),
+        inquiryOnly: true,
+      });
+    }
+    return Array.from(byContact.values()).sort((a, b) => b.lastDate.localeCompare(a.lastDate));
+  }, [reservations, applications]);
+  const [guestBookOpen, setGuestBookOpen] = useState(false);
+
   const upcomingReservations = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return reservations
@@ -1883,7 +1920,7 @@ export default function BoothsPage() {
         toast({ title: 'Approved — renter created', description: 'Assign their booth via a lease below.' });
       } else {
         await setAppStatus(app, 'approved');
-        toast({ title: 'Day rental approved', description: `Reach out to ${app.name} to lock in dates.` });
+        toast({ title: 'Day rental approved', description: `${app.name} is in your Guest book below — call or text to lock in dates.` });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Could not approve', description: 'Email may be missing — check the card.' });
@@ -3266,6 +3303,41 @@ export default function BoothsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── Guest book: every day/hourly guest who has ever paid ── */}
+          {guestBook.length > 0 && (
+            <div className="space-y-3">
+              <button onClick={() => setGuestBookOpen(o => !o)} className="flex items-center gap-2 w-full text-left">
+                <h2 className="text-xs font-black uppercase tracking-widest">Guest book</h2>
+                <span className="h-5 min-w-5 px-1.5 bg-slate-700 text-white text-[9px] font-black rounded-full flex items-center justify-center">{guestBook.length}</span>
+                <span className="text-[10px] font-bold text-muted-foreground">every guest who's booked · tap to {guestBookOpen ? 'hide' : 'show'}</span>
+              </button>
+              {guestBookOpen && (
+                <div className="grid gap-2 md:grid-cols-2">
+                  {guestBook.map((g: any) => (
+                    <div key={g.key} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-black text-xs text-slate-600 shrink-0">
+                        {g.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black truncate">{g.name}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground truncate">
+                          {g.inquiryOnly
+                            ? `Approved inquiry · hasn't booked yet${g.lastDate ? ` · ${g.lastDate}` : ''}`
+                            : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}`}
+                        </p>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        {g.phone && <a href={`tel:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Call</a>}
+                        {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
+                        {!g.phone && g.email && <a href={`mailto:${g.email}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Email</a>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
