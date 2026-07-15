@@ -289,10 +289,15 @@ interface RenterFormState {
   firstName: string; lastName: string; email: string; phone: string;
   businessName: string; specialty: string; notes: string;
   linkedStaffId: string;
+  licenseNumber: string;
+  licenseExpiry: string;
+  insuranceCarrier: string;
+  insuranceExpiry: string;
 }
 const EMPTY_RENTER_FORM: RenterFormState = {
   firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
   linkedStaffId: '',
+  licenseNumber: '', licenseExpiry: '', insuranceCarrier: '', insuranceExpiry: '',
 };
 
 // ─── Lease form ───────────────────────────────────────────────────────────────
@@ -1224,6 +1229,23 @@ function DetailPanel({
   );
 }
 
+// ─── Compliance status (v80) ─────────────────────────────────────────────────
+// green = valid >30d out · amber = expires ≤30d · red = expired or missing
+function complianceOf(r: any): { license: string; insurance: string; worst: string } {
+  const judge = (expiry: any): string => {
+    if (!expiry) return 'missing';
+    const days = Math.floor((new Date(expiry + 'T00:00:00Z').getTime() - Date.now()) / 86400000);
+    if (days < 0) return 'expired';
+    if (days <= 30) return 'expiring';
+    return 'ok';
+  };
+  const license = judge(r.licenseExpiry);
+  const insurance = judge(r.insuranceExpiry);
+  const rank: Record<string, number> = { expired: 0, missing: 1, expiring: 2, ok: 3 };
+  const worst = rank[license] < rank[insurance] ? license : insurance;
+  return { license, insurance, worst };
+}
+
 // ─── Renter profile drawer (v65) ─────────────────────────────────────────────
 // Tap a renter card → full profile: identity, lease, money, documents,
 // activity. Self-contained: fetches this renter's ledger entries on open.
@@ -1379,6 +1401,21 @@ function RenterProfileDrawer({
                 {renter.specialty && <p className="text-[10px] font-bold text-muted-foreground">{renter.specialty}</p>}
                 {renter.notes && <p className="text-[11px] text-muted-foreground leading-relaxed border-t pt-2">{renter.notes}</p>}
               </div>
+
+              {(() => {
+                const comp = complianceOf(renter as any);
+                const STYLE: Record<string, string> = { ok: 'text-emerald-600', expiring: 'text-amber-600', expired: 'text-red-600', missing: 'text-slate-400' };
+                const WORD: Record<string, (d: string) => string> = {
+                  ok: d => `valid · exp ${d}`, expiring: d => `⚠ expires ${d}`, expired: d => `🔴 EXPIRED ${d}`, missing: () => 'not on file',
+                };
+                return (
+                  <div className={`rounded-2xl border-2 p-4 space-y-1.5 ${comp.worst === 'ok' ? '' : comp.worst === 'expiring' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Compliance</p>
+                    <p className="text-xs font-bold">License{(renter as any).licenseNumber ? ` #${(renter as any).licenseNumber}` : ''}: <span className={STYLE[comp.license]}>{WORD[comp.license]((renter as any).licenseExpiry || '')}</span></p>
+                    <p className="text-xs font-bold">Insurance{(renter as any).insuranceCarrier ? ` (${(renter as any).insuranceCarrier})` : ''}: <span className={STYLE[comp.insurance]}>{WORD[comp.insurance]((renter as any).insuranceExpiry || '')}</span></p>
+                  </div>
+                );
+              })()}
               {lease && booth ? (
                 <div className="rounded-2xl border-2 border-slate-800 bg-slate-900 text-white p-4 space-y-2">
                   <p className="text-[9px] font-black uppercase tracking-widest text-white/50">Current lease</p>
@@ -2575,7 +2612,11 @@ export default function BoothsPage() {
     setRenterForm({ firstName: renter.firstName, lastName: renter.lastName, email: renter.email,
       phone: renter.phone ?? '', businessName: renter.businessName ?? '',
       specialty: renter.specialty ?? '', notes: renter.notes ?? '',
-      linkedStaffId: (renter as any).linkedStaffId ?? '' });
+      linkedStaffId: (renter as any).linkedStaffId ?? '',
+      licenseNumber: (renter as any).licenseNumber ?? '',
+      licenseExpiry: (renter as any).licenseExpiry ?? '',
+      insuranceCarrier: (renter as any).insuranceCarrier ?? '',
+      insuranceExpiry: (renter as any).insuranceExpiry ?? '' });
     setRenterError(null); setRenterDialogOpen(true); loadConvertibleStaff();
   };
   const handleRenterDialogOpenChange = (open: boolean) => {
@@ -2599,6 +2640,10 @@ export default function BoothsPage() {
             businessName: renterForm.businessName.trim(),
             specialty: renterForm.specialty.trim(),
             notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
+            licenseNumber: renterForm.licenseNumber.trim() || null,
+            licenseExpiry: renterForm.licenseExpiry || null,
+            insuranceCarrier: renterForm.insuranceCarrier.trim() || null,
+            insuranceExpiry: renterForm.insuranceExpiry || null,
             linkedStaffId: renterForm.linkedStaffId || undefined,
             updatedAt: now,
           }
@@ -2614,6 +2659,10 @@ export default function BoothsPage() {
           businessName: renterForm.businessName.trim() || undefined,
           specialty: renterForm.specialty.trim() || undefined,
           notes: renterForm.notes.trim() || undefined,
+          licenseNumber: renterForm.licenseNumber.trim() || undefined,
+          licenseExpiry: renterForm.licenseExpiry || undefined,
+          insuranceCarrier: renterForm.insuranceCarrier.trim() || undefined,
+          insuranceExpiry: renterForm.insuranceExpiry || undefined,
         });
       }
       setRenterDialogOpen(false); setEditingRenterId(null);
@@ -3400,6 +3449,7 @@ export default function BoothsPage() {
                           <div className="flex gap-1.5 flex-wrap mt-1">
                             <Badge className="text-[9px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
                             {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
+                            {(() => { const w = complianceOf(renter as any).worst; return w === 'expired' ? <span className="text-[9px] font-black uppercase tracking-widest text-red-600">🔴 Compliance</span> : w === 'expiring' ? <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ Compliance</span> : null; })()}
                           </div>
                         </button>
                         <div className="flex gap-2 shrink-0 items-center">
@@ -3895,6 +3945,21 @@ export default function BoothsPage() {
             </div>
             <div className="space-y-1"><Label htmlFor="r-business">Business name (optional)</Label>
               <Input id="r-business" value={renterForm.businessName} onChange={(e) => setRenterForm((p) => ({ ...p, businessName: e.target.value }))} /></div>
+            <div className="space-y-2 rounded-2xl border-2 border-slate-100 p-3.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Compliance</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1"><Label>Cosmetology license #</Label>
+                  <Input value={renterForm.licenseNumber} onChange={(e) => setRenterForm(p => ({ ...p, licenseNumber: e.target.value }))} /></div>
+                <div className="space-y-1"><Label>License expires</Label>
+                  <Input type="date" value={renterForm.licenseExpiry} onChange={(e) => setRenterForm(p => ({ ...p, licenseExpiry: e.target.value }))} /></div>
+                <div className="space-y-1"><Label>Insurance carrier</Label>
+                  <Input placeholder="e.g. Elite Beauty Ins." value={renterForm.insuranceCarrier} onChange={(e) => setRenterForm(p => ({ ...p, insuranceCarrier: e.target.value }))} /></div>
+                <div className="space-y-1"><Label>Insurance expires</Label>
+                  <Input type="date" value={renterForm.insuranceExpiry} onChange={(e) => setRenterForm(p => ({ ...p, insuranceExpiry: e.target.value }))} /></div>
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">You'll be nagged 30 and 7 days before anything lapses. An uninsured renter is your liability.</p>
+            </div>
+
             <div className="space-y-1"><Label htmlFor="r-notes">Notes (private)</Label>
               <Textarea id="r-notes" value={renterForm.notes} onChange={(e) => setRenterForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             {renterError && (
