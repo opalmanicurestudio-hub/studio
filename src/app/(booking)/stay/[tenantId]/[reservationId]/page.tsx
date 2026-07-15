@@ -20,6 +20,14 @@
 import React, { useState } from 'react';
 import { useParams } from 'next/navigation';
 
+const t12 = (t?: string | null): string => {
+  if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
+  const [h, m] = t.split(':').map(Number);
+  const ap = h >= 12 ? 'PM' : 'AM';
+  const hr = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+};
+
 export default function StayPage() {
   const params = useParams<{ tenantId: string; reservationId: string }>();
   const tenantId = params?.tenantId ?? '';
@@ -33,6 +41,9 @@ export default function StayPage() {
   const [emName, setEmName] = useState('');
   const [emPhone, setEmPhone] = useState('');
   const [saved, setSaved] = useState(false);
+  const [stars, setStars] = useState(0);
+  const [reviewText, setReviewText] = useState('');
+  const [reviewed, setReviewed] = useState(false);
 
   const load = async () => {
     if (busy || last4.length !== 4) return;
@@ -47,6 +58,7 @@ export default function StayPage() {
       setData(d);
       if (d.booking.rulesAcknowledgedAt) setSaved(true);
       if (d.booking.emergencyContact) { setEmName(d.booking.emergencyContact.name || ''); setEmPhone(d.booking.emergencyContact.phone || ''); }
+      if (d.booking.rating) { setReviewed(true); setStars(d.booking.rating); }
     } catch { setError('Connection problem — try again.'); }
     finally { setBusy(false); }
   };
@@ -66,10 +78,25 @@ export default function StayPage() {
     finally { setBusy(false); }
   };
 
+  const submitReview = async () => {
+    if (busy || stars < 1) return;
+    setBusy(true); setError('');
+    try {
+      const res = await fetch('/api/booths/kiosk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stay-review', tenantId, reservationId, phoneLast4: last4, rating: stars, reviewText }),
+      });
+      const d = await res.json();
+      if (!d.ok) { setError(d.error || 'Could not save review.'); return; }
+      setReviewed(true);
+    } catch { setError('Connection problem — try again.'); }
+    finally { setBusy(false); }
+  };
+
   const b = data?.booking;
   const whenLine = b
     ? (b.bookingType === 'hourly' && b.startTime
-        ? `${b.startDate} · ${b.startTime}–${b.endTime}${b.slotLabel ? ` (${b.slotLabel})` : ''}`
+        ? `${b.startDate} · ${t12(b.startTime)} – ${t12(b.endTime)}${b.slotLabel ? ` (${b.slotLabel})` : ''}`
         : b.startDate === b.endDate ? b.startDate : `${b.startDate} → ${b.endDate}`)
     : '';
 
@@ -172,6 +199,30 @@ export default function StayPage() {
                 </>
               )}
             </div>
+            {/* ── How was your stay? (after completion) ── */}
+            {b.status === 'completed' && (
+              <div className="rounded-2xl border-2 bg-white px-5 py-4 space-y-3">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">How was your stay?</p>
+                {reviewed ? (
+                  <p className="text-sm font-black text-emerald-700">{'⭐'.repeat(stars)} Thanks for the feedback — it means a lot! 💚</p>
+                ) : (
+                  <>
+                    <div className="flex gap-2 justify-center py-1">
+                      {[1, 2, 3, 4, 5].map(n => (
+                        <button key={n} onClick={() => setStars(n)} className={`text-3xl transition-transform active:scale-90 ${n <= stars ? '' : 'grayscale opacity-30'}`}>⭐</button>
+                      ))}
+                    </div>
+                    <textarea rows={2} placeholder="Anything you'd tell us? (optional)" value={reviewText}
+                      onChange={e => setReviewText(e.target.value)}
+                      className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
+                    <button onClick={submitReview} disabled={stars < 1 || busy}
+                      className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-30">
+                      {busy ? 'Sending…' : 'Send feedback'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
