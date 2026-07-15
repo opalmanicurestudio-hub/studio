@@ -40,7 +40,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [booths, setBooths] = useState<any[] | null>(null);
   const [applyFor, setApplyFor] = useState<any | null>(null);
   const [photoIdx, setPhotoIdx] = useState(0);
-  const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '', startTime: '', endTime: '' });
+  const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
   const [docs, setDocs] = useState<Record<string, { name: string; url: string } | 'uploading' | null>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -117,6 +118,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
   const leaseRates = (b: any) => ratesOf(b).filter(r => LEASE_FREQS.includes(r.frequency));
   const dayRates = (b: any) => ratesOf(b).filter(r => !LEASE_FREQS.includes(r.frequency));
+  const dailyRateOf = (b: any) => ratesOf(b).find((r: any) => r.frequency === 'daily' && r.amountCents > 0);
+  const hourlyRateOf = (b: any) => ratesOf(b).find((r: any) => r.frequency === 'hourly' && r.amountCents > 0);
   const primaryRate = (b: any) => leaseRates(b)[0] || ratesOf(b)[0] || { frequency: 'monthly', amountCents: 0 };
   const priceOf = (b: any) => { const r = primaryRate(b); return { amount: Math.round(r.amountCents / 100), suffix: FREQ_LABEL[r.frequency] || '/mo' }; };
   const isLease = (b: any) => leaseRates(b).length > 0;
@@ -128,6 +131,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [inquiryKind, setInquiryKind] = useState<'application' | 'tour' | 'question' | 'waitlist'>('application');
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
+    setGranularity(dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
     setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
@@ -157,7 +161,23 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // the same rules authoritatively.
   const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const scheduleIssue = useMemo(() => {
-    if (!applyFor || applyMode !== 'day' || !form.startDate || !form.endDate) return null;
+    if (!applyFor || applyMode !== 'day') return null;
+    if (granularity === 'hourly') {
+      if (!form.startDate) return null;
+      const schedDays: number[] | undefined = Array.isArray((applyFor as any).dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
+      const blackouts: string[] = Array.isArray((applyFor as any).blackoutDates) ? (applyFor as any).blackoutDates : [];
+      const dow = new Date(form.startDate + 'T00:00:00Z').getUTCDay();
+      if (schedDays && !schedDays.includes(dow)) return `${DOW_NAMES[dow]} isn't available — this space is open ${schedDays.map(d => DOW_NAMES[d]).join(', ')}.`;
+      if (blackouts.includes(form.startDate)) return `${form.startDate} is unavailable.`;
+      if (form.startTime && form.endTime) {
+        if (form.startTime >= form.endTime) return 'End time must be after start time.';
+        const openT = (applyFor as any).openTime || '00:00';
+        const closeT = (applyFor as any).closeTime || '23:59';
+        if (form.startTime < openT || form.endTime > closeT) return `Hourly bookings are available ${openT} – ${closeT}.`;
+      }
+      return null;
+    }
+    if (!form.startDate || !form.endDate) return null;
     const schedDays: number[] | undefined = Array.isArray((applyFor as any).dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
     const blackouts: string[] = Array.isArray((applyFor as any).blackoutDates) ? (applyFor as any).blackoutDates : [];
     if (schedDays && schedDays.length === 0) return 'This space does not offer day rentals.';
@@ -171,7 +191,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (blackouts.includes(iso)) return `${iso} is unavailable — pick a different range.`;
     }
     return null;
-  }, [applyFor, applyMode, form.startDate, form.endDate]);
+  }, [applyFor, applyMode, form.startDate, form.endDate, form.startTime, form.endTime, granularity]);
   const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && agreementSatisfied && !scheduleIssue && !submitting;
 
   const submitApplication = async () => {
@@ -181,13 +201,19 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     // Stripe Checkout. If checkout can't start (no daily rate, conflict,
     // or Stripe hiccup), fall through to the inquiry pipeline so the lead
     // is never lost.
-    if (inquiryKind === 'application' && applyMode === 'day' && form.startDate && form.endDate) {
+    const hourlyReady = granularity === 'hourly' && form.startDate && form.startTime && form.endTime;
+    const dailyReady = granularity === 'daily' && form.startDate && form.endDate;
+    if (inquiryKind === 'application' && applyMode === 'day' && (dailyReady || hourlyReady)) {
       try {
         const res = await fetch('/api/booths/reserve', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tenantId, boothId: applyFor.id,
-            startDate: form.startDate, endDate: form.endDate,
+            startDate: form.startDate,
+            endDate: granularity === 'hourly' ? form.startDate : form.endDate,
+            bookingType: granularity,
+            startTime: granularity === 'hourly' ? form.startTime : undefined,
+            endTime: granularity === 'hourly' ? form.endTime : undefined,
             name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
             returnUrl: window.location.href,
             consentAccepted: !!agreementText && agreed,
@@ -512,21 +538,61 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                   ) : (
                     <div className="space-y-2">
+                      {dailyRateOf(applyFor) && hourlyRateOf(applyFor) && (
+                        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                          {(['daily', 'hourly'] as const).map(g => (
+                            <button key={g} type="button" onClick={() => setGranularity(g)}
+                              className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${granularity === g ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                              {g === 'daily' ? `Daily · $${(dailyRateOf(applyFor).amountCents / 100).toFixed(0)}/day` : `Hourly · $${(hourlyRateOf(applyFor).amountCents / 100).toFixed(0)}/hr`}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {Array.isArray((applyFor as any)?.dayRentalDays) && (applyFor as any).dayRentalDays.length > 0 && (applyFor as any).dayRentalDays.length < 7 && (
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                           Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}
                         </p>
                       )}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
-                          <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                      {granularity === 'hourly' && hourlyRateOf(applyFor) ? (
+                        <>
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Date</p>
+                            <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
+                              <input type="time" step={1800} value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
+                              <input type="time" step={1800} value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                            </div>
+                          </div>
+                          {((applyFor as any).openTime || (applyFor as any).closeTime) && (
+                            <p className="text-[10px] font-bold text-slate-400">Bookable {(applyFor as any).openTime || '00:00'} – {(applyFor as any).closeTime || '23:59'}</p>
+                          )}
+                          {form.startTime && form.endTime && form.startTime < form.endTime && !scheduleIssue && (
+                            <p className="text-xs font-black text-emerald-700 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
+                              {(() => {
+                                const hrs = (new Date(`2000-01-01T${form.endTime}:00`).getTime() - new Date(`2000-01-01T${form.startTime}:00`).getTime()) / 3600000;
+                                return `${hrs} hr${hrs === 1 ? '' : 's'} · $${((hourlyRateOf(applyFor).amountCents * hrs) / 100).toFixed(2)} total`;
+                              })()}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
+                            <input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
+                            <input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
-                          <input type="date" value={form.endDate} min={form.startDate || undefined} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                        </div>
-                      </div>
+                      )}
                       {scheduleIssue && (
                         <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>
                       )}
