@@ -1762,6 +1762,18 @@ export default function BoothsPage() {
   // v77 — GUEST BOOK: every paying day/hourly guest, deduped by contact.
   // The answer to "where did their contact info go" — it goes here,
   // permanently, with visit history and lifetime value.
+  // v83 — REVIEWS: every rated stay, newest first. Lands in the Money tab.
+  const reviews = useMemo(() =>
+    reservations
+      .filter(r => Number(r.rating) >= 1)
+      .sort((a, b) => (b.reviewedAt || '').localeCompare(a.reviewedAt || '')),
+    [reservations]);
+  const reviewStats = useMemo(() => {
+    if (reviews.length === 0) return null;
+    const sum = reviews.reduce((s, r) => s + (r.rating || 0), 0);
+    return { avg: sum / reviews.length, count: reviews.length };
+  }, [reviews]);
+
   const guestBook = useMemo(() => {
     const byContact = new Map<string, any>();
     for (const r of reservations) {
@@ -1775,6 +1787,7 @@ export default function BoothsPage() {
       g.visits += 1;
       g.totalCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
       if ((r.startDate || '') > g.lastDate) { g.lastDate = r.startDate; g.name = r.name || g.name; }
+      if (Number(r.rating) >= 1 && (r.reviewedAt || '') > (g.lastReviewedAt || '')) { g.lastRating = r.rating; g.lastReviewedAt = r.reviewedAt || ''; }
       if ((r.startDate || '') < g.firstDate) g.firstDate = r.startDate;
       byContact.set(key, g);
     }
@@ -3419,7 +3432,7 @@ export default function BoothsPage() {
                         <p className="text-[10px] font-bold text-muted-foreground truncate">
                           {g.inquiryOnly
                             ? `Approved inquiry · hasn't booked yet${g.lastDate ? ` · ${g.lastDate}` : ''}`
-                            : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}`}
+                            : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime${g.lastRating ? ` · ${'★'.repeat(g.lastRating)}` : ''} · last ${g.lastDate}`}
                         </p>
                       </div>
                       <div className="flex gap-1.5 shrink-0">
@@ -3556,6 +3569,29 @@ export default function BoothsPage() {
                 ))}
               </div>
               <p className="text-[10px] font-bold text-muted-foreground">Auto-collect charges the card on file on each due date (8 AM ET). Grace 3 days → late fee + retry → final retry day 7. Renters without a card get a due notification instead.</p>
+            </div>
+          )}
+
+          {/* ── Reviews (v83) ── */}
+          {reviewStats && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Reviews</h2>
+                <span className="text-amber-500 text-sm font-black">★ {reviewStats.avg.toFixed(1)}</span>
+                <span className="text-[10px] font-bold text-muted-foreground">{reviewStats.count} rating{reviewStats.count === 1 ? '' : 's'}</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {reviews.slice(0, 6).map((r: any) => (
+                  <div key={r.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-amber-500 text-xs">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                      <span className="text-[9px] font-bold text-muted-foreground uppercase">{r.boothName} · {String(r.reviewedAt || '').slice(0, 10)}</span>
+                    </div>
+                    <p className="text-xs font-black truncate">{(r.name || 'Guest').split(' ')[0]}</p>
+                    {r.reviewText && <p className="text-[11px] text-slate-600 italic leading-relaxed">"{r.reviewText}"</p>}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
