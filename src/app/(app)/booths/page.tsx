@@ -2790,7 +2790,7 @@ export default function BoothsPage() {
           }
         );
       } else {
-        await createBooth(firestore, {
+        const newBooth = await createBooth(firestore, {
           tenantId,
           locationId: selectedLocationId,
           name: form.name.trim(),
@@ -2818,6 +2818,19 @@ export default function BoothsPage() {
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
           shape: form.shape || 'rect',
         } as any);
+        // Guarantee deposit fields persist even if the service layer
+        // whitelists its payload (they'd otherwise be silently dropped
+        // on new spaces, and the reserve route would charge full price).
+        try {
+          const newId = (newBooth as any)?.id || (typeof newBooth === 'string' ? newBooth : null);
+          if (newId) {
+            await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), newId), {
+              depositPercent: form.depositPercent.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.depositPercent) || 0)),
+              depositRequired: form.depositPercent.trim() !== '' && Number(form.depositPercent) > 0,
+              balanceMode: form.balanceMode,
+            });
+          }
+        } catch { /* update path already includes these; this is a safety net */ }
       }
       setDialogOpen(false);
     } finally {
