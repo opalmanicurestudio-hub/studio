@@ -262,6 +262,8 @@ interface BoothFormState {
   closeTime: string;
   bookingSlots: { label: string; start: string; end: string; dollars: string }[];
   shape: string;
+  depositPercent: string;
+  balanceMode: string;
 }
 
 const EMPTY_FORM: BoothFormState = {
@@ -282,6 +284,8 @@ const EMPTY_FORM: BoothFormState = {
   closeTime: '',
   bookingSlots: [],
   shape: 'rect',
+  depositPercent: '',
+  balanceMode: 'in_person',
 };
 
 // ─── Renter form ──────────────────────────────────────────────────────────────
@@ -2716,6 +2720,8 @@ export default function BoothsPage() {
       typeValue: booth.type ?? 'booth',
       notes: booth.notes ?? '',
       baseRentDollars: (booth.baseRentCents / 100).toString(),
+      depositPercent: (booth as any).depositPercent != null ? String((booth as any).depositPercent) : '',
+      balanceMode: (booth as any).balanceMode || 'in_person',
       baseRentFrequency: booth.baseRentFrequency,
       extraRates: (((booth as any).pricingOptions || []) as any[])
         .filter((o) => !(o.frequency === booth.baseRentFrequency && o.amountCents === booth.baseRentCents))
@@ -2771,6 +2777,9 @@ export default function BoothsPage() {
             videoUrl: form.videoUrl.trim(),
             dayRentalDays: form.dayRentalDays,
             blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
+            depositPercent: form.depositPercent.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.depositPercent) || 0)),
+            depositRequired: form.depositPercent.trim() !== '' && Number(form.depositPercent) > 0,
+            balanceMode: form.balanceMode,
             openTime: form.openTime || null,
             closeTime: form.closeTime || null,
             bookingSlots: form.bookingSlots
@@ -2799,6 +2808,9 @@ export default function BoothsPage() {
           videoUrl: form.videoUrl.trim(),
           dayRentalDays: form.dayRentalDays,
           blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
+          depositPercent: form.depositPercent.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.depositPercent) || 0)),
+          depositRequired: form.depositPercent.trim() !== '' && Number(form.depositPercent) > 0,
+          balanceMode: form.balanceMode,
           openTime: form.openTime || null,
           closeTime: form.closeTime || null,
           bookingSlots: form.bookingSlots
@@ -3606,9 +3618,19 @@ export default function BoothsPage() {
                     {r.noShow && (
                       <p className="text-[10px] font-black uppercase text-red-600">👻 No-show — never checked in</p>
                     )}
-                    {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices) && (
-                      <p className="text-[10px] font-black uppercase text-slate-500">
-                        {r.doingServices ? '✂ Services' : ''}{r.licenseNumber ? ` · Lic ${r.licenseNumber}` : ''}{r.insuranceConfirmed ? ' · ✓ Insured' : ''}{r.idAcknowledged ? ' · ✓ ID' : ''}
+                    {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices || r.licenseDocUrl || r.insuranceDocUrl || r.idDocUrl) && (
+                      <div className="text-[10px] font-black uppercase text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                        {r.doingServices && <span>✂ Services</span>}
+                        {r.licenseNumber && <span>· Lic {r.licenseNumber}</span>}
+                        {r.licenseDocUrl && <a href={r.licenseDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">· 📄 License</a>}
+                        {(r.insuranceConfirmed || r.insuranceDocUrl) && <span>· ✓ Insured</span>}
+                        {r.insuranceDocUrl && <a href={r.insuranceDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">📄 COI</a>}
+                        {r.idDocUrl ? <a href={r.idDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">· 📄 ID</a> : r.idAcknowledged && <span>· ✓ ID</span>}
+                      </div>
+                    )}
+                    {r.balanceDueCents > 0 && !r.balancePaid && (
+                      <p className="text-[10px] font-black uppercase text-amber-600">
+                        💰 Deposit ${((r.depositCents || 0) / 100).toFixed(0)} paid · balance ${((r.balanceDueCents || 0) / 100).toFixed(2)} {r.balanceMode === 'at_checkin' ? 'at check-in' : 'due in person'}
                       </p>
                     )}
                     {r.status === 'checked_in' && r.actualCheckIn && (
@@ -4172,6 +4194,24 @@ export default function BoothsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <Input type="time" value={form.openTime} onChange={(e) => setForm(prev => ({ ...prev, openTime: e.target.value }))} />
                 <Input type="time" value={form.closeTime} onChange={(e) => setForm(prev => ({ ...prev, closeTime: e.target.value }))} />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Deposit (optional)</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Charge a percentage up front instead of the full amount. Blank = use your studio default. 0 or blank = full payment.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center gap-2">
+                  <Input type="number" min={0} max={100} placeholder="e.g. 25" value={form.depositPercent} onChange={(e) => setForm(prev => ({ ...prev, depositPercent: e.target.value }))} />
+                  <span className="text-xs font-bold text-muted-foreground">%</span>
+                </div>
+                <Select value={form.balanceMode} onValueChange={(v) => setForm(prev => ({ ...prev, balanceMode: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="in_person">Balance due in person</SelectItem>
+                    <SelectItem value="at_checkin">Balance at check-in</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
