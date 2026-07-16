@@ -69,7 +69,8 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime, slotLabel,
-      doingServices, licenseNumber, insuranceCarrier, insuranceConfirmed, idAcknowledged } = body || {};
+      doingServices, licenseNumber, insuranceCarrier, insuranceConfirmed, idAcknowledged,
+      licenseDocUrl, insuranceDocUrl, idDocUrl } = body || {};
     if (!tenantId || !boothId || !startDate || !endDate || !name || (!phone && !email) || !returnUrl) {
       return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
     }
@@ -189,7 +190,34 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch { /* credits are a bonus — never block a booking over them */ }
-    const chargeCents = amountCents - creditAppliedCents;
+    const netCents = amountCents - creditAppliedCents;   // owed after credits
+
+    // ── Tranche 2: deposit split. Per-space override wins; else tenant rule.
+    // booth.depositPercent (0-100) or booth.depositRequired === false disables.
+    let rules: any = {};
+    try {
+      const tSnap = await db.doc(`tenants/${tenantId}`).get();
+      rules = (tSnap.data() as any)?.bookingPageSettings?.automationRules || {};
+    } catch { /* defaults below */ }
+    const perSpaceHasSetting = booth.depositRequired !== undefined || booth.depositPercent !== undefined;
+    const depositRequired = perSpaceHasSetting
+      ? (booth.depositRequired !== false && (Number(booth.depositPercent) || 0) > 0)
+      : !!rules.depositRequired;
+    const depositPct = perSpaceHasSetting
+      ? Math.min(100, Math.max(0, Number(booth.depositPercent) || 0))
+      : Math.min(100, Math.max(0, Number(rules.depositPercent) || 0));
+    // Where the balance goes: per-space booth.balanceMode, else 'in_person'
+    const balanceMode = booth.balanceMode || rules.balanceMode || 'in_person'; // 'at_checkin' | 'in_person'
+
+    // chargeCents = what we collect NOW at checkout
+    let chargeCents = netCents;
+    let depositCents = 0;
+    let balanceDueCents = 0;
+    if (depositRequired && depositPct > 0 && depositPct < 100 && netCents > 100) {
+      depositCents = Math.max(100, Math.round(netCents * (depositPct / 100)));
+      balanceDueCents = netCents - depositCents;
+      chargeCents = depositCents;
+    }
 
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
     const nowIso = new Date().toISOString();
@@ -200,6 +228,10 @@ export async function POST(req: NextRequest) {
       name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
       startDate, endDate, numDays, amountCents: chargeCents,
       originalAmountCents: amountCents,
+      netDueCents: netCents,
+      depositCents, balanceDueCents,
+      balanceMode: balanceDueCents > 0 ? balanceMode : null,
+      balancePaid: false,
       creditAppliedCents,
       appliedCreditIds,
       stripeCustomerId: null as string | null,
@@ -215,7 +247,10 @@ export async function POST(req: NextRequest) {
       insuranceCarrier: insuranceCarrier || null,
       insuranceConfirmed: !!insuranceConfirmed,
       idAcknowledged: !!idAcknowledged,
-      complianceCapturedAt: (doingServices || licenseNumber || insuranceConfirmed || idAcknowledged) ? nowIso : null,
+      licenseDocUrl: licenseDocUrl || null,
+      insuranceDocUrl: insuranceDocUrl || null,
+      idDocUrl: idDocUrl || null,
+      complianceCapturedAt: (doingServices || licenseNumber || insuranceConfirmed || idAcknowledged || licenseDocUrl || insuranceDocUrl || idDocUrl) ? nowIso : null,
     });
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
@@ -255,8 +290,10 @@ export async function POST(req: NextRequest) {
           currency: 'usd',
           unit_amount: chargeCents,
           product_data: {
-            name: `${booth.name || 'Space'} — ${unitsLabel}`,
+            name: `${booth.name || 'Space'} — ${unitsLabel}`
+              + (depositCents > 0 ? ` (deposit)` : ''),
             description: (isHourly ? `${startDate} · ${startTime}–${endTime}` : `${startDate} → ${endDate}`)
+              + (depositCents > 0 ? ` · $${(depositCents / 100).toFixed(2)} deposit of $${(netCents / 100).toFixed(2)} · balance $${(balanceDueCents / 100).toFixed(2)} ${balanceMode === 'at_checkin' ? 'at check-in' : 'in person'}` : '')
               + (creditAppliedCents > 0 ? ` · $${(creditAppliedCents / 100).toFixed(2)} credit applied` : ''),
           },
         },
