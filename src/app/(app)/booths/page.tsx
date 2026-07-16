@@ -262,7 +262,8 @@ interface BoothFormState {
   closeTime: string;
   bookingSlots: { label: string; start: string; end: string; dollars: string }[];
   shape: string;
-  depositPercent: string;
+  depositType: string;      // 'none' | 'flat' | 'percent' | 'breakeven'
+  depositValue: string;     // dollars for flat, % for percent, ignored for breakeven/none
   balanceMode: string;
 }
 
@@ -284,7 +285,8 @@ const EMPTY_FORM: BoothFormState = {
   closeTime: '',
   bookingSlots: [],
   shape: 'rect',
-  depositPercent: '',
+  depositType: 'none',
+  depositValue: '',
   balanceMode: 'in_person',
 };
 
@@ -2720,7 +2722,12 @@ export default function BoothsPage() {
       typeValue: booth.type ?? 'booth',
       notes: booth.notes ?? '',
       baseRentDollars: (booth.baseRentCents / 100).toString(),
-      depositPercent: (booth as any).depositPercent != null ? String((booth as any).depositPercent) : '',
+      depositType: (booth as any).depositType || ((booth as any).depositPercent > 0 ? 'percent' : 'none'),
+      depositValue: (booth as any).depositType === 'flat'
+        ? String(((booth as any).depositFlatCents || 0) / 100)
+        : (booth as any).depositType === 'breakeven'
+        ? String(((booth as any).breakevenHourlyCents || 0) / 100)
+        : (booth as any).depositPercent != null ? String((booth as any).depositPercent) : '',
       balanceMode: (booth as any).balanceMode || 'in_person',
       baseRentFrequency: booth.baseRentFrequency,
       extraRates: (((booth as any).pricingOptions || []) as any[])
@@ -2777,8 +2784,11 @@ export default function BoothsPage() {
             videoUrl: form.videoUrl.trim(),
             dayRentalDays: form.dayRentalDays,
             blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
-            depositPercent: form.depositPercent.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.depositPercent) || 0)),
-            depositRequired: form.depositPercent.trim() !== '' && Number(form.depositPercent) > 0,
+            depositType: form.depositType,
+            depositPercent: form.depositType === 'percent' ? Math.min(100, Math.max(0, Number(form.depositValue) || 0)) : null,
+            depositFlatCents: form.depositType === 'flat' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
+            breakevenHourlyCents: form.depositType === 'breakeven' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
+            depositRequired: form.depositType !== 'none',
             balanceMode: form.balanceMode,
             openTime: form.openTime || null,
             closeTime: form.closeTime || null,
@@ -2808,8 +2818,11 @@ export default function BoothsPage() {
           videoUrl: form.videoUrl.trim(),
           dayRentalDays: form.dayRentalDays,
           blackoutDates: form.blackoutDatesText.split(/[,\n]/).map(s => s.trim()).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)),
-          depositPercent: form.depositPercent.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.depositPercent) || 0)),
-          depositRequired: form.depositPercent.trim() !== '' && Number(form.depositPercent) > 0,
+          depositType: form.depositType,
+          depositPercent: form.depositType === 'percent' ? Math.min(100, Math.max(0, Number(form.depositValue) || 0)) : null,
+          depositFlatCents: form.depositType === 'flat' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
+          breakevenHourlyCents: form.depositType === 'breakeven' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
+          depositRequired: form.depositType !== 'none',
           balanceMode: form.balanceMode,
           openTime: form.openTime || null,
           closeTime: form.closeTime || null,
@@ -2825,8 +2838,11 @@ export default function BoothsPage() {
           const newId = (newBooth as any)?.id || (typeof newBooth === 'string' ? newBooth : null);
           if (newId) {
             await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), newId), {
-              depositPercent: form.depositPercent.trim() === '' ? null : Math.min(100, Math.max(0, Number(form.depositPercent) || 0)),
-              depositRequired: form.depositPercent.trim() !== '' && Number(form.depositPercent) > 0,
+              depositType: form.depositType,
+              depositPercent: form.depositType === 'percent' ? Math.min(100, Math.max(0, Number(form.depositValue) || 0)) : null,
+              depositFlatCents: form.depositType === 'flat' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
+              breakevenHourlyCents: form.depositType === 'breakeven' ? Math.max(0, Math.round(Number(form.depositValue) * 100) || 0) : null,
+              depositRequired: form.depositType !== 'none',
               balanceMode: form.balanceMode,
             });
           }
@@ -4210,14 +4226,42 @@ export default function BoothsPage() {
               </div>
             </div>
 
-            <div className="space-y-1">
-              <Label>Deposit (optional)</Label>
-              <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Charge a percentage up front instead of the full amount. Blank = use your studio default. 0 or blank = full payment.</p>
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Deposit</Label>
+              <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Collect part of the total up front; the rest becomes a balance. Choose how the deposit is calculated.</p>
+              <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                {([['none', 'Full payment'], ['flat', 'Flat $'], ['percent', 'Percent'], ['breakeven', 'Break-even']] as const).map(([v, l]) => (
+                  <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, depositType: v }))}
+                    className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.depositType === v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {form.depositType === 'flat' && (
                 <div className="flex items-center gap-2">
-                  <Input type="number" min={0} max={100} placeholder="e.g. 25" value={form.depositPercent} onChange={(e) => setForm(prev => ({ ...prev, depositPercent: e.target.value }))} />
-                  <span className="text-xs font-bold text-muted-foreground">%</span>
+                  <span className="text-sm font-bold">$</span>
+                  <Input type="number" min={0} step="0.01" placeholder="e.g. 30" value={form.depositValue} onChange={(e) => setForm(prev => ({ ...prev, depositValue: e.target.value }))} />
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">flat deposit</span>
                 </div>
+              )}
+              {form.depositType === 'percent' && (
+                <div className="flex items-center gap-2">
+                  <Input type="number" min={0} max={100} placeholder="e.g. 25" value={form.depositValue} onChange={(e) => setForm(prev => ({ ...prev, depositValue: e.target.value }))} />
+                  <span className="text-sm font-bold">%</span>
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">of the total</span>
+                </div>
+              )}
+              {form.depositType === 'breakeven' && (
+                <div className="rounded-xl border-2 border-slate-100 p-3 space-y-1.5">
+                  <p className="text-[10px] font-bold text-muted-foreground">The deposit covers your cost to hold this space — your break-even for the booked time, so a cancellation never leaves you out of pocket. Set your hourly cost to operate this space:</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold">$</span>
+                    <Input type="number" min={0} step="0.01" placeholder="e.g. 12.50" value={form.depositValue} onChange={(e) => setForm(prev => ({ ...prev, depositValue: e.target.value }))} />
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">/ hour cost</span>
+                  </div>
+                </div>
+              )}
+              {form.depositType !== 'none' && (
                 <Select value={form.balanceMode} onValueChange={(v) => setForm(prev => ({ ...prev, balanceMode: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -4225,7 +4269,7 @@ export default function BoothsPage() {
                     <SelectItem value="at_checkin">Balance at check-in</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
+              )}
             </div>
 
             <div className="space-y-1">
