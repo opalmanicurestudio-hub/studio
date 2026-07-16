@@ -1017,11 +1017,37 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     const dt = (applyFor as any).depositType ?? (compRules.depositRequired ? (compRules.depositType || 'percent') : 'none');
                                     if (!dt || dt === 'none') return null;
                                     const bm = ((applyFor as any).balanceMode || compRules.balanceMode) === 'at_checkin' ? 'at check-in' : 'in person';
-                                    let label = '';
-                                    if (dt === 'flat') { const f = ((applyFor as any).depositFlatCents ?? compRules.depositFlatCents ?? 0) / 100; if (f > 0) label = `$${f.toFixed(0)} deposit charged now`; }
-                                    else if (dt === 'percent') { const p = (applyFor as any).depositPercent ?? compRules.depositPercent ?? 0; if (p > 0 && p < 100) label = `${p}% deposit charged now`; }
-                                    else if (dt === 'breakeven') { label = 'A deposit to hold your time is charged now'; }
-                                    return label ? <p className="text-[11px] font-bold text-white/60">{label} · balance {bm}</p> : null;
+                                    // Total from the current selection (same math as priceLine)
+                                    let totalCents = 0;
+                                    if (useTime && pickedSlot) totalCents = pickedSlot.amountCents;
+                                    else if (useTime && form.startTime && form.endTime && hourlyRateOf(applyFor)) {
+                                      const hrs = (toMin(form.endTime) - toMin(form.startTime)) / 60;
+                                      if (hrs > 0) totalCents = Math.round(hourlyRateOf(applyFor).amountCents * hrs);
+                                    } else if (!useTime && form.startDate && form.endDate && dailyRateOf(applyFor)) {
+                                      const days = Math.round((new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 86400000) + 1;
+                                      if (days > 0) totalCents = dailyRateOf(applyFor).amountCents * days;
+                                    }
+                                    const hrsBooked = useTime && form.startTime && form.endTime
+                                      ? Math.max(0, (toMin(form.endTime) - toMin(form.startTime)) / 60) : 8;
+                                    let dep = 0;
+                                    if (dt === 'flat') dep = Number((applyFor as any).depositFlatCents ?? compRules.depositFlatCents) || 0;
+                                    else if (dt === 'percent') { const p = Number((applyFor as any).depositPercent ?? compRules.depositPercent) || 0; if (p > 0 && p < 100) dep = Math.round(totalCents * p / 100); }
+                                    else if (dt === 'breakeven') { const hr = Number((applyFor as any).breakevenHourlyCents ?? compRules.breakevenHourlyCents) || 0; dep = Math.round(hr * hrsBooked); }
+                                    if (totalCents > 100) dep = Math.min(dep, totalCents);
+                                    // Break-even may resolve server-side from TMHR — be honest when unknown
+                                    if (dep <= 0) {
+                                      return dt === 'breakeven'
+                                        ? <p className="text-[11px] font-bold text-white/60">A hold-your-time deposit is calculated at checkout · balance {bm}</p>
+                                        : null;
+                                    }
+                                    if (totalCents > 100 && dep >= totalCents) return null;
+                                    const bal = totalCents > 0 ? totalCents - dep : 0;
+                                    return (
+                                      <div className="pt-1 space-y-0.5">
+                                        <p className="text-sm font-black">Due now: <span className="text-emerald-300">${(dep / 100).toFixed(2)}</span> <span className="text-[10px] font-bold text-white/50 uppercase">deposit</span></p>
+                                        {bal > 0 && <p className="text-[11px] font-bold text-white/60">Balance ${(bal / 100).toFixed(2)} {bm}</p>}
+                                      </div>
+                                    );
                                   })()}
                                 </div>
 
