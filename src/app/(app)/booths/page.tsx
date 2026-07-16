@@ -262,6 +262,7 @@ interface BoothFormState {
   closeTime: string;
   bookingSlots: { label: string; start: string; end: string; dollars: string }[];
   shape: string;
+  startIncrementMins: string;   // '15' | '30' | '60' — hourly start-time grid
   depositType: string;      // 'none' | 'flat' | 'percent' | 'breakeven'
   depositValue: string;     // dollars for flat, % for percent, ignored for breakeven/none
   balanceMode: string;
@@ -285,6 +286,7 @@ const EMPTY_FORM: BoothFormState = {
   closeTime: '',
   bookingSlots: [],
   shape: 'rect',
+  startIncrementMins: '30',
   depositType: 'none',
   depositValue: '',
   balanceMode: 'in_person',
@@ -2722,6 +2724,7 @@ export default function BoothsPage() {
       typeValue: booth.type ?? 'booth',
       notes: booth.notes ?? '',
       baseRentDollars: (booth.baseRentCents / 100).toString(),
+      startIncrementMins: (booth as any).startIncrementMins ? String((booth as any).startIncrementMins) : '30',
       depositType: (booth as any).depositType || ((booth as any).depositPercent > 0 ? 'percent' : 'none'),
       depositValue: (booth as any).depositType === 'flat'
         ? String(((booth as any).depositFlatCents || 0) / 100)
@@ -2792,6 +2795,7 @@ export default function BoothsPage() {
             balanceMode: form.balanceMode,
             openTime: form.openTime || null,
             closeTime: form.closeTime || null,
+            startIncrementMins: Number(form.startIncrementMins) || 30,
             bookingSlots: form.bookingSlots
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
@@ -2826,6 +2830,7 @@ export default function BoothsPage() {
           balanceMode: form.balanceMode,
           openTime: form.openTime || null,
           closeTime: form.closeTime || null,
+          startIncrementMins: Number(form.startIncrementMins) || 30,
           bookingSlots: form.bookingSlots
               .filter(s => s.label.trim() && s.start && s.end && toNumber(s.dollars) > 0)
               .map(s => ({ label: s.label.trim(), startTime: s.start, endTime: s.end, amountCents: Math.round(toNumber(s.dollars) * 100) })),
@@ -4223,6 +4228,17 @@ export default function BoothsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <Input type="time" value={form.openTime} onChange={(e) => setForm(prev => ({ ...prev, openTime: e.target.value }))} />
                 <Input type="time" value={form.closeTime} onChange={(e) => setForm(prev => ({ ...prev, closeTime: e.target.value }))} />
+              </div>
+              <div className="pt-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Offer start times every</p>
+                <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                  {(['15', '30', '60'] as const).map(m => (
+                    <button key={m} type="button" onClick={() => setForm(prev => ({ ...prev, startIncrementMins: m }))}
+                      className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.startIncrementMins === m ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                      {m === '60' ? '1 hour' : `${m} min`}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
