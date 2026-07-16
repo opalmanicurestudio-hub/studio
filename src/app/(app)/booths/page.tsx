@@ -4231,7 +4231,15 @@ export default function BoothsPage() {
               <p className="text-[10px] font-bold text-muted-foreground -mt-0.5">Collect part of the total up front; the rest becomes a balance. Choose how the deposit is calculated.</p>
               <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
                 {([['none', 'Full payment'], ['flat', 'Flat $'], ['percent', 'Percent'], ['breakeven', 'Break-even']] as const).map(([v, l]) => (
-                  <button key={v} type="button" onClick={() => setForm(prev => ({ ...prev, depositType: v }))}
+                  <button key={v} type="button" onClick={() => setForm(prev => {
+                    const next = { ...prev, depositType: v };
+                    // Break-even defaults to your studio TMHR from Foundation
+                    if (v === 'breakeven' && !prev.depositValue) {
+                      const tmhr = Number((selectedTenant as any)?.tmhr) || 0;
+                      if (tmhr > 0) next.depositValue = tmhr.toFixed(2);
+                    }
+                    return next;
+                  })}
                     className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${form.depositType === v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
                     {l}
                   </button>
@@ -4251,16 +4259,33 @@ export default function BoothsPage() {
                   <span className="text-[10px] font-bold text-muted-foreground uppercase">of the total</span>
                 </div>
               )}
-              {form.depositType === 'breakeven' && (
+              {form.depositType === 'breakeven' && (() => {
+                const tmhr = Number((selectedTenant as any)?.tmhr) || 0;
+                const val = Number(form.depositValue) || 0;
+                const differs = tmhr > 0 && Math.abs(val - tmhr) > 0.005;
+                return (
                 <div className="rounded-xl border-2 border-slate-100 p-3 space-y-1.5">
-                  <p className="text-[10px] font-bold text-muted-foreground">The deposit covers your cost to hold this space — your break-even for the booked time, so a cancellation never leaves you out of pocket. Set your hourly cost to operate this space:</p>
+                  <p className="text-[10px] font-bold text-muted-foreground">The deposit covers your cost to hold this space — your break-even for the booked time, so a cancellation never leaves you out of pocket.</p>
+                  {tmhr > 0 ? (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">✓ Pulled from your Foundation · TMHR ${tmhr.toFixed(2)}/hr</p>
+                  ) : (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">Set your TMHR in Financial Foundation to auto-fill this</p>
+                  )}
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold">$</span>
-                    <Input type="number" min={0} step="0.01" placeholder="e.g. 12.50" value={form.depositValue} onChange={(e) => setForm(prev => ({ ...prev, depositValue: e.target.value }))} />
+                    <Input type="number" min={0} step="0.01" placeholder={tmhr > 0 ? tmhr.toFixed(2) : 'e.g. 12.50'} value={form.depositValue} onChange={(e) => setForm(prev => ({ ...prev, depositValue: e.target.value }))} />
                     <span className="text-[10px] font-bold text-muted-foreground uppercase">/ hour cost</span>
                   </div>
+                  {differs && (
+                    <button type="button" onClick={() => setForm(prev => ({ ...prev, depositValue: tmhr.toFixed(2) }))}
+                      className="text-[10px] font-black uppercase tracking-widest text-indigo-600 underline">
+                      Reset to studio TMHR (${tmhr.toFixed(2)})
+                    </button>
+                  )}
+                  <p className="text-[9px] font-bold text-muted-foreground">Override above if this specific space costs more or less to hold than your studio average.</p>
                 </div>
-              )}
+                );
+              })()}
               {form.depositType !== 'none' && (
                 <Select value={form.balanceMode} onValueChange={(v) => setForm(prev => ({ ...prev, balanceMode: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
