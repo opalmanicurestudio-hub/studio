@@ -292,6 +292,9 @@ export async function POST(req: NextRequest) {
       complianceCapturedAt: (doingServices || licenseNumber || insuranceConfirmed || idAcknowledged || licenseDocUrl || insuranceDocUrl || idDocUrl) ? nowIso : null,
     });
 
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return NextResponse.json({ ok: false, error: 'Payments are not configured yet (missing Stripe key on the server). Add STRIPE_SECRET_KEY in Vercel → Settings → Environment Variables, then redeploy.' }, { status: 500 });
+    }
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
     const base = String(returnUrl).split('?')[0];
     for (const cid of appliedCreditIds) {
@@ -343,9 +346,10 @@ export async function POST(req: NextRequest) {
     });
     await resRef.set({ stripeSessionId: session.id, stripeCustomerId: customerId }, { merge: true });
     return NextResponse.json({ ok: true, url: session.url });
-  } catch (err) {
+  } catch (err: any) {
     console.error('[booth-reserve] POST failed', err);
-    return NextResponse.json({ ok: false, error: 'Could not start checkout.' }, { status: 500 });
+    const detail = String(err?.raw?.message || err?.message || '').slice(0, 180);
+    return NextResponse.json({ ok: false, error: `Could not start checkout${detail ? `: ${detail}` : '.'}` }, { status: 500 });
   }
 }
 
