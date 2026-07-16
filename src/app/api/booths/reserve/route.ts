@@ -195,9 +195,11 @@ export async function POST(req: NextRequest) {
     // ── Tranche 2: deposit split. Per-space override wins; else tenant rule.
     // booth.depositPercent (0-100) or booth.depositRequired === false disables.
     let rules: any = {};
+    let tenantData: any = {};
     try {
       const tSnap = await db.doc(`tenants/${tenantId}`).get();
-      rules = (tSnap.data() as any)?.bookingPageSettings?.automationRules || {};
+      tenantData = (tSnap.data() as any) || {};
+      rules = tenantData?.bookingPageSettings?.automationRules || {};
     } catch { /* defaults below */ }
     // Per-space deposit config wins ONLY when explicitly typed; otherwise
     // fall back to the tenant default. (Bug fix: a booth saved with
@@ -224,7 +226,13 @@ export async function POST(req: NextRequest) {
       const pct = usePerSpace ? (Number(booth.depositPercent) || 0) : (Number(rules.depositPercent) || 0);
       if (pct > 0 && pct < 100) depositCents = Math.max(100, Math.round(netCents * (pct / 100)));
     } else if (depositType === 'breakeven') {
-      const hourly = usePerSpace ? (Number(booth.breakevenHourlyCents) || 0) : (Number(rules.breakevenHourlyCents) || 0);
+      // Per-space cost wins; else the studio's TMHR (Total cost per hour
+      // from Financial Foundation); else the tenant rule's configured rate.
+      let hourly = usePerSpace ? (Number(booth.breakevenHourlyCents) || 0) : 0;
+      if (hourly <= 0) {
+        const tmhrDollars = Number(tenantData?.tmhr) || 0;   // stored in dollars/hr
+        hourly = tmhrDollars > 0 ? Math.round(tmhrDollars * 100) : (Number(rules.breakevenHourlyCents) || 0);
+      }
       depositCents = Math.min(netCents, Math.max(0, Math.round(hourly * hoursBooked)));
     }
     // Only split if the deposit is a real partial amount
