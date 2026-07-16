@@ -20,6 +20,19 @@ import { getAdminDb } from '@/lib/firebase-admin';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 
+async function loadRules(db: FirebaseFirestore.Firestore, tenantId: string): Promise<any> {
+  const DEFAULTS = {
+    toursEnabled: true, tourAutoConfirm: true, tourDurationMins: 30,
+    tourDays: [1, 2, 3, 4, 5], tourWindowStart: '10:00', tourWindowEnd: '17:00',
+    bookingLeadHours: 2, bookingHorizonDays: 60,
+  };
+  try {
+    const t = await db.doc(`tenants/${tenantId}`).get();
+    const rules = (t.data() as any)?.bookingPageSettings?.automationRules;
+    return { ...DEFAULTS, ...(rules || {}) };
+  } catch { return DEFAULTS; }
+}
+
 async function findAgreement(db: FirebaseFirestore.Firestore, tenantId: string): Promise<string> {
   // The booking page's application agreement lives in the page-builder
   // config. Try the plausible locations defensively; a miss is fine —
@@ -356,6 +369,83 @@ export async function POST(req: NextRequest) {
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
         message: `🚫 Cancellation requested: ${r.name} — ${r.boothName}, ${r.startDate}${r.bookingType === 'hourly' && r.startTime ? ` ${r.startTime}` : ''}. Review to refund or decline.${reason ? ` Reason: "${String(reason).slice(0, 100)}"` : ''}` });
       return NextResponse.json({ ok: true });
+    }
+
+    // ── v88 TOUR SCHEDULING (pipeline Step 3) ────────────────────────
+    // 'tour-slots': open tour times for a date, per the owner's rules,
+    // minus already-booked tours. Real appointment scheduling.
+    if (action === 'tour-slots') {
+      const { date } = body;   // YYYY-MM-DD
+      if (!date) return NextResponse.json({ ok: false, error: 'Missing date.' }, { status: 400 });
+      const rules = await loadRules(db, tenantId);
+      if (!rules.toursEnabled) return NextResponse.json({ ok: true, slots: [], toursOff: true });
+      const dow = new Date(date + 'T00:00:00Z').getUTCDay();
+      if (!rules.tourDays.includes(dow)) return NextResponse.json({ ok: true, slots: [] });
+
+      const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const dur = rules.tourDurationMins || 30;
+      const startM = toMin(rules.tourWindowStart || '10:00');
+      const endM = toMin(rules.tourWindowEnd || '17:00');
+      const leadMs = (rules.bookingLeadHours || 0) * 3600000;
+      const now = Date.now();
+
+      // Existing tours that day → block those times
+      const tourSnap = await db.collection(`tenants/${tenantId}/tours`)
+        .where('date', '==', date).get();
+      const taken = new Set(tourSnap.docs
+        .map(d => d.data() as any)
+        .filter(t => ['requested', 'confirmed'].includes(t.status))
+        .map(t => t.time));
+
+      const slots: string[] = [];
+      for (let m = startM; m + dur <= endM; m += dur) {
+        const hhmm = `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+        if (taken.has(hhmm)) continue;
+        if (new Date(`${date}T${hhmm}:00`).getTime() - now < leadMs) continue;   // lead-time
+        slots.push(hhmm);
+      }
+      return NextResponse.json({ ok: true, slots, durationMins: dur });
+    }
+
+    // 'tour-book': create the tour. auto-confirm or await approval per
+    // rules. Writes to /tours AND /boothApplications (kind:'tour') so it
+    // flows into the CRM pipeline as a 'Toured' stage contact.
+    if (action === 'tour-book') {
+      const { date, time, name, phone, email, message } = body;
+      if (!date || !time || !name || !(phone || email)) {
+        return NextResponse.json({ ok: false, error: 'Please give your name, a contact, and pick a time.' }, { status: 400 });
+      }
+      const rules = await loadRules(db, tenantId);
+      if (!rules.toursEnabled) return NextResponse.json({ ok: false, error: 'Tours are not currently offered.' }, { status: 400 });
+
+      // Re-check the slot is still free (race guard)
+      const clashSnap = await db.collection(`tenants/${tenantId}/tours`).where('date', '==', date).get();
+      if (clashSnap.docs.some(d => { const t = d.data() as any; return t.time === time && ['requested', 'confirmed'].includes(t.status); })) {
+        return NextResponse.json({ ok: false, error: 'That time was just taken — please pick another.' }, { status: 409 });
+      }
+
+      const nowIso = new Date().toISOString();
+      const status = rules.tourAutoConfirm ? 'confirmed' : 'requested';
+      const tourRef = db.collection(`tenants/${tenantId}/tours`).doc();
+      await tourRef.set({
+        id: tourRef.id, date, time, durationMins: rules.tourDurationMins || 30,
+        name, phone: phone || '', email: email || '', message: String(message || '').slice(0, 500),
+        status, createdAt: nowIso, tenantId,
+      });
+      // Pipeline record — shows up in Contacts as 'Toured'
+      const appRef = db.collection(`tenants/${tenantId}/boothApplications`).doc();
+      await appRef.set({
+        id: appRef.id, kind: 'tour', name, phone: phone || '', email: email || '',
+        message: `Tour ${status === 'confirmed' ? 'booked' : 'requested'} for ${date} ${time}${message ? ` — "${message}"` : ''}`,
+        status: 'new', tourId: tourRef.id, tourDate: date, tourTime: time,
+        createdAt: nowIso, tenantId,
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_tour', read: false, createdAt: nowIso, link: '/booths',
+        message: `📅 Tour ${status === 'confirmed' ? 'booked' : 'requested'}: ${name} — ${date} at ${time}${status === 'requested' ? ' (needs your OK)' : ''}` });
+
+      return NextResponse.json({ ok: true, status, autoConfirmed: status === 'confirmed' });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
