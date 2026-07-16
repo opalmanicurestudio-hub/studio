@@ -130,6 +130,20 @@ export const boothAutomation = onSchedule(
           }
         }
 
+        // ── 2.7 No-show flag (v84): a confirmed booking whose end date
+        // passed with no check-in never happened. Flag it once so the
+        // owner can apply their no-show policy and free the record.
+        const noShowSnap = await db.collection(`tenants/${tenantId}/boothReservations`)
+          .where('status', '==', 'confirmed').get();
+        for (const d of noShowSnap.docs) {
+          const r = d.data() as any;
+          if (r.noShow || r.actualCheckIn) continue;
+          if (r.endDate && r.endDate < yesterday) {
+            await d.ref.set({ noShow: true, noShowAt: new Date().toISOString() }, { merge: true });
+            await notify(db, tenantId, `👻 No-show: ${r.name} never checked in for ${r.boothName} (${r.startDate}). Apply your no-show policy if needed.`);
+          }
+        }
+
         // ── 3. Auto-relist ────────────────────────────────────────────
         const endedYesterday = leases.filter(l => l.endDate === yesterday && OCCUPYING.includes(l.status));
         for (const l of endedYesterday) {
