@@ -331,6 +331,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // ── v84 CANCELLATION REQUEST: guest asks; owner decides (refunds are
+    // money — never auto-issued). Flags the reservation and notifies.
+    if (action === 'stay-cancel') {
+      const { reservationId, reason } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      if (!reservationId || last4.length !== 4) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      if (['checked_in', 'completed'].includes(r.status)) {
+        return NextResponse.json({ ok: false, error: 'This stay has already started — please talk to the front desk.' }, { status: 400 });
+      }
+      if (r.cancelRequestedAt) return NextResponse.json({ ok: true, already: true });
+      const nowIso = new Date().toISOString();
+      await ref.set({ cancelRequestedAt: nowIso, cancelReason: String(reason || '').slice(0, 500), status: 'cancel_requested' }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+        message: `🚫 Cancellation requested: ${r.name} — ${r.boothName}, ${r.startDate}${r.bookingType === 'hourly' && r.startTime ? ` ${r.startTime}` : ''}. Review to refund or decline.${reason ? ` Reason: "${String(reason).slice(0, 100)}"` : ''}` });
+      return NextResponse.json({ ok: true });
+    }
+
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
   } catch (err) {
     console.error('[kiosk] failed', err);
