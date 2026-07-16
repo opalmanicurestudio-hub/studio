@@ -108,7 +108,7 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Calculator, MonitorSmartphone,
+  Calculator, MonitorSmartphone, Settings,
   TrendingUp,
   AlertTriangle,
   CheckCircle2,
@@ -170,6 +170,7 @@ import {
   useOccupyingLeaseByBooth,
 } from '@/lib/booth-rental-hooks';
 import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
+import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
@@ -1671,6 +1672,7 @@ export default function BoothsPage() {
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [kioskOpen, setKioskOpen] = useState(false);
   const [viewingApp, setViewingApp] = useState<any | null>(null);
+  const [autoSettingsOpen, setAutoSettingsOpen] = useState(false);
   const [plannerDay, setPlannerDay] = useState<string>(new Date().toISOString().slice(0, 10));
 
   const [kioskCopied, setKioskCopied] = useState(false);
@@ -2968,6 +2970,9 @@ export default function BoothsPage() {
               </Button>
               <Button size="sm" variant="outline" onClick={() => setKioskOpen(true)}>
                 <MonitorSmartphone className="h-3.5 w-3.5 mr-1" />Kiosk
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setAutoSettingsOpen(true)}>
+                <Settings className="h-3.5 w-3.5 mr-1" />Automations
               </Button>
               {spaceView === 'floor' && !isMobile && (
                 <>
@@ -4365,6 +4370,17 @@ export default function BoothsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+
+      {/* ── Automation settings (v85) ── */}
+      <Dialog open={autoSettingsOpen} onOpenChange={setAutoSettingsOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <BoothAutomationSettings
+            tenantId={tenantId}
+            firestore={firestore}
+            initial={(selectedTenant as any)?.bookingPageSettings?.automationRules}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* ── Full application dialog (v81) ── */}
       <Dialog open={!!viewingApp} onOpenChange={(o) => { if (!o) setViewingApp(null); }}>
