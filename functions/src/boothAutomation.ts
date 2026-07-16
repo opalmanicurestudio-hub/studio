@@ -1,166 +1,225 @@
+'use client';
+
 /**
- * boothAutomation.ts — v1 (PHASE 5: the automation engine)
+ * BoothAutomationSettings — v1  (the owner's rulebook)
  *
- * One scheduled function, runs daily at 7:00 AM America/New_York, three jobs:
+ * One surface where the owner defines HOW their rental business runs.
+ * Every automation elsewhere (confirmations, reminders, reviews, tours,
+ * cancellation, no-show, deposits) reads these rules instead of hardcoded
+ * behavior — the difference between software that has features and
+ * software that runs *your* business your way.
  *
- *  1. LEASE EXPIRY LADDER — leases ending in exactly 60, 30, 7, or 1 days
- *     produce an owner notification ("Renew or re-list?"). Exact-day
- *     matching means each lease alerts once per rung, never spams.
+ * Stored at tenants/{id}.bookingPageSettings.automationRules — beside the
+ * page-builder config, already loaded with the tenant object. The Cloud
+ * Functions (conciergeMessenger, boothAutomation, rentCollector) read the
+ * same path so on-server automation obeys these settings too.
  *
- *  2. TOMORROW'S ARRIVALS — confirmed day/hourly rentals starting tomorrow
- *     produce a heads-up notification with the guest's name, space, and
- *     time window, so the space is ready before they walk in.
- *
- *  3. AUTO-RELIST — leases whose endDate passed yesterday: if the booth
- *     has no other occupying lease, flip it back to 'vacant' so it
- *     reappears on the public listings automatically. The vacancy shows
- *     in the planner and KPIs the same morning.
- *
- * Deploy (from your functions directory, alongside onNotificationCreate):
- *   1. Save as functions/src/boothAutomation.ts
- *   2. In functions/src/index.ts add:  export { boothAutomation } from './boothAutomation';
- *   3. firebase deploy --only functions:boothAutomation
- *
- * Notifications land in tenants/{tid}/notifications — the same collection
- * your bell and push pipeline (onNotificationCreate) already consume, so
- * these alerts get push delivery for free.
+ * Drop into your booths hub or a settings route:
+ *   <BoothAutomationSettings tenantId={tenantId} firestore={firestore}
+ *     initial={selectedTenant?.bookingPageSettings?.automationRules} />
  */
 
-import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeApp, getApps } from 'firebase-admin/app';
+import React, { useState } from 'react';
+import { doc, updateDoc } from 'firebase/firestore';
+import type { Firestore } from 'firebase/firestore';
 
-if (getApps().length === 0) initializeApp();
+// The canonical rulebook shape. Every field has a safe default so a
+// tenant who never opens this screen still gets sensible behavior.
+export const DEFAULT_AUTOMATION_RULES = {
+  // ── Booking window ──
+  bookingLeadHours: 2,           // min notice before a slot
+  bookingHorizonDays: 60,        // how far ahead guests can book
+  // ── Tours ──
+  toursEnabled: true,
+  tourAutoConfirm: true,         // false = tour requests need owner approval
+  tourDurationMins: 30,
+  tourDays: [1, 2, 3, 4, 5],     // weekdays tours are offered (0=Sun)
+  tourWindowStart: '10:00',
+  tourWindowEnd: '17:00',
+  // ── Deposits & payment ──
+  depositRequired: false,
+  depositPercent: 25,
+  // ── Cancellation ──
+  cancellationEnabled: true,
+  cancellationWindowHours: 24,   // free cancel if this far ahead
+  noShowFeeCents: 0,             // 0 = none
+  // ── Reminders & follow-up (all via SMS if Twilio configured) ──
+  sendConfirmationSms: true,
+  sendReminderSms: true,
+  reminderHoursBefore: 24,
+  askForReview: true,
+  // ── Compliance required at booking (Tranche 1) ──
+  requireLicense: false,       // guest must provide a professional license #
+  requireInsurance: false,     // guest must attest to liability insurance
+  requireIdVerification: false,// guest must acknowledge ID will be checked
+  complianceAppliesTo: 'services', // 'services' = only if performing services · 'all'
+  // ── House rules (shown on stay page + kiosk) ──
+  houseRules: '',
+} as const;
 
-const OCCUPYING = ['active', 'on_leave', 'pending_signature'];
-const EXPIRY_RUNGS = [60, 30, 7, 1];
+type Rules = typeof DEFAULT_AUTOMATION_RULES & Record<string, any>;
 
-function isoDaysFromNow(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+const WEEKDAYS = [['Sun', 0], ['Mon', 1], ['Tue', 2], ['Wed', 3], ['Thu', 4], ['Fri', 5], ['Sat', 6]] as const;
+
+export function BoothAutomationSettings({
+  tenantId, firestore, initial,
+}: {
+  tenantId: string;
+  firestore: Firestore;
+  initial?: Partial<Rules>;
+}) {
+  const [rules, setRules] = useState<Rules>({ ...DEFAULT_AUTOMATION_RULES, ...(initial || {}) });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const set = <K extends keyof Rules>(k: K, v: Rules[K]) => { setRules(r => ({ ...r, [k]: v })); setSaved(false); };
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { 'bookingPageSettings.automationRules': rules });
+      setSaved(true);
+    } catch { /* surface nothing destructive; the button state conveys it */ }
+    finally { setSaving(false); }
+  };
+
+  const Toggle = ({ label, hint, k }: { label: string; hint?: string; k: keyof Rules }) => (
+    <button type="button" onClick={() => set(k, !rules[k] as any)}
+      className={`w-full rounded-2xl border-2 p-3.5 flex items-center gap-3 text-left transition-colors ${rules[k] ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
+      <span className={`w-11 h-6 rounded-full shrink-0 relative transition-colors ${rules[k] ? 'bg-slate-900' : 'bg-slate-200'}`}>
+        <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${rules[k] ? 'left-[22px]' : 'left-0.5'}`} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-xs font-black uppercase tracking-tight">{label}</span>
+        {hint && <span className="block text-[10px] font-bold text-muted-foreground">{hint}</span>}
+      </span>
+    </button>
+  );
+
+  const NumField = ({ label, k, suffix }: { label: string; k: keyof Rules; suffix?: string }) => (
+    <div className="space-y-1">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{label}</p>
+      <div className="flex items-center gap-2">
+        <input type="number" value={rules[k] as any} onChange={e => set(k, Number(e.target.value) as any)}
+          className="w-24 h-10 rounded-xl border-2 px-3 text-sm font-bold" />
+        {suffix && <span className="text-[10px] font-bold text-muted-foreground uppercase">{suffix}</span>}
+      </div>
+    </div>
+  );
+
+  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+    <div className="rounded-2xl border-2 bg-white p-4 space-y-3">
+      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{title}</p>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <div>
+        <h2 className="text-xl font-black tracking-tight">Booking automation</h2>
+        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">Set the rules once — the system runs your business by them</p>
+      </div>
+
+      <Section title="Booking window">
+        <div className="grid grid-cols-2 gap-4">
+          <NumField label="Minimum notice" k="bookingLeadHours" suffix="hours ahead" />
+          <NumField label="Book up to" k="bookingHorizonDays" suffix="days out" />
+        </div>
+      </Section>
+
+      <Section title="Tours">
+        <Toggle label="Offer tours" hint="Let prospects schedule a walk-through" k="toursEnabled" />
+        {rules.toursEnabled && (
+          <>
+            <Toggle label="Auto-confirm tour requests" hint={rules.tourAutoConfirm ? 'Tours confirm instantly' : 'You approve each tour request'} k="tourAutoConfirm" />
+            <div className="grid grid-cols-2 gap-4">
+              <NumField label="Tour length" k="tourDurationMins" suffix="minutes" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Tour days</p>
+              <div className="flex flex-wrap gap-1.5">
+                {WEEKDAYS.map(([lbl, val]) => (
+                  <button key={val} type="button"
+                    onClick={() => set('tourDays', (rules.tourDays.includes(val) ? rules.tourDays.filter((d: number) => d !== val) : [...rules.tourDays, val]) as any)}
+                    className={`h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase transition-colors ${rules.tourDays.includes(val) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-400'}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tours from</p>
+                <input type="time" value={rules.tourWindowStart} onChange={e => set('tourWindowStart', e.target.value)} className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Tours until</p>
+                <input type="time" value={rules.tourWindowEnd} onChange={e => set('tourWindowEnd', e.target.value)} className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold" />
+              </div>
+            </div>
+          </>
+        )}
+      </Section>
+
+      <Section title="Deposits">
+        <Toggle label="Require a deposit" hint="Collect a percentage up front on bookings" k="depositRequired" />
+        {rules.depositRequired && <NumField label="Deposit amount" k="depositPercent" suffix="% of total" />}
+      </Section>
+
+      <Section title="Cancellation & no-shows">
+        <Toggle label="Allow self-service cancellation" hint="Guests can request a cancel from their booking page" k="cancellationEnabled" />
+        {rules.cancellationEnabled && <NumField label="Free-cancel window" k="cancellationWindowHours" suffix="hours before" />}
+        <div className="space-y-1">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">No-show fee</p>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold">$</span>
+            <input type="number" value={(rules.noShowFeeCents / 100) || 0} onChange={e => set('noShowFeeCents', Math.round(Number(e.target.value) * 100) as any)}
+              className="w-24 h-10 rounded-xl border-2 px-3 text-sm font-bold" />
+            <span className="text-[10px] font-bold text-muted-foreground uppercase">0 = none</span>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Messages & follow-up">
+        <Toggle label="Booking confirmation text" hint="SMS with details + check-in link when booked" k="sendConfirmationSms" />
+        <Toggle label="Reminder text" hint="A nudge before the booking" k="sendReminderSms" />
+        {rules.sendReminderSms && <NumField label="Remind" k="reminderHoursBefore" suffix="hours before" />}
+        <Toggle label="Ask for a review" hint="Text 'how was your stay?' after checkout" k="askForReview" />
+      </Section>
+
+      <Section title="Compliance at booking">
+        <p className="text-[10px] font-bold text-muted-foreground -mt-1">Protect yourself and your business. Guests performing services on the public should be licensed and insured — an unlicensed, uninsured person working in your space is your exposure.</p>
+        <Toggle label="Require professional license" hint="Guest provides their license number when booking" k="requireLicense" />
+        <Toggle label="Require insurance attestation" hint="Guest confirms they carry liability insurance" k="requireInsurance" />
+        <Toggle label="Require ID check acknowledgment" hint="Guest agrees to show photo ID at check-in" k="requireIdVerification" />
+        {(rules.requireLicense || rules.requireInsurance || rules.requireIdVerification) && (
+          <div className="rounded-xl border-2 border-slate-100 p-3 space-y-2">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Applies to</p>
+            <div className="flex gap-1.5">
+              {([['services', 'Only if doing services'], ['all', 'Every booking']] as const).map(([v, l]) => (
+                <button key={v} type="button" onClick={() => set('complianceAppliesTo', v as any)}
+                  className={`flex-1 h-9 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${rules.complianceAppliesTo === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </Section>
+
+      <Section title="House rules">
+        <p className="text-[10px] font-bold text-muted-foreground -mt-1">Shown on the booking page and kiosk. Guests acknowledge these before their visit.</p>
+        <textarea rows={4} value={rules.houseRules} onChange={e => set('houseRules', e.target.value)}
+          placeholder="Treat the space and equipment with care, keep your station clean, respect other professionals and their clients…"
+          className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
+      </Section>
+
+      <button onClick={save} disabled={saving}
+        className="w-full h-13 py-3.5 rounded-2xl bg-slate-900 text-white font-black uppercase text-[11px] tracking-widest disabled:opacity-40 transition-opacity">
+        {saving ? 'Saving…' : saved ? '✓ Saved — automations updated' : 'Save automation rules'}
+      </button>
+    </div>
+  );
 }
-
-async function notify(db: FirebaseFirestore.Firestore, tenantId: string, message: string, link = '/booths') {
-  const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
-  await ref.set({
-    id: ref.id,
-    type: 'booth_automation',
-    read: false,
-    createdAt: new Date().toISOString(),
-    link,
-    message,
-  });
-}
-
-export const boothAutomation = onSchedule(
-  { schedule: '0 7 * * *', timeZone: 'America/New_York', region: 'us-central1' },
-  async () => {
-    const db = getFirestore();
-    const tenantsSnap = await db.collection('tenants').get();
-    const today = isoDaysFromNow(0);
-    const tomorrow = isoDaysFromNow(1);
-    const yesterday = isoDaysFromNow(-1);
-
-    for (const tenantDoc of tenantsSnap.docs) {
-      const tenantId = tenantDoc.id;
-      try {
-        // ── 1. Lease expiry ladder ────────────────────────────────────
-        const leasesSnap = await db.collection(`tenants/${tenantId}/leases`).get();
-        const leases = leasesSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }));
-
-        for (const rung of EXPIRY_RUNGS) {
-          const target = isoDaysFromNow(rung);
-          for (const l of leases) {
-            if (!OCCUPYING.includes(l.status) || l.endDate !== target) continue;
-            let who = 'a renter';
-            let boothName = 'a space';
-            try {
-              const [rSnap, bSnap] = await Promise.all([
-                l.renterId ? db.doc(`tenants/${tenantId}/renters/${l.renterId}`).get() : null,
-                l.boothId ? db.doc(`tenants/${tenantId}/booths/${l.boothId}`).get() : null,
-              ]);
-              if (rSnap?.exists) { const r = rSnap.data() as any; who = `${r.firstName || ''} ${r.lastName || ''}`.trim() || who; }
-              if (bSnap?.exists) { boothName = (bSnap.data() as any).name || boothName; }
-            } catch { /* names are cosmetic — never fail the job over them */ }
-            await notify(db, tenantId,
-              rung === 1
-                ? `⏰ ${boothName}'s lease with ${who} ends TOMORROW. Renew or prepare to re-list.`
-                : `📅 ${boothName}'s lease with ${who} ends in ${rung} days. Time to talk renewal.`);
-          }
-        }
-
-        // ── 2. Tomorrow's arrivals ────────────────────────────────────
-        const resSnap = await db.collection(`tenants/${tenantId}/boothReservations`)
-          .where('startDate', '==', tomorrow).get();
-        for (const d of resSnap.docs) {
-          const r = d.data() as any;
-          if (r.status !== 'confirmed') continue;
-          const when = r.bookingType === 'hourly' && r.startTime
-            ? `tomorrow ${r.startTime}–${r.endTime}`
-            : `tomorrow${r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}`;
-          await notify(db, tenantId, `🔔 Arriving ${when}: ${r.name} — ${r.boothName}. Space ready?`);
-        }
-
-        // ── 2.5 Credential expiry ladder (v80, niche-neutral): any
-        // tracked credential — license, permit, certification, insurance,
-        // whatever the renter's trade requires. Exact-day rungs: 30/7/0.
-        const rentersSnap = await db.collection(`tenants/${tenantId}/renters`).get();
-        for (const rd of rentersSnap.docs) {
-          const r = rd.data() as any;
-          if (r.status && !['active', 'on_leave', 'pending'].includes(r.status)) continue;
-          const who = `${r.firstName || ''} ${r.lastName || ''}`.trim() || 'A renter';
-          const creds: { label: string; expiry?: string }[] = Array.isArray(r.credentials) && r.credentials.length > 0
-            ? r.credentials
-            : [
-                ...(r.licenseExpiry ? [{ label: 'professional license', expiry: r.licenseExpiry }] : []),
-                ...(r.insuranceExpiry ? [{ label: 'liability insurance', expiry: r.insuranceExpiry }] : []),
-              ];
-          for (const cred of creds) {
-            const exp = cred?.expiry;
-            const label = (cred?.label || 'credential').toLowerCase();
-            if (!exp) continue;
-            for (const rung of [30, 7, 0]) {
-              if (exp === isoDaysFromNow(rung)) {
-                await notify(db, tenantId, rung === 0
-                  ? `🔴 ${who}'s ${label} EXPIRES TODAY. They should not work until renewed — this is your liability.`
-                  : `⚠ ${who}'s ${label} expires in ${rung} days (${exp}). Ask for the renewal now.`);
-              }
-            }
-          }
-        }
-
-        // ── 2.7 No-show flag (v84): a confirmed booking whose end date
-        // passed with no check-in never happened. Flag it once so the
-        // owner can apply their no-show policy and free the record.
-        const noShowSnap = await db.collection(`tenants/${tenantId}/boothReservations`)
-          .where('status', '==', 'confirmed').get();
-        for (const d of noShowSnap.docs) {
-          const r = d.data() as any;
-          if (r.noShow || r.actualCheckIn) continue;
-          if (r.endDate && r.endDate < yesterday) {
-            await d.ref.set({ noShow: true, noShowAt: new Date().toISOString() }, { merge: true });
-            await notify(db, tenantId, `👻 No-show: ${r.name} never checked in for ${r.boothName} (${r.startDate}). Apply your no-show policy if needed.`);
-          }
-        }
-
-        // ── 3. Auto-relist ────────────────────────────────────────────
-        const endedYesterday = leases.filter(l => l.endDate === yesterday && OCCUPYING.includes(l.status));
-        for (const l of endedYesterday) {
-          if (!l.boothId) continue;
-          const stillOccupied = leases.some(o =>
-            o.id !== l.id && o.boothId === l.boothId && OCCUPYING.includes(o.status) &&
-            (!o.endDate || o.endDate >= today));
-          if (stillOccupied) continue;
-          await db.doc(`tenants/${tenantId}/booths/${l.boothId}`).set(
-            { status: 'vacant', currentRenterId: null, updatedAt: new Date().toISOString() },
-            { merge: true });
-          await notify(db, tenantId, `🔄 Lease ended — space re-listed as vacant and visible on your public page. Review its listing?`);
-        }
-      } catch (err) {
-        // One tenant's bad data must never block the rest.
-        console.error(`[boothAutomation] tenant ${tenantId} failed`, err);
-      }
-    }
-  }
-);
