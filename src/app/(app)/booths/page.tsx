@@ -1776,39 +1776,7 @@ export default function BoothsPage() {
     return { avg: sum / reviews.length, count: reviews.length };
   }, [reviews]);
 
-  const guestBook = useMemo(() => {
-    const byContact = new Map<string, any>();
-    for (const r of reservations) {
-      if (!['confirmed', 'checked_in', 'completed'].includes(r.status)) continue;
-      const key = (r.phone || r.email || '').trim().toLowerCase();
-      if (!key) continue;
-      const g = byContact.get(key) || {
-        key, name: r.name || 'Guest', phone: r.phone || '', email: r.email || '',
-        visits: 0, totalCents: 0, lastDate: '', firstDate: '9999',
-      };
-      g.visits += 1;
-      g.totalCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
-      if ((r.startDate || '') > g.lastDate) { g.lastDate = r.startDate; g.name = r.name || g.name; }
-      if (Number(r.rating) >= 1 && (r.reviewedAt || '') > (g.lastReviewedAt || '')) { g.lastRating = r.rating; g.lastReviewedAt = r.reviewedAt || ''; }
-      if ((r.startDate || '') < g.firstDate) g.firstDate = r.startDate;
-      byContact.set(key, g);
-    }
-    // Approved inquiries who haven't booked yet — the contact must not
-    // vanish the moment you tap Approve.
-    for (const app of applications) {
-      if (app.status !== 'approved') continue;
-      const key = (app.phone || app.email || '').trim().toLowerCase();
-      if (!key || byContact.has(key)) continue;   // already a paying guest
-      byContact.set(key, {
-        key, name: app.name || 'Guest', phone: app.phone || '', email: app.email || '',
-        visits: 0, totalCents: 0,
-        lastDate: String(app.decidedAt || app.createdAt || '').slice(0, 10),
-        firstDate: String(app.createdAt || '').slice(0, 10),
-        inquiryOnly: true,
-      });
-    }
-    return Array.from(byContact.values()).sort((a, b) => b.lastDate.localeCompare(a.lastDate));
-  }, [reservations, applications]);
+
   const [guestBookOpen, setGuestBookOpen] = useState(false);
 
   const upcomingReservations = useMemo(() => {
@@ -2083,6 +2051,71 @@ export default function BoothsPage() {
   >({});
 
   const renterById = useRenterIndex(renters.data);
+  // ── v86 UNIFIED CRM (pipeline Step 2) ────────────────────────────────
+  // One contact identity per person, keyed by phone/email, merging every
+  // touchpoint: reservations, applications/tours, leases, reviews. Tour-
+  // takers and lease renters are valued on the SAME yardstick — lifetime
+  // value, visits, stage, rating — because they are finally one object.
+  // Stage ladder: inquiry → tour → applicant → guest → renter → repeat.
+  const guestBook = useMemo(() => {
+    const norm = (v: any) => (v || '').trim().toLowerCase();
+    const byContact = new Map<string, any>();
+    const get = (phone: any, email: any, name: any) => {
+      const key = norm(phone) || norm(email);
+      if (!key) return null;
+      let g = byContact.get(key);
+      if (!g) {
+        g = { key, name: name || 'Guest', phone: phone || '', email: email || '',
+          visits: 0, totalCents: 0, lastDate: '', firstDate: '9999',
+          stage: 'inquiry', stageRank: 0, tags: new Set<string>() };
+        byContact.set(key, g);
+      }
+      if (name && (!g.name || g.name === 'Guest')) g.name = name;
+      if (phone && !g.phone) g.phone = phone;
+      if (email && !g.email) g.email = email;
+      return g;
+    };
+    const STAGE_RANK: Record<string, number> = { inquiry: 0, tour: 1, applicant: 2, guest: 3, renter: 4, repeat: 5 };
+    const promote = (g: any, stage: string) => { if (STAGE_RANK[stage] > g.stageRank) { g.stage = stage; g.stageRank = STAGE_RANK[stage]; } };
+
+    // Reservations — paid guests, lifetime value, ratings
+    for (const r of reservations) {
+      if (!['confirmed', 'checked_in', 'completed', 'cancel_requested'].includes(r.status)) continue;
+      const g = get(r.phone, r.email, r.name); if (!g) continue;
+      if (['confirmed', 'checked_in', 'completed'].includes(r.status)) {
+        g.visits += 1;
+        g.totalCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
+        promote(g, g.visits > 1 ? 'repeat' : 'guest');
+      }
+      if ((r.startDate || '') > g.lastDate) { g.lastDate = r.startDate; }
+      if ((r.startDate || '') < g.firstDate) g.firstDate = r.startDate;
+      if (Number(r.rating) >= 1 && (r.reviewedAt || '') > (g.lastReviewedAt || '')) { g.lastRating = r.rating; g.lastReviewedAt = r.reviewedAt || ''; }
+    }
+    // Applications & tours — the top of the funnel, never lost
+    for (const app of applications) {
+      const g = get(app.phone, app.email, app.name); if (!g) continue;
+      const when = String(app.decidedAt || app.createdAt || '').slice(0, 10);
+      if (when && when > g.lastDate) g.lastDate = when;
+      if (when && when < g.firstDate) g.firstDate = when;
+      const kind = app.kind || 'application';
+      if (kind === 'tour') { promote(g, 'tour'); g.tags.add('toured'); }
+      else { promote(g, 'applicant'); }
+      if (app.status === 'approved') g.tags.add('approved');
+    }
+    // Leases — renters, valued with their rent
+    for (const l of (leases.data || [])) {
+      if (!['active', 'on_leave', 'pending_signature'].includes(l.status)) continue;
+      const rt = renterById.get(l.renterId);
+      if (!rt) continue;
+      const g = get(rt.phone, rt.email, `${rt.firstName || ''} ${rt.lastName || ''}`.trim()); if (!g) continue;
+      promote(g, 'renter');
+      g.tags.add('renter');
+      g.isRenter = true; g.renterId = rt.id;
+      g.monthlyRentCents = (l.rentAmountCents || 0) * (FREQ_TO_MONTHLY[l.frequency] ?? 1);
+    }
+    const arr = Array.from(byContact.values()).map(g => ({ ...g, tags: Array.from(g.tags) }));
+    return arr.sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
+  }, [reservations, applications, leases.data, renterById]);
 
   const rentRoll = useMemo(() => {
     const occupying = (leases.data || []).filter((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status));
@@ -3429,9 +3462,9 @@ export default function BoothsPage() {
           {guestBook.length > 0 && (
             <div className="space-y-3">
               <button onClick={() => setGuestBookOpen(o => !o)} className="flex items-center gap-2 w-full text-left">
-                <h2 className="text-xs font-black uppercase tracking-widest">Guest book</h2>
+                <h2 className="text-xs font-black uppercase tracking-widest">Contacts</h2>
                 <span className="h-5 min-w-5 px-1.5 bg-slate-700 text-white text-[9px] font-black rounded-full flex items-center justify-center">{guestBook.length}</span>
-                <span className="text-[10px] font-bold text-muted-foreground">every guest who's booked · tap to {guestBookOpen ? 'hide' : 'show'}</span>
+                <span className="text-[10px] font-bold text-muted-foreground">everyone who's touched your business · tap to {guestBookOpen ? 'hide' : 'show'}</span>
               </button>
               {guestBookOpen && (
                 <div className="grid gap-2 md:grid-cols-2">
@@ -3442,10 +3475,20 @@ export default function BoothsPage() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-black truncate">{g.name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {(() => {
+                            const S: Record<string, string> = { inquiry: 'bg-slate-100 text-slate-500', tour: 'bg-sky-100 text-sky-700', applicant: 'bg-violet-100 text-violet-700', guest: 'bg-emerald-100 text-emerald-700', renter: 'bg-slate-900 text-white', repeat: 'bg-amber-100 text-amber-700' };
+                            const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', renter: 'Renter', repeat: 'Regular' };
+                            return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${S[g.stage] || S.inquiry}`}>{L[g.stage] || 'Contact'}</span>;
+                          })()}
+                          {g.lastRating && <span className="text-amber-500 text-[9px]">{'★'.repeat(g.lastRating)}</span>}
+                        </div>
                         <p className="text-[10px] font-bold text-muted-foreground truncate">
-                          {g.inquiryOnly
-                            ? `Approved inquiry · hasn't booked yet${g.lastDate ? ` · ${g.lastDate}` : ''}`
-                            : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime${g.lastRating ? ` · ${'★'.repeat(g.lastRating)}` : ''} · last ${g.lastDate}`}
+                          {g.isRenter
+                            ? `Renter · $${(((g.monthlyRentCents || 0) / 100)).toFixed(0)}/mo${g.visits ? ` · +${g.visits} booking${g.visits === 1 ? '' : 's'}` : ''} · $${((g.totalCents / 100)).toFixed(0)} in bookings`
+                            : g.stage === 'inquiry' || g.stage === 'tour' || g.stage === 'applicant'
+                              ? `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''} · not yet booked`
+                              : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}`}
                         </p>
                       </div>
                       <div className="flex gap-1.5 shrink-0">
