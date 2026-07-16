@@ -44,6 +44,9 @@ export default function StayPage() {
   const [stars, setStars] = useState(0);
   const [reviewText, setReviewText] = useState('');
   const [reviewed, setReviewed] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelled, setCancelled] = useState(false);
 
   const load = async () => {
     if (busy || last4.length !== 4) return;
@@ -59,6 +62,7 @@ export default function StayPage() {
       if (d.booking.rulesAcknowledgedAt) setSaved(true);
       if (d.booking.emergencyContact) { setEmName(d.booking.emergencyContact.name || ''); setEmPhone(d.booking.emergencyContact.phone || ''); }
       if (d.booking.rating) { setReviewed(true); setStars(d.booking.rating); }
+      if (d.booking.status === 'cancel_requested' || d.booking.cancelRequestedAt) setCancelled(true);
     } catch { setError('Connection problem — try again.'); }
     finally { setBusy(false); }
   };
@@ -89,6 +93,21 @@ export default function StayPage() {
       const d = await res.json();
       if (!d.ok) { setError(d.error || 'Could not save review.'); return; }
       setReviewed(true);
+    } catch { setError('Connection problem — try again.'); }
+    finally { setBusy(false); }
+  };
+
+  const requestCancel = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const res = await fetch('/api/booths/kiosk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stay-cancel', tenantId, reservationId, phoneLast4: last4, reason: cancelReason }),
+      });
+      const d = await res.json();
+      if (!d.ok) { setError(d.error || 'Could not send request.'); return; }
+      setCancelled(true); setCancelOpen(false);
     } catch { setError('Connection problem — try again.'); }
     finally { setBusy(false); }
   };
@@ -157,6 +176,27 @@ export default function StayPage() {
                     📅 Add to calendar
                   </a>
                 </div>
+                {cancelled ? (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 pt-1">Cancellation requested — the studio will follow up about any refund.</p>
+                ) : ['confirmed'].includes(b.status) ? (
+                  cancelOpen ? (
+                    <div className="pt-2 space-y-2">
+                      <textarea rows={2} placeholder="Reason (optional) — helps the studio decide on a refund" value={cancelReason}
+                        onChange={e => setCancelReason(e.target.value)} className="w-full rounded-xl border-2 px-3 py-2 text-xs font-medium" />
+                      <p className="text-[10px] font-bold text-slate-500">Refunds follow the studio's cancellation policy — requesting here notifies them; it doesn't auto-refund.</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => setCancelOpen(false)} className="h-9 px-4 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Keep booking</button>
+                        <button onClick={requestCancel} disabled={busy} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                          {busy ? 'Sending…' : 'Request cancellation'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setCancelOpen(true)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2 pt-1">
+                      Need to cancel?
+                    </button>
+                  )
+                ) : null}
               </div>
             </div>
 
