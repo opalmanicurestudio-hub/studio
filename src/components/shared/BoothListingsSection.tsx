@@ -153,12 +153,24 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // Tranche 1 — compliance-at-booking, from the owner's automation rules
   const compRules = (config.automationRules || {}) as any;
   const [comp, setComp] = useState({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false });
+  const [compDocs, setCompDocs] = useState<Record<string, { name: string; url: string } | 'uploading' | null>>({});
+  const uploadCompDoc = async (slot: string, file: File) => {
+    setCompDocs(d => ({ ...d, [slot]: 'uploading' }));
+    try {
+      const path = `tenants/${tenantId}/reservation-docs/${Date.now()}_${slot}_${file.name}`;
+      const sRef = storageRef(getStorage(), path);
+      await uploadBytes(sRef, file, { contentType: file.type || 'application/octet-stream' });
+      const url = await getDownloadURL(sRef);
+      setCompDocs(d => ({ ...d, [slot]: { name: file.name, url } }));
+    } catch { setCompDocs(d => ({ ...d, [slot]: null })); alert('Upload failed — please try again.'); }
+  };
+  const compDocUrl = (slot: string) => { const s = compDocs[slot]; return s && s !== 'uploading' ? s.url : null; };
   const compNeeded = (compRules.requireLicense || compRules.requireInsurance || compRules.requireIdVerification);
   const compApplies = compNeeded && (compRules.complianceAppliesTo === 'all' || comp.doingServices);
   const compSatisfied = !compApplies || (
-    (!compRules.requireLicense || comp.licenseNumber.trim()) &&
-    (!compRules.requireInsurance || comp.insuranceConfirmed) &&
-    (!compRules.requireIdVerification || comp.idAck)
+    (!compRules.requireLicense || (comp.licenseNumber.trim() && compDocUrl('license'))) &&
+    (!compRules.requireInsurance || (comp.insuranceConfirmed && compDocUrl('insurance'))) &&
+    (!compRules.requireIdVerification || compDocUrl('id'))
   );
 
   // v52 — pay-and-book: returning from Stripe Checkout, confirm the
@@ -246,7 +258,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false });
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
@@ -356,6 +368,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             insuranceCarrier: comp.insuranceCarrier.trim() || null,
             insuranceConfirmed: comp.insuranceConfirmed,
             idAcknowledged: comp.idAck,
+            licenseDocUrl: compDocUrl('license'),
+            insuranceDocUrl: compDocUrl('insurance'),
+            idDocUrl: compDocUrl('id'),
           }),
         });
         const data = await res.json();
@@ -918,6 +933,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                   <p className="text-[10px] font-black uppercase tracking-widest text-white/50">{applyFor.name}</p>
                                   <p className="text-sm font-black">{whenLabel()}</p>
                                   {priceLine() && <p className="text-lg font-black text-emerald-300">{priceLine()}</p>}
+                                  {(() => {
+                                    const perSpace = (applyFor as any).depositRequired !== undefined || (applyFor as any).depositPercent !== undefined;
+                                    const need = perSpace ? ((applyFor as any).depositRequired !== false && Number((applyFor as any).depositPercent) > 0) : !!compRules.depositRequired;
+                                    const pct = perSpace ? Number((applyFor as any).depositPercent) || 0 : Number(compRules.depositPercent) || 0;
+                                    return need && pct > 0 && pct < 100 ? <p className="text-[11px] font-bold text-white/60">{pct}% deposit charged now · balance {(((applyFor as any).balanceMode || compRules.balanceMode) === 'at_checkin') ? 'at check-in' : 'in person'}</p> : null;
+                                  })()}
                                 </div>
 
                                 {compNeeded && (
@@ -933,9 +954,21 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     {compApplies && (
                                       <div className="space-y-2.5 animate-in fade-in duration-200">
                                         {compRules.requireLicense && (
-                                          <div>
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Professional license #</p>
+                                          <div className="space-y-1.5">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Professional license</p>
                                             <input value={comp.licenseNumber} onChange={e => setComp(c => ({ ...c, licenseNumber: e.target.value }))} placeholder="License number" className="w-full h-11 rounded-xl border-2 px-4 text-sm font-medium" />
+                                            <div className="flex items-center gap-3 rounded-xl border-2 border-dashed px-3.5 py-2.5">
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">License photo/PDF *</p>
+                                                <p className="text-[10px] font-bold text-slate-400 truncate">{compDocs['license'] === 'uploading' ? 'Uploading…' : compDocUrl('license') ? (compDocs['license'] as any).name : 'Attach a clear photo or PDF'}</p>
+                                              </div>
+                                              {compDocUrl('license') ? <span className="text-emerald-600 font-black text-xs">✓</span> : (
+                                                <label className="h-9 px-3.5 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest flex items-center cursor-pointer">
+                                                  {compDocs['license'] === 'uploading' ? '…' : 'Attach'}
+                                                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadCompDoc('license', f); }} />
+                                                </label>
+                                              )}
+                                            </div>
                                           </div>
                                         )}
                                         {compRules.requireInsurance && (
@@ -946,14 +979,33 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                               <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] font-black shrink-0 ${comp.insuranceConfirmed ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300'}`}>{comp.insuranceConfirmed ? '✓' : ''}</span>
                                               <span className="text-xs font-bold">I carry current liability insurance</span>
                                             </button>
+                                            <div className="flex items-center gap-3 rounded-xl border-2 border-dashed px-3.5 py-2.5">
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Insurance certificate (COI) *</p>
+                                                <p className="text-[10px] font-bold text-slate-400 truncate">{compDocs['insurance'] === 'uploading' ? 'Uploading…' : compDocUrl('insurance') ? (compDocs['insurance'] as any).name : 'Upload your certificate of insurance'}</p>
+                                              </div>
+                                              {compDocUrl('insurance') ? <span className="text-emerald-600 font-black text-xs">✓</span> : (
+                                                <label className="h-9 px-3.5 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest flex items-center cursor-pointer">
+                                                  {compDocs['insurance'] === 'uploading' ? '…' : 'Attach'}
+                                                  <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadCompDoc('insurance', f); }} />
+                                                </label>
+                                              )}
+                                            </div>
                                           </div>
                                         )}
                                         {compRules.requireIdVerification && (
-                                          <button type="button" onClick={() => setComp(c => ({ ...c, idAck: !c.idAck }))}
-                                            className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${comp.idAck ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200'}`}>
-                                            <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] font-black shrink-0 ${comp.idAck ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300'}`}>{comp.idAck ? '✓' : ''}</span>
-                                            <span className="text-xs font-bold">I'll bring photo ID to check in</span>
-                                          </button>
+                                          <div className="flex items-center gap-3 rounded-xl border-2 border-dashed px-3.5 py-2.5">
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Photo ID *</p>
+                                              <p className="text-[10px] font-bold text-slate-400 truncate">{compDocs['id'] === 'uploading' ? 'Uploading…' : compDocUrl('id') ? (compDocs['id'] as any).name : 'Driver\'s license, passport, or state ID'}</p>
+                                            </div>
+                                            {compDocUrl('id') ? <span className="text-emerald-600 font-black text-xs">✓</span> : (
+                                              <label className="h-9 px-3.5 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest flex items-center cursor-pointer">
+                                                {compDocs['id'] === 'uploading' ? '…' : 'Attach'}
+                                                <input type="file" accept="image/*,.pdf" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadCompDoc('id', f); }} />
+                                              </label>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
                                     )}
