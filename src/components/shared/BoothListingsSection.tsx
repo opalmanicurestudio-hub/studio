@@ -29,12 +29,103 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Calendar } from '@/components/ui/calendar';
 import { getFirestore, collection, query, where, getDocs, doc, setDoc, type Firestore } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 const FREQ_LABEL: Record<string, string> = { monthly: '/mo', weekly: '/wk', daily: '/day', hourly: '/hr' };
 const DEFAULT_NICHES = ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'];
+
+// ─── BookingCalendar (v90) — dependency-free month grid ──────────────────────
+// A purpose-built booking calendar: proper 7-col grid, weekday header,
+// range + single select, and per-day disabled gating. No react-day-picker,
+// so it can't break from a missing stylesheet. States: available (tappable),
+// selected (filled), in-range (connected), disabled (faint), today (ring).
+function BookingCalendar({
+  mode, selectedStart, selectedEnd, onPick, isDisabled,
+}: {
+  mode: 'single' | 'range';
+  selectedStart?: string;   // YYYY-MM-DD
+  selectedEnd?: string;
+  onPick: (iso: string) => void;
+  isDisabled: (iso: string) => boolean;
+}) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [view, setView] = React.useState(() => {
+    const base = selectedStart ? new Date(selectedStart + 'T00:00:00') : new Date();
+    return { y: base.getFullYear(), m: base.getMonth() };
+  });
+
+  const iso = (y: number, m: number, d: number) =>
+    `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const monthName = new Date(view.y, view.m, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const firstDow = new Date(view.y, view.m, 1).getDay();
+  const daysInMonth = new Date(view.y, view.m + 1, 0).getDate();
+  const cells: (number | null)[] = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const inRange = (dIso: string) =>
+    mode === 'range' && selectedStart && selectedEnd &&
+    dIso > selectedStart && dIso < selectedEnd;
+  const isEdge = (dIso: string) => dIso === selectedStart || dIso === selectedEnd;
+
+  const shift = (delta: number) => setView(v => {
+    const nm = v.m + delta;
+    return { y: v.y + Math.floor(nm / 12), m: ((nm % 12) + 12) % 12 };
+  });
+  const canGoBack = new Date(view.y, view.m, 1) > new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  return (
+    <div className="w-full select-none">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-black tracking-tight">{monthName}</p>
+        <div className="flex gap-1">
+          <button type="button" onClick={() => canGoBack && shift(-1)} disabled={!canGoBack}
+            className="h-8 w-8 rounded-lg border-2 flex items-center justify-center font-black disabled:opacity-20 active:scale-90 transition-transform">‹</button>
+          <button type="button" onClick={() => shift(1)}
+            className="h-8 w-8 rounded-lg border-2 flex items-center justify-center font-black active:scale-90 transition-transform">›</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-y-1 mb-1">
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+          <div key={i} className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 py-1">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-y-1">
+        {cells.map((day, i) => {
+          if (day === null) return <div key={i} />;
+          const dIso = iso(view.y, view.m, day);
+          const disabled = isDisabled(dIso);
+          const edge = isEdge(dIso);
+          const mid = inRange(dIso);
+          const isToday = dIso === todayIso;
+          return (
+            <div key={i} className={`relative flex items-center justify-center ${mid ? 'bg-slate-900/10' : ''}`}>
+              <button type="button" disabled={disabled} onClick={() => onPick(dIso)}
+                className={[
+                  'h-10 w-10 rounded-full text-sm font-bold flex items-center justify-center transition-all',
+                  disabled ? 'text-slate-300 cursor-not-allowed line-through decoration-slate-200'
+                    : edge ? 'bg-slate-900 text-white font-black scale-100 active:scale-95'
+                    : mid ? 'text-slate-900 font-black'
+                    : 'text-slate-700 hover:bg-slate-100 active:scale-90',
+                  isToday && !edge ? 'ring-2 ring-slate-900/20' : '',
+                ].join(' ')}>
+                {day}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-3 mt-3 pt-2.5 border-t">
+        <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400"><span className="h-2.5 w-2.5 rounded-full bg-slate-900" /> Selected</span>
+        <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400"><span className="h-2.5 w-2.5 rounded-full border-2 border-slate-200" /> Open</span>
+        <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-slate-400"><span className="text-slate-300 line-through">15</span> Unavailable</span>
+      </div>
+    </div>
+  );
+}
 
 export function BoothListingsSection({ tenantId, config, db }: { tenantId: string; config: any; db?: Firestore }) {
   const firestore = db || getFirestore();
@@ -725,26 +816,29 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                 {Array.isArray((applyFor as any)?.dayRentalDays) && (applyFor as any).dayRentalDays.length > 0 && (applyFor as any).dayRentalDays.length < 7 && (
                                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}</p>
                                 )}
-                                <div className="rounded-2xl border-2 p-2 flex justify-center">
-                                  <Calendar
+                                <div className="rounded-2xl border-2 p-3">
+                                  <BookingCalendar
                                     mode={useTime ? 'single' : 'range'}
-                                    numberOfMonths={1}
-                                    selected={useTime
-                                      ? (form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined)
-                                      : { from: form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined, to: form.endDate ? new Date(form.endDate + 'T00:00:00') : undefined }}
-                                    onSelect={(val: any) => {
-                                      const toIso = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
-                                      if (useTime) { if (!val) return; const iso = toIso(val); setForm(f => ({ ...f, startDate: iso, endDate: iso })); }
-                                      else { setForm(f => ({ ...f, startDate: toIso(val?.from), endDate: toIso(val?.to || val?.from) })); }
+                                    selectedStart={form.startDate || undefined}
+                                    selectedEnd={form.endDate || undefined}
+                                    onPick={(picked: string) => {
+                                      if (useTime) { setForm(f => ({ ...f, startDate: picked, endDate: picked })); return; }
+                                      // range: first tap sets start; second tap (after start) sets end;
+                                      // tapping again (or before start) restarts.
+                                      if (!form.startDate || (form.startDate && form.endDate) || picked < form.startDate) {
+                                        setForm(f => ({ ...f, startDate: picked, endDate: '' }));
+                                      } else {
+                                        setForm(f => ({ ...f, endDate: picked }));
+                                      }
                                     }}
-                                    disabled={(d: Date) => {
-                                      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                                      if (iso < new Date().toISOString().slice(0, 10)) return true;
-                                      if (!useTime && bookedDates.has(iso)) return true;
+                                    isDisabled={(dIso: string) => {
+                                      if (dIso < new Date().toISOString().slice(0, 10)) return true;
+                                      if (!useTime && bookedDates.has(dIso)) return true;
+                                      const dow = new Date(dIso + 'T00:00:00').getDay();
                                       const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
-                                      if (sched && !sched.includes(d.getDay())) return true;
+                                      if (sched && !sched.includes(dow)) return true;
                                       const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
-                                      return bl.includes(iso);
+                                      return bl.includes(dIso);
                                     }}
                                   />
                                 </div>
