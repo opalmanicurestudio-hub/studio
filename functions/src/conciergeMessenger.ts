@@ -168,3 +168,49 @@ export const conciergeMessenger = onDocumentWritten(
     }
   }
 );
+
+
+// ── Tour messaging: confirmation + reminders on the tours collection. ─────────
+export const tourMessenger = onDocumentWritten(
+  {
+    document: 'tenants/{tenantId}/tours/{tourId}',
+    region: 'us-central1',
+    secrets: [TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM],
+  },
+  async (event) => {
+    const after = event.data?.after?.data();
+    if (!after) return;
+    const before = event.data?.before?.data() || {};
+    const phone = normalizePhone(after.phone);
+    if (!phone) return;
+    const sent: Record<string, string> = (after.sentMessages as any) || {};
+    const first = String(after.name || 'there').split(' ')[0];
+    const when = `${after.date} at ${t12(after.time)}`;
+
+    let body = '';
+    let key = '';
+    if (after.status === 'confirmed' && before.status !== 'confirmed' && !sent.confirmed) {
+      key = 'confirmed';
+      body = `Hi ${first}! Your tour is confirmed for ${when}. We look forward to showing you around. Reply here if anything changes. ✨`;
+    } else if (after.status === 'requested' && !before.status && !sent.requested) {
+      key = 'requested';
+      body = `Hi ${first}! We got your tour request for ${when} and will confirm shortly. ✨`;
+    }
+    if (!key) return;
+
+    const db = getFirestore();
+    const sid = TWILIO_SID.value(), token = TWILIO_TOKEN.value(), from = TWILIO_FROM.value();
+    if (!sid || !token || !from) return;
+    try {
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+        method: 'POST',
+        headers: { 'Authorization': 'Basic ' + Buffer.from(`${sid}:${token}`).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ To: phone, From: from, Body: body }).toString(),
+      });
+      if (res.ok) {
+        await db.doc(`tenants/${event.params.tenantId}/tours/${event.params.tourId}`)
+          .update({ [`sentMessages.${key}`]: new Date().toISOString() }).catch(() => {});
+      }
+    } catch (err) { console.warn('[tourMessenger] failed', err); }
+  }
+);
