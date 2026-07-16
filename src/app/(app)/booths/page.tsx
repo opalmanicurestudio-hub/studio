@@ -1227,6 +1227,140 @@ function DetailPanel({
   );
 }
 
+// ─── Contact profile drawer (v87) ────────────────────────────────────────────
+// Non-renter contacts (guests, tour-takers, applicants) get a real
+// profile too — parity with renters. Their full cross-channel history
+// from reservations, tours, applications, and reviews.
+function ContactProfileDrawer({
+  contact, reservations, applications, tenantId, onClose,
+}: {
+  contact: any;
+  reservations: any[];
+  applications: any[];
+  tenantId: string;
+  onClose: () => void;
+}) {
+  const norm = (v: any) => (v || '').trim().toLowerCase();
+  const key = contact.key;
+  const mine = (p: any, e: any) => norm(p) === key || norm(e) === key;
+
+  const myRes = reservations
+    .filter(r => mine(r.phone, r.email) && ['confirmed', 'checked_in', 'completed', 'cancel_requested'].includes(r.status))
+    .sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+  const myApps = applications
+    .filter(a => mine(a.phone, a.email))
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+
+  const t12 = (t?: string) => {
+    if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
+    const [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'PM' : 'AM'; const hr = h % 12 === 0 ? 12 : h % 12;
+    return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+  };
+
+  const timeline: { at: string; label: string; tone: string }[] = [];
+  for (const r of myRes) {
+    if (r.confirmedAt) timeline.push({ at: String(r.confirmedAt).slice(0, 10), label: `Booked & paid · ${r.boothName} ($${((r.amountCents || 0) / 100).toFixed(0)})`, tone: 'money' });
+    if (r.checked_inAt) timeline.push({ at: String(r.checked_inAt).slice(0, 10), label: `Checked in · ${r.boothName}`, tone: 'in' });
+    if (r.completedAt) timeline.push({ at: String(r.completedAt).slice(0, 10), label: `Completed · ${r.boothName}${r.rating ? ` · ${'★'.repeat(r.rating)}` : ''}`, tone: 'ok' });
+    if (r.cancelRequestedAt) timeline.push({ at: String(r.cancelRequestedAt).slice(0, 10), label: `Requested cancellation · ${r.boothName}`, tone: 'warn' });
+  }
+  for (const a of myApps) {
+    timeline.push({ at: String(a.createdAt || '').slice(0, 10), label: `${a.kind === 'tour' ? 'Requested a tour' : a.kind === 'waitlist' ? 'Joined waitlist' : a.kind === 'question' ? 'Asked a question' : 'Applied'}${a.boothName ? ` · ${a.boothName}` : ''}`, tone: 'inquiry' });
+  }
+  timeline.sort((x, y) => y.at.localeCompare(x.at));
+
+  const TONE: Record<string, string> = { money: 'bg-emerald-500', in: 'bg-indigo-500', ok: 'bg-slate-800', warn: 'bg-amber-500', inquiry: 'bg-sky-500' };
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative w-full sm:w-[420px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="px-5 pt-5 pb-4 border-b space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+                {(contact.name || '?').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="font-black text-base truncate">{contact.name}</p>
+                <div className="flex gap-1.5 mt-0.5 flex-wrap">
+                  {(() => {
+                    const S: Record<string, string> = { inquiry: 'text-slate-500', tour: 'text-sky-600', applicant: 'text-violet-600', guest: 'text-emerald-600', repeat: 'text-amber-600' };
+                    const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', repeat: 'Regular' };
+                    return <span className={`text-[9px] font-black uppercase tracking-widest ${S[contact.stage] || 'text-slate-500'}`}>{L[contact.stage] || 'Contact'}</span>;
+                  })()}
+                  {contact.lastRating && <span className="text-amber-500 text-[10px]">{'★'.repeat(contact.lastRating)}</span>}
+                </div>
+              </div>
+            </div>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 shrink-0"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="flex gap-2">
+            {contact.phone && <a href={`tel:${contact.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Call</a>}
+            {contact.phone && <a href={`sms:${contact.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Text</a>}
+            {contact.email && <a href={`mailto:${contact.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Email</a>}
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl border-2 px-2 py-2.5 text-center">
+              <p className="text-lg font-black tracking-tighter">{contact.visits || 0}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Visits</p>
+            </div>
+            <div className="rounded-xl border-2 px-2 py-2.5 text-center">
+              <p className="text-lg font-black tracking-tighter text-emerald-700">${((contact.totalCents || 0) / 100).toFixed(0)}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Lifetime</p>
+            </div>
+            <div className="rounded-xl border-2 px-2 py-2.5 text-center">
+              <p className="text-lg font-black tracking-tighter">{contact.lastRating || '—'}</p>
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Rating</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border-2 p-4 space-y-1">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
+            {contact.phone && <p className="text-xs font-bold">{contact.phone}</p>}
+            {contact.email && <p className="text-xs font-bold">{contact.email}</p>}
+            {contact.firstDate && contact.firstDate !== '9999' && <p className="text-[10px] font-bold text-muted-foreground">First seen {contact.firstDate}</p>}
+          </div>
+
+          {myRes.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">Bookings</p>
+              {myRes.map(r => (
+                <div key={r.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black truncate">{r.boothName}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground">{r.bookingType === 'hourly' && r.startTime ? `${r.startDate} · ${t12(r.startTime)}–${t12(r.endTime)}` : r.startDate}</p>
+                  </div>
+                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">📄</a>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-0">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1 mb-2">Timeline</p>
+            {timeline.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No activity yet.</p> : timeline.slice(0, 30).map((t, i) => (
+              <div key={i} className="flex gap-3 pb-4 relative">
+                <div className="flex flex-col items-center">
+                  <div className={`h-2.5 w-2.5 rounded-full mt-1 shrink-0 ${TONE[t.tone] || 'bg-slate-400'}`} />
+                  {i < timeline.length - 1 && <div className="w-px flex-1 bg-slate-200 mt-1" />}
+                </div>
+                <div className="min-w-0 -mt-0.5">
+                  <p className="text-xs font-bold leading-snug">{t.label}</p>
+                  <p className="text-[10px] font-bold text-muted-foreground">{t.at}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Compliance status (v80) ─────────────────────────────────────────────────
 // green = valid >30d out · amber = expires ≤30d · red = expired or missing
 function complianceOf(r: any): { items: { label: string; number: string; expiry: string; state: string }[]; worst: string } {
@@ -1778,6 +1912,7 @@ export default function BoothsPage() {
 
 
   const [guestBookOpen, setGuestBookOpen] = useState(false);
+  const [profileContact, setProfileContact] = useState<any | null>(null);
 
   const upcomingReservations = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -3470,10 +3605,16 @@ export default function BoothsPage() {
                 <div className="grid gap-2 md:grid-cols-2">
                   {guestBook.map((g: any) => (
                     <div key={g.key} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center font-black text-xs text-slate-600 shrink-0">
+                      <button onClick={() => {
+                        if (g.isRenter && g.renterId) { const rt = renterById.get(g.renterId); if (rt) { setProfileRenter(rt); return; } }
+                        setProfileContact(g);
+                      }} className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0 active:scale-95 transition-transform">
                         {g.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
+                      </button>
+                      <button onClick={() => {
+                        if (g.isRenter && g.renterId) { const rt = renterById.get(g.renterId); if (rt) { setProfileRenter(rt); return; } }
+                        setProfileContact(g);
+                      }} className="flex-1 min-w-0 text-left">
                         <p className="text-xs font-black truncate">{g.name}</p>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {(() => {
@@ -3490,7 +3631,7 @@ export default function BoothsPage() {
                               ? `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''} · not yet booked`
                               : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}`}
                         </p>
-                      </div>
+                      </button>
                       <div className="flex gap-1.5 shrink-0">
                         {g.phone && <a href={`tel:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Call</a>}
                         {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
@@ -4515,6 +4656,16 @@ export default function BoothsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {profileContact && (
+        <ContactProfileDrawer
+          contact={profileContact}
+          reservations={reservations}
+          applications={applications}
+          tenantId={tenantId}
+          onClose={() => setProfileContact(null)}
+        />
+      )}
 
       {profileRenter && (
         <RenterProfileDrawer
