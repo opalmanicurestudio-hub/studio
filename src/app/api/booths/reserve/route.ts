@@ -235,6 +235,20 @@ export async function POST(req: NextRequest) {
       }
       depositCents = Math.min(netCents, Math.max(0, Math.round(hourly * hoursBooked)));
     }
+    // Diagnostic trace — why did we charge what we charged? Stored on the
+    // reservation so a "deposit didn't apply" is explainable at a glance.
+    const depositTrace = {
+      source: usePerSpace ? 'space' : (rules.depositRequired ? 'studio_default' : 'none'),
+      resolvedType: depositType,
+      boothDepositType: booth.depositType ?? null,
+      studioDepositRequired: !!rules.depositRequired,
+      tmhr: Number(tenantData?.tmhr) || 0,
+      hoursBooked,
+      computedDepositCents: depositCents,
+      netCents,
+    };
+    console.log('[reserve] deposit trace', JSON.stringify(depositTrace));
+
     // Only split if the deposit is a real partial amount
     if (depositCents > 0 && depositCents < netCents && netCents > 100) {
       balanceDueCents = netCents - depositCents;
@@ -256,6 +270,7 @@ export async function POST(req: NextRequest) {
       depositCents, balanceDueCents,
       balanceMode: balanceDueCents > 0 ? balanceMode : null,
       balancePaid: false,
+      depositTrace,
       creditAppliedCents,
       appliedCreditIds,
       stripeCustomerId: null as string | null,
