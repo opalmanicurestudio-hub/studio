@@ -325,7 +325,7 @@ export async function POST(req: NextRequest) {
       ...(customerId ? { customer: customerId } : {}),
       payment_intent_data: { setup_future_usage: 'off_session' },
       mode: 'payment',
-      customer_email: email || undefined,
+      ...(customerId ? {} : { customer_email: email || undefined }),
       line_items: [{
         quantity: 1,
         price_data: {
