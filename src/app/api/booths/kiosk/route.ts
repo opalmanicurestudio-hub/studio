@@ -234,6 +234,7 @@ export async function POST(req: NextRequest) {
           status: r.status,
           rulesAcknowledgedAt: r.rulesAcknowledgedAt || null,
           emergencyContact: r.emergencyContact || null,
+          rating: r.rating || null,
         },
       });
     }
@@ -263,6 +264,70 @@ export async function POST(req: NextRequest) {
         };
       }
       await ref.set(updates, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── v82 AVAILABILITY: dates only, zero PII — powers the public
+    // booking calendar's disabled dates. Daily bookings block their
+    // whole range; hourly days stay open (multiple can coexist).
+    if (action === 'availability') {
+      const { boothId } = body;
+      if (!boothId) return NextResponse.json({ ok: false, error: 'Missing boothId.' }, { status: 400 });
+      const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
+        .where('boothId', '==', boothId).get();
+      const now = Date.now();
+      const HOLD_MS = 30 * 60 * 1000;
+      const booked = new Set<string>();
+      for (const d of snap.docs) {
+        const r = d.data() as any;
+        const holds = ['confirmed', 'checked_in'].includes(r.status) ||
+          (r.status === 'pending_payment' && r.createdAt && now - new Date(r.createdAt).getTime() < HOLD_MS);
+        if (!holds) continue;
+        if (r.bookingType === 'hourly') continue;   // hourly days remain bookable
+        let t = new Date(r.startDate + 'T00:00:00Z').getTime();
+        const e = new Date(r.endDate + 'T00:00:00Z').getTime();
+        for (; t <= e; t += 86400000) booked.add(new Date(t).toISOString().slice(0, 10));
+      }
+      return NextResponse.json({ ok: true, bookedDates: Array.from(booked) });
+    }
+
+    // ── v82 REVIEW: "how was your stay" — rating + note on the
+    // reservation, phone-gated like everything else.
+    if (action === 'stay-review') {
+      const { reservationId, rating, reviewText } = body;
+      const last4 = digits(body.phoneLast4).slice(-4);
+      const stars = Number(rating);
+      if (!reservationId || last4.length !== 4 || !(stars >= 1 && stars <= 5)) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      const r = snap.data() as any;
+      if (digits(r.phone).slice(-4) !== last4) {
+        return NextResponse.json({ ok: false, error: 'Booking not found.' }, { status: 404 });
+      }
+      const nowIso = new Date().toISOString();
+      const prevStars = Number(r.rating) || 0;
+      await ref.set({ rating: stars, reviewText: String(reviewText || '').slice(0, 1000), reviewedAt: nowIso }, { merge: true });
+      // Aggregate on the booth doc (publicly readable) so listings can
+      // show ★ averages without exposing reservations. Re-reviews adjust
+      // the sum instead of double-counting.
+      if (r.boothId) {
+        try {
+          const bRef = db.doc(`tenants/${tenantId}/booths/${r.boothId}`);
+          const bSnap = await bRef.get();
+          if (bSnap.exists) {
+            const bd = bSnap.data() as any;
+            const count = (Number(bd.ratingCount) || 0) + (prevStars > 0 ? 0 : 1);
+            const sum = (Number(bd.ratingSum) || 0) + stars - prevStars;
+            await bRef.set({ ratingCount: count, ratingSum: sum }, { merge: true });
+          }
+        } catch { /* aggregates are a bonus — the review itself is saved */ }
+      }
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_review', read: false, createdAt: nowIso, link: '/booths',
+        message: `${'⭐'.repeat(stars)} ${r.name} rated their stay at ${r.boothName}${reviewText ? `: "${String(reviewText).slice(0, 120)}"` : ''}` });
       return NextResponse.json({ ok: true });
     }
 
