@@ -180,6 +180,16 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
   };
   const [bookedDates, setBookedDates] = useState<Set<string>>(new Set());
+  const ratingOf = (bb: any): { avg: number; count: number } | null => {
+    const count = Number(bb?.ratingCount) || 0;
+    if (count < 1) return null;
+    return { avg: (Number(bb?.ratingSum) || 0) / count, count };
+  };
+  const Stars = ({ avg }: { avg: number }) => (
+    <span className="text-amber-500 tracking-tight" aria-label={`${avg.toFixed(1)} stars`}>
+      {'★'.repeat(Math.round(avg))}{'☆'.repeat(5 - Math.round(avg))}
+    </span>
+  );
   const scheduleIssue = useMemo(() => {
     if (!applyFor || applyMode !== 'day') return null;
     if (granularity === 'hourly') {
@@ -412,6 +422,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   {ph.length > 1 && <span className="absolute top-4 left-4 text-[9px] font-black bg-black/60 text-white rounded-full px-2.5 py-1 backdrop-blur">📷 {ph.length}</span>}
                   <div className="absolute bottom-0 inset-x-0 p-5 space-y-2">
                     <p className="font-black text-white text-xl tracking-tight">{b.name}</p>
+                    {ratingOf(b) && <p className="text-[11px] font-black text-amber-300">★ {ratingOf(b)!.avg.toFixed(1)} <span className="text-white/50 font-bold">({ratingOf(b)!.count})</span></p>}
                     {blurbOf(b) && <p className="text-white/70 text-xs font-medium leading-relaxed line-clamp-2">{blurbOf(b)}</p>}
                     {Array.isArray(b.amenities) && b.amenities.length > 0 && (
                       <p className="text-[10px] font-bold text-white/60 uppercase tracking-wide">{b.amenities.slice(0, 3).join(' · ')}</p>
@@ -547,6 +558,13 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
                   {inquiryKind !== 'waitlist' && (
                     <div className="space-y-3">
+                      {ratingOf(applyFor) && (
+                        <div className="flex items-center gap-2">
+                          <Stars avg={ratingOf(applyFor)!.avg} />
+                          <span className="text-xs font-black">{ratingOf(applyFor)!.avg.toFixed(1)}</span>
+                          <span className="text-[10px] font-bold text-slate-400">· {ratingOf(applyFor)!.count} review{ratingOf(applyFor)!.count === 1 ? '' : 's'}</span>
+                        </div>
+                      )}
                       {blurbOf(applyFor) && (
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">About this space</p>
