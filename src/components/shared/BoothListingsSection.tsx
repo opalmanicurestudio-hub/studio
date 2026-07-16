@@ -150,6 +150,16 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [agreed, setAgreed] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
+  // Tranche 1 — compliance-at-booking, from the owner's automation rules
+  const compRules = (config.automationRules || {}) as any;
+  const [comp, setComp] = useState({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false });
+  const compNeeded = (compRules.requireLicense || compRules.requireInsurance || compRules.requireIdVerification);
+  const compApplies = compNeeded && (compRules.complianceAppliesTo === 'all' || comp.doingServices);
+  const compSatisfied = !compApplies || (
+    (!compRules.requireLicense || comp.licenseNumber.trim()) &&
+    (!compRules.requireInsurance || comp.insuranceConfirmed) &&
+    (!compRules.requireIdVerification || comp.idAck)
+  );
 
   // v52 — pay-and-book: returning from Stripe Checkout, confirm the
   // reservation server-side and celebrate.
@@ -236,7 +246,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type');
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false });
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
@@ -315,7 +325,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     }
     return null;
   }, [applyFor, applyMode, form.startDate, form.endDate, form.startTime, form.endTime, granularity]);
-  const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && agreementSatisfied && !scheduleIssue && !submitting;
+  const canSubmit = form.name.trim() && (form.phone.trim() || form.email.trim()) && allDocsAttached && agreementSatisfied && compSatisfied && !scheduleIssue && !submitting;
 
   const submitApplication = async () => {
     if (!applyFor || !canSubmit) return;
@@ -341,6 +351,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
             returnUrl: window.location.href,
             consentAccepted: !!agreementText && agreed,
+            doingServices: comp.doingServices,
+            licenseNumber: comp.licenseNumber.trim() || null,
+            insuranceCarrier: comp.insuranceCarrier.trim() || null,
+            insuranceConfirmed: comp.insuranceConfirmed,
+            idAcknowledged: comp.idAck,
           }),
         });
         const data = await res.json();
@@ -904,6 +919,46 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                   <p className="text-sm font-black">{whenLabel()}</p>
                                   {priceLine() && <p className="text-lg font-black text-emerald-300">{priceLine()}</p>}
                                 </div>
+
+                                {compNeeded && (
+                                  <div className="rounded-2xl border-2 p-4 space-y-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Before you book</p>
+                                    {compRules.complianceAppliesTo === 'services' && (
+                                      <button type="button" onClick={() => setComp(c => ({ ...c, doingServices: !c.doingServices }))}
+                                        className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${comp.doingServices ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
+                                        <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] font-black shrink-0 ${comp.doingServices ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300'}`}>{comp.doingServices ? '✓' : ''}</span>
+                                        <span className="text-xs font-bold">I'll be performing services on clients in this space</span>
+                                      </button>
+                                    )}
+                                    {compApplies && (
+                                      <div className="space-y-2.5 animate-in fade-in duration-200">
+                                        {compRules.requireLicense && (
+                                          <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Professional license #</p>
+                                            <input value={comp.licenseNumber} onChange={e => setComp(c => ({ ...c, licenseNumber: e.target.value }))} placeholder="License number" className="w-full h-11 rounded-xl border-2 px-4 text-sm font-medium" />
+                                          </div>
+                                        )}
+                                        {compRules.requireInsurance && (
+                                          <div className="space-y-1.5">
+                                            <input value={comp.insuranceCarrier} onChange={e => setComp(c => ({ ...c, insuranceCarrier: e.target.value }))} placeholder="Insurance carrier (optional)" className="w-full h-11 rounded-xl border-2 px-4 text-sm font-medium" />
+                                            <button type="button" onClick={() => setComp(c => ({ ...c, insuranceConfirmed: !c.insuranceConfirmed }))}
+                                              className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${comp.insuranceConfirmed ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200'}`}>
+                                              <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] font-black shrink-0 ${comp.insuranceConfirmed ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300'}`}>{comp.insuranceConfirmed ? '✓' : ''}</span>
+                                              <span className="text-xs font-bold">I carry current liability insurance</span>
+                                            </button>
+                                          </div>
+                                        )}
+                                        {compRules.requireIdVerification && (
+                                          <button type="button" onClick={() => setComp(c => ({ ...c, idAck: !c.idAck }))}
+                                            className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${comp.idAck ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200'}`}>
+                                            <span className={`w-5 h-5 rounded-md border-2 flex items-center justify-center text-[10px] font-black shrink-0 ${comp.idAck ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300'}`}>{comp.idAck ? '✓' : ''}</span>
+                                            <span className="text-xs font-bold">I'll bring photo ID to check in</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
