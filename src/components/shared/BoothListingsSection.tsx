@@ -43,6 +43,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [photoIdx, setPhotoIdx] = useState(0);
   const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '', startTime: '', endTime: '' });
   const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
+  // v89 — stepped reserve flow: 'type' → 'when' → 'time' → 'you'
+  const [reserveStep, setReserveStep] = useState<'type' | 'when' | 'time' | 'you'>('type');
   const [pickedSlot, setPickedSlot] = useState<any>(null);
   const slotsOf = (bb: any): any[] => Array.isArray(bb?.bookingSlots) ? bb.bookingSlots.filter((s: any) => s.label && s.startTime && s.endTime && s.amountCents > 0) : [];
   const [docs, setDocs] = useState<Record<string, { name: string; url: string } | 'uploading' | null>>({});
@@ -143,7 +145,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type');
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
@@ -596,12 +598,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       )}
                     </div>
                   )}
+                  {(applyMode !== 'day' || reserveStep === 'you') && (
+                  <div className="space-y-3 animate-in fade-in duration-200">
                   <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   <div className="grid grid-cols-2 gap-2">
                     <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone *" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                     <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   </div>
-
+                  {applyMode !== 'day' && (
+                  <>
                   {/* Niche — owner-configured, prefilled options */}
                   <div className="flex flex-wrap gap-1.5">
                     {niches.map(n => (
@@ -613,6 +618,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   </div>
                   {form.niche === 'Other' && (
                     <input type="text" value={form.nicheOther} onChange={e => setForm(f => ({ ...f, nicheOther: e.target.value }))} placeholder="Tell us your specialty" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                  )}
+                  </>
+                  )}
+                  </div>
                   )}
 
                   {/* Dates — different question per product */}
@@ -642,113 +651,175 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      {dailyRateOf(applyFor) && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0) && (
-                        <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
-                          {(['daily', 'hourly'] as const).map(g => (
-                            <button key={g} type="button" onClick={() => setGranularity(g)}
-                              className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${granularity === g ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
-                              {g === 'daily' ? `Daily · $${(dailyRateOf(applyFor).amountCents / 100).toFixed(0)}/day` : slotsOf(applyFor).length > 0 ? 'Time slots' : `Hourly · $${(hourlyRateOf(applyFor).amountCents / 100).toFixed(0)}/hr`}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {Array.isArray((applyFor as any)?.dayRentalDays) && (applyFor as any).dayRentalDays.length > 0 && (applyFor as any).dayRentalDays.length < 7 && (
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                          Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}
-                        </p>
-                      )}
-                      {granularity === 'hourly' && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0) ? (
-                        <>
-                          <div className="rounded-2xl border-2 p-2 flex justify-center">
-                            <Calendar
-                              mode="single"
-                              selected={form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined}
-                              onSelect={(d: any) => {
-                                if (!d) return;
-                                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                                setForm(f => ({ ...f, startDate: iso, endDate: iso }));
-                              }}
-                              disabled={(d: Date) => {
-                                const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                                if (iso < new Date().toISOString().slice(0, 10)) return true;
-                                const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
-                                if (sched && !sched.includes(d.getDay())) return true;
-                                const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
-                                return bl.includes(iso);
-                              }}
-                            />
+                    <div className="space-y-3">
+                      {/* Stepper rail */}
+                      {(() => {
+                        const hasChoice = dailyRateOf(applyFor) && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0);
+                        const steps = hasChoice ? ['type', 'when', 'time', 'you'] : ['when', 'time', 'you'];
+                        const useTime = granularity === 'hourly';
+                        const shown = steps.filter(s => s !== 'time' || useTime);
+                        const idx = shown.indexOf(reserveStep === 'type' && !hasChoice ? 'when' : reserveStep);
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            {shown.map((s, k) => (
+                              <div key={s} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${k <= idx ? 'bg-slate-900' : 'bg-slate-200'}`} />
+                            ))}
                           </div>
-                          {slotsOf(applyFor).length > 0 ? (
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Pick your time</p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {slotsOf(applyFor).map((s: any) => (
-                                  <button key={s.label + s.startTime} type="button"
-                                    onClick={() => { setPickedSlot(s); setForm(f => ({ ...f, startTime: s.startTime, endTime: s.endTime })); }}
-                                    className={`rounded-xl border-2 p-3 text-left transition-colors ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-400'}`}>
-                                    <p className="text-xs font-black">{s.label}</p>
-                                    <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{t12(s.startTime)} – {t12(s.endTime)}</p>
-                                    <p className="text-sm font-black mt-0.5">${(s.amountCents / 100).toFixed(s.amountCents % 100 === 0 ? 0 : 2)}</p>
-                                  </button>
-                                ))}
+                        );
+                      })()}
+
+                      {(() => {
+                        const hasChoice = dailyRateOf(applyFor) && (hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0);
+                        const useTime = granularity === 'hourly';
+                        const hasSlots = slotsOf(applyFor).length > 0;
+                        // Auto-skip 'type' when there's only one option
+                        const step = (reserveStep === 'type' && !hasChoice) ? 'when' : reserveStep;
+
+                        const priceLine = () => {
+                          if (useTime && pickedSlot) return `$${(pickedSlot.amountCents / 100).toFixed(pickedSlot.amountCents % 100 === 0 ? 0 : 2)}`;
+                          if (useTime && form.startTime && form.endTime && hourlyRateOf(applyFor)) {
+                            const hrs = (new Date(`2000-01-01T${form.endTime}:00`).getTime() - new Date(`2000-01-01T${form.startTime}:00`).getTime()) / 3600000;
+                            return hrs > 0 ? `$${((hourlyRateOf(applyFor).amountCents * hrs) / 100).toFixed(2)}` : '';
+                          }
+                          if (!useTime && form.startDate && form.endDate && dailyRateOf(applyFor)) {
+                            const days = Math.round((new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / 86400000) + 1;
+                            return days > 0 ? `$${((dailyRateOf(applyFor).amountCents * days) / 100).toFixed(0)}${days > 1 ? ` · ${days} days` : ''}` : '';
+                          }
+                          return '';
+                        };
+                        const whenLabel = () => {
+                          if (!form.startDate) return '';
+                          const d = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                          if (useTime) return `${d(form.startDate)}${pickedSlot ? ` · ${pickedSlot.label}` : form.startTime ? ` · ${t12(form.startTime)}–${t12(form.endTime)}` : ''}`;
+                          return form.endDate && form.endDate !== form.startDate ? `${d(form.startDate)} → ${d(form.endDate)}` : d(form.startDate);
+                        };
+
+                        return (
+                          <div key={step} className="animate-in fade-in slide-in-from-right-2 duration-200 space-y-3">
+
+                            {/* STEP: TYPE */}
+                            {step === 'type' && (
+                              <div className="space-y-2">
+                                <p className="text-sm font-black tracking-tight">How do you want to book?</p>
+                                <button type="button" onClick={() => { setGranularity('daily'); setReserveStep('when'); }}
+                                  className="w-full rounded-2xl border-2 p-4 flex items-center justify-between text-left hover:border-slate-900 transition-colors active:scale-[0.99]">
+                                  <div><p className="text-sm font-black">Full day</p><p className="text-[11px] font-bold text-slate-400">Book one or more whole days</p></div>
+                                  <span className="text-lg font-black">${(dailyRateOf(applyFor).amountCents / 100).toFixed(0)}<span className="text-[10px] text-slate-400">/day</span></span>
+                                </button>
+                                <button type="button" onClick={() => { setGranularity('hourly'); setReserveStep('when'); }}
+                                  className="w-full rounded-2xl border-2 p-4 flex items-center justify-between text-left hover:border-slate-900 transition-colors active:scale-[0.99]">
+                                  <div><p className="text-sm font-black">{hasSlots ? 'Time slot' : 'By the hour'}</p><p className="text-[11px] font-bold text-slate-400">{hasSlots ? 'Pick a ready-made time block' : 'Choose your own hours'}</p></div>
+                                  {hourlyRateOf(applyFor) && !hasSlots && <span className="text-lg font-black">${(hourlyRateOf(applyFor).amountCents / 100).toFixed(0)}<span className="text-[10px] text-slate-400">/hr</span></span>}
+                                  {hasSlots && <span className="text-[10px] font-black uppercase text-slate-400">Slots →</span>}
+                                </button>
                               </div>
-                            </div>
-                          ) : (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
-                              <input type="time" step={1800} value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
-                              <input type="time" step={1800} value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                            </div>
+                            )}
+
+                            {/* STEP: WHEN (calendar) */}
+                            {step === 'when' && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-black tracking-tight">{useTime ? 'Pick your day' : 'Pick your dates'}</p>
+                                  {hasChoice && <button type="button" onClick={() => setReserveStep('type')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>}
+                                </div>
+                                {Array.isArray((applyFor as any)?.dayRentalDays) && (applyFor as any).dayRentalDays.length > 0 && (applyFor as any).dayRentalDays.length < 7 && (
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}</p>
+                                )}
+                                <div className="rounded-2xl border-2 p-2 flex justify-center">
+                                  <Calendar
+                                    mode={useTime ? 'single' : 'range'}
+                                    numberOfMonths={1}
+                                    selected={useTime
+                                      ? (form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined)
+                                      : { from: form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined, to: form.endDate ? new Date(form.endDate + 'T00:00:00') : undefined }}
+                                    onSelect={(val: any) => {
+                                      const toIso = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+                                      if (useTime) { if (!val) return; const iso = toIso(val); setForm(f => ({ ...f, startDate: iso, endDate: iso })); }
+                                      else { setForm(f => ({ ...f, startDate: toIso(val?.from), endDate: toIso(val?.to || val?.from) })); }
+                                    }}
+                                    disabled={(d: Date) => {
+                                      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                                      if (iso < new Date().toISOString().slice(0, 10)) return true;
+                                      if (!useTime && bookedDates.has(iso)) return true;
+                                      const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
+                                      if (sched && !sched.includes(d.getDay())) return true;
+                                      const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
+                                      return bl.includes(iso);
+                                    }}
+                                  />
+                                </div>
+                                {scheduleIssue && <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>}
+                                {form.startDate && (!useTime ? form.endDate : true) && !scheduleIssue && (
+                                  <button type="button" onClick={() => setReserveStep(useTime ? 'time' : 'you')}
+                                    className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.99] transition-transform">
+                                    Continue{priceLine() ? ` · ${priceLine()}` : ''} →
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* STEP: TIME (hourly/slots) */}
+                            {step === 'time' && useTime && (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-black tracking-tight">{hasSlots ? 'Pick your slot' : 'Pick your hours'}</p>
+                                  <button type="button" onClick={() => setReserveStep('when')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>
+                                </div>
+                                {hasSlots ? (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {slotsOf(applyFor).map((s: any) => (
+                                      <button key={s.label + s.startTime} type="button"
+                                        onClick={() => { setPickedSlot(s); setForm(f => ({ ...f, startTime: s.startTime, endTime: s.endTime })); }}
+                                        className={`rounded-2xl border-2 p-3.5 text-left transition-all active:scale-[0.98] ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-400'}`}>
+                                        <p className="text-sm font-black">{s.label}</p>
+                                        <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{t12(s.startTime)} – {t12(s.endTime)}</p>
+                                        <p className="text-base font-black mt-0.5">${(s.amountCents / 100).toFixed(s.amountCents % 100 === 0 ? 0 : 2)}</p>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
+                                      <input type="time" step={1800} value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" /></div>
+                                    <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
+                                      <input type="time" step={1800} value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" /></div>
+                                  </div>
+                                )}
+                                {((applyFor as any).openTime || (applyFor as any).closeTime) && !hasSlots && (
+                                  <p className="text-[10px] font-bold text-slate-400">Bookable {t12((applyFor as any).openTime || '00:00')} – {t12((applyFor as any).closeTime || '23:59')}</p>
+                                )}
+                                {scheduleIssue && <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>}
+                                {(pickedSlot || (form.startTime && form.endTime && form.startTime < form.endTime)) && !scheduleIssue && (
+                                  <button type="button" onClick={() => setReserveStep('you')}
+                                    className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.99] transition-transform">
+                                    Continue{priceLine() ? ` · ${priceLine()}` : ''} →
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* STEP: YOU (summary + details) */}
+                            {step === 'you' && (
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-black tracking-tight">Almost there</p>
+                                  <button type="button" onClick={() => setReserveStep(useTime ? 'time' : 'when')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>
+                                </div>
+                                <div className="rounded-2xl bg-slate-900 text-white p-4 space-y-0.5">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-white/50">{applyFor.name}</p>
+                                  <p className="text-sm font-black">{whenLabel()}</p>
+                                  {priceLine() && <p className="text-lg font-black text-emerald-300">{priceLine()}</p>}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          )}
-                          {((applyFor as any).openTime || (applyFor as any).closeTime) && (
-                            <p className="text-[10px] font-bold text-slate-400">Bookable {t12((applyFor as any).openTime || '00:00')} – {t12((applyFor as any).closeTime || '23:59')}</p>
-                          )}
-                          {!pickedSlot && form.startTime && form.endTime && form.startTime < form.endTime && !scheduleIssue && hourlyRateOf(applyFor) && (
-                            <p className="text-xs font-black text-emerald-700 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2">
-                              {(() => {
-                                const hrs = (new Date(`2000-01-01T${form.endTime}:00`).getTime() - new Date(`2000-01-01T${form.startTime}:00`).getTime()) / 3600000;
-                                return `${hrs} hr${hrs === 1 ? '' : 's'} · $${((hourlyRateOf(applyFor).amountCents * hrs) / 100).toFixed(2)} total`;
-                              })()}
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <div className="rounded-2xl border-2 p-2 flex justify-center">
-                          <Calendar
-                            mode="range"
-                            numberOfMonths={1}
-                            selected={{
-                              from: form.startDate ? new Date(form.startDate + 'T00:00:00') : undefined,
-                              to: form.endDate ? new Date(form.endDate + 'T00:00:00') : undefined,
-                            }}
-                            onSelect={(range: any) => {
-                              const toIso = (d?: Date) => d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
-                              setForm(f => ({ ...f, startDate: toIso(range?.from), endDate: toIso(range?.to || range?.from) }));
-                            }}
-                            disabled={(d: Date) => {
-                              const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-                              if (iso < new Date().toISOString().slice(0, 10)) return true;
-                              if (bookedDates.has(iso)) return true;
-                              const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
-                              if (sched && !sched.includes(d.getDay())) return true;
-                              const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
-                              return bl.includes(iso);
-                            }}
-                          />
-                        </div>
-                      )}
-                      {scheduleIssue && (
-                        <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>
-                      )}
+                        );
+                      })()}
                     </div>
                   )}
 
+                  {(applyMode !== 'day' || reserveStep === 'you') && (
+                  <div className="space-y-3 animate-in fade-in duration-200">
                   {/* Required documents — owner-configured */}
                   {inquiryKind === 'application' && requiredDocs.map(rd => {
                     const state = docs[rd];
@@ -788,8 +859,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                   )}
                   <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? 'Agree to the terms to continue' : 'Submit'}
+                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? 'Agree to the terms to continue' : (applyMode === 'day' ? (isLease(applyFor) ? 'Submit' : 'Pay & Reserve') : 'Submit')}
                   </button>
+                  </div>
+                  )}
                 </div>
               </>
             )}
