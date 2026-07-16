@@ -136,6 +136,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
   // v89 — stepped reserve flow: 'type' → 'when' → 'time' → 'you'
   const [reserveStep, setReserveStep] = useState<'type' | 'when' | 'time' | 'you'>('type');
+  const [hourlyMode, setHourlyMode] = useState<'slots' | 'custom'>('slots'); // when a space has both
+  const [pickedStart, setPickedStart] = useState('');   // 'HH:MM'
+  const [pickedHours, setPickedHours] = useState(0);
   const [pickedSlot, setPickedSlot] = useState<any>(null);
   const slotsOf = (bb: any): any[] => Array.isArray(bb?.bookingSlots) ? bb.bookingSlots.filter((s: any) => s.label && s.startTime && s.endTime && s.amountCents > 0) : [];
   const [docs, setDocs] = useState<Record<string, { name: string; url: string } | 'uploading' | null>>({});
@@ -258,7 +261,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
@@ -295,6 +298,23 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
   };
   const [bookedDates, setBookedDates] = useState<Set<string>>(new Set());
+  // Start-time grid + duration options from a space's window + increment.
+  const toMin = (t: string) => { const [h, m] = (t || '').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const toHHMM = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+  const startTimesFor = (b: any): string[] => {
+    const open = toMin(b?.openTime || '09:00');
+    const close = toMin(b?.closeTime || '18:00');
+    const inc = Number(b?.startIncrementMins) || 30;
+    if (close <= open) return [];
+    const out: string[] = [];
+    for (let m = open; m <= close - 60; m += inc) out.push(toHHMM(m));  // need ≥1hr room
+    return out;
+  };
+  const maxHoursFor = (b: any, start: string): number => {
+    const close = toMin(b?.closeTime || '18:00');
+    const s = toMin(start);
+    return Math.max(0, Math.floor((close - s) / 60));
+  };
   const ratingOf = (bb: any): { avg: number; count: number } | null => {
     const count = Number(bb?.ratingCount) || 0;
     if (count < 1) return null;
@@ -375,9 +395,16 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         });
         const data = await res.json();
         if (data.ok && data.url) { window.location.href = data.url; return; }
-        if (res.status === 409 && data.error) { alert(data.error); setSubmitting(false); return; }
-        // any other failure → inquiry fallback below
-      } catch { /* fall through to inquiry */ }
+        // This is a real paid reservation — do NOT silently fall through to a
+        // free booking. Tell the guest so payment isn't skipped by accident.
+        alert(data.error || 'We couldn\'t start checkout for this reservation. Please try again, or contact us to book.');
+        setSubmitting(false);
+        return;
+      } catch {
+        alert('We couldn\'t reach checkout. Please check your connection and try again.');
+        setSubmitting(false);
+        return;
+      }
     }
     try {
       const now = new Date().toISOString();
@@ -853,12 +880,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                     selectedEnd={form.endDate || undefined}
                                     onPick={(picked: string) => {
                                       if (useTime) { setForm(f => ({ ...f, startDate: picked, endDate: picked })); return; }
-                                      // range: first tap sets start; second tap (after start) sets end;
-                                      // tapping again (or before start) restarts.
-                                      if (!form.startDate || (form.startDate && form.endDate) || picked < form.startDate) {
-                                        setForm(f => ({ ...f, startDate: picked, endDate: '' }));
-                                      } else {
+                                      // Single tap books that one day (start = end) so it's
+                                      // always payment-ready. Tapping a later day extends to a
+                                      // range; tapping again restarts a fresh single day.
+                                      if (!form.startDate || (form.startDate !== form.endDate) || picked < form.startDate) {
+                                        setForm(f => ({ ...f, startDate: picked, endDate: picked }));
+                                      } else if (picked > form.startDate) {
                                         setForm(f => ({ ...f, endDate: picked }));
+                                      } else {
+                                        setForm(f => ({ ...f, startDate: picked, endDate: picked }));
                                       }
                                     }}
                                     isDisabled={(dIso: string) => {
@@ -882,45 +912,95 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               </div>
                             )}
 
-                            {/* STEP: TIME (hourly/slots) */}
-                            {step === 'time' && useTime && (
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <p className="text-sm font-black tracking-tight">{hasSlots ? 'Pick your slot' : 'Pick your hours'}</p>
-                                  <button type="button" onClick={() => setReserveStep('when')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>
+                            {/* STEP: TIME — start-time grid + duration (and slots if offered) */}
+                            {step === 'time' && useTime && (() => {
+                              const starts = startTimesFor(applyFor);
+                              const showSlots = hasSlots && hourlyMode === 'slots';
+                              const hourRate = hourlyRateOf(applyFor);
+                              return (
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-sm font-black tracking-tight">When works for you?</p>
+                                    <button type="button" onClick={() => setReserveStep('when')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>
+                                  </div>
+
+                                  {/* Slots vs by-the-hour toggle — only when both exist */}
+                                  {hasSlots && hourRate && (
+                                    <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+                                      {(['slots', 'custom'] as const).map(m => (
+                                        <button key={m} type="button" onClick={() => { setHourlyMode(m); setPickedSlot(null); setPickedStart(''); setPickedHours(0); setForm(f => ({ ...f, startTime: '', endTime: '' })); }}
+                                          className={`flex-1 h-9 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${hourlyMode === m ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                                          {m === 'slots' ? 'Ready-made slots' : 'By the hour'}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+
+                                  {showSlots ? (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {slotsOf(applyFor).map((s: any) => (
+                                        <button key={s.label + s.startTime} type="button"
+                                          onClick={() => { setPickedSlot(s); setForm(f => ({ ...f, startTime: s.startTime, endTime: s.endTime })); }}
+                                          className={`rounded-2xl border-2 p-3.5 text-left transition-all active:scale-[0.98] ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-400'}`}>
+                                          <p className="text-sm font-black">{s.label}</p>
+                                          <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{t12(s.startTime)} – {t12(s.endTime)}</p>
+                                          <p className="text-base font-black mt-0.5">${(s.amountCents / 100).toFixed(s.amountCents % 100 === 0 ? 0 : 2)}</p>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {/* Start time grid */}
+                                      <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">Start time</p>
+                                        {starts.length === 0 ? (
+                                          <p className="text-xs text-slate-400 py-2">No available start times for this space.</p>
+                                        ) : (
+                                          <div className="grid grid-cols-3 gap-2">
+                                            {starts.map(st => (
+                                              <button key={st} type="button"
+                                                onClick={() => { setPickedStart(st); setPickedHours(0); setForm(f => ({ ...f, startTime: st, endTime: '' })); setPickedSlot(null); }}
+                                                className={`h-11 rounded-xl border-2 text-xs font-black transition-all active:scale-95 ${pickedStart === st ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:border-slate-400'}`}>
+                                                {t12(st)}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {/* Duration chips — capped at closing time */}
+                                      {pickedStart && (
+                                        <div className="animate-in fade-in duration-200">
+                                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1.5">How long?</p>
+                                          <div className="grid grid-cols-4 gap-2">
+                                            {Array.from({ length: Math.min(8, maxHoursFor(applyFor, pickedStart)) }, (_, i) => i + 1).map(h => (
+                                              <button key={h} type="button"
+                                                onClick={() => { setPickedHours(h); const endM = toMin(pickedStart) + h * 60; setForm(f => ({ ...f, startTime: pickedStart, endTime: toHHMM(endM) })); }}
+                                                className={`h-11 rounded-xl border-2 text-xs font-black transition-all active:scale-95 ${pickedHours === h ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 hover:border-slate-400'}`}>
+                                                {h}h
+                                              </button>
+                                            ))}
+                                          </div>
+                                          {pickedHours > 0 && hourRate && (
+                                            <p className="text-[11px] font-bold text-slate-500 mt-2">
+                                              {t12(pickedStart)} – {t12(form.endTime)} · {pickedHours} hour{pickedHours === 1 ? '' : 's'} · ${((hourRate.amountCents * pickedHours) / 100).toFixed(2)}
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {scheduleIssue && <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>}
+                                  {(pickedSlot || (form.startTime && form.endTime && form.startTime < form.endTime)) && !scheduleIssue && (
+                                    <button type="button" onClick={() => setReserveStep('you')}
+                                      className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.99] transition-transform">
+                                      Continue{priceLine() ? ` · ${priceLine()}` : ''} →
+                                    </button>
+                                  )}
                                 </div>
-                                {hasSlots ? (
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {slotsOf(applyFor).map((s: any) => (
-                                      <button key={s.label + s.startTime} type="button"
-                                        onClick={() => { setPickedSlot(s); setForm(f => ({ ...f, startTime: s.startTime, endTime: s.endTime })); }}
-                                        className={`rounded-2xl border-2 p-3.5 text-left transition-all active:scale-[0.98] ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 hover:border-slate-400'}`}>
-                                        <p className="text-sm font-black">{s.label}</p>
-                                        <p className={`text-[10px] font-bold ${pickedSlot?.label === s.label && pickedSlot?.startTime === s.startTime ? 'text-white/60' : 'text-slate-400'}`}>{t12(s.startTime)} – {t12(s.endTime)}</p>
-                                        <p className="text-base font-black mt-0.5">${(s.amountCents / 100).toFixed(s.amountCents % 100 === 0 ? 0 : 2)}</p>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="grid grid-cols-2 gap-2">
-                                    <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">From</p>
-                                      <input type="time" step={1800} value={form.startTime} onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" /></div>
-                                    <div><p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">To</p>
-                                      <input type="time" step={1800} value={form.endTime} onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" /></div>
-                                  </div>
-                                )}
-                                {((applyFor as any).openTime || (applyFor as any).closeTime) && !hasSlots && (
-                                  <p className="text-[10px] font-bold text-slate-400">Bookable {t12((applyFor as any).openTime || '00:00')} – {t12((applyFor as any).closeTime || '23:59')}</p>
-                                )}
-                                {scheduleIssue && <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>}
-                                {(pickedSlot || (form.startTime && form.endTime && form.startTime < form.endTime)) && !scheduleIssue && (
-                                  <button type="button" onClick={() => setReserveStep('you')}
-                                    className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.99] transition-transform">
-                                    Continue{priceLine() ? ` · ${priceLine()}` : ''} →
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                              );
+                            })()}
 
                             {/* STEP: YOU (summary + details) */}
                             {step === 'you' && (
@@ -934,10 +1014,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                   <p className="text-sm font-black">{whenLabel()}</p>
                                   {priceLine() && <p className="text-lg font-black text-emerald-300">{priceLine()}</p>}
                                   {(() => {
-                                    const perSpace = (applyFor as any).depositRequired !== undefined || (applyFor as any).depositPercent !== undefined;
-                                    const need = perSpace ? ((applyFor as any).depositRequired !== false && Number((applyFor as any).depositPercent) > 0) : !!compRules.depositRequired;
-                                    const pct = perSpace ? Number((applyFor as any).depositPercent) || 0 : Number(compRules.depositPercent) || 0;
-                                    return need && pct > 0 && pct < 100 ? <p className="text-[11px] font-bold text-white/60">{pct}% deposit charged now · balance {(((applyFor as any).balanceMode || compRules.balanceMode) === 'at_checkin') ? 'at check-in' : 'in person'}</p> : null;
+                                    const dt = (applyFor as any).depositType ?? (compRules.depositRequired ? (compRules.depositType || 'percent') : 'none');
+                                    if (!dt || dt === 'none') return null;
+                                    const bm = ((applyFor as any).balanceMode || compRules.balanceMode) === 'at_checkin' ? 'at check-in' : 'in person';
+                                    let label = '';
+                                    if (dt === 'flat') { const f = ((applyFor as any).depositFlatCents ?? compRules.depositFlatCents ?? 0) / 100; if (f > 0) label = `$${f.toFixed(0)} deposit charged now`; }
+                                    else if (dt === 'percent') { const p = (applyFor as any).depositPercent ?? compRules.depositPercent ?? 0; if (p > 0 && p < 100) label = `${p}% deposit charged now`; }
+                                    else if (dt === 'breakeven') { label = 'A deposit to hold your time is charged now'; }
+                                    return label ? <p className="text-[11px] font-bold text-white/60">{label} · balance {bm}</p> : null;
                                   })()}
                                 </div>
 
