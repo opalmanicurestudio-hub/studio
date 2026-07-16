@@ -199,24 +199,40 @@ export async function POST(req: NextRequest) {
       const tSnap = await db.doc(`tenants/${tenantId}`).get();
       rules = (tSnap.data() as any)?.bookingPageSettings?.automationRules || {};
     } catch { /* defaults below */ }
-    const perSpaceHasSetting = booth.depositRequired !== undefined || booth.depositPercent !== undefined;
-    const depositRequired = perSpaceHasSetting
-      ? (booth.depositRequired !== false && (Number(booth.depositPercent) || 0) > 0)
-      : !!rules.depositRequired;
-    const depositPct = perSpaceHasSetting
-      ? Math.min(100, Math.max(0, Number(booth.depositPercent) || 0))
-      : Math.min(100, Math.max(0, Number(rules.depositPercent) || 0));
-    // Where the balance goes: per-space booth.balanceMode, else 'in_person'
+    // Per-space deposit config wins ONLY when explicitly typed; otherwise
+    // fall back to the tenant default. (Bug fix: a booth saved with
+    // depositType 'none' or a legacy null percent must NOT block the
+    // tenant default — we key off an explicit, non-'none' depositType.)
+    const boothType: string | undefined = booth.depositType;
+    const usePerSpace = boothType !== undefined && boothType !== null;
+    const depositType = usePerSpace ? boothType
+      : (rules.depositRequired ? (rules.depositType || 'percent') : 'none');
     const balanceMode = booth.balanceMode || rules.balanceMode || 'in_person'; // 'at_checkin' | 'in_person'
 
-    // chargeCents = what we collect NOW at checkout
+    // Compute the deposit by TYPE. netCents is the amount owed (post-credit).
     let chargeCents = netCents;
     let depositCents = 0;
     let balanceDueCents = 0;
-    if (depositRequired && depositPct > 0 && depositPct < 100 && netCents > 100) {
-      depositCents = Math.max(100, Math.round(netCents * (depositPct / 100)));
+    const hoursBooked = (isHourly && startTime && endTime)
+      ? Math.max(0, (new Date(`2000-01-01T${endTime}:00`).getTime() - new Date(`2000-01-01T${startTime}:00`).getTime()) / 3600000)
+      : (numDays || 1) * 8;   // day rental ≈ 8 billable hours for break-even math
+
+    if (depositType === 'flat') {
+      const flat = usePerSpace ? (Number(booth.depositFlatCents) || 0) : (Number(rules.depositFlatCents) || 0);
+      depositCents = Math.min(netCents, Math.max(0, flat));
+    } else if (depositType === 'percent') {
+      const pct = usePerSpace ? (Number(booth.depositPercent) || 0) : (Number(rules.depositPercent) || 0);
+      if (pct > 0 && pct < 100) depositCents = Math.max(100, Math.round(netCents * (pct / 100)));
+    } else if (depositType === 'breakeven') {
+      const hourly = usePerSpace ? (Number(booth.breakevenHourlyCents) || 0) : (Number(rules.breakevenHourlyCents) || 0);
+      depositCents = Math.min(netCents, Math.max(0, Math.round(hourly * hoursBooked)));
+    }
+    // Only split if the deposit is a real partial amount
+    if (depositCents > 0 && depositCents < netCents && netCents > 100) {
       balanceDueCents = netCents - depositCents;
       chargeCents = depositCents;
+    } else {
+      depositCents = 0;   // full payment (deposit ≥ total or zero)
     }
 
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
