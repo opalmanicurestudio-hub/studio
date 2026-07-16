@@ -1895,6 +1895,30 @@ export default function BoothsPage() {
     return () => unsub();
   }, [firestore, tenantId]);
 
+  // v88 — tours (pipeline Step 3)
+  const [tours, setTours] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tours'),
+      (snap) => setTours(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setTours([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const upcomingTours = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return tours
+      .filter(t => ['requested', 'confirmed'].includes(t.status) && t.date >= today)
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  }, [tours]);
+  const setTourStatus = async (t: any, status: string) => {
+    await updateDoc(doc(firestore, 'tenants', tenantId, 'tours', t.id), { status, [`${status}At`]: new Date().toISOString() }).catch(() => {});
+  };
+  const t12tour = (t?: string) => {
+    if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
+    const [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'PM' : 'AM'; const hr = h % 12 === 0 ? 12 : h % 12;
+    return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
+  };
+
   // v77 — GUEST BOOK: every paying day/hourly guest, deduped by contact.
   // The answer to "where did their contact info go" — it goes here,
   // permanently, with visit history and lifetime value.
@@ -3523,6 +3547,37 @@ export default function BoothsPage() {
           </div>
 
           {/* Day rentals */}
+          {/* ── Tours (v88) ── */}
+          {upcomingTours.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
+                <span className="h-5 min-w-5 px-1.5 bg-sky-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">{upcomingTours.length}</span>
+                {upcomingTours.some(t => t.status === 'requested') && <span className="text-[10px] font-black uppercase text-amber-600">· some need your OK</span>}
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {upcomingTours.map((t: any) => (
+                  <div key={t.id} className={`rounded-xl border-2 bg-white px-3.5 py-2.5 space-y-1.5 ${t.status === 'requested' ? 'border-amber-300 bg-amber-50/40' : 'border-sky-200'}`}>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black truncate">{t.name}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{t.date} · {t12tour(t.time)} · {t.durationMins || 30} min</p>
+                      </div>
+                      <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${t.status === 'confirmed' ? 'bg-sky-200 text-sky-800' : 'bg-amber-200 text-amber-800'}`}>{t.status === 'confirmed' ? 'Confirmed' : 'Requested'}</span>
+                      {t.phone && <a href={`tel:${t.phone}`} className="text-[9px] font-black uppercase text-indigo-600 shrink-0">Call</a>}
+                    </div>
+                    {t.message && <p className="text-[10px] text-slate-600 italic line-clamp-2">"{t.message}"</p>}
+                    <div className="flex gap-2">
+                      {t.status === 'requested' && <button onClick={() => setTourStatus(t, 'confirmed')} className="flex-1 h-7 rounded-lg bg-sky-600 text-white font-black uppercase text-[9px] tracking-widest">Confirm</button>}
+                      {t.status === 'confirmed' && <button onClick={() => setTourStatus(t, 'completed')} className="flex-1 h-7 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Mark done</button>}
+                      <button onClick={() => setTourStatus(t, 'cancelled')} className="h-7 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {upcomingReservations.length > 0 && (
             <div className="space-y-3">
               <div className="flex items-center gap-2">
@@ -4634,6 +4689,16 @@ export default function BoothsPage() {
           <div className="space-y-3">
             <div className="rounded-xl border-2 bg-slate-50 px-3 py-2.5 font-mono text-[11px] font-bold break-all select-all">
               {typeof window !== 'undefined' ? `${window.location.origin}/kiosk/${tenantId}` : `/kiosk/${tenantId}`}
+            </div>
+            <div className="rounded-xl border-2 border-sky-200 bg-sky-50/60 px-3 py-2.5 space-y-1">
+              <p className="text-[9px] font-black uppercase tracking-widest text-sky-700">Tour booking link (share with prospects)</p>
+              <p className="font-mono text-[11px] font-bold break-all select-all text-sky-900">
+                {typeof window !== 'undefined' ? `${window.location.origin}/tour/${tenantId}` : `/tour/${tenantId}`}
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/tour/${tenantId}`).catch(() => {}); }} className="text-[9px] font-black uppercase tracking-widest text-sky-700 underline">Copy tour link</button>
+                <button onClick={() => window.open(`/tour/${tenantId}`, '_blank')} className="text-[9px] font-black uppercase tracking-widest text-sky-700 underline">Open →</button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="outline" onClick={() => {
