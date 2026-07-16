@@ -3606,6 +3606,11 @@ export default function BoothsPage() {
                     {r.noShow && (
                       <p className="text-[10px] font-black uppercase text-red-600">👻 No-show — never checked in</p>
                     )}
+                    {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices) && (
+                      <p className="text-[10px] font-black uppercase text-slate-500">
+                        {r.doingServices ? '✂ Services' : ''}{r.licenseNumber ? ` · Lic ${r.licenseNumber}` : ''}{r.insuranceConfirmed ? ' · ✓ Insured' : ''}{r.idAcknowledged ? ' · ✓ ID' : ''}
+                      </p>
+                    )}
                     {r.status === 'checked_in' && r.actualCheckIn && (
                       <p className="text-[10px] font-black uppercase text-indigo-700">
                         ⏱ In since {new Date(r.actualCheckIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
