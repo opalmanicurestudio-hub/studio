@@ -24,6 +24,8 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
   const [lastSync, setLastSync] = useState<{ pulled: number; matched: number; needsReview: number; autoBooked?: number } | null>(null);
   const [inbox, setInbox] = useState<any[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rules, setRules] = useState<any[]>([]);
 
   // Review inbox: unmatched bank lines, live
   useEffect(() => {
@@ -185,6 +187,32 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
       {connected && inbox.length === 0 && !error && (
         <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">✓ Fully reconciled — nothing needs review</p>
       )}
+
+      {/* Learned rules — see and prune the system's memory */}
+      <div>
+        <button onClick={async () => {
+          if (rulesOpen) { setRulesOpen(false); return; }
+          const d = await api({ action: 'rules-list' });
+          if (d.ok) { setRules(d.rules || []); setRulesOpen(true); }
+        }} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
+          {rulesOpen ? 'Hide' : 'View'} learned rules{rules.length > 0 && rulesOpen ? ` (${rules.length})` : ''}
+        </button>
+        {rulesOpen && (
+          <div className="mt-2 space-y-1.5">
+            {rules.length === 0 ? <p className="text-[10px] font-bold text-muted-foreground">No rules yet — categorize a few lines and they'll appear here.</p>
+            : rules.map(rl => (
+              <div key={rl.id} className="rounded-lg border px-3 py-2 flex items-center gap-2">
+                <span className="text-[10px]">{rl.context === 'Personal' ? '🏠' : '💼'}</span>
+                <p className="flex-1 min-w-0 text-[11px] font-bold truncate">{rl.merchant} <span className="text-slate-400">→ {rl.category}</span></p>
+                <button onClick={async () => {
+                  const d = await api({ action: 'rules-delete', ruleId: rl.id });
+                  if (d.ok) setRules(rs => rs.filter(x => x.id !== rl.id));
+                }} className="text-[9px] font-black uppercase text-red-500">Forget</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
