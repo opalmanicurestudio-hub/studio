@@ -41,6 +41,7 @@ import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
+import { BankFeedSection } from '@/components/shared/BankFeedSection';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -1147,6 +1148,13 @@ const LedgerPage = () => {
             </Button>
           </div>
         </div>
+
+        {/* ── Bank feed & reconciliation (Plaid) ── */}
+        {tenantId && firestore && (
+          <div className="mb-8">
+            <BankFeedSection tenantId={tenantId} firestore={firestore} />
+          </div>
+        )}
 
         {/* ── KPI stat bar — 4 cards across, with sparkline in revenue card ── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
