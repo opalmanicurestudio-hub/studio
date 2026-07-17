@@ -16,6 +16,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { buildPayrollDraft, runPayrollGates, CADENCE_DAYS } from '@/lib/payroll-draft';
+import { logAuditAdmin } from '@/lib/audit';
 
 export const maxDuration = 300;
 
@@ -65,6 +66,11 @@ export async function GET(req: NextRequest) {
         draftId: draftRef.id, read: false, createdAt: now.toISOString(),
       });
       await batch.commit();
+      await logAuditAdmin(db, tenantId, {
+        action: 'payroll.draft_created', targetType: 'payroll', targetId: draftRef.id,
+        summary: `Auto-draft created: ${draft.lines.length} staff, gross $${draft.grossTotal.toFixed(2)}, est. employer taxes $${draft.estimatedEmployerTaxes.toFixed(2)} (${cadence})`,
+        amount: draft.grossTotal, actor: { type: 'system', name: 'payroll-cron' },
+      });
 
       // ── LEVEL 3 — auto-submit, disabled unless explicitly opted in ──
       if (payroll.autoSubmit === true && allPassed && draft.lines.length > 0) {
