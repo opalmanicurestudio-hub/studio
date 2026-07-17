@@ -58,7 +58,7 @@ import { BankFeedSection } from '@/components/shared/BankFeedSection';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc, writeBatch, increment, arrayUnion, getDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDoc, query, where, onSnapshot, limit } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
@@ -1522,6 +1522,35 @@ const PaydayTab = () => {
   const employerTaxes = estimateEmployerPayrollTax(staffTotalOwed, stateProfile);
   const payrollCashNeeded = staffTotalOwed + employerTaxes;
 
+  // ── Auto-draft (Level 2) — pending drafts from the daily cron. The
+  // draft is a preview + reminder; approval always uses live numbers. ──
+  const autoDraftEnabled = !!(selectedTenant as any)?.payroll?.autoDraft;
+  const [pendingDraft, setPendingDraft] = useState<any | null>(null);
+  useEffect(() => {
+      if (!firestore || !tenantId) return;
+      const q = query(collection(firestore, `tenants/${tenantId}/payrollDrafts`), where('status', '==', 'pending'), limit(1));
+      const unsub = onSnapshot(q,
+          snap => setPendingDraft(snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as any) }),
+          () => setPendingDraft(null));
+      return () => unsub();
+  }, [firestore, tenantId]);
+
+  const handleAutoDraftToggle = (on: boolean) => {
+      if (!firestore || !tenantId) return;
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), {
+          'payroll.autoDraft': on,
+          'payroll.cadence': cadence === 'custom' ? 'bi-weekly' : cadence,
+      });
+  };
+
+  const markDraftApproved = () => {
+      if (!firestore || !tenantId || !pendingDraft) return;
+      updateDocumentNonBlocking(
+          doc(firestore, 'tenants', tenantId, 'payrollDrafts', pendingDraft.id),
+          { status: 'approved', approvedAt: new Date().toISOString() },
+      );
+  };
+
   const unpaidInstancesInPeriod = useMemo(() => {
       if (!billInstances) return [];
       return billInstances.filter(i => {
@@ -1616,6 +1645,7 @@ const PaydayTab = () => {
             description: `Logged distributions successfully.`
         });
         setAllocationAmount(0);
+        markDraftApproved();
     } catch (e) {
         console.error("Distributions failed:", e);
         toast({ variant: 'destructive', title: "Distribution Failed" });
@@ -1654,6 +1684,7 @@ const PaydayTab = () => {
                 title: 'Payroll Submitted to Gusto',
                 description: `${staffObligations.length} employee${staffObligations.length === 1 ? '' : 's'} — Gusto is handling taxes, withholdings & direct deposits.`,
             });
+            markDraftApproved();
         } else {
             toast({ variant: 'destructive', title: 'Gusto Submission Issue', description: result.message || 'The payroll draft was not accepted.' });
         }
@@ -1779,6 +1810,34 @@ const PaydayTab = () => {
                 </Card>
             </div>
 
+            {/* ── Auto-draft banner — from the daily payroll-draft cron ── */}
+            {pendingDraft && (
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 md:p-5 rounded-2xl bg-primary/5 border-2 border-primary/20 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="text-left">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-primary mb-1 flex items-center gap-1.5">
+                            <CalendarRange className="w-3.5 h-3.5" /> Payroll draft ready
+                        </p>
+                        <p className="text-xs md:text-sm font-black text-slate-900">
+                            {format(safeDate(pendingDraft.periodStart), 'MMM d')} – {format(safeDate(pendingDraft.periodEnd), 'MMM d')} · {pendingDraft.lines?.length || 0} staff · gross ${Number(pendingDraft.grossTotal || 0).toFixed(2)} + est. taxes ${Number(pendingDraft.estimatedEmployerTaxes || 0).toFixed(2)}
+                        </p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-0.5">
+                            Preview only — numbers recompute live when you approve below
+                        </p>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-10 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0"
+                        onClick={() => {
+                            setCadence('custom');
+                            setDateRange({ from: startOfDay(safeDate(pendingDraft.periodStart)), to: endOfDay(safeDate(pendingDraft.periodEnd)) });
+                        }}
+                    >
+                        Load Period
+                    </Button>
+                </div>
+            )}
+
             {/* ── Payroll Ready (Gusto) ─────────────────────────────────── */}
             <Card className="border-2 shadow-xl overflow-hidden">
                 <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
@@ -1828,6 +1887,19 @@ const PaydayTab = () => {
                             <span>Total cash needed</span>
                             <span className="font-mono text-primary">{fmtCurrency(payrollCashNeeded)}</span>
                         </div>
+                    </div>
+
+                    {/* ── Level 2 automation: auto-draft on the pay cadence ── */}
+                    <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border-2 border-dashed bg-muted/5">
+                        <div className="text-left">
+                            <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
+                                <CalendarRange className="w-3.5 h-3.5 text-primary" /> Auto-draft payroll
+                            </Label>
+                            <p className="text-[9px] text-muted-foreground uppercase font-bold opacity-60 mt-0.5">
+                                Drafts assemble {cadence === 'custom' ? 'bi-weekly' : cadence} & notify you — approval is always yours
+                            </p>
+                        </div>
+                        <Switch checked={autoDraftEnabled} onCheckedChange={handleAutoDraftToggle} />
                     </div>
                 </CardContent>
                 <CardFooter className="p-5 md:p-6 pt-0 flex flex-col gap-2">
