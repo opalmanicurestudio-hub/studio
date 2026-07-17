@@ -72,6 +72,40 @@ export const bucketFor = (name: string, type: 'income' | 'expense' = 'expense'):
   return type === 'income' ? 'revenue' : 'operating_cost';
 };
 
+// ── Schedule C mapping (US sole proprietor / single-member LLC) ──────────
+// Drives the printable Tax Summary report. Custom categories fall through
+// to Line 27a (Other expenses). PLANNING AID ONLY — not tax advice.
+
+const SCHEDULE_C_MAP: Record<string, string> = {
+  'Supplies':                'Line 22 — Supplies',
+  'Cost of Goods Sold':      'Part III — Cost of Goods Sold',
+  'Spoilage':                'Part III — Cost of Goods Sold',
+  'Rent & Lease':            'Line 20b — Rent (business property)',
+  'Utilities':               'Line 25 — Utilities',
+  'Insurance':               'Line 15 — Insurance',
+  'Payroll':                 'Line 26 — Wages',
+  'Payroll Taxes':           'Line 23 — Taxes & licenses',
+  'Licenses & Permits':      'Line 23 — Taxes & licenses',
+  'Software & Subscriptions':'Line 27a — Other expenses',
+  'Marketing':               'Line 8 — Advertising',
+  'Education & Training':    'Line 27a — Other expenses',
+  'Equipment':               'Line 13 — Depreciation (or de minimis → 27a)',
+  'Cleaning & Sanitation':   'Line 27a — Other expenses',
+  'Bank Fees':               'Line 27a — Other expenses',
+  'Processing Fee':          'Line 10 — Commissions & fees',
+  'Travel':                  'Line 24a — Travel',
+  'Meals & Entertainment':   'Line 24b — Meals (50% limit)',
+  'Bills':                   'Line 27a — Other expenses',
+  'Refunds':                 'Line 2 — Returns & allowances',
+  'Discounts':               'Line 2 — Returns & allowances',
+  'Distribution':            'Not deductible — owner draw',
+  'Personal Needs':          'Not deductible — personal',
+  'Other':                   'Line 27a — Other expenses',
+};
+
+export const scheduleCFor = (category: string): string =>
+  SCHEDULE_C_MAP[category] || 'Line 27a — Other expenses';
+
 /** Library names merged with any custom names already used in the ledger,
  *  so pickers always show the user's own vocabulary too. */
 export const mergedCategoryNames = (
