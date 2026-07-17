@@ -22,8 +22,12 @@
 // server code calls logAuditAdmin(db, ...).
 
 export type AuditActor =
-  | { type: 'user'; id?: string; name?: string }
+  | { type: 'user'; id?: string; name?: string; role?: string; via?: string }
   | { type: 'system'; name: string };   // e.g. 'bank-sync', 'payroll-cron'
+// `id`/`name`/`role` identify the TEAM MEMBER acting inside the tenant's
+// business (resolved from the active staff identity), so an owner can see
+// exactly who on their team did what. `via` marks elevated flows, e.g.
+// 'manager-pin' when a refund was authorized by PIN.
 
 export type AuditEntry = {
   id?: string;
