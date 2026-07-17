@@ -13,6 +13,7 @@ import {
   ArrowUpRight, ArrowDownRight, Minus, BarChart3, AlertCircle,
   Building, User, PiggyBank, Wallet, Calculator, Info,
   ChevronLeft, ChevronRight, CalendarRange, LayoutDashboard, ArrowRight,
+  History,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -2505,12 +2506,24 @@ const BillsTab = () => {
 
 // ─── OverviewTab (new) ────────────────────────────────────────────────────────
 
-type HubTab = 'overview' | 'ledger' | 'payday' | 'bills';
+type HubTab = 'overview' | 'ledger' | 'payday' | 'bills' | 'activity';
 
 type OverviewPreset = '7days' | '30days' | 'thisMonth';
 
 const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
   const { billDefinitions, billInstances, transactions: rawTransactions, staff, activityLogs, isLoading } = useInventory();
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
+
+  // Latest audit entries for the "what just happened" card
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const q = query(collection(firestore, `tenants/${tenantId}/auditLogs`), orderBy('at', 'desc'), limit(3));
+    const unsub = onSnapshot(q, snap => setRecentActivity(snap.docs.map(d => d.data() as any)), () => setRecentActivity([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
 
   const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
     ...t,
@@ -2754,9 +2767,198 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
           </div>
         )}
 
+        {/* ── What just happened — live pulse of the business ── */}
+        {recentActivity.length > 0 && (
+          <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
+            <CardHeader className="p-5 border-b bg-muted/5">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
+                  <History className="w-4 h-4 text-primary" /> Latest Activity
+                </CardTitle>
+                <Button variant="link" onClick={() => onNavigate('activity')} className="h-auto p-0 text-[9px] font-black uppercase text-primary underline underline-offset-4">
+                  View All
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 space-y-2">
+              {recentActivity.map((e, i) => <ActivityRow key={e.id || i} e={e} />)}
+            </CardContent>
+          </Card>
+        )}
+
         <Button variant="ghost" onClick={() => onNavigate('ledger')} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:text-primary hover:border-primary/30">
           <BookOpen className="w-4 h-4 mr-2" /> Open the Full Ledger <ArrowRight className="w-4 h-4 ml-2" />
         </Button>
+      </div>
+    </div>
+  );
+};
+
+// ─── ActivityTab — live audit feed for the whole business ────────────────────
+
+const ACTIVITY_KINDS: Record<string, { icon: React.ElementType; cls: string; label: string }> = {
+  transaction: { icon: Receipt,    cls: 'bg-green-100 text-green-700',   label: 'Ledger' },
+  payroll:     { icon: Banknote,   cls: 'bg-sky-100 text-sky-700',       label: 'Payroll' },
+  bill:        { icon: Landmark,   cls: 'bg-purple-100 text-purple-700', label: 'Bills' },
+  bank:        { icon: CreditCard, cls: 'bg-indigo-100 text-indigo-700', label: 'Bank' },
+  rule:        { icon: BookOpen,   cls: 'bg-amber-100 text-amber-700',   label: 'Rules' },
+};
+const kindOf = (action?: string) =>
+  ACTIVITY_KINDS[(action || '').split('.')[0]] || { icon: ShieldCheck, cls: 'bg-slate-100 text-slate-600', label: 'Other' };
+
+const dayLabel = (d: Date) => {
+  const now = new Date();
+  if (isSameDay(d, now)) return 'Today';
+  if (isSameDay(d, subDays(now, 1))) return 'Yesterday';
+  return format(d, 'EEEE, MMM d');
+};
+
+const ActivityRow = ({ e }: { e: any }) => {
+  const kind = kindOf(e.action);
+  const Icon = kind.icon;
+  const isSystem = e.actor?.type === 'system';
+  return (
+    <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-background border-2 shadow-sm">
+      <div className={cn('p-2.5 rounded-xl shrink-0', kind.cls)}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="flex-1 min-w-0 text-left">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isSystem ? (
+            <Badge className="bg-sky-100 text-sky-800 border-none font-black text-[8px] h-4 px-1.5 uppercase tracking-widest">⚙ {e.actor?.name || 'system'}</Badge>
+          ) : (
+            <Badge variant="outline" className="border-2 font-black text-[8px] h-4 px-1.5 uppercase tracking-widest">
+              {e.actor?.name || 'Team member'}{e.actor?.role ? ` · ${e.actor.role}` : ''}
+            </Badge>
+          )}
+          {e.actor?.via === 'manager-pin' && (
+            <Badge className="bg-amber-100 text-amber-800 border-none font-black text-[8px] h-4 px-1.5 uppercase tracking-widest">PIN authorized</Badge>
+          )}
+          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-50 ml-auto shrink-0">
+            {e.at ? format(safeDate(e.at), 'h:mm a') : ''}
+          </span>
+        </div>
+        <p className="text-xs font-bold text-slate-800 mt-1 leading-relaxed">{e.summary}</p>
+      </div>
+      {typeof e.amount === 'number' && (
+        <span className="font-mono font-black text-sm tracking-tighter text-slate-900 shrink-0 mt-0.5">
+          {fmtCurrency(e.amount)}
+        </span>
+      )}
+    </div>
+  );
+};
+
+const ActivityTab = () => {
+  const { staff, isLoading } = useInventory();
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id;
+
+  const [entries, setEntries] = useState<any[]>([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [memberFilter, setMemberFilter] = useState('all');   // all | system | <staff name>
+  const [kindFilter, setKindFilter] = useState('all');       // all | transaction | payroll | ...
+
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const q = query(collection(firestore, `tenants/${tenantId}/auditLogs`), orderBy('at', 'desc'), limit(200));
+    const unsub = onSnapshot(q,
+      snap => { setEntries(snap.docs.map(d => d.data() as any)); setFeedLoading(false); },
+      () => setFeedLoading(false));
+    return () => unsub();
+  }, [firestore, tenantId]);
+
+  const filtered = useMemo(() => entries.filter(e => {
+    if (memberFilter === 'system' && e.actor?.type !== 'system') return false;
+    if (memberFilter !== 'all' && memberFilter !== 'system') {
+      if (e.actor?.type !== 'user' || (e.actor?.name || '') !== memberFilter) return false;
+    }
+    if (kindFilter !== 'all' && (e.action || '').split('.')[0] !== kindFilter) return false;
+    return true;
+  }), [entries, memberFilter, kindFilter]);
+
+  // Group by day for scannable headers
+  const grouped = useMemo(() => {
+    const groups: { label: string; items: any[] }[] = [];
+    filtered.forEach(e => {
+      const label = e.at ? dayLabel(safeDate(e.at)) : 'Unknown date';
+      const last = groups[groups.length - 1];
+      if (last && last.label === label) last.items.push(e);
+      else groups.push({ label, items: [e] });
+    });
+    return groups;
+  }, [filtered]);
+
+  const memberNames = useMemo(
+    () => [...new Set((staff || []).map((s: any) => s.name).filter(Boolean))] as string[],
+    [staff],
+  );
+
+  if (isLoading || feedLoading) {
+    return (
+      <div className="p-4 md:p-8 flex items-center justify-center min-h-[50vh]">
+        <Loader className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-8">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="text-center space-y-1">
+          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900">Activity</h1>
+          <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
+            Everything happening in your business — people & automations
+          </p>
+        </div>
+
+        {/* ── Filters: team member + kind pills ── */}
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+          <Select value={memberFilter} onValueChange={setMemberFilter}>
+            <SelectTrigger className="h-11 sm:w-56 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue /></SelectTrigger>
+            <SelectContent className="rounded-xl border-2 shadow-2xl">
+              <SelectItem value="all" className="font-bold">Whole team</SelectItem>
+              <SelectItem value="system" className="font-bold">⚙ Automations only</SelectItem>
+              {memberNames.map(n => <SelectItem key={n} value={n} className="font-bold">{n}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <div className="flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner overflow-x-auto">
+            {['all', ...Object.keys(ACTIVITY_KINDS)].map(k => (
+              <Button key={k} variant="ghost" size="sm" onClick={() => setKindFilter(k)}
+                className={cn('flex-1 text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all whitespace-nowrap',
+                  kindFilter === k ? 'bg-white shadow-sm border border-border/50' : 'hover:bg-white/50')}>
+                {k === 'all' ? 'All' : ACTIVITY_KINDS[k].label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Feed ── */}
+        {grouped.length === 0 ? (
+          <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
+            <History className="w-16 h-16" />
+            <p className="text-sm font-black uppercase tracking-widest">No activity yet</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest max-w-xs">Actions your team and automations take will appear here the moment they happen</p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {grouped.map(g => (
+              <div key={g.label} className="space-y-2">
+                <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2 px-1">
+                  <History className="w-3.5 h-3.5" /> {g.label}
+                  <span className="opacity-50">· {g.items.length}</span>
+                </h4>
+                {g.items.map((e, i) => <ActivityRow key={e.id || `${g.label}-${i}`} e={e} />)}
+              </div>
+            ))}
+            {entries.length >= 200 && (
+              <p className="text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-50">
+                Showing the latest 200 actions — print the Audit Trail report for full history
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2769,9 +2971,10 @@ const HUB_TABS: { key: HubTab; label: string; icon: React.ElementType }[] = [
   { key: 'ledger',   label: 'Ledger',   icon: BookOpen },
   { key: 'payday',   label: 'Payday',   icon: Banknote },
   { key: 'bills',    label: 'Bills',    icon: Landmark },
+  { key: 'activity', label: 'Activity', icon: History },
 ];
 
-const VALID_TABS: HubTab[] = ['overview', 'ledger', 'payday', 'bills'];
+const VALID_TABS: HubTab[] = ['overview', 'ledger', 'payday', 'bills', 'activity'];
 
 function MoneyHubContent() {
   // Deep-linking: /money?tab=payday opens the Payday tab directly, so old
@@ -2782,8 +2985,16 @@ function MoneyHubContent() {
     urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'overview'
   );
 
+  // v65 — perf: mount each tab only on first visit. Once visited it stays
+  // mounted (hidden), so filters/state persist without paying the cost of
+  // rendering five screens on page load.
+  const [visitedTabs, setVisitedTabs] = useState<Set<HubTab>>(
+    () => new Set<HubTab>([urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'overview'])
+  );
+
   const handleTabChange = (tab: HubTab) => {
     setActiveTab(tab);
+    setVisitedTabs(prev => (prev.has(tab) ? prev : new Set(prev).add(tab)));
     // Keep the URL shareable without triggering a Next.js navigation
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', tab === 'overview' ? '/money' : `/money?tab=${tab}`);
@@ -2796,7 +3007,7 @@ function MoneyHubContent() {
 
       {/* ── Tab bar ── */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b-2 px-4 py-3">
-        <div className="max-w-md mx-auto flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner">
+        <div className="max-w-lg mx-auto flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner">
           {HUB_TABS.map(({ key, label, icon: Icon }) => (
             <Button
               key={key}
@@ -2815,12 +3026,14 @@ function MoneyHubContent() {
         </div>
       </div>
 
-      {/* ── Tab panels — kept mounted so filters & state survive tab switches ── */}
+      {/* ── Tab panels — lazy-mounted on first visit, then kept alive so
+             filters & state survive tab switches ── */}
       <main className="flex-1 w-full">
-        <div className={cn(activeTab !== 'overview' && 'hidden')}><OverviewTab onNavigate={handleTabChange} /></div>
-        <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>
-        <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab /></div>
-        <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>
+        {visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}><OverviewTab onNavigate={handleTabChange} /></div>}
+        {visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
+        {visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab /></div>}
+        {visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
+        {visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab /></div>}
       </main>
     </div>
   );
