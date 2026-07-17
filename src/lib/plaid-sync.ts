@@ -10,6 +10,8 @@
 // Nothing here is importable from client components — keep it out of
 // 'use client' files.
 
+import { logAuditAdmin } from './audit';
+
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
   production: 'https://production.plaid.com',
@@ -173,6 +175,11 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
         record.matchedTxnId = txnRef.id;
         record.appliedRule = rule.category;
         autoBooked++;
+        await logAuditAdmin(db, tenantId, {
+          action: 'transaction.auto_book', targetType: 'transaction', targetId: txnRef.id,
+          summary: `Auto-booked ${bt.merchant_name || bt.name} as ${rule.category} (learned rule)`,
+          amount: cents / 100, actor: { type: 'system', name: 'bank-sync' },
+        });
       } else {
         record.status = 'unmatched';
         staged++;
