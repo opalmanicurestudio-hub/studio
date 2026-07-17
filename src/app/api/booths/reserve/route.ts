@@ -354,17 +354,34 @@ export async function POST(req: NextRequest) {
 }
 
 
+// Fetch the exact Stripe fee for a payment intent via its charge's
+// balance transaction. Fail-open: fee recording must never block revenue.
+async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents: number; chargeId: string | null }> {
+  try {
+    if (!paymentIntentId || !process.env.STRIPE_SECRET_KEY) return { feeCents: 0, chargeId: null };
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
+    const charge: any = pi?.latest_charge;
+    const bt: any = charge?.balance_transaction;
+    return { feeCents: Number(bt?.fee) || 0, chargeId: charge?.id || null };
+  } catch { return { feeCents: 0, chargeId: null }; }
+}
+
 // Canonical Transaction shape (verified against the Ledger page):
 // amount in DOLLARS, required type 'income'.
 async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, paymentIntentId: string | null) {
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
   const nowIso = new Date().toISOString();
+  const { feeCents, chargeId } = await stripeFeeFor(paymentIntentId);
   await txnRef.set({
     id:                    txnRef.id,
     type:                  'income',
     context:               'Business',
     taxBucket:             'revenue',
     amount:                (r.amountCents || 0) / 100,
+    stripeFeeCents:        feeCents || null,
+    netAmountCents:        feeCents ? (r.amountCents || 0) - feeCents : null,
     category:              'Booth Rent',
     description:           r.bookingType === 'hourly'
       ? `Hourly rental — ${r.boothName || 'Space'} — ${r.name} (${r.startDate} ${r.startTime}–${r.endTime})`
@@ -375,11 +392,36 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
     hasReceipt:            false,
     checkoutSessionId:     r.stripeSessionId || null,
     stripePaymentIntentId: paymentIntentId,
-    stripeChargeId:        null,
+    stripeChargeId:        chargeId,
     sourceId:              reservationId,
     tenantId,
     createdAt:             nowIso,
   });
+
+  // Paired expense: the processing fee Stripe deducts before payout.
+  // Without this the P&L overstates revenue and the fee disappears.
+  if (feeCents > 0) {
+    const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    await feeRef.set({
+      id: feeRef.id,
+      type: 'expense',
+      context: 'Business',
+      taxBucket: 'operating_cost',
+      amount: feeCents / 100,
+      category: 'Processing Fees',
+      description: `Stripe fee — ${r.bookingType === 'hourly' ? 'hourly' : 'day'} rental — ${r.boothName || 'Space'} (${r.name})`,
+      clientOrVendor: 'Stripe',
+      date: nowIso,
+      paymentMethod: 'Deducted from payout',
+      hasReceipt: false,
+      stripePaymentIntentId: paymentIntentId,
+      stripeChargeId: chargeId,
+      sourceId: reservationId,
+      relatedTxnId: txnRef.id,
+      tenantId,
+      createdAt: nowIso,
+    });
+  }
 }
 
 export async function GET(req: NextRequest) {
