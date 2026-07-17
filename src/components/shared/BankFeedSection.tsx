@@ -26,6 +26,7 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
   const [connected, setConnected] = useState<boolean | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [rules, setRules] = useState<any[]>([]);
+  const [editRule, setEditRule] = useState('');
 
   // Review inbox: unmatched bank lines, live
   useEffect(() => {
@@ -201,13 +202,34 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
           <div className="mt-2 space-y-1.5">
             {rules.length === 0 ? <p className="text-[10px] font-bold text-muted-foreground">No rules yet — categorize a few lines and they'll appear here.</p>
             : rules.map(rl => (
-              <div key={rl.id} className="rounded-lg border px-3 py-2 flex items-center gap-2">
-                <span className="text-[10px]">{rl.context === 'Personal' ? '🏠' : '💼'}</span>
-                <p className="flex-1 min-w-0 text-[11px] font-bold truncate">{rl.merchant} <span className="text-slate-400">→ {rl.category}</span></p>
-                <button onClick={async () => {
-                  const d = await api({ action: 'rules-delete', ruleId: rl.id });
-                  if (d.ok) setRules(rs => rs.filter(x => x.id !== rl.id));
-                }} className="text-[9px] font-black uppercase text-red-500">Forget</button>
+              <div key={rl.id} className="rounded-lg border px-3 py-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px]">{rl.context === 'Personal' ? '🏠' : '💼'}</span>
+                  <p className="flex-1 min-w-0 text-[11px] font-bold truncate">{rl.merchant} <span className="text-slate-400">→ {rl.category}</span></p>
+                  <button onClick={() => setEditRule(editRule === rl.id ? '' : rl.id)} className="text-[9px] font-black uppercase text-indigo-600">{editRule === rl.id ? 'Close' : 'Edit'}</button>
+                  <button onClick={async () => {
+                    const d = await api({ action: 'rules-delete', ruleId: rl.id });
+                    if (d.ok) setRules(rs => rs.filter(x => x.id !== rl.id));
+                  }} className="text-[9px] font-black uppercase text-red-500">Forget</button>
+                </div>
+                {editRule === rl.id && (
+                  <div className="flex gap-1.5 animate-in fade-in duration-150">
+                    <input defaultValue={rl.category} id={`rulecat-${rl.id}`}
+                      className="flex-1 h-9 rounded-lg border-2 px-3 text-[11px] font-bold" placeholder="Category" />
+                    <button onClick={async () => {
+                      const val = (document.getElementById(`rulecat-${rl.id}`) as HTMLInputElement)?.value?.trim();
+                      if (!val) return;
+                      const d = await api({ action: 'rules-update', ruleId: rl.id, category: val, fixPast: true });
+                      if (d.ok) {
+                        setRules(rs => rs.map(x => x.id === rl.id ? { ...x, category: val } : x));
+                        setEditRule('');
+                        if (d.fixed > 0) setLastSync(s => s ? { ...s } : s);
+                      } else setError(d.error || 'Could not update rule.');
+                    }} className="h-9 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                      Save + fix past
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
