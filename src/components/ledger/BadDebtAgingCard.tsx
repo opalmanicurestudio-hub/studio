@@ -31,7 +31,7 @@
  *   // Add taxLiability to the returned object and show it in TransactionFilters.
  */
 
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   ChevronDown, ChevronUp, AlertTriangle, CreditCard, Banknote,
   CheckCircle2, Loader2, X, FileWarning, CircleCheck,
@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
+import { auditEntry } from '@/lib/audit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,7 +134,9 @@ const ChargeCardDialog = ({
   item: AgingItem | null;
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  onSuccess: (item: AgingItem) => void;
+  // v67 — the PaymentIntent ID is now threaded through so the ledger note
+  // carries the Stripe reference (was fetched but dropped before).
+  onSuccess: (item: AgingItem, paymentIntentId?: string) => void;
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +176,7 @@ const ChargeCardDialog = ({
       }
 
       // Stripe charge succeeded — parent clears Firestore + logs transaction
-      onSuccess(item);
+      onSuccess(item, data.paymentIntentId);
       onOpenChange(false);
       toast({
         title: 'Card charged successfully',
@@ -286,9 +289,12 @@ const ChargeCardDialog = ({
 interface BadDebtAgingCardProps {
   clients: ClientWithFees[];
   tenantId: string;
+  /** Acting team member (from useAuditActor) — stamped on the audit
+   *  entries these collections write. */
+  actor?: { type: 'user'; id?: string; name?: string; role?: string };
 }
 
-export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) => {
+export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardProps) => {
   const { firestore } = useFirebase();
   const { toast } = useToast();
 
@@ -337,12 +343,16 @@ export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) =
   }, [clients]);
 
   // ── Auto-expand when there are outstanding fees ────────────────────────────
-  // (only on first render with fees — don't fight the user's collapse choice)
+  // (only once — don't fight the user's collapse choice)
+  // v67 — moved from a setState-during-render pattern into an effect: same
+  // behavior, none of the fragility.
   const [autoExpanded, setAutoExpanded] = useState(false);
-  if (total > 0 && !autoExpanded) {
-    setAutoExpanded(true);
-    setExpanded(true);
-  }
+  useEffect(() => {
+    if (total > 0 && !autoExpanded) {
+      setAutoExpanded(true);
+      setExpanded(true);
+    }
+  }, [total, autoExpanded]);
 
   // ── Core write: remove the fee from Firestore + log a transaction ──────────
   const clearFee = useCallback(async (
@@ -362,9 +372,12 @@ export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) =
     const batch = writeBatch(firestore);
 
     // 1. Remove the fee from the client's unpaidFees array
-    batch.update(doc(firestore, `tenants/${tenantId}/clients`, item.clientId), {
+    // v67 — merge-set instead of strict update: if the client doc is
+    // missing (deleted client), a strict update fails the WHOLE batch —
+    // including the income transaction — AFTER Stripe already charged.
+    batch.set(doc(firestore, `tenants/${tenantId}/clients`, item.clientId), {
       unpaidFees: arrayRemove(removeKey),
-    });
+    }, { merge: true });
 
     // 2. Log an income transaction so the ledger stays complete
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
@@ -386,8 +399,26 @@ export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) =
       }`,
     });
 
+    // 3. v67 — audit entry, atomically in the same batch: collecting a debt
+    // (especially charging a saved card) is a money action the owner's
+    // Activity feed must show, with who did it and the Stripe reference.
+    const auditRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
+    batch.set(auditRef, {
+      id: auditRef.id,
+      ...auditEntry({
+        action: opts.paymentMethod === 'Card on File' ? 'debt.charge_card' : 'debt.collect',
+        targetType: 'transaction',
+        targetId: txnRef.id,
+        summary: `${opts.paymentMethod === 'Card on File' ? 'Charged card on file' : 'Collected'}: ${item.reason} — ${item.clientName} (${item.days}d outstanding)${
+          opts.stripePaymentIntentId ? ` · Stripe ${opts.stripePaymentIntentId}` : ''
+        }`,
+        amount: item.amount,
+        actor: actor || { type: 'user' },
+      }),
+    });
+
     await batch.commit();
-  }, [firestore, tenantId]);
+  }, [firestore, tenantId, actor]);
 
   // ── Mark collected (cash/check/other — no Stripe) ─────────────────────────
   const handleMarkCollected = useCallback(async (item: AgingItem) => {
@@ -409,16 +440,14 @@ export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) =
   }, [clearFee, toast]);
 
   // ── Card-on-file success callback (called by ChargeCardDialog) ─────────────
-  const handleCardSuccess = useCallback(async (item: AgingItem) => {
+  const handleCardSuccess = useCallback(async (item: AgingItem, paymentIntentId?: string) => {
     const key = item.feeObj.feeId || `${item.clientId}-${item.amount}`;
     setProcessing(prev => new Set(prev).add(key));
 
     try {
       await clearFee(item, {
         paymentMethod: 'Card on File',
-        // stripePaymentIntentId is available inside ChargeCardDialog after
-        // the API call — for now we just note it's a card charge.
-        // If you need to thread the PI ID through, add it to onSuccess callback.
+        stripePaymentIntentId: paymentIntentId,
       });
     } catch (e) {
       console.error(e);
@@ -555,7 +584,7 @@ export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) =
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1 text-primary border-primary/30 hover:bg-primary/5"
+                                className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1 text-primary border-primary/30 hover:bg-primary/5"
                                 onClick={() => setCharging(item)}
                                 title="Charge card on file"
                               >
@@ -568,7 +597,7 @@ export const BadDebtAgingCard = ({ clients, tenantId }: BadDebtAgingCardProps) =
                             <Button
                               size="sm"
                               variant="outline"
-                              className="h-7 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1 text-green-700 border-green-300 hover:bg-green-50"
+                              className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1 text-green-700 border-green-300 hover:bg-green-50"
                               onClick={() => handleMarkCollected(item)}
                               title="Mark as collected (cash / other)"
                             >
