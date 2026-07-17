@@ -87,22 +87,6 @@ service cloud.firestore {
       allow create: if true;
       allow read, update, delete: if isStaff(tenantId);
     }
-
-    // ── Booth rentals (public website listings + applications) ──────────
-    // Booths are publicly readable so the website's rental section can
-    // list vacancies — this makes rent prices public by design (decision:
-    // listings without prices get skipped). Writes stay staff-only.
-    match /tenants/{tenantId}/booths/{boothId} {
-      allow get, list: if true;
-      allow write: if isStaff(tenantId);
-    }
-    // Applications follow the bookingRequests pattern: anyone can apply
-    // from the public site; only staff can read, review, and decide.
-    match /tenants/{tenantId}/boothApplications/{appId} {
-      allow create: if true;
-      allow read, update, delete: if isStaff(tenantId);
-    }
-
     match /tenants/{tenantId}/refreshmentRequests/{requestId} {
       allow read, create: if true;
       allow update: if isStaff(tenantId);
@@ -113,67 +97,53 @@ service cloud.firestore {
     }
 
     // ── Staff custody & replenishment (new collections) ────────────────────
-    // These 5 need their own explicit blocks — and the catch-all wildcard
-    // below is modified to exclude them — because two of them (the
-    // replenishment request and overflow event status changes) enforce a
-    // manager-only gate that a blanket "any staff can write" rule would
-    // silently bypass via OR semantics if left in the wildcard.
-
     match /tenants/{tenantId}/assetUnits/{unitId} {
-      // Same trust level as /inventory — any staff member can create,
-      // scan (check-out/check-in/report), or retire equipment, matching
-      // how equipment items themselves are already writable by any staff.
       allow read, write: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/assetScanEvents/{eventId} {
-      // Append-only audit trail — any staff member logs a scan, but no one
-      // (not even a manager) edits or deletes history after the fact.
       allow read, create: if isStaff(tenantId);
       allow update, delete: if false;
     }
 
     match /tenants/{tenantId}/stationAllocations/{allocationId} {
-      // NOTE: allocation quantities are only meant to change via
-      // approveReplenishmentRequestTx / logServiceUsageTx / offboardStaffTx
-      // in lib/replenishment-firestore.ts, not direct client edits. This
-      // rule trusts the app layer the same way /inventory already trusts
-      // isStaff for direct writes — it is not stricter or looser than your
-      // existing posture. If you want this hardened beyond "any staff, via
-      // the app," move these transactions into a Cloud Function (Admin SDK
-      // bypasses rules) and change this to `allow write: if false;`.
       allow read, write: if isStaff(tenantId);
     }
 
     match /tenants/{tenantId}/staffReplenishmentRequests/{requestId} {
       allow read: if isStaff(tenantId);
-      // Staff can only create a request naming themselves as the requester.
       allow create: if isStaff(tenantId) && request.resource.data.staffId == request.auth.uid;
-      // Only a manager can change status (approve/deny) — matches the
-      // "manager approves every replenishment" business rule. This is the
-      // one place staff must NOT be able to self-approve.
       allow update: if isManager(tenantId);
       allow delete: if false;
     }
 
     match /tenants/{tenantId}/overflowEvents/{eventId} {
       allow read: if isStaff(tenantId);
-      // Created automatically by logServiceUsageTx when a station runs
-      // short — any staff member's session can trigger this as a
-      // byproduct of logging service usage.
       allow create: if isStaff(tenantId);
-      // Only a manager can mark a flag resolved.
       allow update: if isManager(tenantId);
       allow delete: if false;
     }
 
-    // Catch-all for every other tenant subcollection not explicitly listed
-    // above (stockCorrections, orders, locations, walkIns, etc.) — modified
-    // to exclude the 5 collections above, since Firestore rules are OR'd
-    // across matching blocks: without this exclusion, this wildcard would
-    // silently grant any staff member full write access to
-    // staffReplenishmentRequests/overflowEvents too, defeating the
-    // manager-only gate defined for them just above.
+    // Bank credentials + private server-side data: NEVER client-readable.
+    // The Plaid access tokens live here; only the Admin SDK (API routes,
+    // Cloud Functions) may touch them.
+    match /tenants/{tenantId}/plaidItems/{itemId} {
+      allow read, write: if false;
+    }
+    match /tenants/{tenantId}/private/{docId} {
+      allow read, write: if false;
+    }
+    // Bank transaction staging: owner-readable for the review inbox,
+    // writes only via the server.
+    match /tenants/{tenantId}/bankTransactions/{txnId} {
+      allow read: if isOwner(tenantId);
+      allow write: if false;
+    }
+    match /tenants/{tenantId}/vendorRules/{ruleId} {
+      allow read: if isOwner(tenantId);
+      allow write: if false;
+    }
+
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId) &&
         !(allSubcollections.size() > 0 && allSubcollections[0] in [
@@ -181,7 +151,9 @@ service cloud.firestore {
           'assetScanEvents',
           'stationAllocations',
           'staffReplenishmentRequests',
-          'overflowEvents'
+          'overflowEvents',
+          'plaidItems',
+          'private'
         ]);
     }
 
