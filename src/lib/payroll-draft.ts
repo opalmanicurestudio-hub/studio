@@ -14,7 +14,7 @@
 // the cron may submit to Gusto without a tap. Flip it only after months
 // of boringly-accurate Level 2 drafts.
 
-import { getStateProfile, estimateEmployerPayrollTax, DEFAULT_STATE_CODE } from './state-tax-profiles';
+import { getStateProfile, estimateEmployerPayrollTax, GENERIC_US_PROFILE } from './state-tax-profiles';
 
 export type DraftLine = {
   staffId: string;
@@ -110,8 +110,10 @@ export async function buildPayrollDraft(
   }).filter((l: DraftLine) => l.total > 0);
 
   const grossTotal = Number(lines.reduce((s, l) => s + l.total, 0).toFixed(2));
-  const stateCode = tenant.taxState || DEFAULT_STATE_CODE;
-  const profile = getStateProfile(stateCode);
+  // v63 — per-tenant jurisdiction, never assumed: federal-only baseline
+  // until the tenant has picked their state.
+  const stateCode = tenant.taxState || 'US';
+  const profile = tenant.taxState ? getStateProfile(tenant.taxState) : GENERIC_US_PROFILE;
   const estimatedEmployerTaxes = Number(estimateEmployerPayrollTax(grossTotal, profile).toFixed(2));
 
   const income = txns.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + t.amount, 0);
