@@ -54,7 +54,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DateRange } from 'react-day-picker';
 import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
 import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
@@ -95,6 +96,24 @@ const writeAudit = (firestore: any, tenantId: string | undefined | null, e: any)
   try {
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/auditLogs`), auditEntry(e));
   } catch { /* non-fatal */ }
+};
+
+// ── Who is acting? Resolves the signed-in user to their staff identity so
+// the audit trail names the TEAM MEMBER, not just "user". Owners can then
+// see exactly who on their team did what across the business.
+const useAuditActor = () => {
+  const { user: currentUser } = useUser();
+  const { staff } = useInventory();
+  return useMemo(() => {
+    const staffId = resolveActiveStaffId(currentUser?.uid);
+    const member = (staff || []).find((s: any) => s.id === staffId);
+    return {
+      type: 'user' as const,
+      id: member?.id || currentUser?.uid || undefined,
+      name: member?.name || currentUser?.displayName || currentUser?.email || 'Unknown user',
+      role: member?.role || undefined,
+    };
+  }, [currentUser?.uid, currentUser?.displayName, currentUser?.email, staff]);
 };
 
 // ─── TransactionIcon ──────────────────────────────────────────────────────────
@@ -993,6 +1012,7 @@ const LedgerTab = () => {
   const { toast } = useToast();
 
   const { transactions: rawTransactions, staff, tillSessions, services, appointments, inventory, clients, isLoading } = useInventory();
+  const auditActor = useAuditActor();
   // v58 — intake normalization: every consumer below assumes `amount`
   // (dollars) and `type` exist. Entries written with amountCents or a
   // missing type (early day-rental payments) are healed here instead of
@@ -1153,7 +1173,7 @@ const LedgerTab = () => {
       writeAudit(firestore, tenantId, {
         action: 'transaction.create', targetType: 'transaction',
         summary: `Manual ${data.type}: ${data.description} (${data.category})`,
-        amount: data.amount, actor: { type: 'user' },
+        amount: data.amount, actor: auditActor,
       });
     }
     setIsAddTxnOpen(false);
@@ -1166,7 +1186,7 @@ const LedgerTab = () => {
     handleAddTransaction({ ...t, date: new Date().toISOString(), description: `Reversal of: ${t.description}`, type: 'reversal', reversalOf: t.id });
     writeAudit(firestore, tenantId, {
       action: 'transaction.revert', targetType: 'transaction', targetId: t.id,
-      summary: `Reverted: ${t.description}`, amount: t.amount, actor: { type: 'user' },
+      summary: `Reverted: ${t.description}`, amount: t.amount, actor: auditActor,
     });
     toast({ title: 'Transaction Reverted' });
     setTransactionToRevert(null);
@@ -1197,10 +1217,15 @@ const LedgerTab = () => {
     try {
       await batch.commit();
       toast({ title: 'Refund Authorized', description: `$${refundTotal.toFixed(2)} reversed.` });
+      // Refunds are PIN-authorized — credit the authorizing manager by name.
+      const authorizer = (staff || []).find(s => s.id === data.authorizerId);
       writeAudit(firestore, tenantId, {
         action: 'transaction.refund', targetType: 'transaction', targetId: transactionToRefund.id,
         summary: `Refund authorized for "${transactionToRefund.description}" — reason: ${data.reason}`,
-        amount: refundTotal, actor: { type: 'user' },
+        amount: refundTotal,
+        actor: authorizer
+          ? { type: 'user', id: authorizer.id, name: authorizer.name, role: (authorizer as any).role, via: 'manager-pin' }
+          : auditActor,
       });
       setTransactionToRefund(null);
     }
@@ -1261,7 +1286,7 @@ const LedgerTab = () => {
         {/* ── Bank feed & reconciliation (Plaid) ── */}
         {tenantId && firestore && (
           <div className="mb-8">
-            <BankFeedSection tenantId={tenantId} firestore={firestore} />
+            <BankFeedSection tenantId={tenantId} firestore={firestore} actor={auditActor} />
           </div>
         )}
 
@@ -1473,6 +1498,7 @@ type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 const PaydayTab = () => {
   const { billDefinitions, billInstances, transactions, staff, activityLogs, isLoading } = useInventory();
+  const auditActor = useAuditActor();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
@@ -1745,7 +1771,7 @@ const PaydayTab = () => {
         writeAudit(firestore, tenantId, {
             action: 'payroll.distribute', targetType: 'payroll',
             summary: `Confirmed payouts: ${staffObligations.length} staff ($${staffTotalOwed.toFixed(2)}) + Profit First allocations of $${allocationAmount.toFixed(2)}`,
-            amount: staffTotalOwed, actor: { type: 'user' },
+            amount: staffTotalOwed, actor: auditActor,
         });
     } catch (e) {
         console.error("Distributions failed:", e);
@@ -1789,7 +1815,7 @@ const PaydayTab = () => {
             writeAudit(firestore, tenantId, {
                 action: 'payroll.submit_gusto', targetType: 'payroll',
                 summary: `Submitted payroll to Gusto: ${staffObligations.length} staff, gross $${staffTotalOwed.toFixed(2)}, est. employer taxes $${employerTaxes.toFixed(2)}`,
-                amount: staffTotalOwed, actor: { type: 'user' },
+                amount: staffTotalOwed, actor: auditActor,
             });
         } else {
             toast({ variant: 'destructive', title: 'Gusto Submission Issue', description: result.message || 'The payroll draft was not accepted.' });
@@ -2271,6 +2297,7 @@ const BillRow = ({ bill, onMarkPaid }: { bill: EnrichedBill; onMarkPaid: (b: Enr
 
 const BillsTab = () => {
   const { billDefinitions, billInstances, isLoading } = useInventory();
+  const auditActor = useAuditActor();
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { toast } = useToast();
@@ -2345,7 +2372,7 @@ const BillsTab = () => {
       writeAudit(firestore, tenantId, {
         action: 'bill.pay', targetType: 'bill', targetId: instance.id,
         summary: `Marked paid: ${definition.name} via ${payMethod}`,
-        amount: definition.amount || 0, actor: { type: 'user' },
+        amount: definition.amount || 0, actor: auditActor,
       });
       setBillToPay(null);
     } catch (e) {
