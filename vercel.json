@@ -1,0 +1,7 @@
+{
+  "_comment": "Merge the `crons` array into your existing vercel.json (create one at the repo root if you don't have it). Schedules are UTC: 07:00 UTC ≈ 2–3am Eastern; payroll-draft runs daily at 08:00 UTC and each tenant's cadence settings decide whether a draft is actually due. Also add a CRON_SECRET env var in Vercel — cron requests carry it automatically as a Bearer token.",
+  "crons": [
+    { "path": "/api/cron/nightly", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/payroll-draft", "schedule": "0 8 * * *" }
+  ]
+}
