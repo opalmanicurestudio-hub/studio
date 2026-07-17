@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -270,6 +269,7 @@ export default function PaydayPage() {
             clientOrVendor: obligation.name,
             type: 'expense',
             context: 'Business',
+            taxBucket: 'operating_cost',
             category: 'Payroll',
             amount: Number(obligation.amount.toFixed(2)),
             paymentMethod: 'Distribution',
@@ -288,6 +288,7 @@ export default function PaydayPage() {
                 clientOrVendor: 'Internal Distribution',
                 type: 'expense',
                 context: 'Business',
+                taxBucket: 'transfer',
                 category: 'Distribution',
                 amount: Number(bucket.amount.toFixed(2)),
                 paymentMethod: 'Internal Transfer',
