@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
         user: { client_user_id: tenantId },
         client_name: 'ClarityFlow',
         products: ['transactions'],
+        transactions: { days_requested: 90 },   // cap history: first sync stays fast
         country_codes: ['US'],
         language: 'en',
       });
@@ -159,12 +160,15 @@ export async function POST(req: NextRequest) {
       const vendorRules = new Map(rulesSnap.docs.map(d => [d.id, d.data() as any]));
 
       // Unreconciled ledger txns for matching
-      const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`).get();
+      const windowStart = new Date(Date.now() - 120 * 86400000).toISOString();
+      const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`)
+        .where('date', '>=', windowStart).get();
       const ledger = ledgerSnap.docs
         .map(d => ({ id: d.id, ...(d.data() as any) }))
         .filter(t => !t.reconciled);
 
       let matched = 0, staged = 0, autoBooked = 0;
+      const pendingWrites: { ref: any; data: any }[] = [];
       const nowIso = new Date().toISOString();
       for (const bt of added) {
         const btId = bt.transaction_id;
@@ -231,7 +235,18 @@ export async function POST(req: NextRequest) {
             staged++;
           }
         }
-        await btRef.set(record);
+        pendingWrites.push({ ref: btRef, data: record });
+        if (pendingWrites.length >= 400) {
+          const batch = db.batch();
+          for (const w of pendingWrites) batch.set(w.ref, w.data);
+          await batch.commit();
+          pendingWrites.length = 0;
+        }
+      }
+      if (pendingWrites.length > 0) {
+        const batch = db.batch();
+        for (const w of pendingWrites) batch.set(w.ref, w.data);
+        await batch.commit();
       }
       return NextResponse.json({ ok: true, pulled: added.length, matched, autoBooked, needsReview: staged });
     }
@@ -317,6 +332,17 @@ export async function POST(req: NextRequest) {
         booked++;
       }
       return NextResponse.json({ ok: true, booked });
+    }
+
+    // Rules manager
+    if (action === 'rules-list') {
+      const snap = await db.collection(`tenants/${tenantId}/vendorRules`).get();
+      return NextResponse.json({ ok: true, rules: snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) });
+    }
+    if (action === 'rules-delete') {
+      if (!body.ruleId) return NextResponse.json({ ok: false, error: 'Missing ruleId.' }, { status: 400 });
+      await db.doc(`tenants/${tenantId}/vendorRules/${body.ruleId}`).delete();
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
