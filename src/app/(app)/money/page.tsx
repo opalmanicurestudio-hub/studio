@@ -34,6 +34,14 @@ import {
   addDays, addMonths,
 } from 'date-fns';
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import {
+  getStateProfile, suggestedAllocation, estimateEmployerPayrollTax,
+  STATE_OPTIONS, DEFAULT_STATE_CODE, RATES_VINTAGE, ratesAreStale,
+} from '@/lib/state-tax-profiles';
+import {
+  getGustoConnection, beginGustoConnect, submitGustoPayroll,
+  type GustoPayrollDraft,
+} from '@/lib/gusto';
 import { Input } from '@/components/ui/input';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -170,6 +178,12 @@ const TAX_BUCKET_COLORS: Record<string, { bg: string; text: string; label: strin
   'refund':         { bg: '#fee2e2', text: '#991b1b', label: 'Refund' },
   'processing_fee': { bg: '#ede9fe', text: '#5b21b6', label: 'Processing Fee' },
   'operating_cost': { bg: '#fff7ed', text: '#92400e', label: 'Operating Cost' },
+  // v59 — color audit: Money Hub introduced Payroll payouts, Profit First
+  // distributions (taxBucket 'transfer'), and Bill payments. Without these
+  // entries they fell through to random hash-picked pastels in the print
+  // report and legend — now semantically colored and auto-legended.
+  'payroll':        { bg: '#e0f2fe', text: '#075985', label: 'Payroll' },
+  'transfer':       { bg: '#ccfbf1', text: '#115e59', label: 'Transfer' },
 };
 
 const CATEGORY_TO_BUCKET: Record<string, string> = {
@@ -184,6 +198,7 @@ const CATEGORY_TO_BUCKET: Record<string, string> = {
   'Refunds': 'refund', 'Void': 'refund',
   'Processing Fee': 'processing_fee',
   'Supplies': 'operating_cost', 'Cost of Goods Sold': 'operating_cost', 'Spoilage': 'operating_cost',
+  'Payroll': 'payroll', 'Distribution': 'transfer', 'Bills': 'operating_cost',
 };
 
 const PRINT_CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = TAX_BUCKET_COLORS;
@@ -300,7 +315,7 @@ function buildPrintHtml(
     const lineItems = s.txns.map(t => {
       const cs = getCatStyle(t.category, (t as any).taxBucket);
       const sn = staffName((t as any).staffId);
-      const amtColor = t.category === 'Tips' ? '#854d0e' : t.category === 'Tax Collected' ? '#374151' : t.type === 'expense' ? '#991b1b' : '#166534';
+      const amtColor = t.category === 'Tips' ? '#854d0e' : t.category === 'Tax Collected' ? '#374151' : t.type === 'reversal' ? '#64748b' : t.type === 'expense' ? '#991b1b' : '#166534';
       const imgNum = imgNumMap.get(t.id);
       const imgBadge = imgNum ? `<span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;margin-left:4px;">IMG-${imgNum}</span>` : '';
       return `<tr style="border-bottom:1px dashed #f3f4f6;">
@@ -343,7 +358,10 @@ function buildPrintHtml(
 
   const ungroupedRows = ungrouped.map((t, i) => {
     const cs = getCatStyle(t.category, (t as any).taxBucket);
-    const amtColor = t.type === 'income' ? '#166534' : '#991b1b';
+    // v59 — reversals previously rendered as red "-" expenses; they're
+    // audit-trail entries, so render slate with no sign.
+    const amtColor = t.type === 'income' ? '#166534' : t.type === 'reversal' ? '#64748b' : '#991b1b';
+    const amtPrefix = t.type === 'income' ? '+' : t.type === 'reversal' ? '' : '-';
     const uImgNum = imgNumMap.get(t.id);
     const uImgBadge = uImgNum ? ` <span style="background:#111;color:#fff;padding:1px 4px;border-radius:4px;font-size:7px;font-weight:900;font-family:monospace;">IMG-${uImgNum}</span>` : '';
     return `<tr style="border-bottom:1px solid #f3f4f6;background:${i % 2 === 0 ? '#fff' : '#fafafa'};">
@@ -353,7 +371,7 @@ function buildPrintHtml(
       <td style="padding:6px 8px;"><span style="background:${cs.bg};color:${cs.text};padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;">${cs.label}</span></td>
       <td style="padding:6px 8px;font-size:10px;">${staffChip((t as any).staffId)}</td>
       <td style="padding:6px 8px;font-size:10px;color:#6b7280;">${t.paymentMethod}</td>
-      <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${t.type === 'income' ? '+' : '-'}$${t.amount.toFixed(2)}</td>
+      <td style="padding:6px 8px;text-align:right;font-family:monospace;font-weight:700;color:${amtColor};">${amtPrefix}$${t.amount.toFixed(2)}</td>
     </tr>`;
   }).join('');
 
@@ -1456,6 +1474,7 @@ const PaydayTab = () => {
             .reduce((acc, t) => acc + (t.tipAmount || t.amount), 0);
 
         let earnings = 0;
+        let hoursWorked = 0;
         if (member.payStructure === 'commission') {
             earnings = (serviceRevenue * ((member.commissionRate || 40) / 100)) +
                        (member.retailCommissionRate ? (retailSales * (member.retailCommissionRate / 100)) : 0);
@@ -1466,7 +1485,8 @@ const PaydayTab = () => {
                 safeDate(l.timestamp) <= dateRange.to
             );
             const totalMinutes = logs.reduce((acc, l) => acc + (l.durationMinutes || 0), 0);
-            earnings = (totalMinutes / 60) * member.hourlyRate;
+            hoursWorked = totalMinutes / 60;
+            earnings = hoursWorked * member.hourlyRate;
         }
 
         const totalOwed = earnings + tips;
@@ -1476,12 +1496,31 @@ const PaydayTab = () => {
             name: member.name,
             avatarUrl: member.avatarUrl,
             amount: totalOwed,
+            // v60 — broken out for the Gusto payroll draft
+            earnings,
+            tips,
+            hours: hoursWorked,
+            payStructure: member.payStructure,
             details: `${member.payStructure === 'commission' ? 'Comm' : 'Hr'} + Tips`
         };
     }).filter(o => o.amount > 0);
   }, [staff, filteredTransactions, activityLogs, dateRange]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
+
+  // ── State-aware tax profile — drives the Tax bucket + employer tax estimate ──
+  const taxState = (selectedTenant as any)?.taxState || DEFAULT_STATE_CODE;
+  const stateProfile = getStateProfile(taxState);
+  const handleStateChange = (code: string) => {
+      if (!firestore || !tenantId) return;
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { taxState: code });
+  };
+
+  // ── Gusto payroll ──
+  const gusto = getGustoConnection(selectedTenant);
+  const [isSubmittingPayroll, setIsSubmittingPayroll] = useState(false);
+  const employerTaxes = estimateEmployerPayrollTax(staffTotalOwed, stateProfile);
+  const payrollCashNeeded = staffTotalOwed + employerTaxes;
 
   const unpaidInstancesInPeriod = useMemo(() => {
       if (!billInstances) return [];
@@ -1508,15 +1547,19 @@ const PaydayTab = () => {
 
   const totalHardObligations = staffTotalOwed + businessBillsTotal + personalBillsTotal;
 
+  // v60 — Tax bucket is no longer a flat 15%: it's driven by the studio's
+  // state profile (federal + SE base + state effective rate). Owner Comp
+  // absorbs the difference so the split always totals 100%.
   const suggestions = useMemo(() => {
       const amt = allocationAmount || 0;
+      const alloc = suggestedAllocation(stateProfile);
       return [
-          { label: 'Profit', pct: 5, amount: Number((amt * 0.05).toFixed(2)), color: 'bg-green-500' },
-          { label: 'Owner Comp', pct: 50, amount: Number((amt * 0.50).toFixed(2)), color: 'bg-primary' },
-          { label: 'Tax', pct: 15, amount: Number((amt * 0.15).toFixed(2)), color: 'bg-orange-500' },
-          { label: 'OpEx / Bills', pct: 30, amount: Number((amt * 0.30).toFixed(2)), color: 'bg-blue-500' },
+          { label: 'Profit', pct: alloc.profit, amount: Number((amt * alloc.profit / 100).toFixed(2)), color: 'bg-green-500' },
+          { label: 'Owner Comp', pct: alloc.ownerComp, amount: Number((amt * alloc.ownerComp / 100).toFixed(2)), color: 'bg-primary' },
+          { label: `Tax (${stateProfile.code})`, pct: alloc.tax, amount: Number((amt * alloc.tax / 100).toFixed(2)), color: 'bg-orange-500' },
+          { label: 'OpEx / Bills', pct: alloc.opex, amount: Number((amt * alloc.opex / 100).toFixed(2)), color: 'bg-blue-500' },
       ];
-  }, [allocationAmount]);
+  }, [allocationAmount, stateProfile]);
 
   const handleSetMaxBalance = () => {
       setAllocationAmount(Number(currentBalance.toFixed(2)));
@@ -1537,7 +1580,7 @@ const PaydayTab = () => {
             clientOrVendor: obligation.name,
             type: 'expense',
             context: 'Business',
-            taxBucket: 'operating_cost',
+            taxBucket: 'payroll',
             category: 'Payroll',
             amount: Number(obligation.amount.toFixed(2)),
             paymentMethod: 'Distribution',
@@ -1578,6 +1621,47 @@ const PaydayTab = () => {
         toast({ variant: 'destructive', title: "Distribution Failed" });
     } finally {
         setIsSubmitting(false);
+    }
+  };
+
+  // ── Gusto: build the payroll draft from this period's obligations and
+  // submit it. Gusto handles exact taxes, withholdings, deposits & filings.
+  const handleApprovePayroll = async () => {
+    if (staffObligations.length === 0 || !tenantId) return;
+    setIsSubmittingPayroll(true);
+    try {
+        const draft: GustoPayrollDraft = {
+            tenantId,
+            periodStart: dateRange.from.toISOString(),
+            periodEnd: dateRange.to.toISOString(),
+            lines: staffObligations.map(o => ({
+                staffId: o.id,
+                name: o.name,
+                regularHours: o.payStructure === 'hourly' ? Number((o.hours || 0).toFixed(2)) : 0,
+                overtimeHours: 0,
+                commission: o.payStructure === 'commission' ? Number((o.earnings || 0).toFixed(2)) : 0,
+                tips: Number((o.tips || 0).toFixed(2)),
+                bonus: 0,
+                reimbursements: 0,
+                deductions: 0,
+            })),
+            grossTotal: Number(staffTotalOwed.toFixed(2)),
+            estimatedEmployerTaxes: Number(employerTaxes.toFixed(2)),
+        };
+        const result = await submitGustoPayroll(draft);
+        if (result.status === 'submitted' || result.status === 'processing') {
+            toast({
+                title: 'Payroll Submitted to Gusto',
+                description: `${staffObligations.length} employee${staffObligations.length === 1 ? '' : 's'} — Gusto is handling taxes, withholdings & direct deposits.`,
+            });
+        } else {
+            toast({ variant: 'destructive', title: 'Gusto Submission Issue', description: result.message || 'The payroll draft was not accepted.' });
+        }
+    } catch (e) {
+        console.error('Gusto submission failed:', e);
+        toast({ variant: 'destructive', title: 'Gusto Submission Failed' });
+    } finally {
+        setIsSubmittingPayroll(false);
     }
   };
 
@@ -1695,6 +1779,87 @@ const PaydayTab = () => {
                 </Card>
             </div>
 
+            {/* ── Payroll Ready (Gusto) ─────────────────────────────────── */}
+            <Card className="border-2 shadow-xl overflow-hidden">
+                <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
+                    <div className="flex items-center justify-between gap-2">
+                        <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight flex items-center gap-2">
+                            <Users className="w-4 h-4 md:w-5 md:h-5 text-primary" />
+                            Payroll Ready
+                        </CardTitle>
+                        {gusto.connected ? (
+                            <Badge className="bg-green-100 text-green-800 border-none font-black text-[9px] uppercase tracking-widest h-6 px-3">Gusto Connected</Badge>
+                        ) : (
+                            <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest text-muted-foreground h-6 px-3">Not Connected</Badge>
+                        )}
+                    </div>
+                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
+                        {gusto.connected
+                            ? `Submits to ${gusto.companyName || 'Gusto'} — taxes, filings & direct deposit handled there`
+                            : 'Connect Gusto to run compliant payroll from this screen'}
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-5 md:p-6 space-y-4">
+                    <div className="space-y-2">
+                        {[
+                            { label: `Employees with earnings: ${staffObligations.length}`, ok: staffObligations.length > 0 },
+                            { label: 'Hours & commissions calculated', ok: staffObligations.length > 0 },
+                            { label: 'Tips reconciled from ledger', ok: true },
+                            { label: `Payroll reserve funded (${fmtCurrency(payrollCashNeeded)} needed)`, ok: currentBalance >= payrollCashNeeded },
+                        ].map(item => (
+                            <div key={item.label} className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border shadow-sm">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">{item.label}</span>
+                                {item.ok
+                                    ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                                    : <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
+                            </div>
+                        ))}
+                    </div>
+                    <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 space-y-2 text-left">
+                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                            <span className="text-muted-foreground opacity-70">Gross payroll</span>
+                            <span className="font-mono">{fmtCurrency(staffTotalOwed)}</span>
+                        </div>
+                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                            <span className="text-muted-foreground opacity-70">Est. employer taxes ({stateProfile.code} · {stateProfile.employerPayrollTaxPct}%)</span>
+                            <span className="font-mono text-orange-600">{fmtCurrency(employerTaxes)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs font-black uppercase tracking-widest border-t pt-2">
+                            <span>Total cash needed</span>
+                            <span className="font-mono text-primary">{fmtCurrency(payrollCashNeeded)}</span>
+                        </div>
+                    </div>
+                </CardContent>
+                <CardFooter className="p-5 md:p-6 pt-0 flex flex-col gap-2">
+                    {gusto.connected ? (
+                        <Button
+                            size="lg"
+                            className="w-full h-14 rounded-2xl text-base font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all active:scale-95"
+                            disabled={staffObligations.length === 0 || isSubmittingPayroll}
+                            onClick={handleApprovePayroll}
+                        >
+                            {isSubmittingPayroll ? <Loader className="animate-spin h-6 w-6" /> : (
+                                <><CheckCircle2 className="mr-2 h-5 w-5" /> Approve Payroll → Gusto</>
+                            )}
+                        </Button>
+                    ) : (
+                        <>
+                            <Button
+                                size="lg"
+                                variant="outline"
+                                className="w-full h-14 rounded-2xl text-sm font-black uppercase tracking-tight border-2"
+                                onClick={() => tenantId && beginGustoConnect(tenantId)}
+                            >
+                                <Landmark className="mr-2 h-5 w-5 text-primary" /> Connect Gusto
+                            </Button>
+                            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 text-center">
+                                Until connected, &quot;Confirm Payouts&quot; below logs payroll internally.
+                            </p>
+                        </>
+                    )}
+                </CardFooter>
+            </Card>
+
             <Card className="border-2 shadow-xl overflow-hidden">
                 <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
                     <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight flex items-center gap-2">
@@ -1704,6 +1869,37 @@ const PaydayTab = () => {
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Profit First methodology suggestions</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 md:space-y-8 p-5 md:p-6">
+                    {/* ── Tax location — drives the suggested Tax bucket % ── */}
+                    <div className="space-y-2 text-left">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tax Location</Label>
+                        <Select value={taxState} onValueChange={handleStateChange}>
+                            <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue /></SelectTrigger>
+                            <SelectContent className="rounded-xl border-2 shadow-2xl max-h-72">
+                                {STATE_OPTIONS.map(s => (
+                                    <SelectItem key={s.code} value={s.code} className="font-bold">
+                                        {s.name} — {s.taxType === 'none' ? 'No income tax' : `${s.stateRate}% ${s.taxType === 'graduated' ? 'top' : 'flat'}`}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-relaxed px-1">
+                            Suggested tax bucket: {stateProfile.suggestedTaxPct}% (federal + self-employment{stateProfile.taxType === 'none' ? ', no state income tax' : ` + ~${stateProfile.effectiveStateRate}% state`}). Estimates only — confirm with your accountant.
+                        </p>
+                        {stateProfile.note && (
+                            <p className="text-[9px] text-muted-foreground leading-relaxed font-bold px-1 opacity-70">{stateProfile.note}</p>
+                        )}
+                        {ratesAreStale() && (
+                            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
+                                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 leading-relaxed text-left">
+                                    These tax rates are from {RATES_VINTAGE} and may be out of date — refresh the state tax library before relying on this split.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+
+                    <Separator className="border-dashed" />
+
                     <div className="space-y-2 text-left">
                         <div className="relative">
                             <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 md:h-6 md:w-6 text-muted-foreground opacity-40" />
