@@ -106,7 +106,24 @@ export const STATE_TAX_PROFILES: Record<string, StateTaxProfile> = {
   DC: p('DC', 'Washington, DC','graduated', 10.75, 7.00, 2.70),
 };
 
+/** @deprecated Multi-tenant apps must not assume a state. Kept only for
+ *  backward compatibility; new code should use GENERIC_US_PROFILE until
+ *  the tenant explicitly selects their state. */
 export const DEFAULT_STATE_CODE = 'NC';
+
+/** Federal-only baseline used when a tenant hasn't picked their state yet.
+ *  Never silently applies another state's numbers — the UI must prompt. */
+export const GENERIC_US_PROFILE: StateTaxProfile = {
+  code: 'US',
+  name: 'United States — state not set',
+  taxType: 'none',
+  stateRate: 0,
+  effectiveStateRate: 0,
+  suggestedTaxPct: 15,
+  sutaNewEmployerPct: 2.0,
+  employerPayrollTaxPct: 10.25,
+  note: 'Select your state for accurate tax and payroll estimates — this is a federal-only baseline.',
+};
 
 /** The tax year these rates were compiled for. State legislatures change
  *  rates almost every January (NC alone: 4.5% → 4.25% → 3.99% across
