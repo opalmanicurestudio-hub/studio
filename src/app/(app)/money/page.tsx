@@ -36,8 +36,13 @@ import {
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import {
   getStateProfile, suggestedAllocation, estimateEmployerPayrollTax,
-  STATE_OPTIONS, DEFAULT_STATE_CODE, RATES_VINTAGE, ratesAreStale,
+  STATE_OPTIONS, GENERIC_US_PROFILE, RATES_VINTAGE, ratesAreStale,
 } from '@/lib/state-tax-profiles';
+import { COUNTRY_OPTIONS, getCountryOption } from '@/lib/tax-jurisdictions';
+import { auditEntry } from '@/lib/audit';
+import {
+  buildPnlHtml, buildTaxSummaryHtml, buildPayrollRegisterHtml, buildAuditTrailHtml,
+} from '@/lib/report-builders';
 import {
   getGustoConnection, beginGustoConnect, submitGustoPayroll,
   type GustoPayrollDraft,
@@ -58,7 +63,7 @@ import { BankFeedSection } from '@/components/shared/BankFeedSection';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc, writeBatch, increment, arrayUnion, getDoc, query, where, onSnapshot, limit } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
@@ -82,6 +87,15 @@ const fmt = (d: any, str: string) => { try { return format(safeDate(d), str); } 
 
 const fmtCurrency = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(n);
+
+// ── Audit trail (client writer) — appends to tenants/{id}/auditLogs.
+// Logging must never break the action it describes.
+const writeAudit = (firestore: any, tenantId: string | undefined | null, e: any) => {
+  if (!firestore || !tenantId) return;
+  try {
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/auditLogs`), auditEntry(e));
+  } catch { /* non-fatal */ }
+};
 
 // ─── TransactionIcon ──────────────────────────────────────────────────────────
 
@@ -1091,18 +1105,57 @@ const LedgerTab = () => {
     return { txnCount, avgTicket, totalTips, refundTotal, margin };
   }, [filteredTransactions, financialSummary]);
 
-  const handlePrint = useCallback(() => {
-    const html = buildPrintHtml(filteredTransactions, staff || [], financialSummary, date);
+  const openPrintWindow = useCallback((html: string) => {
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) { toast({ variant: 'destructive', title: 'Pop-up blocked', description: 'Allow pop-ups for this site to print.' }); return; }
     win.document.write(html);
     win.document.close();
     setTimeout(() => { win.focus(); win.print(); }, 400);
-  }, [filteredTransactions, staff, financialSummary, date, toast]);
+  }, [toast]);
+
+  const handlePrint = useCallback(() => {
+    openPrintWindow(buildPrintHtml(filteredTransactions, staff || [], financialSummary, date));
+  }, [filteredTransactions, staff, financialSummary, date, openPrintWindow]);
+
+  // v63 — the Reports menu: P&L, Schedule C tax summary, payroll register,
+  // and the printable audit trail, all over the currently filtered period.
+  const openReport = useCallback(async (kind: 'pnl' | 'tax' | 'payroll' | 'audit') => {
+    let html = '';
+    if (kind === 'pnl') html = buildPnlHtml(filteredTransactions, date);
+    if (kind === 'tax') html = buildTaxSummaryHtml(filteredTransactions, date);
+    if (kind === 'payroll') {
+      const tState = (selectedTenant as any)?.taxState || null;
+      const profile = tState ? getStateProfile(tState) : GENERIC_US_PROFILE;
+      html = buildPayrollRegisterHtml(filteredTransactions, staff || [], profile, date, !!tState);
+    }
+    if (kind === 'audit') {
+      if (!firestore || !tenantId) return;
+      const snap = await getDocs(query(
+        collection(firestore, `tenants/${tenantId}/auditLogs`),
+        orderBy('at', 'desc'), limit(500),
+      ));
+      const entries = snap.docs.map(d => d.data() as any).filter(e => {
+        if (!e.at) return true;
+        const t = new Date(e.at).getTime();
+        if (date?.from && t < startOfDay(date.from).getTime()) return false;
+        if (date?.to && t > endOfDay(date.to).getTime()) return false;
+        return true;
+      });
+      html = buildAuditTrailHtml(entries, date);
+    }
+    if (html) openPrintWindow(html);
+  }, [filteredTransactions, date, staff, selectedTenant, firestore, tenantId, openPrintWindow]);
 
   const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
     if (!firestore || !tenantId) return;
     addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'transactions'), data);
+    if (data.type !== 'reversal') {
+      writeAudit(firestore, tenantId, {
+        action: 'transaction.create', targetType: 'transaction',
+        summary: `Manual ${data.type}: ${data.description} (${data.category})`,
+        amount: data.amount, actor: { type: 'user' },
+      });
+    }
     setIsAddTxnOpen(false);
   };
 
@@ -1111,6 +1164,10 @@ const LedgerTab = () => {
     if (!t || !firestore || !tenantId) return;
     if (t.type === 'reversal') { toast({ variant: 'destructive', title: 'Cannot revert a reversal.' }); setTransactionToRevert(null); return; }
     handleAddTransaction({ ...t, date: new Date().toISOString(), description: `Reversal of: ${t.description}`, type: 'reversal', reversalOf: t.id });
+    writeAudit(firestore, tenantId, {
+      action: 'transaction.revert', targetType: 'transaction', targetId: t.id,
+      summary: `Reverted: ${t.description}`, amount: t.amount, actor: { type: 'user' },
+    });
     toast({ title: 'Transaction Reverted' });
     setTransactionToRevert(null);
     setSelectedDossier(null);
@@ -1137,7 +1194,16 @@ const LedgerTab = () => {
       batch.update(doc(firestore, `tenants/${tenantId}/clients`, transactionToRefund.clientId), { 'intel.incidents': arrayUnion(incident), 'intel.hasIncidents': true });
     }
     batch.update(doc(firestore, `tenants/${tenantId}/transactions`, transactionToRefund.id), { refundedAt: now, refundTransactionId: txnRef.id });
-    try { await batch.commit(); toast({ title: 'Refund Authorized', description: `$${refundTotal.toFixed(2)} reversed.` }); setTransactionToRefund(null); }
+    try {
+      await batch.commit();
+      toast({ title: 'Refund Authorized', description: `$${refundTotal.toFixed(2)} reversed.` });
+      writeAudit(firestore, tenantId, {
+        action: 'transaction.refund', targetType: 'transaction', targetId: transactionToRefund.id,
+        summary: `Refund authorized for "${transactionToRefund.description}" — reason: ${data.reason}`,
+        amount: refundTotal, actor: { type: 'user' },
+      });
+      setTransactionToRefund(null);
+    }
     catch (e) { console.error(e); toast({ variant: 'destructive', title: 'Process Error' }); }
   };
 
@@ -1162,9 +1228,30 @@ const LedgerTab = () => {
             <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Official financial audit trail</p>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
-            <Button variant="outline" onClick={handlePrint} className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
-              <Printer className="mr-2 h-4 w-4" /> Print Log
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
+                  <Printer className="mr-2 h-4 w-4" /> Reports
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1 w-72">
+                <DropdownMenuItem onClick={handlePrint} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
+                  <BookOpen className="w-3.5 h-3.5 mr-2 text-primary opacity-60" /> Studio Report — Full Detail
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openReport('pnl')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
+                  <TrendingUp className="w-3.5 h-3.5 mr-2 text-green-600 opacity-60" /> Profit &amp; Loss
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openReport('tax')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
+                  <Landmark className="w-3.5 h-3.5 mr-2 text-orange-600 opacity-60" /> Tax Summary (Schedule C)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openReport('payroll')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
+                  <Users className="w-3.5 h-3.5 mr-2 text-sky-600 opacity-60" /> Payroll Register
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => openReport('audit')} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
+                  <ShieldCheck className="w-3.5 h-3.5 mr-2 text-slate-500 opacity-60" /> Audit Trail
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button onClick={() => setIsAddTxnOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
               <PlusCircle className="mr-2 h-4 w-4" /> New Entry
             </Button>
@@ -1508,12 +1595,21 @@ const PaydayTab = () => {
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
 
-  // ── State-aware tax profile — drives the Tax bucket + employer tax estimate ──
-  const taxState = (selectedTenant as any)?.taxState || DEFAULT_STATE_CODE;
-  const stateProfile = getStateProfile(taxState);
+  // ── Jurisdiction-aware tax profile — PER TENANT, never assumed. ──
+  // v63 — multi-tenancy fix: no hardcoded state default. Until this tenant
+  // picks their location, a federal-only generic applies and the UI prompts.
+  const taxCountry = ((selectedTenant as any)?.taxCountry || 'US') as string;
+  const countryOption = getCountryOption(taxCountry);
+  const taxState: string | null = (selectedTenant as any)?.taxState || null;
+  const hasTaxLocation = countryOption.enabled && !!taxState;
+  const stateProfile = hasTaxLocation ? getStateProfile(taxState) : GENERIC_US_PROFILE;
   const handleStateChange = (code: string) => {
       if (!firestore || !tenantId) return;
       updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { taxState: code });
+  };
+  const handleCountryChange = (code: string) => {
+      if (!firestore || !tenantId) return;
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { taxCountry: code });
   };
 
   // ── Gusto payroll ──
@@ -1646,6 +1742,11 @@ const PaydayTab = () => {
         });
         setAllocationAmount(0);
         markDraftApproved();
+        writeAudit(firestore, tenantId, {
+            action: 'payroll.distribute', targetType: 'payroll',
+            summary: `Confirmed payouts: ${staffObligations.length} staff ($${staffTotalOwed.toFixed(2)}) + Profit First allocations of $${allocationAmount.toFixed(2)}`,
+            amount: staffTotalOwed, actor: { type: 'user' },
+        });
     } catch (e) {
         console.error("Distributions failed:", e);
         toast({ variant: 'destructive', title: "Distribution Failed" });
@@ -1685,6 +1786,11 @@ const PaydayTab = () => {
                 description: `${staffObligations.length} employee${staffObligations.length === 1 ? '' : 's'} — Gusto is handling taxes, withholdings & direct deposits.`,
             });
             markDraftApproved();
+            writeAudit(firestore, tenantId, {
+                action: 'payroll.submit_gusto', targetType: 'payroll',
+                summary: `Submitted payroll to Gusto: ${staffObligations.length} staff, gross $${staffTotalOwed.toFixed(2)}, est. employer taxes $${employerTaxes.toFixed(2)}`,
+                amount: staffTotalOwed, actor: { type: 'user' },
+            });
         } else {
             toast({ variant: 'destructive', title: 'Gusto Submission Issue', description: result.message || 'The payroll draft was not accepted.' });
         }
@@ -1941,21 +2047,41 @@ const PaydayTab = () => {
                     <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Profit First methodology suggestions</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6 md:space-y-8 p-5 md:p-6">
-                    {/* ── Tax location — drives the suggested Tax bucket % ── */}
+                    {/* ── Tax location — per tenant, drives the Tax bucket % ── */}
                     <div className="space-y-2 text-left">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tax Location</Label>
-                        <Select value={taxState} onValueChange={handleStateChange}>
-                            <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue /></SelectTrigger>
-                            <SelectContent className="rounded-xl border-2 shadow-2xl max-h-72">
-                                {STATE_OPTIONS.map(s => (
-                                    <SelectItem key={s.code} value={s.code} className="font-bold">
-                                        {s.name} — {s.taxType === 'none' ? 'No income tax' : `${s.stateRate}% ${s.taxType === 'graduated' ? 'top' : 'flat'}`}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Select value={taxCountry} onValueChange={handleCountryChange}>
+                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue placeholder="COUNTRY" /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                                    {COUNTRY_OPTIONS.map(c => (
+                                        <SelectItem key={c.code} value={c.code} disabled={!c.enabled} className="font-bold">
+                                            {c.name}{c.enabled ? '' : ' — coming soon'}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={taxState ?? undefined} onValueChange={handleStateChange} disabled={!countryOption.enabled}>
+                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue placeholder={`SELECT ${countryOption.regionLabel.toUpperCase()}`} /></SelectTrigger>
+                                <SelectContent className="rounded-xl border-2 shadow-2xl max-h-72">
+                                    {STATE_OPTIONS.map(s => (
+                                        <SelectItem key={s.code} value={s.code} className="font-bold">
+                                            {s.name} — {s.taxType === 'none' ? 'No income tax' : `${s.stateRate}% ${s.taxType === 'graduated' ? 'top' : 'flat'}`}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        {!hasTaxLocation && (
+                            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
+                                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 leading-relaxed text-left">
+                                    Set your {countryOption.regionLabel.toLowerCase()} — until then, a federal-only baseline ({GENERIC_US_PROFILE.suggestedTaxPct}%) applies and payroll tax estimates are approximate.
+                                </p>
+                            </div>
+                        )}
                         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-relaxed px-1">
-                            Suggested tax bucket: {stateProfile.suggestedTaxPct}% (federal + self-employment{stateProfile.taxType === 'none' ? ', no state income tax' : ` + ~${stateProfile.effectiveStateRate}% state`}). Estimates only — confirm with your accountant.
+                            Suggested tax bucket: {stateProfile.suggestedTaxPct}% (federal + self-employment{stateProfile.taxType === 'none' ? (hasTaxLocation ? ', no state income tax' : '') : ` + ~${stateProfile.effectiveStateRate}% state`}). Estimates only — confirm with your accountant.
                         </p>
                         {stateProfile.note && (
                             <p className="text-[9px] text-muted-foreground leading-relaxed font-bold px-1 opacity-70">{stateProfile.note}</p>
@@ -2216,6 +2342,11 @@ const BillsTab = () => {
     try {
       await batch.commit();
       toast({ title: 'Bill Paid', description: `${definition.name} — $${(definition.amount || 0).toFixed(2)} logged to the ledger.` });
+      writeAudit(firestore, tenantId, {
+        action: 'bill.pay', targetType: 'bill', targetId: instance.id,
+        summary: `Marked paid: ${definition.name} via ${payMethod}`,
+        amount: definition.amount || 0, actor: { type: 'user' },
+      });
       setBillToPay(null);
     } catch (e) {
       console.error('Bill payment failed:', e);
