@@ -21,7 +21,7 @@ declare global { interface Window { Plaid?: any } }
 export function BankFeedSection({ tenantId, firestore }: { tenantId: string; firestore: Firestore }) {
   const [busy, setBusy] = useState<string>('');           // '' | 'connect' | 'sync' | bankTxnId
   const [error, setError] = useState('');
-  const [lastSync, setLastSync] = useState<{ pulled: number; matched: number; needsReview: number } | null>(null);
+  const [lastSync, setLastSync] = useState<{ pulled: number; matched: number; needsReview: number; autoBooked?: number } | null>(null);
   const [inbox, setInbox] = useState<any[]>([]);
   const [connected, setConnected] = useState<boolean | null>(null);
 
@@ -81,7 +81,7 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
       const d = await api({ action: 'sync' });
       if (!d.ok) { setError(d.error || 'Sync failed.'); return; }
       setConnected(true);
-      setLastSync({ pulled: d.pulled, matched: d.matched, needsReview: d.needsReview });
+      setLastSync({ pulled: d.pulled, matched: d.matched, needsReview: d.needsReview, autoBooked: d.autoBooked || 0 });
     } catch { setError('Sync failed — try again.'); }
     finally { setBusy(''); }
   };
@@ -112,12 +112,22 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
           className="h-9 px-3.5 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
           {busy === 'sync' ? 'Syncing…' : 'Sync now'}
         </button>
+        {inbox.length > 1 && (
+          <button onClick={async () => {
+            if (busy) return; setBusy('all'); setError('');
+            try { const d = await api({ action: 'accept-all' }); if (!d.ok) setError(d.error || 'Batch failed.'); }
+            catch { setError('Batch failed — try again.'); } finally { setBusy(''); }
+          }} disabled={!!busy}
+            className="h-9 px-3.5 rounded-xl bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
+            {busy === 'all' ? 'Booking…' : `✓ Accept all (${inbox.length})`}
+          </button>
+        )}
       </div>
 
       {error && <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {error}</p>}
       {lastSync && !error && (
         <p className="text-[10px] font-bold text-muted-foreground">
-          Pulled {lastSync.pulled} · auto-matched {lastSync.matched} · {lastSync.needsReview} for review
+          Pulled {lastSync.pulled} · matched {lastSync.matched}{(lastSync as any).autoBooked > 0 ? ` · auto-booked ${(lastSync as any).autoBooked} from your rules` : ''} · {lastSync.needsReview} for review
         </p>
       )}
 
@@ -136,7 +146,7 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
               <div className="flex gap-2">
                 <button onClick={() => resolve(bt, 'create')} disabled={busy === bt.id}
                   className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                  {busy === bt.id ? 'Saving…' : `Add as ${bt.suggestedCategory}`}
+                  {busy === bt.id ? 'Saving…' : `Add as ${bt.suggestedCategory} · remembers`}
                 </button>
                 <button onClick={() => resolve(bt, 'ignore')} disabled={busy === bt.id}
                   className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 disabled:opacity-40">
