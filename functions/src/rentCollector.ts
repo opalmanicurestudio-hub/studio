@@ -56,6 +56,21 @@ function isDueToday(lease: any, todayStr: string): boolean {
   return false;
 }
 
+
+// Exact Stripe fee via the charge's balance transaction. Fail-open —
+// fee recording must never block rent collection.
+async function stripeFeeFor(stripeKey: string, paymentIntentId: string | null): Promise<{ feeCents: number; chargeId: string | null }> {
+  try {
+    if (!paymentIntentId || !stripeKey) return { feeCents: 0, chargeId: null };
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(stripeKey);
+    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
+    const charge: any = pi?.latest_charge;
+    const bt: any = charge?.balance_transaction;
+    return { feeCents: Number(bt?.fee) || 0, chargeId: charge?.id || null };
+  } catch { return { feeCents: 0, chargeId: null }; }
+}
+
 async function notify(db: FirebaseFirestore.Firestore, tenantId: string, message: string) {
   const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
   await ref.set({ id: ref.id, type: 'rent_collection', read: false, createdAt: new Date().toISOString(), link: '/booths', message });
@@ -65,15 +80,30 @@ async function writeRentTxn(db: FirebaseFirestore.Firestore, tenantId: string, i
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
   const nowIso = new Date().toISOString();
   const total = (inv.amountCents || 0) + (inv.lateFeeCents || 0);
+  const { feeCents, chargeId } = viaCard ? await stripeFeeFor(STRIPE_KEY.value(), paymentIntentId) : { feeCents: 0, chargeId: null };
   await txnRef.set({
     id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
     amount: total / 100, category: 'Booth Rent', source: 'booth_rent',
     description: `Rent — ${inv.boothName || 'Space'} — due ${inv.dueDate}${inv.lateFeeCents ? ` (incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee)` : ''}`,
     clientOrVendor: renterName, date: nowIso,
     paymentMethod: viaCard ? 'Card on file (Stripe)' : 'Recorded manually',
-    hasReceipt: false, stripePaymentIntentId: paymentIntentId,
+    hasReceipt: false, stripePaymentIntentId: paymentIntentId, stripeChargeId: chargeId,
+    stripeFeeCents: feeCents || null, netAmountCents: feeCents ? total - feeCents : null,
     sourceId: inv.id, leaseId: inv.leaseId, renterId: inv.renterId, tenantId, createdAt: nowIso,
   });
+
+  if (feeCents > 0) {
+    const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    await feeRef.set({
+      id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+      amount: feeCents / 100, category: 'Processing Fees',
+      description: `Stripe fee — rent — ${inv.boothName || 'Space'} (${renterName})`,
+      clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+      hasReceipt: false, stripePaymentIntentId: paymentIntentId, stripeChargeId: chargeId,
+      sourceId: inv.id, leaseId: inv.leaseId, renterId: inv.renterId, relatedTxnId: txnRef.id,
+      tenantId, createdAt: nowIso,
+    });
+  }
 }
 
 async function chargeCard(stripeKey: string, renter: any, amountCents: number, description: string, meta: Record<string, string>) {
