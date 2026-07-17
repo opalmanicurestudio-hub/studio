@@ -27,6 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { bucketFor } from '@/lib/categories';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -270,32 +271,49 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       if (mode === 'create') {
+        // v61 — the review inbox can now (a) override the suggested category
+        // with a pick from the shared library (categoryOverride) and
+        // (b) attach a receipt image captured during reconciliation
+        // (receiptUrl). The learned rule remembers the corrected category,
+        // and an overridden category derives its report-color taxBucket
+        // from the library so the print report stays accurate.
+        const finalType = txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income');
+        const finalCategory = body.categoryOverride || category || bt.suggestedCategory || 'Uncategorized';
+        const finalBucket = taxBucket
+          || (body.categoryOverride ? bucketFor(finalCategory, finalType) : (bt.suggestedTaxBucket || 'operating_cost'));
+        const receiptUrl = typeof body.receiptUrl === 'string' && body.receiptUrl ? body.receiptUrl : null;
+
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
           id: txnRef.id,
-          type: txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
+          type: finalType,
           context: body.contextOverride || bt.context || 'Business',
-          taxBucket: taxBucket || bt.suggestedTaxBucket || 'operating_cost',
+          taxBucket: finalBucket,
           amount: bt.amountCents / 100,
-          category: category || bt.suggestedCategory || 'Uncategorized',
+          category: finalCategory,
           description: bt.merchant || bt.name,
           clientOrVendor: bt.merchant || bt.name,
           date: bt.date + 'T12:00:00.000Z',
           paymentMethod: 'Bank feed',
-          hasReceipt: false,
+          hasReceipt: !!receiptUrl,
+          ...(receiptUrl ? { receiptUrl } : {}),
           reconciled: true, reconciledAt: nowIso, bankTransactionId: bankTxnId,
           tenantId, createdAt: nowIso,
         });
-        await btRef.set({ status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso }, { merge: true });
-        // Learn: this merchant now books itself on every future sync.
+        await btRef.set({
+          status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso,
+          ...(receiptUrl ? { receiptUrl } : {}),
+        }, { merge: true });
+        // Learn: this merchant now books itself on every future sync —
+        // under the category the owner actually chose, not just the guess.
         const vk = vendorKey(bt.merchant || bt.name);
         if (vk) {
           const ctx = body.contextOverride || bt.context || 'Business';
           await db.doc(`tenants/${tenantId}/vendorRules/${ctx.toLowerCase()}:${vk}`).set({
             merchant: bt.merchant || bt.name,
-            category: category || bt.suggestedCategory || 'Uncategorized',
-            taxBucket: taxBucket || bt.suggestedTaxBucket || 'operating_cost',
-            type: txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
+            category: finalCategory,
+            taxBucket: finalBucket,
+            type: finalType,
             context: ctx, learnedAt: nowIso,
           }, { merge: true });
         }
@@ -347,7 +365,10 @@ export async function POST(req: NextRequest) {
       const ruleRef = db.doc(`tenants/${tenantId}/vendorRules/${ruleId}`);
       const rule = (await ruleRef.get()).data() as any;
       if (!rule) return NextResponse.json({ ok: false, error: 'Rule not found.' }, { status: 404 });
-      await ruleRef.set({ category, taxBucket: taxBucket || rule.taxBucket || 'operating_cost' }, { merge: true });
+      // v61 — recompute the report-color bucket from the category library on
+      // edit, so a rule corrected from e.g. Supplies → Payroll recolors too.
+      const newBucket = taxBucket || bucketFor(category, rule.type || 'expense');
+      await ruleRef.set({ category, taxBucket: newBucket }, { merge: true });
       let fixed = 0;
       if (fixPast && rule.merchant) {
         const snap = await db.collection(`tenants/${tenantId}/transactions`)
@@ -356,7 +377,7 @@ export async function POST(req: NextRequest) {
         for (const d of snap.docs) {
           const t = d.data() as any;
           if (t.bankTransactionId && (t.context || 'Business') === (rule.context || 'Business')) {
-            batch.set(d.ref, { category, taxBucket: taxBucket || rule.taxBucket || 'operating_cost' }, { merge: true });
+            batch.set(d.ref, { category, taxBucket: newBucket }, { merge: true });
             fixed++;
           }
         }
