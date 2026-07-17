@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +42,7 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
 import { Separator } from '../ui/separator';
+import { categoriesFor, bucketFor, CUSTOM_CATEGORY } from '@/lib/categories';
 
 const transactionSchema = z.object({
   amount: z.coerce.number().positive('Amount must be positive.'),
@@ -79,7 +80,19 @@ const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
 );
 
 const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
-    const { control, register, formState: { errors } } = useFormContext<TransactionFormData>();
+    const { control, register, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormData>();
+    const txnType = watch('type');
+    const [customCategory, setCustomCategory] = useState(false);
+
+    // When switching income ↔ expense, clear a category that no longer
+    // belongs to the visible library list (custom entries survive).
+    React.useEffect(() => {
+        const cur = getValues('category');
+        if (cur && !customCategory && !categoriesFor(txnType).some(c => c.name === cur)) {
+            setValue('category', '');
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [txnType]);
 
     return (
         <div className="space-y-10">
@@ -213,12 +226,58 @@ const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
                         </div>
                     </div>
 
+                    {/* v61 — Category now pulls from the shared library
+                        (src/lib/categories.ts) instead of free text, filtered
+                        by income/expense, with a custom escape hatch. The
+                        library also stamps the correct taxBucket on save so
+                        report colors stay accurate. */}
                     <div className="space-y-2">
                         <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Classification Category</Label>
-                        <div className="relative">
-                            <Tag className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                            <Input id="category" placeholder="e.g., Supplies, Travel, Revenue" {...register('category')} className="h-12 pl-10 rounded-xl border-2 font-black uppercase text-xs" />
-                        </div>
+                        <Controller
+                            name="category"
+                            control={control}
+                            render={({ field }) => {
+                                const inLibrary = categoriesFor(txnType).some(c => c.name === field.value);
+                                const selectValue = customCategory
+                                    ? CUSTOM_CATEGORY
+                                    : inLibrary ? field.value : (field.value ? CUSTOM_CATEGORY : '');
+                                return (
+                                    <div className="space-y-2">
+                                        <Select
+                                            value={selectValue}
+                                            onValueChange={(v) => {
+                                                if (v === CUSTOM_CATEGORY) { setCustomCategory(true); field.onChange(''); }
+                                                else { setCustomCategory(false); field.onChange(v); }
+                                            }}
+                                        >
+                                            <SelectTrigger id="category" className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <Tag className="h-4 w-4 text-primary opacity-40 shrink-0" />
+                                                    <SelectValue placeholder="SELECT CATEGORY" />
+                                                </div>
+                                            </SelectTrigger>
+                                            <SelectContent className="rounded-xl border-2 shadow-2xl max-h-72">
+                                                {categoriesFor(txnType).map(c => (
+                                                    <SelectItem key={c.name} value={c.name} className="font-bold">
+                                                        {c.name}
+                                                    </SelectItem>
+                                                ))}
+                                                <SelectItem value={CUSTOM_CATEGORY} className="font-bold text-primary">+ Custom category…</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        {customCategory && (
+                                            <Input
+                                                autoFocus
+                                                placeholder="Type a custom category..."
+                                                value={field.value}
+                                                onChange={e => field.onChange(e.target.value)}
+                                                className="h-12 rounded-xl border-2 font-black uppercase text-xs"
+                                            />
+                                        )}
+                                    </div>
+                                );
+                            }}
+                        />
                         {errors.category && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.category.message}</p>}
                     </div>
 
@@ -311,6 +370,8 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
       date: data.date.toISOString(),
       hasReceipt: !!data.receiptUrl,
       staffId: staffId === 'none' ? undefined : staffId,
+      // v61 — stamp the report-color bucket from the category library
+      taxBucket: bucketFor(data.category, data.type),
     };
     onConfirm(newTransaction);
   };
