@@ -110,13 +110,17 @@ export async function POST(req: NextRequest) {
 
     // ── exchange ──────────────────────────────────────────────────────
     if (action === 'exchange') {
-      const { publicToken, institution } = body;
+      const { publicToken, institution, label } = body;
       if (!publicToken) return NextResponse.json({ ok: false, error: 'Missing public token.' }, { status: 400 });
       const data = await plaid('/item/public_token/exchange', { public_token: publicToken });
-      await privRef.set({
+      // Per-item storage: one doc per connected account, labeled Business
+      // or Personal — the label decides the context of every transaction
+      // that flows from it.
+      await db.doc(`tenants/${tenantId}/plaidItems/${data.item_id}`).set({
         accessToken: data.access_token,
         itemId: data.item_id,
         institution: institution || null,
+        label: label === 'Personal' ? 'Personal' : 'Business',
         cursor: null,
         connectedAt: new Date().toISOString(),
       }, { merge: true });
@@ -125,21 +129,29 @@ export async function POST(req: NextRequest) {
 
     // ── sync + auto-match ─────────────────────────────────────────────
     if (action === 'sync') {
-      const priv = (await privRef.get()).data() as any;
-      if (!priv?.accessToken) return NextResponse.json({ ok: false, error: 'No bank connected yet.' }, { status: 400 });
-
-      let cursor = priv.cursor || undefined;
-      let added: any[] = [];
-      let hasMore = true;
-      let guard = 0;
-      while (hasMore && guard < 10) {
-        const data = await plaid('/transactions/sync', { access_token: priv.accessToken, cursor, count: 100 });
-        added = added.concat(data.added || []);
-        cursor = data.next_cursor;
-        hasMore = data.has_more;
-        guard++;
+      // All connected accounts: per-item docs + the legacy single doc
+      const itemsSnap = await db.collection(`tenants/${tenantId}/plaidItems`).get();
+      const items: { ref: any; accessToken: string; cursor: any; label: string }[] =
+        itemsSnap.docs.map(d => ({ ref: d.ref, accessToken: (d.data() as any).accessToken, cursor: (d.data() as any).cursor, label: (d.data() as any).label || 'Business' }));
+      const legacy = (await privRef.get()).data() as any;
+      if (legacy?.accessToken && !items.some(i => i.accessToken === legacy.accessToken)) {
+        items.push({ ref: privRef, accessToken: legacy.accessToken, cursor: legacy.cursor, label: 'Business' });
       }
-      await privRef.set({ cursor, lastSyncAt: new Date().toISOString() }, { merge: true });
+      if (items.length === 0) return NextResponse.json({ ok: false, error: 'No bank connected yet.' }, { status: 400 });
+
+      const added: any[] = [];
+      for (const item of items) {
+        let cursor = item.cursor || undefined;
+        let hasMore = true, guard = 0;
+        while (hasMore && guard < 10) {
+          const data = await plaid('/transactions/sync', { access_token: item.accessToken, cursor, count: 100 });
+          for (const t of (data.added || [])) added.push({ ...t, __context: item.label });
+          cursor = data.next_cursor;
+          hasMore = data.has_more;
+          guard++;
+        }
+        await item.ref.set({ cursor, lastSyncAt: new Date().toISOString() }, { merge: true });
+      }
 
       // Vendor rules — the system's memory: categorize a merchant once,
       // every future transaction from them books itself.
@@ -167,6 +179,7 @@ export async function POST(req: NextRequest) {
         // Auto-match: same amount, right direction, within ±4 days
         const btDate = new Date(bt.date + 'T00:00:00Z').getTime();
         const hit = ledger.find(t => {
+          if ((t.context || 'Business') !== (bt.__context || 'Business')) return false;
           const tCents = Math.round((t.amount || 0) * 100);
           if (tCents !== cents) return false;
           const dirOk = outflow ? t.type === 'expense' : t.type === 'income';
@@ -177,6 +190,7 @@ export async function POST(req: NextRequest) {
 
         const record: any = {
           id: btId, tenantId,
+          context: bt.__context || 'Business',
           name: bt.name, merchant: bt.merchant_name || null,
           amountCents: cents, direction: outflow ? 'out' : 'in',
           date: bt.date, pending: !!bt.pending,
@@ -195,12 +209,12 @@ export async function POST(req: NextRequest) {
         } else {
           // Vendor-rule hit → book it automatically, exactly as the owner
           // categorized this merchant before. Zero-effort bookkeeping.
-          const rule = vendorRules.get(vendorKey(bt.merchant_name || bt.name));
+          const rule = vendorRules.get(`${(bt.__context || 'Business').toLowerCase()}:${vendorKey(bt.merchant_name || bt.name)}`);
           if (rule && !bt.pending) {
             const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
             await txnRef.set({
               id: txnRef.id, type: rule.type || (outflow ? 'expense' : 'income'),
-              context: rule.context || 'Business', taxBucket: rule.taxBucket || 'operating_cost',
+              context: rule.context || bt.__context || 'Business', taxBucket: rule.taxBucket || 'operating_cost',
               amount: cents / 100, category: rule.category,
               description: bt.merchant_name || bt.name,
               clientOrVendor: bt.merchant_name || bt.name,
@@ -245,7 +259,7 @@ export async function POST(req: NextRequest) {
         await txnRef.set({
           id: txnRef.id,
           type: txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
-          context: 'Business',
+          context: body.contextOverride || bt.context || 'Business',
           taxBucket: taxBucket || bt.suggestedTaxBucket || 'operating_cost',
           amount: bt.amountCents / 100,
           category: category || bt.suggestedCategory || 'Uncategorized',
@@ -261,12 +275,13 @@ export async function POST(req: NextRequest) {
         // Learn: this merchant now books itself on every future sync.
         const vk = vendorKey(bt.merchant || bt.name);
         if (vk) {
-          await db.doc(`tenants/${tenantId}/vendorRules/${vk}`).set({
+          const ctx = body.contextOverride || bt.context || 'Business';
+          await db.doc(`tenants/${tenantId}/vendorRules/${ctx.toLowerCase()}:${vk}`).set({
             merchant: bt.merchant || bt.name,
             category: category || bt.suggestedCategory || 'Uncategorized',
             taxBucket: taxBucket || bt.suggestedTaxBucket || 'operating_cost',
             type: txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
-            context: 'Business', learnedAt: nowIso,
+            context: ctx, learnedAt: nowIso,
           }, { merge: true });
         }
         return NextResponse.json({ ok: true, ruleLearned: true });
@@ -286,7 +301,7 @@ export async function POST(req: NextRequest) {
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
           id: txnRef.id, type: bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
-          context: 'Business', taxBucket: bt.suggestedTaxBucket || 'operating_cost',
+          context: bt.context || 'Business', taxBucket: bt.suggestedTaxBucket || 'operating_cost',
           amount: bt.amountCents / 100, category: bt.suggestedCategory || 'Uncategorized',
           description: bt.merchant || bt.name, clientOrVendor: bt.merchant || bt.name,
           date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false,
@@ -294,10 +309,10 @@ export async function POST(req: NextRequest) {
         });
         await d.ref.set({ status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso }, { merge: true });
         const vk = vendorKey(bt.merchant || bt.name);
-        if (vk) await db.doc(`tenants/${tenantId}/vendorRules/${vk}`).set({
+        if (vk) await db.doc(`tenants/${tenantId}/vendorRules/${(bt.context || 'Business').toLowerCase()}:${vk}`).set({
           merchant: bt.merchant || bt.name, category: bt.suggestedCategory || 'Uncategorized',
           taxBucket: bt.suggestedTaxBucket || 'operating_cost', type: bt.suggestedType || 'expense',
-          context: 'Business', learnedAt: nowIso,
+          context: bt.context || 'Business', learnedAt: nowIso,
         }, { merge: true });
         booked++;
       }
