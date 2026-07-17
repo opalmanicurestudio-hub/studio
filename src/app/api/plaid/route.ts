@@ -1,0 +1,240 @@
+/**
+ * Plaid bank feed — /api/plaid  (src/app/api/plaid/route.ts)
+ *
+ * Actions (POST { action, tenantId, ... }):
+ *   link-token     → create a Plaid Link token to open the connect popup
+ *   exchange       → swap the public_token for an access token (stored
+ *                    server-side at tenants/{id}/private/plaid — never
+ *                    readable by clients)
+ *   sync           → pull new bank transactions (cursor-based), stage them
+ *                    in tenants/{id}/bankTransactions, and auto-match
+ *                    against the ledger
+ *   resolve        → owner action from the review inbox: 'match' to an
+ *                    existing ledger txn, 'create' a new categorized ledger
+ *                    txn from the bank line, or 'ignore'
+ *
+ * ENV (Vercel → Settings → Environment Variables):
+ *   PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV ('sandbox' | 'production')
+ *
+ * Matching engine (v1, deliberately explainable):
+ *   1. Stripe payouts (name contains STRIPE) → auto-categorized as
+ *      'Stripe Payout', matched when a same-amount net exists.
+ *   2. Exact amount + direction match against unreconciled ledger txns
+ *      within ±4 days → auto-matched, both sides flagged reconciled.
+ *   3. Everything else → review inbox with a suggested category from
+ *      Plaid's own categorization, mapped to ledger vocabulary.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';
+
+const PLAID_BASE: Record<string, string> = {
+  sandbox: 'https://sandbox.plaid.com',
+  production: 'https://production.plaid.com',
+};
+
+function plaidUrl(path: string) {
+  const env = process.env.PLAID_ENV || 'sandbox';
+  return `${PLAID_BASE[env] || PLAID_BASE.sandbox}${path}`;
+}
+
+async function plaid(path: string, body: any) {
+  const res = await fetch(plaidUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      client_id: process.env.PLAID_CLIENT_ID,
+      secret: process.env.PLAID_SECRET,
+      ...body,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error_message || `Plaid ${path} failed`);
+  return data;
+}
+
+// Plaid personal_finance_category → ledger category + taxBucket
+function mapCategory(pfc: string | undefined, name: string): { category: string; taxBucket: string; type: 'income' | 'expense' } {
+  const n = (name || '').toUpperCase();
+  if (n.includes('STRIPE')) return { category: 'Stripe Payout', taxBucket: 'transfer', type: 'income' };
+  const p = (pfc || '').toUpperCase();
+  const M: [string, string, string][] = [
+    ['RENT_AND_UTILITIES', 'Rent & Utilities', 'operating_cost'],
+    ['GENERAL_MERCHANDISE', 'Supplies', 'operating_cost'],
+    ['GENERAL_SERVICES', 'Professional Services', 'operating_cost'],
+    ['FOOD_AND_DRINK', 'Meals', 'operating_cost'],
+    ['TRANSPORTATION', 'Travel & Transport', 'operating_cost'],
+    ['TRAVEL', 'Travel & Transport', 'operating_cost'],
+    ['PERSONAL_CARE', 'Supplies', 'operating_cost'],
+    ['BANK_FEES', 'Bank Fees', 'operating_cost'],
+    ['ENTERTAINMENT', 'Marketing & Entertainment', 'operating_cost'],
+    ['MEDICAL', 'Health', 'operating_cost'],
+    ['LOAN_PAYMENTS', 'Loan Payments', 'operating_cost'],
+    ['INCOME', 'Other Income', 'revenue'],
+    ['TRANSFER_IN', 'Transfer In', 'transfer'],
+    ['TRANSFER_OUT', 'Transfer Out', 'transfer'],
+  ];
+  for (const [key, cat, bucket] of M) {
+    if (p.startsWith(key)) return { category: cat, taxBucket: bucket, type: bucket === 'revenue' ? 'income' : 'expense' };
+  }
+  return { category: 'Uncategorized', taxBucket: 'operating_cost', type: 'expense' };
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action, tenantId } = body || {};
+    if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing tenantId.' }, { status: 400 });
+    if (!process.env.PLAID_CLIENT_ID || !process.env.PLAID_SECRET) {
+      return NextResponse.json({ ok: false, error: 'Plaid is not configured. Add PLAID_CLIENT_ID and PLAID_SECRET in Vercel → Settings → Environment Variables, then redeploy.' }, { status: 500 });
+    }
+    const db = getAdminDb();
+    const privRef = db.doc(`tenants/${tenantId}/private/plaid`);
+
+    // ── link-token ────────────────────────────────────────────────────
+    if (action === 'link-token') {
+      const data = await plaid('/link/token/create', {
+        user: { client_user_id: tenantId },
+        client_name: 'ClarityFlow',
+        products: ['transactions'],
+        country_codes: ['US'],
+        language: 'en',
+      });
+      return NextResponse.json({ ok: true, linkToken: data.link_token });
+    }
+
+    // ── exchange ──────────────────────────────────────────────────────
+    if (action === 'exchange') {
+      const { publicToken, institution } = body;
+      if (!publicToken) return NextResponse.json({ ok: false, error: 'Missing public token.' }, { status: 400 });
+      const data = await plaid('/item/public_token/exchange', { public_token: publicToken });
+      await privRef.set({
+        accessToken: data.access_token,
+        itemId: data.item_id,
+        institution: institution || null,
+        cursor: null,
+        connectedAt: new Date().toISOString(),
+      }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    // ── sync + auto-match ─────────────────────────────────────────────
+    if (action === 'sync') {
+      const priv = (await privRef.get()).data() as any;
+      if (!priv?.accessToken) return NextResponse.json({ ok: false, error: 'No bank connected yet.' }, { status: 400 });
+
+      let cursor = priv.cursor || undefined;
+      let added: any[] = [];
+      let hasMore = true;
+      let guard = 0;
+      while (hasMore && guard < 10) {
+        const data = await plaid('/transactions/sync', { access_token: priv.accessToken, cursor, count: 100 });
+        added = added.concat(data.added || []);
+        cursor = data.next_cursor;
+        hasMore = data.has_more;
+        guard++;
+      }
+      await privRef.set({ cursor, lastSyncAt: new Date().toISOString() }, { merge: true });
+
+      // Unreconciled ledger txns for matching
+      const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`).get();
+      const ledger = ledgerSnap.docs
+        .map(d => ({ id: d.id, ...(d.data() as any) }))
+        .filter(t => !t.reconciled);
+
+      let matched = 0, staged = 0;
+      const nowIso = new Date().toISOString();
+      for (const bt of added) {
+        const btId = bt.transaction_id;
+        const btRef = db.doc(`tenants/${tenantId}/bankTransactions/${btId}`);
+        if ((await btRef.get()).exists) continue;   // idempotent
+
+        // Plaid: positive amount = money OUT; ledger: expense = out
+        const outflow = bt.amount > 0;
+        const cents = Math.round(Math.abs(bt.amount) * 100);
+        const sugg = mapCategory(bt.personal_finance_category?.primary, bt.name);
+
+        // Auto-match: same amount, right direction, within ±4 days
+        const btDate = new Date(bt.date + 'T00:00:00Z').getTime();
+        const hit = ledger.find(t => {
+          const tCents = Math.round((t.amount || 0) * 100);
+          if (tCents !== cents) return false;
+          const dirOk = outflow ? t.type === 'expense' : t.type === 'income';
+          if (!dirOk) return false;
+          const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime();
+          return Math.abs(tDate - btDate) <= 4 * 86400000;
+        });
+
+        const record: any = {
+          id: btId, tenantId,
+          name: bt.name, merchant: bt.merchant_name || null,
+          amountCents: cents, direction: outflow ? 'out' : 'in',
+          date: bt.date, pending: !!bt.pending,
+          plaidCategory: bt.personal_finance_category?.primary || null,
+          suggestedCategory: sugg.category, suggestedTaxBucket: sugg.taxBucket, suggestedType: sugg.type,
+          createdAt: nowIso,
+        };
+
+        if (hit) {
+          record.status = 'matched';
+          record.matchedTxnId = hit.id;
+          await db.doc(`tenants/${tenantId}/transactions/${hit.id}`).set(
+            { reconciled: true, reconciledAt: nowIso, bankTransactionId: btId }, { merge: true });
+          (hit as any).reconciled = true;   // don't double-match
+          matched++;
+        } else {
+          record.status = 'unmatched';
+          staged++;
+        }
+        await btRef.set(record);
+      }
+      return NextResponse.json({ ok: true, pulled: added.length, matched, needsReview: staged });
+    }
+
+    // ── resolve (review inbox actions) ────────────────────────────────
+    if (action === 'resolve') {
+      const { bankTxnId, mode, category, taxBucket, txnType, ledgerTxnId } = body;
+      const btRef = db.doc(`tenants/${tenantId}/bankTransactions/${bankTxnId}`);
+      const bt = (await btRef.get()).data() as any;
+      if (!bt) return NextResponse.json({ ok: false, error: 'Bank transaction not found.' }, { status: 404 });
+      const nowIso = new Date().toISOString();
+
+      if (mode === 'ignore') {
+        await btRef.set({ status: 'ignored', resolvedAt: nowIso }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+      if (mode === 'match' && ledgerTxnId) {
+        await btRef.set({ status: 'matched', matchedTxnId: ledgerTxnId, resolvedAt: nowIso }, { merge: true });
+        await db.doc(`tenants/${tenantId}/transactions/${ledgerTxnId}`).set(
+          { reconciled: true, reconciledAt: nowIso, bankTransactionId: bankTxnId }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+      if (mode === 'create') {
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await txnRef.set({
+          id: txnRef.id,
+          type: txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
+          context: 'Business',
+          taxBucket: taxBucket || bt.suggestedTaxBucket || 'operating_cost',
+          amount: bt.amountCents / 100,
+          category: category || bt.suggestedCategory || 'Uncategorized',
+          description: bt.merchant || bt.name,
+          clientOrVendor: bt.merchant || bt.name,
+          date: bt.date + 'T12:00:00.000Z',
+          paymentMethod: 'Bank feed',
+          hasReceipt: false,
+          reconciled: true, reconciledAt: nowIso, bankTransactionId: bankTxnId,
+          tenantId, createdAt: nowIso,
+        });
+        await btRef.set({ status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso }, { merge: true });
+        return NextResponse.json({ ok: true });
+      }
+      return NextResponse.json({ ok: false, error: 'Unknown resolve mode.' }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+  } catch (err: any) {
+    console.error('[plaid] failed', err);
+    return NextResponse.json({ ok: false, error: String(err?.message || 'Bank feed error').slice(0, 200) }, { status: 500 });
+  }
+}
