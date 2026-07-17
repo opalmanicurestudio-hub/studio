@@ -22,3 +22,4 @@ export { autoCancel } from './autoCancel';
 export { boothAutomation } from './boothAutomation';
 export { conciergeMessenger, tourMessenger } from './conciergeMessenger';
 export { rentCollector } from './rentCollector';
+export { plaidSync } from './plaidSync';
