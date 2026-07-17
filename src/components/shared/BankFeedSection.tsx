@@ -7,19 +7,67 @@
  * Drop into the Ledger page:
  *   <BankFeedSection tenantId={tenantId} firestore={firestore} />
  *
- * Connect bank → Plaid Link popup → daily-syncable feed. Auto-matched
- * lines reconcile silently; the rest land here for one-tap resolution:
- * accept the suggested category, match to an existing entry, or ignore.
- * Plaid Link's script loads from Plaid's CDN on demand — no new deps.
+ * v61 upgrades:
+ *  • Icon-button toolbar (connect / sync / accept-all / rules) — less space
+ *  • Learned rules promoted from a buried bottom text-link to a header
+ *    toggle with a count badge; rule rows use icon buttons; rule edits
+ *    pick from the shared category library (custom still allowed)
+ *  • Per-line category picker fed by src/lib/categories.ts, so booking a
+ *    bank charge uses the same vocabulary as the rest of the app
+ *  • Receipt capture on reconciliation: paperclip a receipt image to a
+ *    bank line before booking it
+ *
+ * ⚠ SERVER NOTE — /api/plaid needs two small additions in the `resolve`
+ *   action for the new features to persist:
+ *     categoryOverride?: string  → use instead of suggestedCategory, and
+ *                                  update the learned rule to match
+ *     receiptUrl?: string        → set { receiptUrl, hasReceipt: true }
+ *                                  on the transaction it creates
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import {
+  Landmark, RefreshCw, CheckCheck, BookMarked, Check, X, Paperclip,
+  Briefcase, Pencil, Trash2, Loader,
+} from 'lucide-react';
+import { categoriesFor, CUSTOM_CATEGORY } from '@/lib/categories';
+import { ImageUpload } from './ImageUpload';
 
 declare global { interface Window { Plaid?: any } }
 
+/** Compact icon button used across the toolbar and inbox rows. */
+const IconBtn = ({
+  onClick, disabled, title, children, tone = 'ghost', badge,
+}: {
+  onClick: () => void; disabled?: boolean; title: string;
+  children: React.ReactNode; tone?: 'ghost' | 'dark' | 'success' | 'danger'; badge?: number;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    aria-label={title}
+    className={[
+      'relative h-9 w-9 rounded-xl flex items-center justify-center shrink-0 transition-all disabled:opacity-40',
+      tone === 'dark'    ? 'bg-slate-900 text-white hover:bg-slate-700' :
+      tone === 'success' ? 'bg-emerald-600 text-white hover:bg-emerald-500' :
+      tone === 'danger'  ? 'border-2 border-red-200 text-red-500 hover:bg-red-50' :
+                           'border-2 text-slate-600 hover:bg-slate-50',
+    ].join(' ')}
+  >
+    {children}
+    {badge !== undefined && badge > 0 && (
+      <span className="absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 bg-amber-500 text-white text-[8px] font-black rounded-full flex items-center justify-center leading-none">
+        {badge > 99 ? '99+' : badge}
+      </span>
+    )}
+  </button>
+);
+
 export function BankFeedSection({ tenantId, firestore }: { tenantId: string; firestore: Firestore }) {
-  const [busy, setBusy] = useState<string>('');           // '' | 'connect' | 'sync' | bankTxnId
+  const [busy, setBusy] = useState<string>('');           // '' | 'connect' | 'sync' | 'all' | bankTxnId
   const [error, setError] = useState('');
   const [lastSync, setLastSync] = useState<{ pulled: number; matched: number; needsReview: number; autoBooked?: number } | null>(null);
   const [inbox, setInbox] = useState<any[]>([]);
@@ -27,6 +75,12 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
   const [rulesOpen, setRulesOpen] = useState(false);
   const [rules, setRules] = useState<any[]>([]);
   const [editRule, setEditRule] = useState('');
+  const [editRuleCustom, setEditRuleCustom] = useState(false);
+
+  // Per-line reconciliation state
+  const [catOverride, setCatOverride] = useState<Record<string, string>>({});
+  const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
+  const [receiptOpenFor, setReceiptOpenFor] = useState('');
 
   // Review inbox: unmatched bank lines, live
   useEffect(() => {
@@ -91,43 +145,135 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
     finally { setBusy(''); }
   };
 
-  const resolve = async (bt: any, mode: 'create' | 'ignore') => {
+  const resolve = async (bt: any, mode: 'create' | 'ignore', contextOverride?: string) => {
     if (busy) return;
     setBusy(bt.id); setError('');
     try {
-      const d = await api({ action: 'resolve', bankTxnId: bt.id, mode });
+      const payload: any = { action: 'resolve', bankTxnId: bt.id, mode };
+      if (contextOverride) payload.contextOverride = contextOverride;
+      const chosen = catOverride[bt.id];
+      if (mode === 'create' && chosen && chosen !== bt.suggestedCategory) payload.categoryOverride = chosen;
+      if (mode === 'create' && receiptUrls[bt.id]) payload.receiptUrl = receiptUrls[bt.id];
+      const d = await api(payload);
       if (!d.ok) setError(d.error || 'Could not save.');
+      else {
+        setCatOverride(({ [bt.id]: _drop, ...rest }) => rest);
+        setReceiptUrls(({ [bt.id]: _drop, ...rest }) => rest);
+        if (receiptOpenFor === bt.id) setReceiptOpenFor('');
+      }
     } catch { setError('Could not save — try again.'); }
     finally { setBusy(''); }
   };
 
+  const toggleRules = async () => {
+    if (rulesOpen) { setRulesOpen(false); return; }
+    const d = await api({ action: 'rules-list' });
+    if (d.ok) { setRules(d.rules || []); setRulesOpen(true); }
+  };
+
+  const saveRule = async (rl: any) => {
+    const sel = (document.getElementById(`rulesel-${rl.id}`) as HTMLSelectElement)?.value;
+    const custom = (document.getElementById(`rulecat-${rl.id}`) as HTMLInputElement)?.value?.trim();
+    const val = sel === CUSTOM_CATEGORY ? custom : sel;
+    if (!val) return;
+    const d = await api({ action: 'rules-update', ruleId: rl.id, category: val, fixPast: true });
+    if (d.ok) {
+      setRules(rs => rs.map(x => x.id === rl.id ? { ...x, category: val } : x));
+      setEditRule(''); setEditRuleCustom(false);
+    } else setError(d.error || 'Could not update rule.');
+  };
+
+  const lineCategories = (bt: any) => {
+    const list = categoriesFor(bt.direction === 'out' ? 'expense' : 'income').map(c => c.name);
+    if (bt.suggestedCategory && !list.includes(bt.suggestedCategory)) list.unshift(bt.suggestedCategory);
+    return list;
+  };
+
+  const selectCls = 'h-8 rounded-lg border-2 bg-white px-2 text-[10px] font-black uppercase tracking-wide text-slate-700 outline-none focus:border-slate-900 max-w-[170px] truncate';
+
   return (
     <div className="space-y-3">
+      {/* ── Toolbar — icon buttons, rules up top ── */}
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-xs font-black uppercase tracking-widest">Bank feed</h2>
         {inbox.length > 0 && (
           <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{inbox.length}</span>
         )}
         <div className="flex-1" />
-        <button onClick={() => setLabelPick(p => !p)} disabled={!!busy}
-          className="h-9 px-3.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 disabled:opacity-40">
-          {busy === 'connect' ? 'Opening…' : connected ? '+ Add account' : '🏦 Connect bank'}
-        </button>
-        <button onClick={sync} disabled={!!busy}
-          className="h-9 px-3.5 rounded-xl bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
-          {busy === 'sync' ? 'Syncing…' : 'Sync now'}
-        </button>
+        <IconBtn onClick={toggleRules} title={rulesOpen ? 'Hide learned rules' : 'View learned rules'}
+          tone={rulesOpen ? 'dark' : 'ghost'}>
+          <BookMarked className="w-4 h-4" />
+        </IconBtn>
+        <IconBtn onClick={() => setLabelPick(p => !p)} disabled={!!busy} title={connected ? 'Add another bank account' : 'Connect bank'}>
+          {busy === 'connect' ? <Loader className="w-4 h-4 animate-spin" /> : <Landmark className="w-4 h-4" />}
+        </IconBtn>
+        <IconBtn onClick={sync} disabled={!!busy} title="Sync now" tone="dark">
+          <RefreshCw className={`w-4 h-4 ${busy === 'sync' ? 'animate-spin' : ''}`} />
+        </IconBtn>
         {inbox.length > 1 && (
-          <button onClick={async () => {
-            if (busy) return; setBusy('all'); setError('');
-            try { const d = await api({ action: 'accept-all' }); if (!d.ok) setError(d.error || 'Batch failed.'); }
-            catch { setError('Batch failed — try again.'); } finally { setBusy(''); }
-          }} disabled={!!busy}
-            className="h-9 px-3.5 rounded-xl bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest disabled:opacity-40">
-            {busy === 'all' ? 'Booking…' : `✓ Accept all (${inbox.length})`}
-          </button>
+          <IconBtn
+            onClick={async () => {
+              if (busy) return; setBusy('all'); setError('');
+              try { const d = await api({ action: 'accept-all' }); if (!d.ok) setError(d.error || 'Batch failed.'); }
+              catch { setError('Batch failed — try again.'); } finally { setBusy(''); }
+            }}
+            disabled={!!busy}
+            title={`Accept all ${inbox.length} suggestions`}
+            tone="success"
+            badge={inbox.length}
+          >
+            {busy === 'all' ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCheck className="w-4 h-4" />}
+          </IconBtn>
         )}
       </div>
+
+      {/* ── Learned rules — now right under the toolbar ── */}
+      {rulesOpen && (
+        <div className="rounded-xl border-2 border-slate-200 bg-white p-3 space-y-1.5 animate-in fade-in duration-150">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+            <BookMarked className="w-3.5 h-3.5" /> Learned rules — the feed's memory
+          </p>
+          {rules.length === 0
+            ? <p className="text-[10px] font-bold text-muted-foreground">No rules yet — categorize a few lines and they'll appear here.</p>
+            : rules.map(rl => (
+              <div key={rl.id} className="rounded-lg border px-3 py-2 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px]">{rl.context === 'Personal' ? '🏠' : '💼'}</span>
+                  <p className="flex-1 min-w-0 text-[11px] font-bold truncate">{rl.merchant} <span className="text-slate-400">→ {rl.category}</span></p>
+                  <IconBtn onClick={() => { setEditRule(editRule === rl.id ? '' : rl.id); setEditRuleCustom(false); }} title={editRule === rl.id ? 'Close editor' : 'Edit rule'}>
+                    <Pencil className="w-3.5 h-3.5" />
+                  </IconBtn>
+                  <IconBtn tone="danger" title="Forget this rule" onClick={async () => {
+                    const d = await api({ action: 'rules-delete', ruleId: rl.id });
+                    if (d.ok) setRules(rs => rs.filter(x => x.id !== rl.id));
+                  }}>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </IconBtn>
+                </div>
+                {editRule === rl.id && (
+                  <div className="flex gap-1.5 flex-wrap animate-in fade-in duration-150">
+                    <select
+                      id={`rulesel-${rl.id}`}
+                      defaultValue={categoriesFor().some(c => c.name === rl.category) ? rl.category : CUSTOM_CATEGORY}
+                      onChange={e => setEditRuleCustom(e.target.value === CUSTOM_CATEGORY)}
+                      className="flex-1 min-w-[140px] h-9 rounded-lg border-2 px-2 text-[11px] font-bold bg-white"
+                    >
+                      {categoriesFor().map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+                      <option value={CUSTOM_CATEGORY}>Custom…</option>
+                    </select>
+                    {(editRuleCustom || !categoriesFor().some(c => c.name === rl.category)) && (
+                      <input defaultValue={categoriesFor().some(c => c.name === rl.category) ? '' : rl.category} id={`rulecat-${rl.id}`}
+                        className="flex-1 min-w-[120px] h-9 rounded-lg border-2 px-3 text-[11px] font-bold" placeholder="Custom category" />
+                    )}
+                    <button onClick={() => saveRule(rl)} className="h-9 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
+                      Save + fix past
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+        </div>
+      )}
 
       {labelPick && (
         <div className="rounded-xl border-2 border-slate-200 bg-white p-3 space-y-2 animate-in fade-in duration-150">
@@ -147,94 +293,84 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
         </p>
       )}
 
+      {/* ── Review inbox — compact icon actions + category picker + receipt ── */}
       {inbox.length > 0 && (
         <div className="space-y-2">
-          {inbox.map(bt => (
-            <div key={bt.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 space-y-1.5">
-              <div className="flex items-center gap-3">
-                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${bt.direction === 'out' ? 'bg-red-400' : 'bg-emerald-500'}`} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-black truncate">{bt.merchant || bt.name}</p>
-                  <p className="text-[10px] font-bold text-muted-foreground">{bt.date} · {bt.direction === 'out' ? '−' : '+'}${(bt.amountCents / 100).toFixed(2)}{bt.pending ? ' · pending' : ''}</p>
+          {inbox.map(bt => {
+            const chosenCat = catOverride[bt.id] ?? bt.suggestedCategory;
+            const hasReceipt = !!receiptUrls[bt.id];
+            return (
+              <div key={bt.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${bt.direction === 'out' ? 'bg-red-400' : 'bg-emerald-500'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black truncate">{bt.merchant || bt.name}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground">{bt.date} · {bt.direction === 'out' ? '−' : '+'}${(bt.amountCents / 100).toFixed(2)}{bt.pending ? ' · pending' : ''}</p>
+                  </div>
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${bt.context === 'Personal' ? 'bg-slate-100 text-slate-500' : 'bg-slate-900 text-white'}`}>{bt.context === 'Personal' ? '🏠' : '💼'}</span>
                 </div>
-                <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${bt.context === 'Personal' ? 'bg-slate-100 text-slate-500' : 'bg-slate-900 text-white'}`}>{bt.context === 'Personal' ? '🏠' : '💼'}</span>
-                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">→ {bt.suggestedCategory}</span>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => resolve(bt, 'create')} disabled={busy === bt.id}
-                  className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                  {busy === bt.id ? 'Saving…' : `Add as ${bt.suggestedCategory} · remembers`}
-                </button>
-                {bt.context === 'Personal' && (
-                  <button onClick={async () => {
-                    if (busy) return; setBusy(bt.id); setError('');
-                    try { const d = await api({ action: 'resolve', bankTxnId: bt.id, mode: 'create', contextOverride: 'Business' }); if (!d.ok) setError(d.error || 'Could not save.'); }
-                    catch { setError('Could not save.'); } finally { setBusy(''); }
-                  }} disabled={busy === bt.id}
-                    className="h-8 px-3 rounded-lg border-2 border-slate-900 font-black uppercase text-[9px] tracking-widest text-slate-900 disabled:opacity-40">
-                    💼 Book as Business
-                  </button>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {/* Category — pulled from the shared library, editable pre-booking */}
+                  <select
+                    value={chosenCat}
+                    onChange={e => setCatOverride(m => ({ ...m, [bt.id]: e.target.value }))}
+                    disabled={busy === bt.id}
+                    className={selectCls}
+                    title="Category this line will be booked as"
+                  >
+                    {lineCategories(bt).map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+
+                  <div className="flex-1" />
+
+                  <IconBtn
+                    onClick={() => setReceiptOpenFor(receiptOpenFor === bt.id ? '' : bt.id)}
+                    disabled={busy === bt.id}
+                    title={hasReceipt ? 'Receipt attached — click to change' : 'Attach a receipt to this charge'}
+                    tone={hasReceipt ? 'success' : 'ghost'}
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </IconBtn>
+
+                  {bt.context === 'Personal' && (
+                    <IconBtn onClick={() => resolve(bt, 'create', 'Business')} disabled={busy === bt.id} title="Book as Business instead">
+                      <Briefcase className="w-4 h-4" />
+                    </IconBtn>
+                  )}
+
+                  <IconBtn onClick={() => resolve(bt, 'create')} disabled={busy === bt.id} tone="dark"
+                    title={`Book as ${chosenCat} — remembers for next time`}>
+                    {busy === bt.id ? <Loader className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  </IconBtn>
+
+                  <IconBtn onClick={() => resolve(bt, 'ignore')} disabled={busy === bt.id} title="Ignore this line">
+                    <X className="w-4 h-4" />
+                  </IconBtn>
+                </div>
+
+                {/* Receipt capture — attach proof before booking */}
+                {receiptOpenFor === bt.id && (
+                  <div className="rounded-lg border-2 border-dashed p-3 space-y-2 animate-in fade-in duration-150">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 flex items-center gap-1.5">
+                      <Paperclip className="w-3 h-3" /> Receipt for this charge
+                    </p>
+                    <ImageUpload onImageUploaded={(url: string) => {
+                      setReceiptUrls(m => ({ ...m, [bt.id]: url }));
+                      setReceiptOpenFor('');
+                    }} />
+                    {hasReceipt && <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-widest">✓ Attached — will save with the transaction</p>}
+                  </div>
                 )}
-                <button onClick={() => resolve(bt, 'ignore')} disabled={busy === bt.id}
-                  className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 disabled:opacity-40">
-                  Ignore
-                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {connected && inbox.length === 0 && !error && (
         <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">✓ Fully reconciled — nothing needs review</p>
       )}
-
-      {/* Learned rules — see and prune the system's memory */}
-      <div>
-        <button onClick={async () => {
-          if (rulesOpen) { setRulesOpen(false); return; }
-          const d = await api({ action: 'rules-list' });
-          if (d.ok) { setRules(d.rules || []); setRulesOpen(true); }
-        }} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
-          {rulesOpen ? 'Hide' : 'View'} learned rules{rules.length > 0 && rulesOpen ? ` (${rules.length})` : ''}
-        </button>
-        {rulesOpen && (
-          <div className="mt-2 space-y-1.5">
-            {rules.length === 0 ? <p className="text-[10px] font-bold text-muted-foreground">No rules yet — categorize a few lines and they'll appear here.</p>
-            : rules.map(rl => (
-              <div key={rl.id} className="rounded-lg border px-3 py-2 space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px]">{rl.context === 'Personal' ? '🏠' : '💼'}</span>
-                  <p className="flex-1 min-w-0 text-[11px] font-bold truncate">{rl.merchant} <span className="text-slate-400">→ {rl.category}</span></p>
-                  <button onClick={() => setEditRule(editRule === rl.id ? '' : rl.id)} className="text-[9px] font-black uppercase text-indigo-600">{editRule === rl.id ? 'Close' : 'Edit'}</button>
-                  <button onClick={async () => {
-                    const d = await api({ action: 'rules-delete', ruleId: rl.id });
-                    if (d.ok) setRules(rs => rs.filter(x => x.id !== rl.id));
-                  }} className="text-[9px] font-black uppercase text-red-500">Forget</button>
-                </div>
-                {editRule === rl.id && (
-                  <div className="flex gap-1.5 animate-in fade-in duration-150">
-                    <input defaultValue={rl.category} id={`rulecat-${rl.id}`}
-                      className="flex-1 h-9 rounded-lg border-2 px-3 text-[11px] font-bold" placeholder="Category" />
-                    <button onClick={async () => {
-                      const val = (document.getElementById(`rulecat-${rl.id}`) as HTMLInputElement)?.value?.trim();
-                      if (!val) return;
-                      const d = await api({ action: 'rules-update', ruleId: rl.id, category: val, fixPast: true });
-                      if (d.ok) {
-                        setRules(rs => rs.map(x => x.id === rl.id ? { ...x, category: val } : x));
-                        setEditRule('');
-                        if (d.fixed > 0) setLastSync(s => s ? { ...s } : s);
-                      } else setError(d.error || 'Could not update rule.');
-                    }} className="h-9 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">
-                      Save + fix past
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
