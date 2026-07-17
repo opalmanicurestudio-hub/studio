@@ -339,6 +339,31 @@ export async function POST(req: NextRequest) {
       const snap = await db.collection(`tenants/${tenantId}/vendorRules`).get();
       return NextResponse.json({ ok: true, rules: snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) });
     }
+    // rules-update — fix a rule's category in place; optionally repair
+    // every past auto-booked entry from that merchant in one pass.
+    if (action === 'rules-update') {
+      const { ruleId, category, taxBucket, fixPast } = body;
+      if (!ruleId || !category) return NextResponse.json({ ok: false, error: 'Missing ruleId or category.' }, { status: 400 });
+      const ruleRef = db.doc(`tenants/${tenantId}/vendorRules/${ruleId}`);
+      const rule = (await ruleRef.get()).data() as any;
+      if (!rule) return NextResponse.json({ ok: false, error: 'Rule not found.' }, { status: 404 });
+      await ruleRef.set({ category, taxBucket: taxBucket || rule.taxBucket || 'operating_cost' }, { merge: true });
+      let fixed = 0;
+      if (fixPast && rule.merchant) {
+        const snap = await db.collection(`tenants/${tenantId}/transactions`)
+          .where('clientOrVendor', '==', rule.merchant).get();
+        const batch = db.batch();
+        for (const d of snap.docs) {
+          const t = d.data() as any;
+          if (t.bankTransactionId && (t.context || 'Business') === (rule.context || 'Business')) {
+            batch.set(d.ref, { category, taxBucket: taxBucket || rule.taxBucket || 'operating_cost' }, { merge: true });
+            fixed++;
+          }
+        }
+        if (fixed > 0) await batch.commit();
+      }
+      return NextResponse.json({ ok: true, fixed });
+    }
     if (action === 'rules-delete') {
       if (!body.ruleId) return NextResponse.json({ ok: false, error: 'Missing ruleId.' }, { status: 400 });
       await db.doc(`tenants/${tenantId}/vendorRules/${body.ruleId}`).delete();
