@@ -31,6 +31,7 @@ import { bucketFor } from '@/lib/categories';
 // v62 — sync engine + helpers extracted to a shared lib so the nightly
 // cron (/api/cron/nightly) runs the exact same logic as the Sync button.
 import { plaid, vendorKey, syncTenantBankFeed } from '@/lib/plaid-sync';
+import { logAuditAdmin } from '@/lib/audit';
 
 export async function POST(req: NextRequest) {
   try {
@@ -97,12 +98,22 @@ export async function POST(req: NextRequest) {
 
       if (mode === 'ignore') {
         await btRef.set({ status: 'ignored', resolvedAt: nowIso }, { merge: true });
+        await logAuditAdmin(db, tenantId, {
+          action: 'bank.ignore', targetType: 'bankTransaction', targetId: bankTxnId,
+          summary: `Ignored bank line: ${bt.merchant || bt.name}`,
+          amount: bt.amountCents / 100, actor: { type: 'user' },
+        });
         return NextResponse.json({ ok: true });
       }
       if (mode === 'match' && ledgerTxnId) {
         await btRef.set({ status: 'matched', matchedTxnId: ledgerTxnId, resolvedAt: nowIso }, { merge: true });
         await db.doc(`tenants/${tenantId}/transactions/${ledgerTxnId}`).set(
           { reconciled: true, reconciledAt: nowIso, bankTransactionId: bankTxnId }, { merge: true });
+        await logAuditAdmin(db, tenantId, {
+          action: 'bank.match', targetType: 'bankTransaction', targetId: bankTxnId,
+          summary: `Matched bank line ${bt.merchant || bt.name} to ledger entry ${ledgerTxnId}`,
+          amount: bt.amountCents / 100, actor: { type: 'user' },
+        });
         return NextResponse.json({ ok: true });
       }
       if (mode === 'create') {
@@ -152,6 +163,11 @@ export async function POST(req: NextRequest) {
             context: ctx, learnedAt: nowIso,
           }, { merge: true });
         }
+        await logAuditAdmin(db, tenantId, {
+          action: 'bank.book', targetType: 'transaction', targetId: txnRef.id,
+          summary: `Booked bank line ${bt.merchant || bt.name} as ${finalCategory}${receiptUrl ? ' (receipt attached)' : ''} — rule learned`,
+          amount: bt.amountCents / 100, actor: { type: 'user' },
+        });
         return NextResponse.json({ ok: true, ruleLearned: true });
       }
       return NextResponse.json({ ok: false, error: 'Unknown resolve mode.' }, { status: 400 });
@@ -183,6 +199,13 @@ export async function POST(req: NextRequest) {
           context: bt.context || 'Business', learnedAt: nowIso,
         }, { merge: true });
         booked++;
+      }
+      if (booked > 0) {
+        await logAuditAdmin(db, tenantId, {
+          action: 'bank.accept_all', targetType: 'bankTransaction',
+          summary: `Accept-all: booked ${booked} bank lines with their suggested categories (rules learned)`,
+          actor: { type: 'user' },
+        });
       }
       return NextResponse.json({ ok: true, booked });
     }
@@ -218,11 +241,23 @@ export async function POST(req: NextRequest) {
         }
         if (fixed > 0) await batch.commit();
       }
+      await logAuditAdmin(db, tenantId, {
+        action: 'rule.update', targetType: 'rule', targetId: ruleId,
+        summary: `Rule updated: ${rule.merchant} → ${category}${fixed > 0 ? ` (repaired ${fixed} past entries)` : ''}`,
+        before: { category: rule.category }, after: { category },
+        actor: { type: 'user' },
+      });
       return NextResponse.json({ ok: true, fixed });
     }
     if (action === 'rules-delete') {
       if (!body.ruleId) return NextResponse.json({ ok: false, error: 'Missing ruleId.' }, { status: 400 });
+      const delRule = (await db.doc(`tenants/${tenantId}/vendorRules/${body.ruleId}`).get()).data() as any;
       await db.doc(`tenants/${tenantId}/vendorRules/${body.ruleId}`).delete();
+      await logAuditAdmin(db, tenantId, {
+        action: 'rule.delete', targetType: 'rule', targetId: body.ruleId,
+        summary: `Rule forgotten: ${delRule?.merchant || body.ruleId} (was → ${delRule?.category || '?'})`,
+        before: delRule || null, actor: { type: 'user' },
+      });
       return NextResponse.json({ ok: true });
     }
 
