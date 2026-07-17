@@ -1366,7 +1366,7 @@ const LedgerTab = () => {
           <div className="md:col-span-2 lg:col-span-3 space-y-5 min-w-0">
 
             {/* ── Bad debt aging — now uses BadDebtAgingCard ───────────────── */}
-            <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} />
+            <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} actor={auditActor} />
 
             {/* ── Tips + refunds — v66: one compact chip row instead of two
                    full-width strips ────────────────────────────────────────── */}
@@ -2823,6 +2823,7 @@ const ACTIVITY_KINDS: Record<string, { icon: React.ElementType; cls: string; lab
   bill:        { icon: Landmark,   cls: 'bg-purple-100 text-purple-700', label: 'Bills' },
   bank:        { icon: CreditCard, cls: 'bg-indigo-100 text-indigo-700', label: 'Bank' },
   rule:        { icon: BookOpen,   cls: 'bg-amber-100 text-amber-700',   label: 'Rules' },
+  debt:        { icon: FileWarning, cls: 'bg-orange-100 text-orange-700', label: 'Debt' },
 };
 const kindOf = (action?: string) =>
   ACTIVITY_KINDS[(action || '').split('.')[0]] || { icon: ShieldCheck, cls: 'bg-slate-100 text-slate-600', label: 'Other' };
