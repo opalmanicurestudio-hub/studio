@@ -75,7 +75,10 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     // upload never fails outright just because context is missing.
     if (tenantId) {
       try {
-        const path = `tenants/${tenantId}/${storageFolder}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.jpg`;
+        // v67 — extension now follows the actual mime type (was always .jpg,
+        // mislabeling PNG/WebP uploads in Storage).
+        const ext = (dataUrl.slice(5, dataUrl.indexOf(';')).split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+        const path = `tenants/${tenantId}/${storageFolder}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
         const url = await uploadImageBlob(path, dataUrlToBlob(dataUrl));
         return url;
       } catch {
@@ -208,7 +211,10 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
               type="button"
               variant="destructive"
               size="icon"
-              className="absolute -top-2 -right-2 h-8 w-8 rounded-xl shadow-xl border-2 border-white opacity-0 group-hover:opacity-100 transition-opacity"
+              // v67 — was opacity-0 group-hover only: invisible on touch
+              // devices, so phones couldn't remove a wrong image. Always
+              // visible on mobile, hover-reveal on desktop.
+              className="absolute -top-2 -right-2 h-8 w-8 rounded-xl shadow-xl border-2 border-white opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
               onClick={handleRemoveImage}
             >
               <X className="h-4 w-4" />
