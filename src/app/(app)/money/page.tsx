@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -2344,8 +2345,24 @@ const HUB_TABS: { key: HubTab; label: string; icon: React.ElementType }[] = [
   { key: 'bills',    label: 'Bills',    icon: Landmark },
 ];
 
-export default function MoneyHubPage() {
-  const [activeTab, setActiveTab] = useState<HubTab>('overview');
+const VALID_TABS: HubTab[] = ['overview', 'ledger', 'payday', 'bills'];
+
+function MoneyHubContent() {
+  // Deep-linking: /money?tab=payday opens the Payday tab directly, so old
+  // /ledger, /bills, and /payday routes can redirect to the right tab.
+  const searchParams = useSearchParams();
+  const urlTab = searchParams.get('tab') as HubTab | null;
+  const [activeTab, setActiveTab] = useState<HubTab>(
+    urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'overview'
+  );
+
+  const handleTabChange = (tab: HubTab) => {
+    setActiveTab(tab);
+    // Keep the URL shareable without triggering a Next.js navigation
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', tab === 'overview' ? '/money' : `/money?tab=${tab}`);
+    }
+  };
 
   return (
     <div className="flex min-h-screen w-full flex-col overflow-x-hidden bg-background">
@@ -2359,7 +2376,7 @@ export default function MoneyHubPage() {
               key={key}
               variant="ghost"
               size="sm"
-              onClick={() => setActiveTab(key)}
+              onClick={() => handleTabChange(key)}
               className={cn(
                 'flex-1 h-9 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all gap-1.5',
                 activeTab === key ? 'bg-white shadow-sm border border-border/50 text-primary' : 'hover:bg-white/50 text-muted-foreground'
@@ -2374,11 +2391,26 @@ export default function MoneyHubPage() {
 
       {/* ── Tab panels — kept mounted so filters & state survive tab switches ── */}
       <main className="flex-1 w-full">
-        <div className={cn(activeTab !== 'overview' && 'hidden')}><OverviewTab onNavigate={setActiveTab} /></div>
+        <div className={cn(activeTab !== 'overview' && 'hidden')}><OverviewTab onNavigate={handleTabChange} /></div>
         <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>
         <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab /></div>
         <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>
       </main>
     </div>
+  );
+}
+
+// useSearchParams requires a Suspense boundary in the App Router
+export default function MoneyHubPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen w-full items-center justify-center bg-background">
+          <Loader className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <MoneyHubContent />
+    </Suspense>
   );
 }
