@@ -20,6 +20,20 @@ import { getAdminDb } from '@/lib/firebase-admin';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 
+
+// Exact Stripe fee via the charge's balance transaction. Fail-open.
+async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents: number; chargeId: string | null }> {
+  try {
+    if (!paymentIntentId || !process.env.STRIPE_SECRET_KEY) return { feeCents: 0, chargeId: null };
+    const Stripe = (await import('stripe')).default;
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+    const pi: any = await stripe.paymentIntents.retrieve(paymentIntentId, { expand: ['latest_charge.balance_transaction'] });
+    const charge: any = pi?.latest_charge;
+    const bt: any = charge?.balance_transaction;
+    return { feeCents: Number(bt?.fee) || 0, chargeId: charge?.id || null };
+  } catch { return { feeCents: 0, chargeId: null }; }
+}
+
 async function loadRules(db: FirebaseFirestore.Firestore, tenantId: string): Promise<any> {
   const DEFAULTS = {
     toursEnabled: true, tourAutoConfirm: true, tourDurationMins: 30,
@@ -207,6 +221,22 @@ export async function POST(req: NextRequest) {
         clientOrVendor: r.name || 'Guest', date: nowIso, paymentMethod: 'Card on file (Stripe)',
         hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
       });
+      // Record the exact Stripe fee as a paired Processing Fees expense.
+      try {
+        const { feeCents: __fee, chargeId: __chg } = await stripeFeeFor(intent.id);
+        if (__fee > 0) {
+          const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await feeRef.set({
+            id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+            amount: __fee / 100, category: 'Processing Fees',
+            description: `Stripe fee — concierge charge — ${r.boothName} (${r.name})`,
+            clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+            hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: __chg,
+            sourceId: reservationId, tenantId, createdAt: nowIso,
+          });
+        }
+      } catch { /* fee recording never blocks the charge */ }
+
 
       return NextResponse.json({ ok: true, chargedCents: amountCents, boothName: r.boothName });
     }
