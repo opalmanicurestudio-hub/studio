@@ -910,7 +910,10 @@ const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeri
 const TxnActions = ({ transaction, onRevertClick, onPreviewReceipt, onRefundClick, stopProp }: any) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={stopProp}>
+      {/* v66 — was opacity-0 group-hover:opacity-100, which made the
+          revert/refund menu INVISIBLE on touch devices (no hover on
+          phones). Now always visible on mobile, hover-reveal on desktop. */}
+      <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0" onClick={stopProp}>
         <MoreHorizontal className="h-4 w-4" />
       </Button>
     </DropdownMenuTrigger>
@@ -968,36 +971,38 @@ const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewRece
   </TableRow>
 );
 
+// v66 — compacted for mobile: single tighter block, badges inline with the
+// meta row, ~35% less vertical space per card so more entries fit on screen.
 const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: any) => (
-  <Card className="border-2 shadow-sm rounded-3xl overflow-hidden group cursor-pointer" onClick={() => onViewDetails(transaction)}>
-    <CardContent className="p-5 space-y-3">
-      <div className="flex items-start gap-4">
-        <div className={cn('p-2.5 rounded-2xl shadow-inner shrink-0', transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-muted')}>
+  <Card className="border-2 shadow-sm rounded-2xl overflow-hidden group cursor-pointer active:scale-[0.99] transition-transform" onClick={() => onViewDetails(transaction)}>
+    <CardContent className="p-3.5 space-y-2">
+      <div className="flex items-start gap-3">
+        <div className={cn('p-2 rounded-xl shadow-inner shrink-0', transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-muted')}>
           <TransactionIcon type={transaction.type} />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{transaction.description}</p>
-          <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest opacity-60">{transaction.clientOrVendor} · {fmt(transaction.date, 'MMM d, p')}</p>
-          {staffMember && <div className="flex items-center gap-2 mt-1"><Avatar className="h-6 w-6 border rounded-xl shadow-sm shrink-0"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="text-[8px] font-black bg-primary/10 text-primary">{(staffMember.name||'S').charAt(0)}</AvatarFallback></Avatar><span className="text-[10px] font-black uppercase text-primary tracking-tight truncate">{staffMember.name}</span></div>}
+          <p className="font-black text-[13px] uppercase tracking-tight text-slate-900 truncate leading-tight">{transaction.description}</p>
+          <p className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-60 truncate">
+            {transaction.clientOrVendor} · {fmt(transaction.date, 'MMM d, p')}
+            {staffMember ? <span className="text-primary opacity-100"> · {staffMember.name.split(' ')[0]}</span> : null}
+          </p>
         </div>
-        <div className="text-right shrink-0 flex flex-col items-end gap-1">
-          <p className={cn('font-black font-mono text-lg tracking-tighter', amountColor(transaction))}>{amountPrefix(transaction)}${transaction.amount.toFixed(2)}</p>
+        <div className="text-right shrink-0 flex items-center gap-1">
           {(transaction as any).receiptId && (
-            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-primary/10 shrink-0" onClick={e => { e.stopPropagation(); onPreviewReceipt(transaction); }}>
-              <Receipt className="h-4 w-4 text-primary opacity-40" />
+            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-primary/10 shrink-0" onClick={e => { e.stopPropagation(); onPreviewReceipt(transaction); }}>
+              <Receipt className="h-3.5 w-3.5 text-primary opacity-40" />
             </Button>
           )}
+          <p className={cn('font-black font-mono text-base tracking-tighter', amountColor(transaction))}>{amountPrefix(transaction)}${transaction.amount.toFixed(2)}</p>
         </div>
       </div>
-      <div className="flex items-center justify-between pt-3 border-t border-dashed">
-        <div className="flex items-center gap-2">
-          <Badge className={cn('text-[9px] h-5 px-2 font-black uppercase tracking-widest border-none', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge>
-          <Badge variant="outline" className="text-[9px] h-5 px-2 uppercase font-black tracking-widest text-muted-foreground/60 border-2">{transaction.category}</Badge>
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-dashed">
+        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+          <Badge className={cn('text-[8px] h-4.5 px-1.5 font-black uppercase tracking-widest border-none shrink-0', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge>
+          <Badge variant="outline" className="text-[8px] h-4.5 px-1.5 uppercase font-black tracking-widest text-muted-foreground/60 border-2 truncate">{transaction.category}</Badge>
+          <span className="text-[8px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1 truncate"><CreditCard className="w-3 h-3 shrink-0" />{transaction.paymentMethod}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1 truncate max-w-[80px]"><CreditCard className="w-3 h-3 shrink-0" />{transaction.paymentMethod}</span>
-          <TxnActions transaction={transaction} onRevertClick={onRevertClick} onPreviewReceipt={onPreviewReceipt} onRefundClick={onRefundClick} stopProp={(e: any) => e.stopPropagation()} />
-        </div>
+        <TxnActions transaction={transaction} onRevertClick={onRevertClick} onPreviewReceipt={onPreviewReceipt} onRefundClick={onRefundClick} stopProp={(e: any) => e.stopPropagation()} />
       </div>
     </CardContent>
   </Card>
@@ -1247,17 +1252,18 @@ const LedgerTab = () => {
     <div className="w-full overflow-x-hidden">
       <div className="p-4 md:p-10 w-full max-w-7xl mx-auto">
 
-        {/* ── Section header ──────────────────────────────────────────────── */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8">
-          <div>
-            <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">The Ledger</h1>
-            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Official financial audit trail</p>
+        {/* ── Section header — v66: one compact row on mobile (icon buttons)
+               instead of two stacked 56px full-width buttons ─────────────── */}
+        <div className="flex flex-row items-center justify-between gap-3 mb-5 md:mb-8">
+          <div className="min-w-0">
+            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none truncate">The Ledger</h1>
+            <p className="hidden sm:block text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Official financial audit trail</p>
           </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
-                  <Printer className="mr-2 h-4 w-4" /> Reports
+                <Button variant="outline" aria-label="Reports" className="h-11 w-11 p-0 md:h-14 md:w-auto md:px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white">
+                  <Printer className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">Reports</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1 w-72">
@@ -1278,8 +1284,8 @@ const LedgerTab = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button onClick={() => setIsAddTxnOpen(true)} className="flex-1 md:flex-none h-14 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
-              <PlusCircle className="mr-2 h-4 w-4" /> New Entry
+            <Button onClick={() => setIsAddTxnOpen(true)} aria-label="New Entry" className="h-11 w-11 p-0 md:h-14 md:w-auto md:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
+              <PlusCircle className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">New Entry</span>
             </Button>
           </div>
         </div>
@@ -1291,8 +1297,9 @@ const LedgerTab = () => {
           </div>
         )}
 
-        {/* ── KPI stat bar — 4 cards across, with sparkline in revenue card ── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        {/* ── KPI stat bar — v66: horizontal snap-scroll strip on mobile
+               (one row, thumb-swipeable), grid on desktop ───────────────── */}
+        <div className="flex md:grid md:grid-cols-4 gap-3 md:gap-4 mb-5 md:mb-8 overflow-x-auto md:overflow-visible snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 [&>*]:min-w-[190px] [&>*]:snap-start [&>*]:shrink-0 md:[&>*]:min-w-0 md:[&>*]:shrink">
           <StatCard
             label="Net Revenue"
             value={fmtCurrency(financialSummary.revenue)}
@@ -1326,6 +1333,18 @@ const LedgerTab = () => {
           />
         </div>
 
+        {/* ── Quick period chips — v66: the #1 ledger action (switching the
+               period) is now one tap on mobile, no accordion trip ────────── */}
+        <div className="md:hidden flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner mb-5 overflow-x-auto">
+          {([['today', 'Today'], ['7days', '7D'], ['30days', '30D'], ['thisMonth', 'Month'], ['lastMonth', 'Last Mo']] as [string, string][]).map(([v, l]) => (
+            <Button key={v} variant="ghost" size="sm" onClick={() => setPeriodPreset(v)}
+              className={cn('flex-1 text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all whitespace-nowrap',
+                periodPreset === v ? 'bg-white shadow-sm border border-border/50' : 'hover:bg-white/50')}>
+              {l}
+            </Button>
+          ))}
+        </div>
+
         {/* ── Main grid ───────────────────────────────────────────────────── */}
         <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
 
@@ -1349,25 +1368,24 @@ const LedgerTab = () => {
             {/* ── Bad debt aging — now uses BadDebtAgingCard ───────────────── */}
             <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} />
 
-            {/* ── Tips summary strip — mobile-friendly ─────────────────────── */}
-            {kpiStats.totalTips > 0 && (
-              <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-amber-50 border-2 border-amber-200">
-                <div className="flex items-center gap-2 text-amber-800">
-                  <DollarSign className="w-4 h-4" />
-                  <span className="text-xs font-black uppercase tracking-widest">Tips this period</span>
-                </div>
-                <span className="font-mono font-black text-lg text-amber-800">{fmtCurrency(kpiStats.totalTips)}</span>
-              </div>
-            )}
-
-            {/* ── Refund alert strip ────────────────────────────────────────── */}
-            {kpiStats.refundTotal > 0 && (
-              <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-red-50 border-2 border-red-200">
-                <div className="flex items-center gap-2 text-red-700">
-                  <Undo2 className="w-4 h-4" />
-                  <span className="text-xs font-black uppercase tracking-widest">Refunds & reversals</span>
-                </div>
-                <span className="font-mono font-black text-lg text-red-700">-{fmtCurrency(kpiStats.refundTotal)}</span>
+            {/* ── Tips + refunds — v66: one compact chip row instead of two
+                   full-width strips ────────────────────────────────────────── */}
+            {(kpiStats.totalTips > 0 || kpiStats.refundTotal > 0) && (
+              <div className="flex gap-2.5 overflow-x-auto pb-1">
+                {kpiStats.totalTips > 0 && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-50 border-2 border-amber-200 shrink-0">
+                    <DollarSign className="w-3.5 h-3.5 text-amber-800" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">Tips</span>
+                    <span className="font-mono font-black text-sm text-amber-800">{fmtCurrency(kpiStats.totalTips)}</span>
+                  </div>
+                )}
+                {kpiStats.refundTotal > 0 && (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-red-50 border-2 border-red-200 shrink-0">
+                    <Undo2 className="w-3.5 h-3.5 text-red-700" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-red-700">Refunds</span>
+                    <span className="font-mono font-black text-sm text-red-700">-{fmtCurrency(kpiStats.refundTotal)}</span>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2345,11 +2363,14 @@ const BillsTab = () => {
     const now = new Date().toISOString();
     const batch = writeBatch(firestore);
 
-    batch.update(doc(firestore, `tenants/${tenantId}/billInstances`, instance.id), {
+    // v66 — merge-set instead of strict update: a strict update throws if
+    // the instance doc is missing/renamed, failing the WHOLE payment with a
+    // generic error. Merge can't fail that way.
+    batch.set(doc(firestore, `tenants/${tenantId}/billInstances`, instance.id), {
       status: 'paid',
       paidDate: now,
       paidAmount: definition.amount || 0,
-    });
+    }, { merge: true });
 
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
     batch.set(txnRef, {
