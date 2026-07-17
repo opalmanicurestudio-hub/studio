@@ -53,6 +53,11 @@ async function plaid(path: string, body: any) {
   return data;
 }
 
+// Merchant → stable rule key ("SALLY BEAUTY #1042" → "sally beauty")
+function vendorKey(name: string): string {
+  return (name || '').toLowerCase().replace(/[#*\d]+/g, ' ').replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
 // Plaid personal_finance_category → ledger category + taxBucket
 function mapCategory(pfc: string | undefined, name: string): { category: string; taxBucket: string; type: 'income' | 'expense' } {
   const n = (name || '').toUpperCase();
@@ -136,13 +141,18 @@ export async function POST(req: NextRequest) {
       }
       await privRef.set({ cursor, lastSyncAt: new Date().toISOString() }, { merge: true });
 
+      // Vendor rules — the system's memory: categorize a merchant once,
+      // every future transaction from them books itself.
+      const rulesSnap = await db.collection(`tenants/${tenantId}/vendorRules`).get();
+      const vendorRules = new Map(rulesSnap.docs.map(d => [d.id, d.data() as any]));
+
       // Unreconciled ledger txns for matching
       const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`).get();
       const ledger = ledgerSnap.docs
         .map(d => ({ id: d.id, ...(d.data() as any) }))
         .filter(t => !t.reconciled);
 
-      let matched = 0, staged = 0;
+      let matched = 0, staged = 0, autoBooked = 0;
       const nowIso = new Date().toISOString();
       for (const bt of added) {
         const btId = bt.transaction_id;
@@ -183,12 +193,33 @@ export async function POST(req: NextRequest) {
           (hit as any).reconciled = true;   // don't double-match
           matched++;
         } else {
-          record.status = 'unmatched';
-          staged++;
+          // Vendor-rule hit → book it automatically, exactly as the owner
+          // categorized this merchant before. Zero-effort bookkeeping.
+          const rule = vendorRules.get(vendorKey(bt.merchant_name || bt.name));
+          if (rule && !bt.pending) {
+            const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+            await txnRef.set({
+              id: txnRef.id, type: rule.type || (outflow ? 'expense' : 'income'),
+              context: rule.context || 'Business', taxBucket: rule.taxBucket || 'operating_cost',
+              amount: cents / 100, category: rule.category,
+              description: bt.merchant_name || bt.name,
+              clientOrVendor: bt.merchant_name || bt.name,
+              date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed',
+              hasReceipt: false, reconciled: true, reconciledAt: nowIso,
+              bankTransactionId: btId, autoCategorized: true, tenantId, createdAt: nowIso,
+            });
+            record.status = 'auto_categorized';
+            record.matchedTxnId = txnRef.id;
+            record.appliedRule = rule.category;
+            autoBooked++;
+          } else {
+            record.status = 'unmatched';
+            staged++;
+          }
         }
         await btRef.set(record);
       }
-      return NextResponse.json({ ok: true, pulled: added.length, matched, needsReview: staged });
+      return NextResponse.json({ ok: true, pulled: added.length, matched, autoBooked, needsReview: staged });
     }
 
     // ── resolve (review inbox actions) ────────────────────────────────
@@ -227,9 +258,50 @@ export async function POST(req: NextRequest) {
           tenantId, createdAt: nowIso,
         });
         await btRef.set({ status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso }, { merge: true });
-        return NextResponse.json({ ok: true });
+        // Learn: this merchant now books itself on every future sync.
+        const vk = vendorKey(bt.merchant || bt.name);
+        if (vk) {
+          await db.doc(`tenants/${tenantId}/vendorRules/${vk}`).set({
+            merchant: bt.merchant || bt.name,
+            category: category || bt.suggestedCategory || 'Uncategorized',
+            taxBucket: taxBucket || bt.suggestedTaxBucket || 'operating_cost',
+            type: txnType || bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
+            context: 'Business', learnedAt: nowIso,
+          }, { merge: true });
+        }
+        return NextResponse.json({ ok: true, ruleLearned: true });
       }
       return NextResponse.json({ ok: false, error: 'Unknown resolve mode.' }, { status: 400 });
+    }
+
+    // accept-all — one tap books every review line with its suggestion
+    // AND learns each merchant, so next month's inbox is near-empty.
+    if (action === 'accept-all') {
+      const snap = await db.collection(`tenants/${tenantId}/bankTransactions`).where('status', '==', 'unmatched').get();
+      const nowIso = new Date().toISOString();
+      let booked = 0;
+      for (const d of snap.docs) {
+        const bt = d.data() as any;
+        if (bt.pending) continue;
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await txnRef.set({
+          id: txnRef.id, type: bt.suggestedType || (bt.direction === 'out' ? 'expense' : 'income'),
+          context: 'Business', taxBucket: bt.suggestedTaxBucket || 'operating_cost',
+          amount: bt.amountCents / 100, category: bt.suggestedCategory || 'Uncategorized',
+          description: bt.merchant || bt.name, clientOrVendor: bt.merchant || bt.name,
+          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false,
+          reconciled: true, reconciledAt: nowIso, bankTransactionId: d.id, tenantId, createdAt: nowIso,
+        });
+        await d.ref.set({ status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso }, { merge: true });
+        const vk = vendorKey(bt.merchant || bt.name);
+        if (vk) await db.doc(`tenants/${tenantId}/vendorRules/${vk}`).set({
+          merchant: bt.merchant || bt.name, category: bt.suggestedCategory || 'Uncategorized',
+          taxBucket: bt.suggestedTaxBucket || 'operating_cost', type: bt.suggestedType || 'expense',
+          context: 'Business', learnedAt: nowIso,
+        }, { merge: true });
+        booked++;
+      }
+      return NextResponse.json({ ok: true, booked });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
