@@ -43,6 +43,13 @@ export async function POST(req: NextRequest) {
     }
     const db = getAdminDb();
 
+    // Acting team member, forwarded by the client for audit attribution.
+    // TODO(hardening): verify a Firebase Auth ID token here instead of
+    // trusting the client-sent identity — the shape is ready for it.
+    const actor = (body?.actor && body.actor.type === 'user')
+      ? { type: 'user' as const, id: body.actor.id || undefined, name: body.actor.name || undefined, role: body.actor.role || undefined }
+      : { type: 'user' as const };
+
     // ── link-token ────────────────────────────────────────────────────
     if (action === 'link-token') {
       const data = await plaid('/link/token/create', {
@@ -101,7 +108,7 @@ export async function POST(req: NextRequest) {
         await logAuditAdmin(db, tenantId, {
           action: 'bank.ignore', targetType: 'bankTransaction', targetId: bankTxnId,
           summary: `Ignored bank line: ${bt.merchant || bt.name}`,
-          amount: bt.amountCents / 100, actor: { type: 'user' },
+          amount: bt.amountCents / 100, actor,
         });
         return NextResponse.json({ ok: true });
       }
@@ -112,7 +119,7 @@ export async function POST(req: NextRequest) {
         await logAuditAdmin(db, tenantId, {
           action: 'bank.match', targetType: 'bankTransaction', targetId: bankTxnId,
           summary: `Matched bank line ${bt.merchant || bt.name} to ledger entry ${ledgerTxnId}`,
-          amount: bt.amountCents / 100, actor: { type: 'user' },
+          amount: bt.amountCents / 100, actor,
         });
         return NextResponse.json({ ok: true });
       }
@@ -166,7 +173,7 @@ export async function POST(req: NextRequest) {
         await logAuditAdmin(db, tenantId, {
           action: 'bank.book', targetType: 'transaction', targetId: txnRef.id,
           summary: `Booked bank line ${bt.merchant || bt.name} as ${finalCategory}${receiptUrl ? ' (receipt attached)' : ''} — rule learned`,
-          amount: bt.amountCents / 100, actor: { type: 'user' },
+          amount: bt.amountCents / 100, actor,
         });
         return NextResponse.json({ ok: true, ruleLearned: true });
       }
@@ -204,7 +211,7 @@ export async function POST(req: NextRequest) {
         await logAuditAdmin(db, tenantId, {
           action: 'bank.accept_all', targetType: 'bankTransaction',
           summary: `Accept-all: booked ${booked} bank lines with their suggested categories (rules learned)`,
-          actor: { type: 'user' },
+          actor,
         });
       }
       return NextResponse.json({ ok: true, booked });
@@ -245,7 +252,7 @@ export async function POST(req: NextRequest) {
         action: 'rule.update', targetType: 'rule', targetId: ruleId,
         summary: `Rule updated: ${rule.merchant} → ${category}${fixed > 0 ? ` (repaired ${fixed} past entries)` : ''}`,
         before: { category: rule.category }, after: { category },
-        actor: { type: 'user' },
+        actor,
       });
       return NextResponse.json({ ok: true, fixed });
     }
@@ -256,7 +263,7 @@ export async function POST(req: NextRequest) {
       await logAuditAdmin(db, tenantId, {
         action: 'rule.delete', targetType: 'rule', targetId: body.ruleId,
         summary: `Rule forgotten: ${delRule?.merchant || body.ruleId} (was → ${delRule?.category || '?'})`,
-        before: delRule || null, actor: { type: 'user' },
+        before: delRule || null, actor,
       });
       return NextResponse.json({ ok: true });
     }
