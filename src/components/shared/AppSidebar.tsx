@@ -10,8 +10,8 @@ import {
 } from '@/components/ui/sidebar';
 import {
   LayoutDashboard, Calendar, Users, User, Settings, Box, FileText, BookOpen,
-  Landmark, DollarSign, FileSignature, ListChecks, BarChart, HardHat, Percent,
-  Megaphone, Star, LogOut, BookText, CreditCard, Globe, Fingerprint, Coffee,
+  Landmark, FileSignature, ListChecks, BarChart, HardHat, Percent,
+  Megaphone, Star, LogOut, Globe, Fingerprint, Coffee,
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
@@ -80,12 +80,13 @@ const TEAM_ADMIN = [
   { href: '/timesheets', icon: ClipboardList,label: 'Timesheets'     },
 ];
 
+// v28 — Ledger, Obligations (Bills), and Payday are now consolidated into
+// the tabbed Money Hub at /money. Their old sidebar entries are replaced
+// by a single "Money Hub" link; the hub's internal tabs handle the rest.
 const FINANCIAL_SUITE = [
   { href: '/financials', icon: Landmark,      label: 'Foundation (TMHR)' },
-  { href: '/ledger',     icon: BookText,      label: 'Ledger'            },
+  { href: '/money',      icon: Wallet,        label: 'Money Hub'         },
   { href: '/disputes',   icon: AlertTriangle, label: 'Dispute Center'    },
-  { href: '/bills',      icon: CreditCard,    label: 'Obligations'       },
-  { href: '/payday',     icon: DollarSign,    label: 'Payday'            },
   { href: '/reports',    icon: BarChart,      label: 'Analytics'         },
 ];
 
