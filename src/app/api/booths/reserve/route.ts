@@ -547,6 +547,37 @@ export async function PUT(req: NextRequest) {
       clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
       hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
     });
+    // Paired Stripe processing-fee expense (exact, from the balance txn)
+    {
+      const { feeCents, chargeId } = await stripeFeeFor(intent.id);
+      if (feeCents > 0) {
+        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await feeRef.set({
+          id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+          amount: feeCents / 100, category: 'Processing Fees',
+          description: `Stripe fee — overage — ${r.boothName || 'Space'} (${r.name})`,
+          clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+          hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
+          sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
+        });
+      }
+    }
+    // Record the exact Stripe fee as a paired Processing Fees expense.
+    try {
+      const { feeCents: __fee, chargeId: __chg } = await stripeFeeFor(intent.id);
+      if (__fee > 0) {
+        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await feeRef.set({
+          id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+          amount: __fee / 100, category: 'Processing Fees',
+          description: `Stripe fee — overage — ${r.boothName || 'Space'} (${r.name})`,
+          clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+          hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: __chg,
+          sourceId: reservationId, tenantId, createdAt: nowIso,
+        });
+      }
+    } catch { /* fee recording never blocks the charge */ }
+
     await resRef.set({ overageStatus: 'charged', overageChargedAt: nowIso, overagePaymentIntentId: intent.id }, { merge: true });
 
     return NextResponse.json({ ok: true, chargedCents: r.overageDueCents });
