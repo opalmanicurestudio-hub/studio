@@ -231,6 +231,47 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
       // No deposit required → create the real appointment immediately, no payment gate needed
       if (depositCents <= 0) {
         const { depositAmount, depositStatus, ...restDetails } = apptDetails || {};
+
+        // v12 — race-proof path: the shared booking engine checks conflicts
+        // server-side inside a transaction, so two guests can't grab the
+        // same slot. Falls back to the legacy direct write while the API
+        // isn't deployed (404) or errors.
+        try {
+          if (restDetails?.serviceId && restDetails?.startTime) {
+            const bookRes = await fetch('/api/appointments/book', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                tenantId,
+                source: 'booking-page',
+                serviceId: restDetails.serviceId,
+                addOnIds: restDetails.addOnIds || [],
+                staffId: restDetails.staffId || 'any',
+                startTime: restDetails.startTime,
+                client: { name: formData.clientName, email: formData.clientEmail, phone: formData.clientPhone },
+                notes: formData.notes,
+              }),
+            });
+            if (bookRes.status !== 404) {
+              const out = await bookRes.json().catch(() => null);
+              if (out?.ok) {
+                if (Array.isArray(signedForms) && signedForms.length > 0) {
+                  try {
+                    await setDoc(doc(db, `tenants/${tenantId}/appointments`, out.appointmentId),
+                      sanitizeForFirestore({ signedForms }), { merge: true });
+                  } catch { /* forms are secondary — the booking already exists */ }
+                }
+                setStep('confirmation');
+                return { requiresPayment: false };
+              }
+              if (bookRes.status === 409) {
+                // Someone genuinely took the slot mid-checkout — honest retry.
+                return { requiresPayment: true, error: out?.error || 'That time was just taken — pick another slot.' };
+              }
+            }
+          }
+        } catch { /* fall through to the legacy write */ }
+
         const aptRef = doc(collection(db, `tenants/${tenantId}/appointments`));
         await setDoc(aptRef, sanitizeForFirestore({
           id: aptRef.id,
