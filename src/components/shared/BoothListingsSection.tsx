@@ -49,7 +49,9 @@ function BookingCalendar({
   onPick: (iso: string) => void;
   isDisabled: (iso: string) => boolean;
 }) {
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // v73 — LOCAL date, not UTC: the old toISOString() version flipped to
+  // tomorrow at ~7-8pm US time, disabling same-day bookings every evening.
+  const todayIso = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
   const [view, setView] = React.useState(() => {
     const base = selectedStart ? new Date(selectedStart + 'T00:00:00') : new Date();
     return { y: base.getFullYear(), m: base.getMonth() };
@@ -476,8 +478,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   );
   const InquiryRow = ({ b }: { b: any }) => (
     <div className="flex justify-center gap-4 pt-1">
-      <button onClick={() => openInquiry(b, 'tour')} className="text-[9px] font-black uppercase tracking-widest opacity-50 hover:opacity-100 underline underline-offset-2 transition-opacity">Book a tour</button>
-      <button onClick={() => openInquiry(b, 'question')} className="text-[9px] font-black uppercase tracking-widest opacity-50 hover:opacity-100 underline underline-offset-2 transition-opacity">Ask a question</button>
+      <button onClick={() => openInquiry(b, 'tour')} className="text-[9px] font-black uppercase tracking-widest opacity-80 hover:opacity-100 underline underline-offset-2 transition-opacity">Book a tour</button>
+      <button onClick={() => openInquiry(b, 'question')} className="text-[9px] font-black uppercase tracking-widest opacity-80 hover:opacity-100 underline underline-offset-2 transition-opacity">Ask a question</button>
     </div>
   );
   const Photo = ({ b, className }: { b: any; className: string }) => {
@@ -556,7 +558,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           /* v72 — IMMERSIVE: Airbnb-style full-bleed cards. Photo carries
              the card; content overlays the lower third on a gradient. */
           <div className="grid gap-6 md:grid-cols-2">
-            {visibleBooths.map((b: any) => {
+            {/* v73 — was `visibleBooths` (undefined): guaranteed crash for
+                any tenant configured with the immersive layout */}
+            {visible.map((b: any) => {
               const ph = photosOf(b);
               const rates = dayRates(b);
               const lease = leaseRates(b);
@@ -892,7 +896,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                       }
                                     }}
                                     isDisabled={(dIso: string) => {
-                                      if (dIso < new Date().toISOString().slice(0, 10)) return true;
+                                      const _t = new Date(); const _todayLocal = `${_t.getFullYear()}-${String(_t.getMonth() + 1).padStart(2, '0')}-${String(_t.getDate()).padStart(2, '0')}`;
+                                      if (dIso < _todayLocal) return true;
                                       if (!useTime && bookedDates.has(dIso)) return true;
                                       const dow = new Date(dIso + 'T00:00:00').getDay();
                                       const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
