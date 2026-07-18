@@ -56,7 +56,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import {
   doc,
   updateDoc,
-  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where } from 'firebase/firestore';
+  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -162,6 +162,7 @@ import {
   toIsoDate,
   slotsOverlap,
 } from '@/lib/booth-rental-types';
+import { auditEntry } from '@/lib/audit';
 import {
   useBoothRentalCollections,
   useBoothIndex,
@@ -306,6 +307,22 @@ const EMPTY_RENTER_FORM: RenterFormState = {
   credentials: [],
 };
 
+// v73 — LOCAL calendar date (YYYY-MM-DD). The page previously used
+// `new Date().toISOString().slice(0,10)` for "today", which is UTC: for a
+// US salon, everything (live floor, planner, upcoming lists) flipped to
+// tomorrow at ~7-8pm local. Every "today" now goes through this.
+const localISO = (d: Date = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// v73 — booth money actions now follow the app's audit-trail convention
+// (tenants/{id}/auditLogs). Logging never breaks the action it describes.
+const writeBoothAudit = (firestore: any, tenantId: string, e: any) => {
+  try {
+    const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+    setDoc(aRef, { id: aRef.id, ...auditEntry(e) }).catch(() => {});
+  } catch { /* non-fatal */ }
+};
+
 // ─── Lease form ───────────────────────────────────────────────────────────────
 
 interface LeaseFormState {
@@ -319,6 +336,10 @@ interface LeaseFormState {
   lateFeeAmountDollars: string; lateFeePercent: string;
   perks: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>[];
   houseRules: string; signedFile: File | null;
+  // v73 — were returned by buildEmptyLeaseForm() and read at save/review
+  // time but missing from this interface: the file failed tsc because of it.
+  leaseTerms: string;
+  requireSignature: boolean;
 }
 
 function buildEmptyLeaseForm(): LeaseFormState {
@@ -985,7 +1006,7 @@ function BoothCanvasCard({
   let timeLabel = '';
   let overtime = false;
   if (isLive && liveRes.bookingType === 'hourly' && liveRes.startTime && liveRes.endTime && nowTick) {
-    const dayStr = new Date(nowTick).toISOString().slice(0, 10);
+    const dayStr = localISO(new Date(nowTick));
     const startMs = new Date(`${liveRes.startDate}T${liveRes.startTime}:00`).getTime();
     const endMs = new Date(`${liveRes.startDate}T${liveRes.endTime}:00`).getTime();
     if (endMs > startMs && liveRes.startDate === dayStr) {
@@ -1108,7 +1129,7 @@ function BoothCanvasCard({
 
       {!locked && (
         <div
-          className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-60 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity touch-none"
+          className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-60 md:opacity-40 md:group-hover:opacity-100 transition-opacity touch-none"
           onPointerDown={(e) => {
             e.stopPropagation();
             onResizeStart(e, booth.id);
@@ -1420,6 +1441,7 @@ function RenterProfileDrawer({
   const [chargeAmt, setChargeAmt] = useState('');
   const [chargeDesc, setChargeDesc] = useState('');
   const [renterChargingId, setRenterChargingId] = useState<string | null>(null);
+  const { toast: drawerToast } = useToast();
   const chargeRenterCard = async (rt: Renter) => {
     const cents = Math.round(parseFloat(chargeAmt) * 100);
     if (!(cents > 0) || !chargeDesc.trim() || renterChargingId) return;
@@ -1430,9 +1452,20 @@ function RenterProfileDrawer({
         body: JSON.stringify({ tenantId, renterId: rt.id, amountCents: cents, description: chargeDesc.trim() }),
       });
       const d = await res.json();
-      if (d.ok) { setChargeAmt(''); setChargeDesc(''); alert(`Charged $${(d.chargedCents / 100).toFixed(2)} — recorded in the ledger.`); }
-      else alert(d.error || 'Charge failed.');
-    } catch { alert('Network error — try again.'); }
+      if (d.ok) {
+        setChargeAmt(''); setChargeDesc('');
+        drawerToast({ title: 'Card charged', description: `$${(d.chargedCents / 100).toFixed(2)} — recorded in the ledger.` });
+        writeBoothAudit(firestore, tenantId, {
+          action: 'booth.renter_charged', targetType: 'renter', targetId: rt.id,
+          summary: `Card on file charged: ${rt.firstName || ''} ${rt.lastName || ''}`.trim() + ` — ${chargeDesc.trim()}`,
+          amount: (d.chargedCents || cents) / 100, actor: { type: 'user' },
+        });
+      } else {
+        drawerToast({ variant: 'destructive', title: 'Charge failed', description: d.error || 'Try again or collect another way.' });
+      }
+    } catch {
+      drawerToast({ variant: 'destructive', title: 'Network error', description: 'The charge may not have completed — check Stripe before retrying.' });
+    }
     finally { setRenterChargingId(null); }
   };
   const [txns, setTxns] = useState<any[] | null>(null);
@@ -1815,7 +1848,7 @@ export default function BoothsPage() {
   const [kioskOpen, setKioskOpen] = useState(false);
   const [viewingApp, setViewingApp] = useState<any | null>(null);
   const [autoSettingsOpen, setAutoSettingsOpen] = useState(false);
-  const [plannerDay, setPlannerDay] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [plannerDay, setPlannerDay] = useState<string>(localISO());
 
   const [kioskCopied, setKioskCopied] = useState(false);
   const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
@@ -1857,7 +1890,7 @@ export default function BoothsPage() {
     return () => clearInterval(t);
   }, []);
   const liveResByBooth = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     const m = new Map<string, any>();
     for (const r of reservations) {
       if (r.startDate > today || r.endDate < today) continue;
@@ -1870,17 +1903,20 @@ export default function BoothsPage() {
   }, [reservations]);
   // Today's floor events, newest first — the game log.
   const floorEvents = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
+    // v73 — timestamps are UTC ISO strings; compare their LOCAL calendar
+    // day, otherwise evening events vanish from today's log.
+    const isToday = (iso: any) => typeof iso === 'string' && localISO(new Date(iso)) === today;
     const evts: { at: string; text: string; tone: string }[] = [];
     for (const r of reservations) {
       const first = (r.name || 'Guest').split(' ')[0];
-      if (typeof r.checked_inAt === 'string' && r.checked_inAt.startsWith(today))
+      if (isToday(r.checked_inAt))
         evts.push({ at: r.checked_inAt, text: `${first} checked in · ${r.boothName}${r.kioskCheckIn ? ' (kiosk)' : ''}`, tone: 'in' });
-      if (typeof r.completedAt === 'string' && r.completedAt.startsWith(today))
+      if (isToday(r.completedAt))
         evts.push({ at: r.completedAt, text: `${first} checked out · ${r.boothName}`, tone: 'out' });
-      if (typeof r.confirmedAt === 'string' && r.confirmedAt.startsWith(today))
+      if (isToday(r.confirmedAt))
         evts.push({ at: r.confirmedAt, text: `${first} booked & paid · ${r.boothName} ($${((r.amountCents || 0) / 100).toFixed(0)})`, tone: 'money' });
-      if (typeof r.overageChargedAt === 'string' && r.overageChargedAt.startsWith(today))
+      if (isToday(r.overageChargedAt))
         evts.push({ at: r.overageChargedAt, text: `Overage charged · ${first} ($${((r.overageDueCents || 0) / 100).toFixed(2)})`, tone: 'money' });
     }
     return evts.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
@@ -1913,7 +1949,7 @@ export default function BoothsPage() {
     return () => unsub();
   }, [firestore, tenantId]);
   const upcomingTours = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     return tours
       .filter(t => ['requested', 'confirmed'].includes(t.status) && t.date >= today)
       .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
@@ -1947,7 +1983,7 @@ export default function BoothsPage() {
   const [profileContact, setProfileContact] = useState<any | null>(null);
 
   const upcomingReservations = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     return reservations
       .filter(r => ((['confirmed', 'checked_in', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status)) && r.endDate >= today || r.overageStatus === 'due' || r.creditDecision === 'pending' || r.status === 'cancel_requested')
         && (!r.locationId || r.locationId === selectedLocationId))
@@ -1995,8 +2031,19 @@ export default function BoothsPage() {
   const txnTotalCents = useMemo(() => sortedTxns.reduce((s, t) => s + Math.round(txnDollars(t) * 100), 0), [sortedTxns]);
 
   const setResStatus = async (r: any, status: string) => {
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
-      { status, [`${status}At`]: new Date().toISOString() }).catch(() => {});
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+        { status, [`${status}At`]: new Date().toISOString() });
+      if (['cancelled_refund_pending', 'refunded', 'cancelled'].includes(status)) {
+        writeBoothAudit(firestore, tenantId, {
+          action: 'booth.reservation_' + status, targetType: 'boothReservation', targetId: r.id,
+          summary: `Reservation ${status.replace(/_/g, ' ')}: ${r.name || 'guest'} · ${r.boothName || 'space'}`,
+          amount: (r.amountCents || 0) / 100, actor: { type: 'user' },
+        });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Update failed', description: 'The reservation was not changed — try again.' });
+    }
   };
 
   // ── v69 TIME CLOCK: check-in/out are real timestamps, not status flips.
@@ -2012,11 +2059,18 @@ export default function BoothsPage() {
     return opts.find((o: any) => o.frequency === 'hourly' && o.amountCents > 0)?.amountCents || 0;
   };
   const checkInRes = async (r: any) => {
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), {
-      status: 'checked_in',
-      checked_inAt: new Date().toISOString(),
-      actualCheckIn: new Date().toISOString(),
-    }).catch(() => {});
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), {
+        status: 'checked_in',
+        checked_inAt: new Date().toISOString(),
+        actualCheckIn: new Date().toISOString(),
+        // v73 — snapshot the rate NOW so checkout settles at the rate in
+        // force during the stay, not whatever the booth costs later.
+        settleHourlyCents: hourlyCentsOf(r.boothId) || r.settleHourlyCents || 0,
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Check-in failed', description: 'Nothing was saved — try again.' });
+    }
   };
   const checkOutRes = async (r: any) => {
     const now = new Date();
@@ -2028,7 +2082,9 @@ export default function BoothsPage() {
     // Settlement only makes sense for hourly stays with a booked window.
     if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
       const bookedEnd = new Date(`${r.startDate}T${r.endTime}:00`);
-      const rate = hourlyCentsOf(r.boothId);
+      // v73 — settle at the rate snapshotted at check-in (falls back to
+      // the current rate only for stays that predate the snapshot).
+      const rate = (r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId));
       const GRACE_MS = 10 * 60 * 1000;
       const diffMs = now.getTime() - bookedEnd.getTime();
       if (diffMs > GRACE_MS && rate > 0) {
@@ -2049,25 +2105,55 @@ export default function BoothsPage() {
         }
       }
     }
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), updates).catch(() => {});
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id), updates);
+    } catch {
+      toast({ variant: 'destructive', title: 'Check-out failed', description: 'Nothing was saved — try again.' });
+    }
   };
+  // v73 — atomic: credit doc + reservation flag commit together (the old
+  // two-write version could create the credit while the decision stayed
+  // 'pending' — one more click, one duplicate credit). Also guards
+  // re-entry and only toasts success after the commit actually succeeds.
   const issueCredit = async (r: any) => {
     const contactKey = (r.phone || r.email || '').trim();
     if (!contactKey || !(r.potentialCreditCents > 0)) return;
-    const credRef = doc(collection(firestore, 'tenants', tenantId, 'boothCredits'));
-    await setDoc(credRef, {
-      id: credRef.id, contactKey, phone: r.phone || null, email: r.email || null,
-      name: r.name || '', amountCents: r.potentialCreditCents, minutes: r.unusedMinutes || 0,
-      sourceReservationId: r.id, sourceBoothName: r.boothName || '',
-      status: 'available', createdAt: new Date().toISOString(),
-    }).catch(() => {});
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
-      { creditDecision: 'issued', creditIssuedCents: r.potentialCreditCents, creditIssuedAt: new Date().toISOString() }).catch(() => {});
-    toast({ title: 'Credit issued', description: `$${(r.potentialCreditCents / 100).toFixed(2)} will auto-apply to ${r.name}'s next booking.` });
+    if (r.creditDecision !== 'pending') return;
+    try {
+      const batch = writeBatch(firestore);
+      const credRef = doc(collection(firestore, 'tenants', tenantId, 'boothCredits'));
+      batch.set(credRef, {
+        id: credRef.id, contactKey, phone: r.phone || null, email: r.email || null,
+        name: r.name || '', amountCents: r.potentialCreditCents, minutes: r.unusedMinutes || 0,
+        sourceReservationId: r.id, sourceBoothName: r.boothName || '',
+        status: 'available', createdAt: new Date().toISOString(),
+      });
+      batch.update(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+        { creditDecision: 'issued', creditIssuedCents: r.potentialCreditCents, creditIssuedAt: new Date().toISOString() });
+      const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+      batch.set(aRef, { id: aRef.id, ...auditEntry({
+        action: 'booth.credit_issued', targetType: 'boothCredit', targetId: credRef.id,
+        summary: `Credit issued to ${r.name || 'guest'} for unused time (${r.unusedMinutes || 0} min) · ${r.boothName || 'space'}`,
+        amount: r.potentialCreditCents / 100, actor: { type: 'user' },
+      }) });
+      await batch.commit();
+      toast({ title: 'Credit issued', description: `$${(r.potentialCreditCents / 100).toFixed(2)} will auto-apply to ${r.name}'s next booking.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Credit failed', description: 'Nothing was issued — try again.' });
+    }
   };
   const declineCredit = async (r: any) => {
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
-      { creditDecision: 'declined' }).catch(() => {});
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+        { creditDecision: 'declined' });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.credit_declined', targetType: 'boothReservation', targetId: r.id,
+        summary: `Unused-time credit declined for ${r.name || 'guest'} ($${((r.potentialCreditCents || 0) / 100).toFixed(2)})`,
+        amount: (r.potentialCreditCents || 0) / 100, actor: { type: 'user' },
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Update failed', description: 'Try again.' });
+    }
   };
   const [chargingId, setChargingId] = useState<string | null>(null);
   const chargeOverageToCard = async (r: any) => {
@@ -2079,7 +2165,14 @@ export default function BoothsPage() {
         body: JSON.stringify({ tenantId, reservationId: r.id }),
       });
       const data = await res.json();
-      if (data.ok) toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} collected and recorded in the ledger.` });
+      if (data.ok) {
+        toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} collected and recorded in the ledger.` });
+        writeBoothAudit(firestore, tenantId, {
+          action: 'booth.overage_charged', targetType: 'boothReservation', targetId: r.id,
+          summary: `Overage charged to card on file: ${r.name || 'guest'} · ${r.boothName || 'space'}`,
+          amount: (data.chargedCents || 0) / 100, actor: { type: 'user' },
+        });
+      }
       else toast({ variant: 'destructive', title: 'Charge failed', description: data.error || 'Collect in person instead.' });
     } catch {
       toast({ variant: 'destructive', title: 'Charge failed', description: 'Network error — try again or collect in person.' });
@@ -2087,21 +2180,48 @@ export default function BoothsPage() {
   };
   const markOverageCollected = async (r: any) => {
     const nowIso = new Date().toISOString();
-    const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
-    await setDoc(txnRef, {
-      id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
-      amount: (r.overageDueCents || 0) / 100, category: 'Booth Rent',
-      description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
-      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
-      hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
-    }).catch(() => {});
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
-      { overageStatus: 'collected', overageCollectedAt: nowIso }).catch(() => {});
+    try {
+      // v73 — three fixes in one: (1) `source: 'booth_rent'` — WITHOUT it
+      // this money was invisible to every booth ledger view and renter
+      // statement, which all filter on that field; (2) atomic batch so the
+      // ledger entry and the reservation flag can't drift; (3) audit entry.
+      const batch = writeBatch(firestore);
+      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+      batch.set(txnRef, {
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+        source: 'booth_rent',
+        amount: (r.overageDueCents || 0) / 100, category: 'Booth Rent',
+        description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
+        clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Collected in person',
+        hasReceipt: false, sourceId: r.id, tenantId, createdAt: nowIso,
+      });
+      batch.update(doc(firestore, 'tenants', tenantId, 'boothReservations', r.id),
+        { overageStatus: 'collected', overageCollectedAt: nowIso });
+      const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+      batch.set(aRef, { id: aRef.id, ...auditEntry({
+        action: 'booth.overage_collected', targetType: 'transaction', targetId: txnRef.id,
+        summary: `Overage collected in person: ${r.name || 'guest'} · ${r.boothName || 'space'} (+${r.overageMinutes || 0} min)`,
+        amount: (r.overageDueCents || 0) / 100, actor: { type: 'user' },
+      }) });
+      await batch.commit();
+      toast({ title: 'Overage collected', description: `$${((r.overageDueCents || 0) / 100).toFixed(2)} recorded in the ledger.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not record', description: 'Nothing was saved — try again.' });
+    }
   };
 
   const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
   const setAppStatus = async (app: any, status: string) => {
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', app.id), { status, decidedAt: new Date().toISOString() }).catch(() => {});
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', app.id), { status, decidedAt: new Date().toISOString() });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.application_' + status, targetType: 'boothApplication', targetId: app.id,
+        summary: `Application ${status.replace(/_/g, ' ')}: ${app.name || 'applicant'}${app.boothName ? ` · ${app.boothName}` : ''}`,
+        actor: { type: 'user' },
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Update failed', description: 'The application was not changed — try again.' });
+    }
   };
   const approveApplication = async (app: any) => {
     if (decidingAppId) return;
@@ -2296,9 +2416,18 @@ export default function BoothsPage() {
     }).sort((a, b) => (b.owedCents - a.owedCents));
   }, [leases.data, rentInvoices, renterById, boothById]);
   const toggleAutoCollect = async (l: any) => {
-    const dueDay = Math.min(28, new Date((l.startDate || new Date().toISOString().slice(0, 10)) + 'T00:00:00Z').getUTCDate());
-    await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', l.id),
-      { autoCollect: !l.autoCollect, dueDay: l.dueDay ?? dueDay }).catch(() => {});
+    const dueDay = Math.min(28, new Date((l.startDate || localISO()) + 'T00:00:00Z').getUTCDate());
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', l.id),
+        { autoCollect: !l.autoCollect, dueDay: l.dueDay ?? dueDay });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.autocollect_' + (!l.autoCollect ? 'on' : 'off'), targetType: 'lease', targetId: l.id,
+        summary: `Rent auto-collect turned ${!l.autoCollect ? 'ON' : 'OFF'} (lease ${l.id.slice(-6)})`,
+        amount: (l.rentAmountCents || 0) / 100, actor: { type: 'user' },
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Update failed', description: 'Auto-collect was not changed — try again.' });
+    }
   };
 
   // Canonical, boothId-keyed occupancy — confirmed via booth-rental-hooks.ts
@@ -3056,6 +3185,14 @@ export default function BoothsPage() {
     setSavingEndLease(true);
     try {
       await endLease(firestore, tenantId, lease, endLeaseTarget.id, leases.data ?? []);
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.lease_ended', targetType: 'lease', targetId: lease.id,
+        summary: `Lease ended: ${endLeaseTarget.firstName || ''} ${endLeaseTarget.lastName || ''}`.trim(),
+        amount: (lease.rentAmountCents || 0) / 100, actor: { type: 'user' },
+      });
+    } catch {
+      // v73 — the old version closed the dialog as if it succeeded.
+      toast({ variant: 'destructive', title: 'End lease failed', description: 'The lease is still active — try again.' });
     } finally { setSavingEndLease(false); setEndLeaseTarget(null); }
   };
 
@@ -3063,17 +3200,28 @@ export default function BoothsPage() {
     if (!statusTarget || !tenantId) return;
     setSavingStatus(true);
     try {
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', statusTarget.id),
+      // v73 — atomic: the old two-write version could leave a renter "on
+      // leave" while the lease (and rent billing) stayed active.
+      const batch = writeBatch(firestore);
+      batch.update(doc(firestore, 'tenants', tenantId, 'renters', statusTarget.id),
         { status: newStatus, updatedAt: new Date().toISOString() });
       const lease = occupyingLeaseByRenter.get(statusTarget.id);
       if (lease && (newStatus === 'on_leave' || newStatus === 'maternity_leave')) {
-        await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
+        batch.update(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
           { status: 'on_leave', updatedAt: new Date().toISOString() });
       }
       if (lease && newStatus === 'active') {
-        await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
+        batch.update(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
           { status: 'active', updatedAt: new Date().toISOString() });
       }
+      await batch.commit();
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.renter_status', targetType: 'renter', targetId: statusTarget.id,
+        summary: `Renter status → ${newStatus}: ${statusTarget.firstName || ''} ${statusTarget.lastName || ''}`.trim() + (lease ? ' (lease updated with it)' : ''),
+        actor: { type: 'user' },
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Status change failed', description: 'Nothing was changed — try again.' });
     } finally { setSavingStatus(false); setStatusTarget(null); }
   };
 
@@ -3280,7 +3428,7 @@ export default function BoothsPage() {
             (() => {
               const days: string[] = Array.from({ length: 14 }, (_, i) => {
                 const d = new Date(); d.setDate(d.getDate() + i);
-                return d.toISOString().slice(0, 10);
+                return localISO(d);
               });
               const dayLabel = (iso: string) => {
                 const d = new Date(iso + 'T00:00:00');
