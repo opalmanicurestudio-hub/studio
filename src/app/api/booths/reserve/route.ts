@@ -66,6 +66,34 @@ async function findConflict(db: FirebaseFirestore.Firestore, tenantId: string, b
   return false;
 }
 
+// v85 — shared-lease occupancy. A 'partial' booth is bookable, but never
+// inside a window a resident renter's lease already owns (scheduleSlot:
+// weekday indexes + optional HH:MM window; no times = whole day).
+async function leaseSlotConflict(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string, proposed: { startDate: string; endDate: string; bookingType?: string; startTime?: string; endTime?: string }): Promise<string | null> {
+  const snap = await db.collection(`tenants/${tenantId}/leases`).where('boothId', '==', boothId).get();
+  const slots = snap.docs
+    .map((d) => d.data() as any)
+    .filter((l) => ['active', 'on_leave', 'pending_signature'].includes(l.status)
+      && l.scheduleSlot && Array.isArray(l.scheduleSlot.days) && l.scheduleSlot.days.length > 0)
+    .map((l) => l.scheduleSlot);
+  if (!slots.length) return null;
+  const isHourly = proposed.bookingType === 'hourly' && proposed.startTime && proposed.endTime;
+  for (let t = new Date(proposed.startDate + 'T00:00:00Z').getTime(), e = new Date(proposed.endDate + 'T00:00:00Z').getTime(); t <= e; t += DAY_MS) {
+    const iso = new Date(t).toISOString().slice(0, 10);
+    const dow = new Date(t).getUTCDay();
+    for (const s of slots) {
+      if (!s.days.includes(dow)) continue;
+      const slotStart = s.startTime || '00:00';
+      const slotEnd = s.endTime || '23:59';
+      if (!isHourly) return `${iso} (a resident renter has that day)`;
+      if ((proposed.startTime as string) < slotEnd && slotStart < (proposed.endTime as string)) {
+        return `${iso} ${slotStart}–${slotEnd} (a resident renter has that window)`;
+      }
+    }
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -90,8 +118,14 @@ export async function POST(req: NextRequest) {
     const boothSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
     if (!boothSnap.exists) return NextResponse.json({ ok: false, error: 'Space not found.' }, { status: 404 });
     const booth = boothSnap.data() as any;
-    if (booth.status !== 'vacant') {
+    // v85 — 'partial' booths (shared leases) take guest bookings too, just
+    // never inside the resident renters' scheduled windows (checked below).
+    if (booth.status !== 'vacant' && booth.status !== 'partial') {
       return NextResponse.json({ ok: false, error: 'This space is no longer available.' }, { status: 409 });
+    }
+    const leaseClash = await leaseSlotConflict(db, tenantId, boothId, { startDate, endDate, bookingType, startTime, endTime });
+    if (leaseClash) {
+      return NextResponse.json({ ok: false, error: `That time isn't available — ${leaseClash}.` }, { status: 409 });
     }
 
     // ── AVAILABILITY ENGINE (v66): the owner's declared schedule is law.
@@ -464,7 +498,8 @@ export async function GET(req: NextRequest) {
 
     // Close the race window: dates may have been confirmed by another
     // checkout while this one was on Stripe.
-    const conflicted = await findConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }, reservationId);
+    const conflicted = await findConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }, reservationId)
+      || !!(await leaseSlotConflict(db, tenantId, r.boothId, { startDate: r.startDate, endDate: r.endDate, bookingType: r.bookingType, startTime: r.startTime, endTime: r.endTime }));
     const nowIso = new Date().toISOString();
     if (conflicted) {
       await resRef.set({ status: 'payment_received_conflict', confirmedAt: nowIso }, { merge: true });
@@ -608,6 +643,104 @@ export async function PATCH(req: NextRequest) {
     const snap = await resRef.get();
     if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
     const r = snap.data() as any;
+
+    // ── v85: RESCHEDULE (action:'reschedule') — same length, new time, ─────
+    // conflict-checked against other bookings AND resident-renter slots.
+    if (body.action === 'reschedule') {
+      if (r.status !== 'confirmed') {
+        return NextResponse.json({ ok: false, error: `A ${String(r.status).replace(/_/g, ' ')} reservation can't be rescheduled — cancel and rebook instead.` }, { status: 400 });
+      }
+      const startDate = String(body.startDate || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+        return NextResponse.json({ ok: false, error: 'Invalid date.' }, { status: 400 });
+      }
+      const isHourly = r.bookingType === 'hourly';
+      // Daily: omitting endDate keeps the same length automatically.
+      let endDate = String(body.endDate || '').slice(0, 10);
+      if (!endDate || isHourly) {
+        if (isHourly) endDate = startDate;
+        else {
+          const n = (r.numDays || daysInclusive(r.startDate, r.endDate)) - 1;
+          const t = new Date(startDate + 'T00:00:00Z');
+          t.setUTCDate(t.getUTCDate() + n);
+          endDate = t.toISOString().slice(0, 10);
+        }
+      }
+      if (endDate < startDate) return NextResponse.json({ ok: false, error: 'Invalid dates.' }, { status: 400 });
+      const startTime = isHourly ? String(body.startTime || r.startTime || '') : null;
+      const endTime = isHourly ? String(body.endTime || r.endTime || '') : null;
+      if (isHourly && (!/^\d{2}:\d{2}$/.test(startTime || '') || !/^\d{2}:\d{2}$/.test(endTime || '') || (startTime as string) >= (endTime as string))) {
+        return NextResponse.json({ ok: false, error: 'Invalid time range.' }, { status: 400 });
+      }
+      // Same-length rule: a different duration is a different price —
+      // that's a cancel-and-rebook (refund path), not a reschedule.
+      const newDays = daysInclusive(startDate, endDate);
+      if (!isHourly && newDays !== (r.numDays || daysInclusive(r.startDate, r.endDate))) {
+        return NextResponse.json({ ok: false, error: 'Reschedules keep the same number of days — for a different length, cancel (refund) and rebook.' }, { status: 400 });
+      }
+      if (isHourly) {
+        const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+        if (mins(endTime as string) - mins(startTime as string) !== mins(r.endTime) - mins(r.startTime)) {
+          return NextResponse.json({ ok: false, error: 'Reschedules keep the same duration — for a different length, cancel (refund) and rebook.' }, { status: 400 });
+        }
+      }
+      // The owner's declared schedule is still law on the new dates.
+      const boothSnap = await db.doc(`tenants/${tenantId}/booths/${r.boothId}`).get();
+      const booth = boothSnap.exists ? (boothSnap.data() as any) : {};
+      const schedDays: number[] | undefined = Array.isArray(booth.dayRentalDays) ? booth.dayRentalDays : undefined;
+      const blackouts: string[] = Array.isArray(booth.blackoutDates) ? booth.blackoutDates : [];
+      for (let t = new Date(startDate + 'T00:00:00Z').getTime(), e = new Date(endDate + 'T00:00:00Z').getTime(); t <= e; t += DAY_MS) {
+        const iso = new Date(t).toISOString().slice(0, 10);
+        const dow = new Date(t).getUTCDay();
+        if (schedDays && schedDays.length > 0 && !schedDays.includes(dow)) {
+          return NextResponse.json({ ok: false, error: `This space isn't available on ${iso}.` }, { status: 400 });
+        }
+        if (blackouts.includes(iso)) {
+          return NextResponse.json({ ok: false, error: `${iso} is unavailable.` }, { status: 400 });
+        }
+      }
+      if (isHourly) {
+        const openT = booth.openTime || '00:00';
+        const closeT = booth.closeTime || '23:59';
+        if ((startTime as string) < openT || (endTime as string) > closeT) {
+          return NextResponse.json({ ok: false, error: `Hourly bookings are available ${openT} – ${closeT}.` }, { status: 400 });
+        }
+      }
+      const proposed = { startDate, endDate, bookingType: r.bookingType, startTime: startTime || undefined, endTime: endTime || undefined };
+      if (await findConflict(db, tenantId, r.boothId, proposed, reservationId)) {
+        return NextResponse.json({ ok: false, error: 'That time is already booked — pick another.' }, { status: 409 });
+      }
+      const slotClash = await leaseSlotConflict(db, tenantId, r.boothId, proposed);
+      if (slotClash) {
+        return NextResponse.json({ ok: false, error: `That time isn't available — ${slotClash}.` }, { status: 409 });
+      }
+      const nowIso = new Date().toISOString();
+      const prev = { startDate: r.startDate, endDate: r.endDate, startTime: r.startTime || null, endTime: r.endTime || null };
+      await resRef.set({
+        startDate, endDate,
+        startTime: startTime || null, endTime: endTime || null,
+        numDays: newDays,
+        rescheduledAt: nowIso,
+        rescheduleCount: (r.rescheduleCount || 0) + 1,
+        prevSchedule: prev,
+        rescheduleRequestedAt: null,
+        rescheduleRequestNote: null,
+      }, { merge: true });
+      const fmt = (d: string, s?: string | null, e2?: string | null) => (s ? `${d} ${s}–${e2}` : d);
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.rescheduled', targetType: 'boothReservation', targetId: reservationId,
+        summary: `${r.name || 'Guest'}'s ${r.boothName || 'space'} booking moved: ${fmt(prev.startDate, prev.startTime, prev.endTime)} → ${fmt(startDate, startTime, endTime)}`,
+        before: prev, after: { startDate, endDate, startTime, endTime },
+        actor: { type: 'user', name: body.actorName || 'Owner', via: 'booths-page' },
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, userId: null, read: false, createdAt: nowIso,
+        type: 'booth_reservation', link: '/booths',
+        message: `${r.name || 'A guest'}'s booking moved to ${fmt(startDate, startTime, endTime)} (${r.boothName || 'space'}).`,
+      });
+      return NextResponse.json({ ok: true, startDate, endDate, startTime, endTime });
+    }
 
     if (r.status === 'refunded') {
       // Idempotent: repeat calls succeed without double-refunding.
