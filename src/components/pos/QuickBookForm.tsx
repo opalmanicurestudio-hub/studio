@@ -1313,6 +1313,10 @@ export function QuickBookForm({
   const [aptTime, setAptTime] = React.useState(format(addMinutes(new Date(), 30), 'HH:mm'));
   const [isGroup, setIsGroup] = React.useState(false);
   const [groupGuests, setGroupGuests] = React.useState<GroupGuest[]>([]);
+  // v11 — how a party is scheduled: everyone at the same start time, or
+  // staggered ("as chairs free up") when the party outsizes simultaneous
+  // capacity. Staggered searches forward in 15-min steps, up to 4 hours.
+  const [groupMode, setGroupMode] = React.useState<'together' | 'staggered'>('together');
   const [isMultiProvider, setIsMultiProvider] = React.useState(false);
   const [providerLegs, setProviderLegs] = React.useState<ProviderLeg[]>([]);
   const [waitlistMode, setWaitlistMode] = React.useState(false);
@@ -2272,51 +2276,87 @@ export function QuickBookForm({
       // request that would double-book them (within the party or against
       // the calendar) stops the booking with a clear message instead of
       // silently stacking two people on one chair.
-      const guestAssignments = new Map<string, string>();
+      // ── v11: GROUP DISTRIBUTION with two modes ──────────────────────────
+      // 'together'  — everyone starts at aptTime; requires one free, qualified
+      //               chair per guest or the booking stops with a clear message.
+      // 'staggered' — each guest gets the EARLIEST start ≥ aptTime where a
+      //               qualified provider is genuinely free (15-min steps, up
+      //               to 4 hours out), checked against both this party's
+      //               assignments and the real calendar. Specific-artist
+      //               requests are honored in both modes — staggered simply
+      //               waits for that artist's next opening.
+      const guestAssignments = new Map<string, { staffId: string; start: Date; end: Date }>();
       if (isGroup && groupGuests.length > 0) {
         const isBusy = (sid: string, wStart: Date, wEnd: Date) =>
           appointments.some((a: any) =>
             a.staffId === sid && a.status !== 'cancelled' && typeof a.startTime === 'string' &&
             new Date(a.startTime) < wEnd && wStart < new Date(a.endTime || a.startTime));
-        const taken: string[] = resolvedStaffId ? [resolvedStaffId] : [];
+        const party: { staffId: string; start: Date; end: Date }[] =
+          resolvedStaffId ? [{ staffId: resolvedStaffId, start: startTime, end: endTime }] : [];
+        const fairness = (a: any, b: any) => {
+          const aL = a.lastBookingAssignedAt ? new Date(a.lastBookingAssignedAt).getTime() : 0;
+          const bL = b.lastBookingAssignedAt ? new Date(b.lastBookingAssignedAt).getTime() : 0;
+          return aL - bL;
+        };
+        const STAGGER_STEP_MIN = 15;
+        const STAGGER_MAX_MIN = 240;
         for (const guest of groupGuests) {
           if (!guest.name.trim() || !guest.serviceId) continue;
           const gSvcPre = services.find((s: any) => s.id === guest.serviceId);
           const gDurPre = (gSvcPre?.duration || 60)
             + (guest.addOnIds || []).reduce((acc: number, id: string) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
-          const gEndPre = addMinutes(startTime, gDurPre);
-          if (guest.staffId !== 'any') {
-            const clashInParty = taken.includes(guest.staffId);
-            const clashExisting = !clashInParty && isBusy(guest.staffId, startTime, gEndPre);
-            if (clashInParty || clashExisting) {
+          const certified = (gSvcPre as any)?.certifiedStaffIds as string[] | undefined;
+          const candidates = guest.staffId !== 'any'
+            ? staff.filter((s: any) => s.id === guest.staffId)
+            : [...staff]
+                .filter((s: any) => s.active)
+                .filter((s: any) => !certified || certified.length === 0 || certified.includes(s.id))
+                .sort(fairness);
+          const maxOffset = groupMode === 'staggered' ? STAGGER_MAX_MIN : 0;
+          let placed: { staffId: string; start: Date } | null = null;
+          outer:
+          for (let off = 0; off <= maxOffset; off += STAGGER_STEP_MIN) {
+            const s = addMinutes(startTime, off);
+            const e = addMinutes(s, gDurPre);
+            for (const cand of candidates) {
+              const partyClash = party.some((p) => p.staffId === cand.id && p.start < e && s < p.end);
+              if (partyClash || isBusy(cand.id, s, e)) continue;
+              placed = { staffId: cand.id, start: s };
+              break outer;
+            }
+          }
+          if (!placed) {
+            const guestFirst = guest.name.split(' ')[0] || 'this guest';
+            if (guest.staffId !== 'any') {
               const who = staff.find((s: any) => s.id === guest.staffId)?.name?.split(' ')[0] || 'That artist';
-              const guestFirst = guest.name.split(' ')[0] || 'this guest';
               toast({
                 variant: 'destructive',
-                title: `${who} is already booked at ${aptTime}`,
-                description: clashInParty
-                  ? `They're taken by someone else in this party — pick another artist for ${guestFirst}.`
-                  : `They have another appointment then — pick another artist or time for ${guestFirst}.`,
+                title: `${who} has no opening for ${guestFirst}`,
+                description: groupMode === 'staggered'
+                  ? `Nothing frees up for them within 4 hours of ${aptTime} — try another artist, time, or day.`
+                  : `They're already booked at ${aptTime} — pick another artist, or switch the party to "As chairs free up".`,
               });
               setIsSubmitting(false);
               return;
             }
-            guestAssignments.set(guest.id, guest.staffId);
-            taken.push(guest.staffId);
-          } else {
-            const certified = (gSvcPre as any)?.certifiedStaffIds as string[] | undefined;
-            const eligible = staff
-              .filter((s: any) => s.active)
-              .filter((s: any) => !certified || certified.length === 0 || certified.includes(s.id))
-              .filter((s: any) => !taken.includes(s.id))
-              .filter((s: any) => !isBusy(s.id, startTime, gEndPre))
-              .map((s: any) => s.id);
-            const gPick = resolveAnyStaffId(aptDate, taken, eligible.length > 0 ? eligible : undefined);
-            if (gPick) {
-              guestAssignments.set(guest.id, gPick);
-              taken.push(gPick);
-              anyAssignedStaffIds.push(gPick);
+            if (groupMode === 'staggered') {
+              toast({
+                variant: 'destructive',
+                title: `Couldn't fit ${guestFirst}`,
+                description: 'No qualified provider frees up within 4 hours — try another day or a smaller party.',
+              });
+              setIsSubmitting(false);
+              return;
             }
+            // together + any: legacy loose pick so an odd data state never hard-blocks the desk
+            const gPick = resolveAnyStaffId(aptDate, party.map((p) => p.staffId));
+            if (gPick) placed = { staffId: gPick, start: startTime };
+          }
+          if (placed) {
+            const pEnd = addMinutes(placed.start, gDurPre);
+            guestAssignments.set(guest.id, { staffId: placed.staffId, start: placed.start, end: pEnd });
+            party.push({ staffId: placed.staffId, start: placed.start, end: pEnd });
+            if (guest.staffId === 'any' && !anyAssignedStaffIds.includes(placed.staffId)) anyAssignedStaffIds.push(placed.staffId);
           }
         }
       }
@@ -2588,18 +2628,21 @@ export function QuickBookForm({
           const gToken = _nanoid();
           const gShortCode = generateShortCode();
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
-          const gStaffId = guestAssignments.get(guest.id)
+          const gAssign = guestAssignments.get(guest.id);
+          const gStaffId = gAssign?.staffId
             || (guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId);
+          const gStart = gAssign?.start || startTime;
           if (guest.staffId === 'any' && gStaffId && !anyAssignedStaffIds.includes(gStaffId)) anyAssignedStaffIds.push(gStaffId);
           const gStaffMemberForSummary = staff.find((s: any) => s.id === gStaffId);
+          const gStaggerNote = gStart.getTime() !== startTime.getTime() ? ` · ${format(gStart, 'h:mm a')}` : '';
           providersSummary.push({
             name: gStaffMemberForSummary?.name || 'Unassigned',
-            detail: `${gSvc?.name || 'Service'} (${guest.name.split(' ')[0]})`,
+            detail: `${gSvc?.name || 'Service'} (${guest.name.split(' ')[0]}${gStaggerNote})`,
             avatarUrl: gStaffMemberForSummary?.avatarUrl,
           });
           const gAddOnIds = guest.addOnIds || [];
           const gAddOnDuration = gAddOnIds.reduce((acc, id) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
-          const gEnd = addMinutes(startTime, (gSvc?.duration || 60) + gAddOnDuration);
+          const gEnd = gAssign?.end || addMinutes(gStart, (gSvc?.duration || 60) + gAddOnDuration);
 
           if (linkedGuestClient) {
             batch.set(doc(firestore, `tenants/${tenantId}/clients`, gClientId), sanitizeForFirestore({
@@ -2632,7 +2675,7 @@ export function QuickBookForm({
             shortCode: gShortCode,
             status: 'confirmed',
             source: 'pos_quick_book_group',
-            startTime: startTime.toISOString(),
+            startTime: gStart.toISOString(),
             endTime: gEnd.toISOString(),
             createdAt: now,
             reminderSent: false,
@@ -3709,6 +3752,25 @@ export function QuickBookForm({
           </div>
         </button>
 
+        {isGroup && (
+          <div className="flex gap-2">
+            {([['together', 'Everyone at once', 'Same start time — one chair per guest'],
+               ['staggered', 'As chairs free up', 'Guests start as providers become free']] as const).map(([mode, label, hint]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setGroupMode(mode)}
+                className={cn(
+                  'flex-1 rounded-xl border p-3 text-left transition-all',
+                  groupMode === mode ? 'border-blue-300 bg-blue-50' : 'border-slate-200 hover:border-slate-300',
+                )}
+              >
+                <p className={cn('text-xs font-semibold', groupMode === mode ? 'text-blue-700' : 'text-slate-700')}>{label}</p>
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{hint}</p>
+              </button>
+            ))}
+          </div>
+        )}
         {isGroup && (
           <GroupBookingPanel
             primaryClient={selectedClient}
