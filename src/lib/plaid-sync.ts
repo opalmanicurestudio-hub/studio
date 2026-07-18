@@ -105,6 +105,34 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
   const rulesSnap = await db.collection(`tenants/${tenantId}/vendorRules`).get();
   const vendorRules = new Map(rulesSnap.docs.map((d: any) => [d.id, d.data() as any]));
 
+  // v69 — bill-aware matching: load unpaid bill instances once so outgoing
+  // bank lines can be recognized as bill payments. A match makes the inbox
+  // suggest "this is your Rent bill" — booking it then marks the bill paid
+  // in the same action, killing the "paid at the bank but still due in the
+  // app" drift. Matching is amount-exact AND due-date within ±15 days;
+  // each bill can only match one bank line per sync.
+  const billDefs = new Map(
+    (await db.collection(`tenants/${tenantId}/billDefinitions`).get()).docs
+      .map((d: any) => [d.id, d.data() as any]),
+  );
+  const openBills: any[] = (await db.collection(`tenants/${tenantId}/billInstances`).get()).docs
+    .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+    .filter((i: any) => i.status !== 'paid');
+
+  const findBillMatch = (amountCents: number, dateStr: string) => {
+    const btTime = new Date(dateStr + 'T00:00:00Z').getTime();
+    let best: any = null, bestGap = Infinity;
+    for (const inst of openBills) {
+      if (inst.__claimed) continue;
+      const def = billDefs.get(inst.billDefinitionId);
+      if (!def || Math.round((def.amount || 0) * 100) !== amountCents) continue;
+      const gap = Math.abs(new Date(inst.dueDate).getTime() - btTime);
+      if (gap <= 15 * 86400000 && gap < bestGap) { best = { inst, def }; bestGap = gap; }
+    }
+    if (best) best.inst.__claimed = true;
+    return best;
+  };
+
   // Unreconciled ledger txns for matching
   const windowStart = new Date(Date.now() - 120 * 86400000).toISOString();
   const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`)
@@ -157,6 +185,28 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       (hit as any).reconciled = true;   // don't double-match
       matched++;
     } else {
+      // v69 — bill match takes priority over rule auto-booking: paying a
+      // bill deserves the human tap (it also marks the bill paid), so a
+      // matched line always goes to review with the bill suggestion
+      // attached instead of silently auto-booking.
+      const billMatch = outflow ? findBillMatch(cents, bt.date) : null;
+      if (billMatch) {
+        record.status = 'unmatched';
+        record.suggestedBillInstanceId = billMatch.inst.id;
+        record.suggestedBillName = billMatch.def.name || 'Bill';
+        record.suggestedCategory = billMatch.def.category || 'Bills';
+        record.suggestedTaxBucket = 'operating_cost';
+        record.suggestedType = 'expense';
+        staged++;
+        pendingWrites.push({ ref: btRef, data: record });
+        if (pendingWrites.length >= 400) {
+          const batch = db.batch();
+          for (const w of pendingWrites) batch.set(w.ref, w.data);
+          await batch.commit();
+          pendingWrites.length = 0;
+        }
+        continue;
+      }
       // Vendor-rule hit → book it automatically
       const rule = vendorRules.get(`${(bt.__context || 'Business').toLowerCase()}:${vendorKey(bt.merchant_name || bt.name)}`);
       if (rule && !bt.pending) {
