@@ -628,6 +628,27 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     />
                                 </div>
 
+                                {/* v10 — everything worth knowing about this client, visible at selection */}
+                                {selectedClient && (
+                                    <div className="flex flex-wrap items-center gap-1.5 p-3 rounded-xl bg-muted/20 border border-dashed">
+                                        {selectedClient.activeMembershipId && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5"><Award className="w-2.5 h-2.5" /> Member</span>
+                                        )}
+                                        {(selectedClient.activePackages || []).map((p: any) => (
+                                            <span key={p.packageId} className="inline-flex items-center gap-1 text-[10px] font-medium text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-2 py-0.5"><Sparkles className="w-2.5 h-2.5" /> {p.sessionsRemaining} package visit{p.sessionsRemaining === 1 ? '' : 's'} left</span>
+                                        ))}
+                                        {!!selectedClient.cardOnFile?.token && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5"><CreditCard className="w-2.5 h-2.5" /> {selectedClient.cardOnFile.brand} •••• {selectedClient.cardOnFile.last4}</span>
+                                        )}
+                                        {(selectedClient.outstandingBalance || 0) > 0 && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">Owes ${safeNumber(selectedClient.outstandingBalance).toFixed(2)}</span>
+                                        )}
+                                        {(safeNumber(selectedClient.noShowCount) + safeNumber(selectedClient.cancellationCount)) > 2 && (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"><ShieldCheck className="w-2.5 h-2.5" /> Deposit protected</span>
+                                        )}
+                                    </div>
+                                )}
+
                                 {watchClientId === 'new' && (
                                     <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5 p-5 rounded-2xl border bg-muted/5 overflow-hidden">
                                         <div className="space-y-1.5">
