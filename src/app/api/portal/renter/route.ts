@@ -180,6 +180,7 @@ const safeReservation = (id: string, r: any) => ({
   unusedMinutes: r.unusedMinutes || 0,
   potentialCreditCents: r.potentialCreditCents || 0,
   creditDecision: r.creditDecision || null,
+  rescheduleRequestedAt: r.rescheduleRequestedAt || null,
 });
 
 const hourlyCentsOf = (booth: any): number => {
@@ -506,6 +507,35 @@ export async function POST(req: NextRequest) {
         overageMinutes: updates.overageMinutes || 0,
         potentialCreditCents: updates.potentialCreditCents || 0,
       });
+    }
+
+    // ═══ request-reschedule ═══════════════════════════════════════════════
+    if (action === 'request-reschedule') {
+      const reservationId = String(body.reservationId || '');
+      const note = String(body.note || '').slice(0, 300);
+      const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+      const snap = await ref.get();
+      const r = snap.exists ? (snap.data() as any) : null;
+      if (!r || !contactMatches(key, r.phone, r.email)) {
+        return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
+      }
+      if (r.status !== 'confirmed') {
+        return NextResponse.json({ ok: false, error: 'Only upcoming confirmed bookings can be rescheduled.' }, { status: 409 });
+      }
+      const nowIso = new Date().toISOString();
+      await ref.set({ rescheduleRequestedAt: nowIso, rescheduleRequestNote: note || null }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.reschedule_requested', targetType: 'boothReservation', targetId: reservationId,
+        summary: `${r.name || 'Renter'} asked to move their ${r.boothName || 'space'} booking (${r.startDate}${r.startTime ? ` ${r.startTime}` : ''})${note ? ` — “${note}”` : ''}`,
+        actor: { type: 'user', name: r.name || session.name || null, role: 'renter', via: 'renter-portal' },
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, userId: null, read: false, createdAt: nowIso,
+        type: 'booth_reservation', link: '/booths',
+        message: `${r.name || 'A renter'} wants to reschedule ${r.boothName || 'their space'} (${r.startDate})${note ? `: “${note}”` : ''} — use Reschedule on their booking card.`,
+      });
+      return NextResponse.json({ ok: true });
     }
 
     return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
