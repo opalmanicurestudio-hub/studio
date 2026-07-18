@@ -2261,6 +2261,65 @@ export function QuickBookForm({
         detail: selectedSvc?.name || 'Primary service',
         avatarUrl: resolvedPrimaryStaffMember?.avatarUrl,
       });
+
+      // ── v10: GROUP DISTRIBUTION, done properly ──────────────────────────
+      // Every guest's provider is resolved UP FRONT with three real filters:
+      //   1. certified for the guest's service (when the service defines
+      //      certifiedStaffIds),
+      //   2. not already taken by someone else in this party,
+      //   3. not busy with an EXISTING appointment in the guest's window.
+      // Guests who requested a specific artist keep that artist — but a
+      // request that would double-book them (within the party or against
+      // the calendar) stops the booking with a clear message instead of
+      // silently stacking two people on one chair.
+      const guestAssignments = new Map<string, string>();
+      if (isGroup && groupGuests.length > 0) {
+        const isBusy = (sid: string, wStart: Date, wEnd: Date) =>
+          appointments.some((a: any) =>
+            a.staffId === sid && a.status !== 'cancelled' && typeof a.startTime === 'string' &&
+            new Date(a.startTime) < wEnd && wStart < new Date(a.endTime || a.startTime));
+        const taken: string[] = resolvedStaffId ? [resolvedStaffId] : [];
+        for (const guest of groupGuests) {
+          if (!guest.name.trim() || !guest.serviceId) continue;
+          const gSvcPre = services.find((s: any) => s.id === guest.serviceId);
+          const gDurPre = (gSvcPre?.duration || 60)
+            + (guest.addOnIds || []).reduce((acc: number, id: string) => acc + (services.find((s: any) => s.id === id)?.duration || 0), 0);
+          const gEndPre = addMinutes(startTime, gDurPre);
+          if (guest.staffId !== 'any') {
+            const clashInParty = taken.includes(guest.staffId);
+            const clashExisting = !clashInParty && isBusy(guest.staffId, startTime, gEndPre);
+            if (clashInParty || clashExisting) {
+              const who = staff.find((s: any) => s.id === guest.staffId)?.name?.split(' ')[0] || 'That artist';
+              const guestFirst = guest.name.split(' ')[0] || 'this guest';
+              toast({
+                variant: 'destructive',
+                title: `${who} is already booked at ${aptTime}`,
+                description: clashInParty
+                  ? `They're taken by someone else in this party — pick another artist for ${guestFirst}.`
+                  : `They have another appointment then — pick another artist or time for ${guestFirst}.`,
+              });
+              setIsSubmitting(false);
+              return;
+            }
+            guestAssignments.set(guest.id, guest.staffId);
+            taken.push(guest.staffId);
+          } else {
+            const certified = (gSvcPre as any)?.certifiedStaffIds as string[] | undefined;
+            const eligible = staff
+              .filter((s: any) => s.active)
+              .filter((s: any) => !certified || certified.length === 0 || certified.includes(s.id))
+              .filter((s: any) => !taken.includes(s.id))
+              .filter((s: any) => !isBusy(s.id, startTime, gEndPre))
+              .map((s: any) => s.id);
+            const gPick = resolveAnyStaffId(aptDate, taken, eligible.length > 0 ? eligible : undefined);
+            if (gPick) {
+              guestAssignments.set(guest.id, gPick);
+              taken.push(gPick);
+              anyAssignedStaffIds.push(gPick);
+            }
+          }
+        }
+      }
       addOnIds.forEach((id) => {
         const overrideStaffId = addOnStaffOverrides[id];
         if (!overrideStaffId || overrideStaffId === resolvedStaffId) return;
@@ -2529,8 +2588,9 @@ export function QuickBookForm({
           const gToken = _nanoid();
           const gShortCode = generateShortCode();
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
-          const gStaffId = guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId;
-          if (guest.staffId === 'any' && gStaffId) anyAssignedStaffIds.push(gStaffId);
+          const gStaffId = guestAssignments.get(guest.id)
+            || (guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId);
+          if (guest.staffId === 'any' && gStaffId && !anyAssignedStaffIds.includes(gStaffId)) anyAssignedStaffIds.push(gStaffId);
           const gStaffMemberForSummary = staff.find((s: any) => s.id === gStaffId);
           providersSummary.push({
             name: gStaffMemberForSummary?.name || 'Unassigned',
