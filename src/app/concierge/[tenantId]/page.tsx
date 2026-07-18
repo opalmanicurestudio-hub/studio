@@ -449,6 +449,22 @@ function ConciergeKioskContent() {
                 });
             }
 
+            // Owner-visible audit trail — kiosk sales appear in the activity
+            // feed with how the money was (or wasn't) collected.
+            const auditRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
+            batch.set(auditRef, {
+                action: 'sale.lounge',
+                targetType: 'refreshmentRequest',
+                targetId: requestId,
+                summary: `Lounge order: ${item.name} (x${qty}) for ${guestName || 'guest'}${
+                    chargedToStation ? ' — charged to station card'
+                    : isComped ? ' — comped (membership)'
+                    : orderTotal > 0 ? ` — $${orderTotal.toFixed(2)} at kiosk` : ''}`,
+                amount: orderTotal,
+                actor: { type: 'system', id: 'concierge-kiosk', name: 'Concierge Kiosk', via: 'concierge-kiosk' },
+                at: new Date().toISOString(),
+            });
+
             await batch.commit();
             toast({ title: "Order Dispatched", description: "Our concierge will be with you shortly." });
             setStep('success');
