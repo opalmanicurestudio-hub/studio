@@ -60,7 +60,7 @@ import {
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useFirebase } from '@/firebase';
+import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
@@ -2448,6 +2448,91 @@ export default function BoothsPage() {
     }
   };
 
+  // ── v84: record manual rent / deposit payments (cash, check, Zelle…) ──────
+  const { user: currentUser } = useUser();
+  const auditActor = useMemo(() => ({
+    type: 'user' as const,
+    id: currentUser?.uid || undefined,
+    name: currentUser?.displayName || currentUser?.email || 'Owner',
+  }), [currentUser?.uid, currentUser?.displayName, currentUser?.email]);
+
+  const [recordPay, setRecordPay] = useState<any>(null); // { mode:'rent'|'deposit', lease, renter, booth, invoice? }
+  const [recordPayAmount, setRecordPayAmount] = useState('');
+  const [recordPayMethod, setRecordPayMethod] = useState('Cash');
+  const [recordPayNote, setRecordPayNote] = useState('');
+  const [recordPaySaving, setRecordPaySaving] = useState(false);
+  const openRecordPay = (mode: 'rent' | 'deposit', row: any) => {
+    setRecordPay({ mode, lease: row.lease, renter: row.renter, booth: row.booth, invoice: row.open || null });
+    setRecordPayAmount(mode === 'deposit'
+      ? String(((row.lease as any)?.deposit?.amountCents || 0) / 100)
+      : String((row.owedCents || 0) / 100));
+    setRecordPayMethod('Cash');
+    setRecordPayNote('');
+  };
+  const handleRecordPayment = async () => {
+    if (!recordPay || recordPaySaving) return;
+    const cents = Math.round((Number(recordPayAmount) || 0) * 100);
+    if (cents <= 0) return;
+    setRecordPaySaving(true);
+    const nowIso = new Date().toISOString();
+    const { mode, lease: pl, renter: prt, booth: pbt, invoice } = recordPay;
+    const who = prt ? `${prt.firstName || ''} ${prt.lastName || ''}`.trim() || 'Renter' : 'Renter';
+    try {
+      const batch = writeBatch(firestore);
+      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+      if (mode === 'rent' && invoice) {
+        batch.update(doc(firestore, 'tenants', tenantId, 'rentInvoices', invoice.id), {
+          status: 'paid', paidAt: nowIso, paidMethod: recordPayMethod,
+          paidAmountCents: cents, paidLedgerEntryId: txnRef.id, recordedManually: true,
+        });
+        batch.set(txnRef, {
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          source: 'booth_rent', category: 'Booth Rent',
+          amount: cents / 100,
+          description: `Booth rent — ${pbt?.name || 'space'} (due ${invoice.dueDate})${recordPayNote ? ` · ${recordPayNote}` : ''}`,
+          clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
+          hasReceipt: false, sourceId: invoice.id, tenantId, createdAt: nowIso,
+        });
+        const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+        batch.set(aRef, { id: aRef.id, ...auditEntry({
+          action: 'booth.rent_recorded', targetType: 'rentInvoice', targetId: invoice.id,
+          summary: `Recorded ${recordPayMethod} rent payment of $${(cents / 100).toFixed(2)} from ${who} (${pbt?.name || 'space'})`,
+          amount: cents / 100, actor: auditActor,
+        }) });
+      } else if (mode === 'deposit') {
+        batch.update(doc(firestore, 'tenants', tenantId, 'leases', pl.id), {
+          'deposit.collectedLedgerEntryId': txnRef.id,
+          'deposit.collectedAt': nowIso,
+          'deposit.collectedMethod': recordPayMethod,
+          'deposit.collectedCents': cents,
+        });
+        batch.set(txnRef, {
+          id: txnRef.id, type: 'income', context: 'Business',
+          // Deposits are HELD funds, not earnings — 'transfer' keeps them
+          // out of P&L revenue while staying visible in the ledger.
+          taxBucket: 'transfer',
+          source: 'booth_rent', category: 'Booth Deposit',
+          amount: cents / 100,
+          description: `Security deposit — ${pbt?.name || 'space'} (${who})${recordPayNote ? ` · ${recordPayNote}` : ''}`,
+          clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
+          hasReceipt: false, sourceId: pl.id, tenantId, createdAt: nowIso,
+        });
+        const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+        batch.set(aRef, { id: aRef.id, ...auditEntry({
+          action: 'booth.deposit_collected', targetType: 'lease', targetId: pl.id,
+          summary: `Collected $${(cents / 100).toFixed(2)} security deposit (${recordPayMethod}) from ${who} (${pbt?.name || 'space'})`,
+          amount: cents / 100, actor: auditActor,
+        }) });
+      }
+      await batch.commit();
+      toast({ title: mode === 'deposit' ? 'Deposit recorded' : 'Payment recorded',
+        description: `$${(cents / 100).toFixed(2)} · ${recordPayMethod} — it's in your ledger and audit trail.` });
+      setRecordPay(null);
+    } catch {
+      toast({ variant: 'destructive', title: 'Couldn’t record it', description: 'Nothing was saved — try again.' });
+    } finally { setRecordPaySaving(false); }
+  };
+
   // Canonical, boothId-keyed occupancy — confirmed via booth-rental-hooks.ts
   // to use OCCUPYING_LEASE_STATUSES (active, on_leave, pending_signature),
   // the same definition occupyingLeaseByRenter already uses. Replaces the
@@ -2568,6 +2653,37 @@ export default function BoothsPage() {
       }
     });
 
+    // v84 — late/overdue rent belongs in the Command Center, not just the
+    // rent roll: it's the single most expensive thing to miss.
+    rentRoll.forEach(({ lease: l, renter, booth, open, owedCents }) => {
+      if (!open) return;
+      const who = renter ? `${renter.firstName} ${renter.lastName}` : 'A renter';
+      const boothName = booth?.name ?? 'their booth';
+      if (open.status === 'late') {
+        list.push({
+          id: `rent-late-${open.id}`, severity: 'danger',
+          message: `${who}'s rent is LATE — $${(owedCents / 100).toFixed(2)} owed (${boothName})`,
+        });
+      } else if (open.dueDate && open.dueDate < localISO()) {
+        list.push({
+          id: `rent-overdue-${open.id}`, severity: 'warning',
+          message: `${who}'s rent was due ${open.dueDate} — $${(owedCents / 100).toFixed(2)} outstanding (${boothName})`,
+        });
+      }
+    });
+    (leases.data ?? []).forEach((l) => {
+      if (!['active', 'on_leave'].includes(l.status)) return;
+      const dep: any = (l as any).deposit;
+      if (dep && dep.amountCents > 0 && !dep.collectedLedgerEntryId) {
+        const renter = renterById.get(l.renterId);
+        const who = renter ? `${renter.firstName} ${renter.lastName}` : 'a renter';
+        list.push({
+          id: `dep-${l.id}`, severity: 'info',
+          message: `Security deposit of ${formatCents(dep.amountCents)} not yet collected from ${who}`,
+        });
+      }
+    });
+
     if (metrics.vacant > 0) {
       list.push({
         id: 'vacancy-cost',
@@ -2584,7 +2700,7 @@ export default function BoothsPage() {
       info: 2,
     };
     return list.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
-  }, [leases.data, booths.data, boothById, renterById, metrics]);
+  }, [leases.data, booths.data, boothById, renterById, metrics, rentRoll]);
 
   const alertBadgeSeverity: AlertItem['severity'] | null =
     alerts.find((a) => a.severity === 'danger')?.severity ??
@@ -4035,6 +4151,19 @@ export default function BoothsPage() {
                     ) : (
                       <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 shrink-0">✓ Current</span>
                     )}
+                    {open && l.status !== 'pending_signature' && (
+                      <button onClick={() => openRecordPay('rent', { lease: l, renter: rt, booth: bt, open, owedCents })}
+                        className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
+                        Record payment
+                      </button>
+                    )}
+                    {(l as any).deposit?.amountCents > 0 && !(l as any).deposit?.collectedLedgerEntryId && (
+                      <button onClick={() => openRecordPay('deposit', { lease: l, renter: rt, booth: bt })}
+                        title="Security deposit hasn't been collected yet"
+                        className="h-8 px-3 rounded-lg border-2 border-violet-300 text-violet-700 text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
+                        Deposit due · {formatCents((l as any).deposit.amountCents)}
+                      </button>
+                    )}
                     <button onClick={() => toggleAutoCollect(l)}
                       className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest shrink-0 transition-colors ${l.autoCollect ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-500'}`}>
                       {l.autoCollect ? 'Auto-collect ON' : 'Auto-collect OFF'}
@@ -5068,6 +5197,49 @@ export default function BoothsPage() {
           }))
         }
       />
+
+      {/* ── Record rent / deposit payment (v84) ── */}
+      <Dialog open={!!recordPay} onOpenChange={(o) => { if (!o) setRecordPay(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{recordPay?.mode === 'deposit' ? 'Record security deposit' : 'Record rent payment'}</DialogTitle>
+            <DialogDescription>
+              {recordPay?.mode === 'deposit'
+                ? 'Log a deposit collected outside the app (cash, check, transfer). It books as held funds — not revenue — and the lease is marked collected.'
+                : 'Log a rent payment collected outside the app. The invoice is marked paid and the income lands in your ledger, activity feed, and reports.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Amount</Label>
+              <Input inputMode="decimal" value={recordPayAmount}
+                onChange={(e) => setRecordPayAmount(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>How was it paid?</Label>
+              <Select value={recordPayMethod} onValueChange={setRecordPayMethod}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {['Cash', 'Check', 'Zelle / Venmo', 'Card (in person)', 'Other'].map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Note (optional)</Label>
+              <Input value={recordPayNote} onChange={(e) => setRecordPayNote(e.target.value)}
+                placeholder="Check #204, paid early…" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecordPay(null)}>Cancel</Button>
+            <Button onClick={handleRecordPayment} disabled={recordPaySaving || !(Number(recordPayAmount) > 0)}>
+              {recordPaySaving ? 'Saving…' : recordPay?.mode === 'deposit' ? 'Record deposit' : 'Record payment'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CommandCenterPanel
         open={commandCenterOpen}
