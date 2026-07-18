@@ -2469,6 +2469,68 @@ export default function BoothsPage() {
     setRecordPayMethod('Cash');
     setRecordPayNote('');
   };
+  // ── v85: reschedule (server conflict-checked) + lease renewals ────────────
+  const [reschedRes, setReschedRes] = useState<any>(null);
+  const [reschedDate, setReschedDate] = useState('');
+  const [reschedStartTime, setReschedStartTime] = useState('');
+  const [reschedEndTime, setReschedEndTime] = useState('');
+  const [reschedSaving, setReschedSaving] = useState(false);
+  const openReschedule = (r: any) => {
+    setReschedRes(r);
+    setReschedDate(r.startDate || '');
+    setReschedStartTime(r.startTime || '');
+    setReschedEndTime(r.endTime || '');
+  };
+  const handleReschedule = async () => {
+    if (!reschedRes || reschedSaving || !reschedDate) return;
+    setReschedSaving(true);
+    try {
+      const isHourly = reschedRes.bookingType === 'hourly';
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reschedule', tenantId, reservationId: reschedRes.id,
+          startDate: reschedDate,
+          // daily: server keeps the same number of days automatically
+          startTime: isHourly ? reschedStartTime : undefined,
+          endTime: isHourly ? reschedEndTime : undefined,
+          actorName: auditActor.name,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d.ok) {
+        toast({ title: 'Booking moved', description: `Now ${d.startDate}${d.startTime ? ` · ${d.startTime}–${d.endTime}` : ''}.` });
+        setReschedRes(null);
+      } else {
+        toast({ variant: 'destructive', title: 'Couldn’t reschedule', description: d.error || 'Try again.' });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Couldn’t reschedule', description: 'Network error — nothing was changed.' });
+    } finally { setReschedSaving(false); }
+  };
+  const renewLease = async (l: any) => {
+    if (!l.endDate) return;
+    try {
+      const termDays = l.startDate
+        ? Math.max(1, Math.round((new Date(l.endDate + 'T00:00:00Z').getTime() - new Date(l.startDate + 'T00:00:00Z').getTime()) / 86400000))
+        : 30;
+      const base = new Date(l.endDate + 'T00:00:00Z');
+      base.setUTCDate(base.getUTCDate() + termDays);
+      const newEnd = base.toISOString().slice(0, 10);
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'leases', l.id), {
+        endDate: newEnd, renewedAt: new Date().toISOString(), status: 'active', expiryNotifiedAt: null,
+      });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'lease.renewed', targetType: 'lease', targetId: l.id,
+        summary: `Lease renewed through ${newEnd} (one full term)`,
+        actor: auditActor,
+      });
+      toast({ title: 'Lease renewed', description: `New end date: ${newEnd}.` });
+    } catch {
+      toast({ variant: 'destructive', title: 'Renewal failed', description: 'Nothing was changed — try again.' });
+    }
+  };
+
   const handleRecordPayment = async () => {
     if (!recordPay || recordPaySaving) return;
     const cents = Math.round((Number(recordPayAmount) || 0) * 100);
@@ -2572,7 +2634,13 @@ export default function BoothsPage() {
 
   const hasSlotConflict = useMemo(() => {
     if (!leaseForm.isShared || leaseForm.scheduleDays.length === 0) return false;
-    const proposed = { days: leaseForm.scheduleDays };
+    // v85 — time-aware: two shared renters CAN share a day with
+    // non-overlapping windows (Mon 9–1 and Mon 2–6 is fine).
+    const proposed = {
+      days: leaseForm.scheduleDays,
+      startTime: leaseForm.scheduleStartTime || undefined,
+      endTime: leaseForm.scheduleEndTime || undefined,
+    };
     return conflictingSlots.some((existing) => slotsOverlap(proposed, existing));
   }, [leaseForm.isShared, leaseForm.scheduleDays, conflictingSlots]);
 
@@ -3970,6 +4038,9 @@ export default function BoothsPage() {
                     {r.creditDecision === 'issued' && r.creditIssuedCents > 0 && (
                       <p className="text-[10px] font-black uppercase text-emerald-600">✓ ${(r.creditIssuedCents / 100).toFixed(2)} credit issued — auto-applies to their next booking</p>
                     )}
+                    {r.rescheduleRequestedAt && r.status === 'confirmed' && (
+                      <p className="text-[10px] font-black uppercase text-indigo-600">⏱ Renter asked to reschedule{r.rescheduleRequestNote ? ` — “${r.rescheduleRequestNote}”` : ''}</p>
+                    )}
                     <div className="flex gap-2 flex-wrap">
                       {r.status === 'confirmed' && <button onClick={() => checkInRes(r)} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
                       {r.status === 'checked_in' && <button onClick={() => checkOutRes(r)} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Check Out</button>}
@@ -3979,6 +4050,7 @@ export default function BoothsPage() {
                         </button>
                       )}
                       {r.overageStatus === 'due' && <button onClick={() => markOverageCollected(r)} className={`${r.cardOnFile ? 'h-8 px-3 border-2 text-red-600 border-red-300' : 'flex-1 h-8 bg-red-600 text-white'} rounded-lg font-black uppercase text-[9px] tracking-widest`}>{r.cardOnFile ? 'Paid in person' : `Collect $${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger`}</button>}
+                      {r.status === 'confirmed' && <button onClick={() => openReschedule(r)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-indigo-600 border-indigo-300">Reschedule</button>}
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
                       {r.status === 'cancel_requested' && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Approve → Refund Card'}</button>}
                       {r.status === 'cancel_requested' && <button onClick={() => setResStatus(r, 'confirmed')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Decline</button>}
@@ -4162,6 +4234,13 @@ export default function BoothsPage() {
                         title="Security deposit hasn't been collected yet"
                         className="h-8 px-3 rounded-lg border-2 border-violet-300 text-violet-700 text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
                         Deposit due · {formatCents((l as any).deposit.amountCents)}
+                      </button>
+                    )}
+                    {l.endDate && Math.ceil((new Date(l.endDate + 'T00:00:00').getTime() - Date.now()) / 86400000) <= 30 && (
+                      <button onClick={() => renewLease(l)}
+                        title={`Lease ends ${l.endDate} — extend by one full term`}
+                        className="h-8 px-3 rounded-lg border-2 border-indigo-300 text-indigo-700 text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
+                        Renew lease
                       </button>
                     )}
                     <button onClick={() => toggleAutoCollect(l)}
@@ -5197,6 +5276,44 @@ export default function BoothsPage() {
           }))
         }
       />
+
+      {/* ── Reschedule booking (v85) ── */}
+      <Dialog open={!!reschedRes} onOpenChange={(o) => { if (!o) setReschedRes(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Reschedule booking</DialogTitle>
+            <DialogDescription>
+              {reschedRes?.name} · {reschedRes?.boothName} — same {reschedRes?.bookingType === 'hourly' ? 'duration' : 'length'}, new time.
+              The move is conflict-checked against other bookings and resident renters' schedules.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>New date</Label>
+              <Input type="date" value={reschedDate} onChange={(e) => setReschedDate(e.target.value)} />
+            </div>
+            {reschedRes?.bookingType === 'hourly' && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1.5"><Label>Start</Label>
+                  <Input type="time" value={reschedStartTime} onChange={(e) => setReschedStartTime(e.target.value)} /></div>
+                <div className="space-y-1.5"><Label>End</Label>
+                  <Input type="time" value={reschedEndTime} onChange={(e) => setReschedEndTime(e.target.value)} /></div>
+              </div>
+            )}
+            {reschedRes?.bookingType !== 'hourly' && (reschedRes?.numDays || 1) > 1 && (
+              <p className="text-[10px] font-bold text-muted-foreground">
+                {reschedRes.numDays}-day booking — the end date shifts automatically to keep the same length.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReschedRes(null)}>Cancel</Button>
+            <Button onClick={handleReschedule} disabled={reschedSaving || !reschedDate}>
+              {reschedSaving ? 'Moving…' : 'Move booking'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Record rent / deposit payment (v84) ── */}
       <Dialog open={!!recordPay} onOpenChange={(o) => { if (!o) setRecordPay(null); }}>
