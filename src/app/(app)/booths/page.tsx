@@ -2228,6 +2228,34 @@ export default function BoothsPage() {
     }
   };
 
+  // ── v86: applicant decision emails — opens a prefilled draft in the
+  // owner's mail app (no email provider needed yet; when one is wired,
+  // swap this for a server call and keep the same wording).
+  const openDecisionEmail = (app: any, decision: 'approved' | 'declined') => {
+    if (!app?.email) {
+      toast({ title: 'No email on the application', description: 'Reach out by phone — their number is on the card.' });
+      return;
+    }
+    const studio = selectedTenant?.name || 'our studio';
+    const first = (app.name || '').trim().split(' ')[0] || 'there';
+    const subject = decision === 'approved'
+      ? `Your ${app.boothName || 'booth'} application at ${studio} — approved!`
+      : `Your application at ${studio}`;
+    const bodyText = decision === 'approved'
+      ? `Hi ${first},\n\nGreat news — your application${app.boothName ? ` for ${app.boothName}` : ''} has been approved!\n\nNext step: ${app.rentalType === 'lease' ? "we'll get your lease ready and walk you through move-in." : "reply with the dates you'd like and we'll lock them in."}\n\nTalk soon,\n${studio}`
+      : `Hi ${first},\n\nThank you so much for applying${app.boothName ? ` for ${app.boothName}` : ''}. After careful consideration we won't be moving forward right now, but we'd love to keep your application on file in case a space opens up.\n\nWith appreciation,\n${studio}`;
+    try {
+      window.open(`mailto:${app.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`, '_self');
+      updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', app.id),
+        { applicantNotifiedAt: new Date().toISOString() }).catch(() => {});
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.applicant_emailed', targetType: 'boothApplication', targetId: app.id,
+        summary: `Decision email drafted to ${app.name || 'applicant'} (${decision})`,
+        actor: auditActor,
+      });
+    } catch { /* the decision itself already saved — email draft is best-effort */ }
+  };
+
   const [decidingAppId, setDecidingAppId] = useState<string | null>(null);
   const setAppStatus = async (app: any, status: string) => {
     try {
@@ -2267,10 +2295,12 @@ export default function BoothsPage() {
           consentAcceptedAt: app.consentAcceptedAt ?? null,
         } as any);
         await setAppStatus(app, 'approved');
-        toast({ title: 'Approved — renter created', description: 'Assign their booth via a lease below.' });
+        toast({ title: 'Approved — renter created', description: 'Assign their booth via a lease below. An approval email draft just opened.' });
+        openDecisionEmail(app, 'approved');
       } else {
         await setAppStatus(app, 'approved');
-        toast({ title: 'Day rental approved', description: `${app.name} is in your Guest book below — call or text to lock in dates.` });
+        toast({ title: 'Day rental approved', description: `${app.name} is in your Guest book below. An approval email draft just opened.` });
+        openDecisionEmail(app, 'approved');
       }
     } catch {
       toast({ variant: 'destructive', title: 'Could not approve', description: 'Email may be missing — check the card.' });
@@ -3934,7 +3964,7 @@ export default function BoothsPage() {
                         <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
                       )}
                       {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
-                      {(!app.kind || app.kind === 'application') && <button onClick={() => setAppStatus(app, 'declined')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
+                      {(!app.kind || app.kind === 'application') && <button onClick={() => { setAppStatus(app, 'declined'); openDecisionEmail(app, 'declined'); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
                     </div>
                   </div>
                 ))}
