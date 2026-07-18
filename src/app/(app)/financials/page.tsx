@@ -26,9 +26,13 @@ import {
   useFirebase, useCollection, useMemoFirebase,
   deleteDocumentNonBlocking, updateDocumentNonBlocking,
 } from '@/firebase';
-import { collection, doc, writeBatch, query, where, setDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, query, where, setDoc, getDocs } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 import { useTenant } from '@/context/TenantContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  CADENCE_OPTIONS, monthlyEquivalent, cadenceShort, nextDueDate, normalizeCadence,
+} from '@/lib/bills-recurrence';
 
 const CATEGORY_ICON_MAP: Record<string, React.ReactNode> = {
   'Housing':                   <Home         className="w-5 h-5 text-primary" />,
@@ -76,8 +80,10 @@ const ensureBillIds = (list: any[]) =>
 const hasValidData = (list: any[]) =>
   list?.some((p) => (p.categories || []).some((c: any) => (c.bills || []).length > 0));
 
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
-  bill: { id: string; title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number };
+  bill: { id: string; title: string; amount: number; isCustom?: boolean; dueDay?: number; paymentUrl?: string; lateFee?: number; lateByDay?: number; cadence?: string };
   isEditing?: boolean;
   onBillChange: (billId: string, field: string, value: any) => void;
   onDelete: (billId: string) => void;
@@ -91,8 +97,23 @@ const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
           <div className="flex flex-col text-left">
             <Label className="font-black uppercase tracking-tight text-[10px] sm:text-xs text-slate-900 truncate">{bill.title}</Label>
             {!isEditing && (
-              <div className="flex items-center gap-2 text-muted-foreground mt-0.5 opacity-40">
-                {bill.dueDay && <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase"><Calendar className="w-2 h-2 sm:w-2.5 sm:h-2.5" /> Day {bill.dueDay}</span>}
+              <div className="flex items-center gap-2 text-muted-foreground mt-0.5 opacity-40 flex-wrap">
+                {/* v70 — cadence-aware due label: weekly bills show the
+                    weekday, monthly+ show the day of month */}
+                {bill.dueDay != null && normalizeCadence(bill.cadence) !== 'daily' && (
+                  <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase">
+                    <Calendar className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
+                    {['weekly', 'bi-weekly'].includes(normalizeCadence(bill.cadence))
+                      ? WEEKDAYS[((bill.dueDay % 7) + 7) % 7]
+                      : `Day ${bill.dueDay}`}
+                  </span>
+                )}
+                {normalizeCadence(bill.cadence) !== 'monthly' && (
+                  <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase text-primary opacity-100">
+                    <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5" />
+                    {normalizeCadence(bill.cadence)} · ≈${monthlyEquivalent(bill).toFixed(0)}/mo
+                  </span>
+                )}
                 {!!bill.lateFee && <span className="flex items-center gap-1 text-[7px] sm:text-[8px] font-black uppercase text-destructive"><AlertTriangle className="w-2 h-2 sm:w-2.5 sm:h-2.5" /> ${bill.lateFee} late fee</span>}
               </div>
             )}
@@ -111,10 +132,34 @@ const BillItemRow = ({ bill, isEditing = false, onBillChange, onDelete }: {
         <AccordionItem value="details" className="border-none">
           <AccordionTrigger className="text-[8px] sm:text-[9px] font-black uppercase tracking-widest justify-start gap-2 p-0 hover:no-underline text-primary/60">Configure Logic &amp; Alerts</AccordionTrigger>
           <AccordionContent className="pt-4 space-y-4">
+            {/* v70 — cadence: bills can be daily, weekly, bi-weekly, monthly,
+                quarterly, or annual. Totals & TMHR normalize to monthly. */}
+            <div className="space-y-1.5 text-left">
+              <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">How Often</Label>
+              <Select value={normalizeCadence(bill.cadence)} onValueChange={(v) => onBillChange(bill.id, 'cadence', v)}>
+                <SelectTrigger className="h-9 rounded-lg border-2 font-black uppercase text-[10px] tracking-widest"><SelectValue /></SelectTrigger>
+                <SelectContent className="rounded-xl border-2 shadow-2xl">
+                  {CADENCE_OPTIONS.map(o => (
+                    <SelectItem key={o.value} value={o.value} className="font-bold">
+                      {o.label} <span className="text-muted-foreground text-[9px]">({o.hint})</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {normalizeCadence(bill.cadence) !== 'monthly' && (bill.amount || 0) > 0 && (
+                <p className="text-[8px] font-black uppercase text-primary/60 ml-1">
+                  ≈ ${monthlyEquivalent(bill).toFixed(2)}/mo used in totals &amp; TMHR
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-1.5 text-left">
-                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Due Day of Month</Label>
-                <Input type="number" placeholder="1" value={bill.dueDay || ''} onChange={(e) => onBillChange(bill.id, 'dueDay', parseInt(e.target.value) || undefined)} className="h-9 rounded-lg border-2 font-black text-center text-xs" />
+                <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">
+                  {['weekly', 'bi-weekly'].includes(normalizeCadence(bill.cadence))
+                    ? 'Due Weekday (0=Sun … 6=Sat)'
+                    : normalizeCadence(bill.cadence) === 'daily' ? 'Due Day (n/a — daily)' : 'Due Day of Month'}
+                </Label>
+                <Input type="number" placeholder="1" disabled={normalizeCadence(bill.cadence) === 'daily'} value={bill.dueDay ?? ''} onChange={(e) => onBillChange(bill.id, 'dueDay', parseInt(e.target.value) || undefined)} className="h-9 rounded-lg border-2 font-black text-center text-xs" />
               </div>
               <div className="space-y-1.5 text-left">
                 <Label className="text-[8px] font-black uppercase text-muted-foreground ml-1">Payment URL</Label>
@@ -157,7 +202,9 @@ const BillEditor = ({ categories, isEditing, onBillChange, onAddBillItem, onDele
   onAddBillItem: (cat: string) => void;
   onDeleteBillItem: (cat: string, billId: string) => void;
 }) => {
-  const total = useMemo(() => categories.reduce((a, c) => a + (c.bills || []).reduce((b, bill) => b + (bill.amount || 0), 0), 0), [categories]);
+  // v70 — normalized: weekly/daily/quarterly/annual bills convert to their
+  // true monthly cost, so this total (and TMHR downstream) is accurate.
+  const total = useMemo(() => categories.reduce((a, c) => a + (c.bills || []).reduce((b, bill) => b + monthlyEquivalent(bill), 0), 0), [categories]);
   return (
     <Card className="border-2 shadow-sm rounded-[2rem] overflow-hidden bg-white">
       <CardHeader className="bg-muted/5 border-b p-5 sm:p-8 text-left">
@@ -174,7 +221,7 @@ const BillEditor = ({ categories, isEditing, onBillChange, onAddBillItem, onDele
                   <div className="flex items-center gap-3">
                     <span className="truncate max-w-[140px] sm:max-w-none">{category.name}</span>
                     {(category.bills || []).some(b => b.amount > 0) && (
-                      <span className="font-mono text-[9px] font-black text-primary/60">${(category.bills || []).reduce((a, b) => a + (b.amount || 0), 0).toFixed(0)}/mo</span>
+                      <span className="font-mono text-[9px] font-black text-primary/60">${(category.bills || []).reduce((a, b) => a + monthlyEquivalent(b), 0).toFixed(0)}/mo</span>
                     )}
                   </div>
                 </div>
@@ -195,7 +242,7 @@ const BillEditor = ({ categories, isEditing, onBillChange, onAddBillItem, onDele
       </CardContent>
       <CardFooter className="bg-primary/5 p-5 sm:p-8 border-t-2 border-primary/10 flex justify-between items-center">
         <div className="text-left">
-          <p className="text-[9px] sm:text-[10px] font-black uppercase text-primary tracking-widest opacity-60">Monthly Total</p>
+          <p className="text-[9px] sm:text-[10px] font-black uppercase text-primary tracking-widest opacity-60">Monthly Total <span className="opacity-60">(normalized)</span></p>
           <p className="text-2xl font-black font-mono tracking-tighter text-primary">${total.toFixed(2)}</p>
         </div>
         <div className="text-right">
@@ -427,6 +474,73 @@ export default function FinancialFoundationPage() {
     return ((weekMin / 60) * 52 / 12) * pct;
   }, [activeSchedule]);
 
+  // v70 — the bridge that fixes the split-model gap: Foundation bills now
+  // publish into the Money Hub's Bill Tracker (billDefinitions +
+  // billInstances), so everything with an amount gets real due-date
+  // tracking on its own cadence. Lifestyle → Personal, Business → Business.
+  const [isSyncing, setIsSyncing] = useState(false);
+  const handleSyncBillTracker = async () => {
+    if (!firestore || !tenantId || isSyncing) return;
+    setIsSyncing(true);
+    try {
+      const defsToWrite: any[] = [];
+      const collect = (profile: any, context: 'Personal' | 'Business') => {
+        (profile?.categories || []).forEach((cat: any) => (cat.bills || []).forEach((b: any) => {
+          if ((b.amount || 0) <= 0) return;
+          defsToWrite.push({
+            id: b.id, name: b.title, amount: b.amount, context,
+            category: cat.name, cadence: normalizeCadence(b.cadence),
+            dueDay: b.dueDay ?? 1, lateFee: b.lateFee || 0,
+            paymentUrl: b.paymentUrl || '', source: 'foundation',
+            updatedAt: new Date().toISOString(),
+          });
+        }));
+      };
+      collect(activeLifestyle, 'Personal');
+      collect(activeBusiness, 'Business');
+      if (defsToWrite.length === 0) {
+        toast({ title: 'Nothing to sync yet', description: 'Add amounts to your bills first.' });
+        setIsSyncing(false);
+        return;
+      }
+
+      const instSnap = await getDocs(collection(firestore, `tenants/${tenantId}/billInstances`));
+      const instances = instSnap.docs.map(d => d.data() as any);
+      const batch = writeBatch(firestore);
+      const nowIso = new Date().toISOString();
+      let newInstances = 0;
+
+      defsToWrite.forEach(def => {
+        batch.set(doc(firestore, `tenants/${tenantId}/billDefinitions`, def.id), def, { merge: true });
+        const hasPending = instances.some(i => i.billDefinitionId === def.id && i.status !== 'paid');
+        if (!hasPending) {
+          const due = nextDueDate(def.cadence, { dueDay: def.dueDay, anchor: nowIso }, new Date());
+          const iRef = doc(collection(firestore, `tenants/${tenantId}/billInstances`));
+          batch.set(iRef, {
+            id: iRef.id, billDefinitionId: def.id, dueDate: due.toISOString(),
+            status: 'unpaid', createdAt: nowIso, generatedBy: 'foundation-sync',
+          });
+          newInstances++;
+        }
+      });
+
+      const aRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
+      batch.set(aRef, {
+        id: aRef.id, action: 'bill.sync', targetType: 'bill',
+        summary: `Synced ${defsToWrite.length} bills from Foundation to the Bill Tracker (${newInstances} new due dates scheduled)`,
+        actor: { type: 'user' }, at: nowIso,
+      });
+
+      await batch.commit();
+      toast({ title: 'Bill Tracker synced ✓', description: `${defsToWrite.length} bills published · ${newInstances} upcoming due dates created. The nightly scheduler keeps them recurring.` });
+    } catch (e) {
+      console.error(e);
+      toast({ variant: 'destructive', title: 'Sync failed — try again' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!firestore || !tenantId) { setIsEditing(false); return; }
     const allWrites: Promise<any>[] = [];
@@ -446,8 +560,10 @@ export default function FinancialFoundationPage() {
     setIsEditing(false);
   };
 
-  const lifestyleTotal = useMemo(() => (activeLifestyle?.categories || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + (bill.amount || 0), 0), 0), [activeLifestyle]);
-  const businessTotal  = useMemo(() => (activeBusiness?.categories  || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + (bill.amount || 0), 0), 0), [activeBusiness]);
+  // v70 — TMHR now uses cadence-normalized monthly equivalents, so a $50
+  // WEEKLY supply order raises the hourly floor by its true ~$217/mo cost.
+  const lifestyleTotal = useMemo(() => (activeLifestyle?.categories || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + monthlyEquivalent(bill), 0), 0), [activeLifestyle]);
+  const businessTotal  = useMemo(() => (activeBusiness?.categories  || []).reduce((a: number, c: any) => a + (c.bills || []).reduce((b: number, bill: any) => b + monthlyEquivalent(bill), 0), 0), [activeBusiness]);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
@@ -466,7 +582,12 @@ export default function FinancialFoundationPage() {
                 <Button onClick={handleSave} className="flex-[2] sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase text-[9px] sm:text-[10px] tracking-widest shadow-primary/20"><Save className="mr-2 h-4 w-4" /> Save</Button>
               </>
             ) : (
-              <Button onClick={() => setIsEditing(true)} className="w-full sm:w-auto h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20"><Pencil className="mr-2 h-4 w-4" /> Edit Profiles</Button>
+              <>
+                <Button variant="outline" onClick={handleSyncBillTracker} disabled={isSyncing} className="flex-1 sm:flex-none h-12 sm:h-14 px-4 sm:px-6 rounded-2xl border-2 font-black uppercase tracking-widest text-[9px] sm:text-[10px] bg-white">
+                  <LinkIcon className="mr-2 h-4 w-4 text-primary opacity-60" /> {isSyncing ? 'Syncing…' : 'Sync Bill Tracker'}
+                </Button>
+                <Button onClick={() => setIsEditing(true)} className="flex-1 sm:flex-none h-12 sm:h-14 px-6 sm:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[9px] sm:text-[10px] shadow-primary/20"><Pencil className="mr-2 h-4 w-4" /> Edit Profiles</Button>
+              </>
             )}
           </div>
         </div>
