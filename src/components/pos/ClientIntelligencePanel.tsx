@@ -65,10 +65,10 @@ function InsightCard({
       <div className="flex items-start gap-2">
         <div className={cn('mt-0.5 shrink-0', iconStyle)}>{icon}</div>
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] font-black uppercase tracking-wide leading-tight">
+          <p className="text-xs font-semibold leading-tight">
             {insight.title}
           </p>
-          <p className="text-[10px] font-medium leading-relaxed mt-0.5 opacity-80">
+          <p className="text-[11px] leading-relaxed mt-0.5 opacity-80">
             {insight.detail}
           </p>
         </div>
@@ -76,7 +76,7 @@ function InsightCard({
       {insight.actionLabel && onActionClick && (
         <button
           onClick={() => onActionClick(insight)}
-          className="text-[10px] font-black uppercase tracking-widest underline underline-offset-2 flex items-center gap-1 hover:opacity-70 transition-opacity"
+          className="text-[11px] font-medium underline underline-offset-2 flex items-center gap-1 hover:opacity-70 transition-opacity"
         >
           {insight.actionLabel}
           <ChevronRight className="w-3 h-3" />
@@ -94,7 +94,7 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
     if (chip.startsWith('__staff:')) {
       const staffId = chip.replace('__staff:', '');
       const member = (staff || []).find((s: any) => s.id === staffId);
-      return member ? `Prefers ${member.name.split(' ')[0]}` : null;
+      return member?.name ? `Prefers ${member.name.split(' ')[0]}` : null;
     }
     return chip;
   }).filter(Boolean) as string[];
@@ -104,7 +104,7 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
       {/* Section label */}
       <div className="flex items-center gap-2">
         <div className="h-px flex-1 bg-border" />
-        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1">
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground px-1">
           Client intel
         </p>
         <div className="h-px flex-1 bg-border" />
@@ -127,7 +127,7 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
           {resolvedChips.map((chip) => (
             <span
               key={chip}
-              className="px-2.5 py-1 rounded-full bg-muted/60 border text-[10px] font-bold text-muted-foreground uppercase tracking-wide"
+              className="px-2.5 py-1 rounded-full bg-muted/60 border text-[11px] font-medium text-muted-foreground"
             >
               {chip}
             </span>
@@ -140,30 +140,30 @@ export function ClientIntelligencePanel({ intel, staff, onActionClick, className
         <div className="flex items-center gap-4 px-1 pt-1">
           {intel.lifetimeVisits > 0 && (
             <div>
-              <p className="text-[18px] font-black tracking-tighter text-slate-900 leading-none">
+              <p className="text-[17px] font-semibold tracking-tight text-slate-900 leading-none">
                 {intel.lifetimeVisits}
               </p>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase">
+              <p className="text-[10px] text-muted-foreground">
                 total visits
               </p>
             </div>
           )}
           {intel.weeksSinceLastVisit !== null && (
             <div>
-              <p className="text-[18px] font-black tracking-tighter text-slate-900 leading-none">
+              <p className="text-[17px] font-semibold tracking-tight text-slate-900 leading-none">
                 {intel.weeksSinceLastVisit}w
               </p>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase">
+              <p className="text-[10px] text-muted-foreground">
                 since last visit
               </p>
             </div>
           )}
           {intel.lastServiceName && (
             <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-black text-slate-900 truncate">
+              <p className="text-xs font-semibold text-slate-900 truncate">
                 {intel.lastServiceName}
               </p>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase">
+              <p className="text-[10px] text-muted-foreground">
                 last service
               </p>
             </div>
