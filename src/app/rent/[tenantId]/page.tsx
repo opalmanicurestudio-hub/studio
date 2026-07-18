@@ -311,6 +311,23 @@ export default function RenterPortalPage() {
 
   useEffect(() => { if (session?.token && !data) refresh(); }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Returning from Stripe Checkout (?cfInvoiceId=&cfSession=) → confirm the
+  // payment server-side (idempotent), then clean the URL.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !session?.token) return;
+    const params = new URLSearchParams(window.location.search);
+    const invoiceId = params.get('cfInvoiceId');
+    const sessionId = params.get('cfSession');
+    if (!invoiceId || !sessionId) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    (async () => {
+      const d = await api({ action: 'confirm-invoice', tenantId, token: session.token, invoiceId, sessionId });
+      if (d.ok) toast({ title: 'Rent paid ✓', description: 'Your receipt is in Payment History below.' });
+      else toast({ variant: 'destructive', title: 'Payment needs attention', description: d.error || 'If you were charged, contact the studio — nothing is lost.' });
+      refresh();
+    })();
+  }, [session?.token]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const today = localISO();
   const todays = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate <= today && r.endDate >= today), [data, today]);
   const later = useMemo(() => (data?.upcoming || []).filter((r: any) => r.startDate > today), [data, today]);
@@ -331,6 +348,17 @@ export default function RenterPortalPage() {
       refresh();
     } else if (d.status === 401) { saveSession(null); }
     else toast({ variant: 'destructive', title: 'Check-in didn’t go through', description: d.error || 'See the front desk.' });
+  };
+
+  const payInvoice = async (invoiceId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'pay-invoice', tenantId, token: session.token, invoiceId, returnUrl: window.location.href });
+    setActionBusy(false);
+    if (d.ok && d.url) { window.location.href = d.url; }
+    else if (d.ok && d.alreadyPaid) { toast({ title: 'Already paid ✓' }); refresh(); }
+    else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Couldn’t start payment', description: d.error || 'You can always pay at the front desk.' });
   };
 
   const requestReschedule = async (reservationId: string) => {
@@ -442,9 +470,14 @@ export default function RenterPortalPage() {
                         </p>
                         <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Due {fmtDate(i.dueDate)}</p>
                       </div>
-                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Pay at desk</p>
+                      <button onClick={() => payInvoice(i.id)} disabled={actionBusy}
+                        className={cn('h-9 px-4 rounded-xl font-black uppercase tracking-widest text-[10px] text-white active:scale-95 transition-all disabled:opacity-50 shrink-0',
+                          i.status === 'late' ? 'bg-red-600' : 'bg-slate-900')}>
+                        {actionBusy ? '…' : 'Pay Now'}
+                      </button>
                     </div>
                   ))}
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-300 text-center">Prefer cash or check? Pay at the front desk — it posts here too.</p>
                 </div>
               </section>
             )}
