@@ -86,14 +86,57 @@ export async function GET(req: NextRequest) {
   // charger (grace 3 → fee + retry → final retry day 7). Policy disabled
   // still marks late after a default 3-day grace — just without a fee.
   let rentMarkedLate = 0;
+  let leasesRenewed = 0;
   const todayStr = new Date().toISOString().slice(0, 10);
   for (const tDoc of allTenantsSnap.docs) {
     try {
+      const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).get();
+      const leaseById = new Map(leasesSnap.docs.map((d: any) => [d.id, d.data()]));
+
+      // ── v85: lease renewals — auto-renew leases extend by one full term
+      // the day after they end; everyone else gets ONE "lease ended" nudge.
+      for (const ld of leasesSnap.docs) {
+        const l = ld.data() as any;
+        if (l.status !== 'active' || !l.endDate || String(l.endDate).slice(0, 10) >= todayStr) continue;
+        if (l.autoRenew) {
+          const termDays = l.startDate
+            ? Math.max(1, Math.round((new Date(l.endDate + 'T00:00:00Z').getTime() - new Date(l.startDate + 'T00:00:00Z').getTime()) / 86400000))
+            : 30;
+          const base = new Date(String(l.endDate).slice(0, 10) + 'T00:00:00Z');
+          base.setUTCDate(base.getUTCDate() + termDays);
+          const newEnd = base.toISOString().slice(0, 10);
+          await ld.ref.set({ endDate: newEnd, renewedAt: new Date().toISOString() }, { merge: true });
+          leasesRenewed++;
+          await logAuditAdmin(db, tDoc.id, {
+            action: 'lease.renewed', targetType: 'lease', targetId: ld.id,
+            summary: `Lease auto-renewed through ${newEnd} (one full term)`,
+            actor: { type: 'system', name: 'lease-renewals' },
+          });
+          const nR = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nR.set({
+            id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
+            type: 'lease', link: '/booths',
+            message: `A lease auto-renewed through ${newEnd}.`,
+          });
+        } else if (!l.expiryNotifiedAt) {
+          await ld.ref.set({ expiryNotifiedAt: new Date().toISOString() }, { merge: true });
+          await logAuditAdmin(db, tDoc.id, {
+            action: 'lease.expired', targetType: 'lease', targetId: ld.id,
+            summary: `Lease ended ${String(l.endDate).slice(0, 10)} — renew it or end it in Booths`,
+            actor: { type: 'system', name: 'lease-renewals' },
+          });
+          const nR = db.collection(`tenants/${tDoc.id}/notifications`).doc();
+          await nR.set({
+            id: nR.id, userId: null, read: false, createdAt: new Date().toISOString(),
+            type: 'lease', link: '/booths',
+            message: `A lease ended ${String(l.endDate).slice(0, 10)} — renew or end it in Booths.`,
+          });
+        }
+      }
+
       const dueSnap = await db.collection(`tenants/${tDoc.id}/rentInvoices`)
         .where('status', '==', 'due').get();
       if (dueSnap.empty) continue;
-      const leasesSnap = await db.collection(`tenants/${tDoc.id}/leases`).get();
-      const leaseById = new Map(leasesSnap.docs.map((d: any) => [d.id, d.data()]));
       for (const inv of dueSnap.docs) {
         const v = inv.data() as any;
         const lease: any = leaseById.get(v.leaseId);
@@ -143,6 +186,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, results });
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, results });
 }
