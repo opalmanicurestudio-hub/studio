@@ -3848,7 +3848,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // Add-on handoff appointments — where this staff member is assigned via assignedStaffIds array
   const myAddonApptsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('assignedStaffIds','array-contains',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   // Check-in status — separate collection merged by checkInToken (same pattern as InventoryContext)
+  // v79 — check-ins dual-read during the step-5 migration: the scoped
+  // path (tenants/{id}/appointmentCheckIns, written by /api/checkins) is
+  // the target; the legacy top-level collection keeps working until the
+  // kiosk writes through the API. Merged below.
   const checkInsQ       = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,'appointmentCheckIns'), where('tenantId','==',tenantId)), [firestore,tenantId,isRenterUser]);
+  const scopedCheckInsQ = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : collection(firestore,`tenants/${tenantId}/appointmentCheckIns`), [firestore,tenantId,isRenterUser]);
   // ── Floor view queries ──
   // All today's appointments across ALL staff for floor view
   const allTodayApptsQ  = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('status','in',['confirmed','servicing','ready_for_checkout','pending'])), [firestore,tenantId,refreshKey,isRenterUser]);
@@ -3893,7 +3898,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { data: allShiftsRaw }                          = useCollection<any>(allShiftsQ);
   const { data: myApptsRaw,   loading: apptsLoading }   = useCollection<any>(myApptsQ);
   const { data: myAddonAptsRaw }                        = useCollection<any>(myAddonApptsQ);
-  const { data: checkInsRaw }                           = useCollection<any>(checkInsQ);
+  const { data: legacyCheckInsRaw }                     = useCollection<any>(checkInsQ);
+  const { data: scopedCheckInsRaw }                     = useCollection<any>(scopedCheckInsQ);
+  // Scoped entries win over legacy duplicates for the same token.
+  const checkInsRaw = useMemo(
+    () => ([...(legacyCheckInsRaw || []), ...(scopedCheckInsRaw || [])]),
+    [legacyCheckInsRaw, scopedCheckInsRaw]);
   const { data: allTodayApptsRaw }                      = useCollection<any>(allTodayApptsQ);
   const { data: allWalkInsRaw }                         = useCollection<any>(allWalkInsQ);
   const { data: staffBlocksRaw }                        = useCollection<any>(staffBlocksQ);
@@ -4800,4 +4810,4 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
   if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={(s: any) => { setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
 
   return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); }} /></ErrorBoundary>;
-}m
+}
