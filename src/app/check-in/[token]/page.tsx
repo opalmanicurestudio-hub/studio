@@ -220,7 +220,23 @@ const CancelledView = ({
                     { merge: true },
                 );
             }
-        } catch { /* best-effort — Stripe's own record is authoritative regardless */ }
+            // Owner-visible audit trail — the client settled this themselves.
+            try {
+                await addDoc(collection(firestore, `tenants/${tenantId}/auditLogs`), {
+                    action: 'checkin.fee_paid',
+                    targetType: 'bookingCompletion',
+                    targetId: token,
+                    summary: `${completion?.clientName || 'Client'} paid the $${((completion?.depositAmountCents || 0) / 100).toFixed(2)} cancellation fee via self-service link`,
+                    amount: (completion?.depositAmountCents || 0) / 100,
+                    actor: { type: 'user', id: completion?.clientId || null, name: completion?.clientName || null, role: 'client', via: 'check-in-link' },
+                    at: new Date().toISOString(),
+                });
+            } catch { /* audit failures are non-fatal */ }
+        } catch {
+            // The Stripe payment itself DID succeed — only the status sync
+            // failed. Say so instead of failing silently.
+            setPaymentError('Your payment went through, but our records may take a moment to update. No further action is needed.');
+        }
     };
 
     return (
@@ -1922,15 +1938,33 @@ export default function CheckInPage() {
 
     const updateStatus = async (status: string, lateMinutes?: number) => {
         if (!firestore || !token || !appointmentData) return;
-        const updateRef = doc(firestore, 'appointmentCheckIns', token);
         const updates: any = { checkInStatus: status };
         if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
-        
         try {
-            await updateDocumentNonBlocking(updateRef, updates);
+            // Server write path — lands in the scoped collection (with audit
+            // entry) and mirrors to the legacy one during the migration window.
+            if (!tenantId) throw new Error('__legacy__');
+            const res = await fetch('/api/checkins', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tenantId, token, ...updates,
+                    appointmentId: appointmentData.id || undefined,
+                    clientId: client?.id || appointmentData.clientId || undefined,
+                    clientName: client?.name || undefined,
+                }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) throw new Error('__legacy__');
             toast({ title: "Status Updated", description: "Studio technical team notified." });
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Update Failed" });
+        } catch {
+            // API unavailable (or not deployed yet) — direct legacy write while
+            // the old open rule is still live; truthful failure toast otherwise.
+            try {
+                await updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), updates);
+                toast({ title: "Status Updated", description: "Studio technical team notified." });
+            } catch {
+                toast({ variant: 'destructive', title: "Update Failed", description: "Please let the front desk know directly." });
+            }
         }
     };
 
@@ -2123,7 +2157,7 @@ export default function CheckInPage() {
                                 <ClarityFlowLogo className="w-16 h-16" />
                             </div>
                             <div className="space-y-3">
-                                <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello,<br/><span className="text-primary italic font-serif lowercase tracking-normal">{client?.name.split(' ')[0]}</span></h1>
+                                <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello,<br/><span className="text-primary italic font-serif lowercase tracking-normal">{client?.name?.split(' ')[0] || 'there'}</span></h1>
                                 <p className="text-sm font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60">Verified Identity</p>
                             </div>
                         </div>
