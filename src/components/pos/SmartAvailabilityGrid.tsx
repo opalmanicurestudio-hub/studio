@@ -80,7 +80,7 @@ function DateNavBar({
 
   return (
     <div>
-      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">
         Date
       </p>
       <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
@@ -92,14 +92,14 @@ function DateNavBar({
               key={d.iso}
               onClick={() => onDateChange(d.iso)}
               className={cn(
-                'flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border-2 text-center shrink-0 transition-all relative',
+                'flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl border text-center shrink-0 transition-all relative',
                 isSelected
                   ? 'border-primary bg-primary/5 text-primary'
                   : 'border-muted text-muted-foreground hover:border-primary/30',
               )}
             >
-              <span className="text-[9px] font-black uppercase tracking-wide">{d.label}</span>
-              <span className="text-[15px] font-black leading-none">{d.day}</span>
+              <span className="text-[10px] font-medium uppercase">{d.label}</span>
+              <span className="text-[15px] font-semibold leading-none">{d.day}</span>
               {isToday && (
                 <span className={cn(
                   'absolute bottom-1 w-1 h-1 rounded-full',
@@ -139,11 +139,11 @@ export function SmartAvailabilityGrid({
       {/* Slot grid */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Available times
           </p>
           {availableSlots.length > 0 && (
-            <p className="text-[9px] font-bold text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground">
               {availableSlots.length} open slot{availableSlots.length !== 1 ? 's' : ''}
             </p>
           )}
@@ -153,14 +153,22 @@ export function SmartAvailabilityGrid({
           <div className="flex flex-col items-center justify-center py-8 gap-2 rounded-2xl border-2 border-dashed border-muted">
             <Clock className="w-6 h-6 text-muted-foreground/40" />
             <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
-              No available slots on this day
+              No openings this day
             </p>
-            <p className="text-[10px] text-muted-foreground">Try a different date or provider</p>
+            <p className="text-[11px] text-muted-foreground">Try a different date or provider</p>
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-4 gap-2">
-              {visibleSlots.map((slot) => {
+            {/* v3 — slots grouped the way people ask for them: morning /
+                afternoon / evening. Empty groups simply don't render. */}
+            {([['Morning', (t: string) => t < '12:00'], ['Afternoon', (t: string) => t >= '12:00' && t < '17:00'], ['Evening', (t: string) => t >= '17:00']] as [string, (t: string) => boolean][]).map(([groupLabel, test]) => {
+              const group = visibleSlots.filter((s) => test(s.time));
+              if (group.length === 0) return null;
+              return (
+            <div key={groupLabel}>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 mt-3 mb-1.5">{groupLabel}</p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+              {group.map((slot) => {
                 const isSelected =
                   selectedTime === slot.time;
                 return (
@@ -176,14 +184,14 @@ export function SmartAvailabilityGrid({
                   >
                     <span
                       className={cn(
-                        'text-[12px] font-black leading-tight',
+                        'text-[13px] font-semibold leading-tight',
                         isSelected ? 'text-primary' : 'text-slate-900',
                       )}
                     >
                       {slot.label}
                     </span>
-                    <span className="text-[9px] font-bold text-muted-foreground truncate w-full text-center">
-                      {slot.staffName.split(' ')[0]}
+                    <span className="text-[10px] text-muted-foreground truncate w-full text-center">
+                      {slot.staffName?.split(' ')[0] || 'Staff'}
                     </span>
                     {isSelected && (
                       <CheckCircle2 className="w-3 h-3 text-primary mt-0.5" />
@@ -192,11 +200,14 @@ export function SmartAvailabilityGrid({
                 );
               })}
             </div>
+            </div>
+              );
+            })}
 
             {hasMore && (
               <button
                 onClick={() => setShowAll((v) => !v)}
-                className="w-full mt-2 py-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
+                className="w-full mt-2 py-2 text-[11px] font-medium text-muted-foreground hover:text-primary transition-colors flex items-center justify-center gap-1"
               >
                 {showAll ? (
                   <>Show fewer <ChevronLeft className="w-3 h-3 rotate-90" /></>
@@ -214,7 +225,7 @@ export function SmartAvailabilityGrid({
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5 text-primary" />
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               Add-ons that fit this slot
             </p>
           </div>
@@ -234,7 +245,7 @@ export function SmartAvailabilityGrid({
                   <div className="min-w-0">
                     <p
                       className={cn(
-                        'text-[12px] font-black truncate',
+                        'text-[13px] font-semibold truncate',
                         isAdded ? 'text-primary' : 'text-slate-900',
                       )}
                     >
