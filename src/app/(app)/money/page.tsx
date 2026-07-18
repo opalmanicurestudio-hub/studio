@@ -674,12 +674,34 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
   const tipToRefund = refundTip ? (transaction.tipAmount || 0) : 0;
   const totalOutlay = refundAmount + tipToRefund;
 
-  const handleAction = () => {
-    const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
-    if (!authorized) { toast({ variant: 'destructive', title: 'Unauthorized' }); return; }
+  // v79 — manager PIN verified server-side (rate-limited; works after
+  // PINs move out of client-readable staff docs). Client compare remains
+  // only as a pre-deploy fallback.
+  const [verifying, setVerifying] = useState(false);
+  const handleAction = async () => {
+    if (verifying) return;
     if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
-    onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId: authorized.id });
-    setPin('');
+    setVerifying(true);
+    try {
+      let authorizerId: string | null = null;
+      try {
+        const res = await fetch('/api/portal/auth', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify-manager', tenantId: tenant?.id, pin }),
+        });
+        if (res.status === 404) throw new Error('__legacy__');
+        const d = await res.json();
+        if (d.ok && d.manager?.id) authorizerId = d.manager.id;
+        else { toast({ variant: 'destructive', title: 'Unauthorized', description: d.error }); return; }
+      } catch {
+        // Fallback: legacy client-side compare until the auth API deploys.
+        const authorized = staff.find((s: any) => s.pin === pin && (s.role === 'admin' || s.role === 'owner'));
+        if (!authorized) { toast({ variant: 'destructive', title: 'Unauthorized' }); return; }
+        authorizerId = authorized.id;
+      }
+      onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId });
+      setPin('');
+    } finally { setVerifying(false); }
   };
 
   return (
