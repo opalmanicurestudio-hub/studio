@@ -998,8 +998,8 @@ const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewRec
       </div>
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-dashed">
         <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-          <Badge className={cn('text-[8px] h-4.5 px-1.5 font-black uppercase tracking-widest border-none shrink-0', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge>
-          <Badge variant="outline" className="text-[8px] h-4.5 px-1.5 uppercase font-black tracking-widest text-muted-foreground/60 border-2 truncate">{transaction.category}</Badge>
+          <Badge className={cn('text-[8px] h-5 px-1.5 font-black uppercase tracking-widest border-none shrink-0', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge>
+          <Badge variant="outline" className="text-[8px] h-5 px-1.5 uppercase font-black tracking-widest text-muted-foreground/60 border-2 truncate">{transaction.category}</Badge>
           <span className="text-[8px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1 truncate"><CreditCard className="w-3 h-3 shrink-0" />{transaction.paymentMethod}</span>
         </div>
         <TxnActions transaction={transaction} onRevertClick={onRevertClick} onPreviewReceipt={onPreviewReceipt} onRefundClick={onRefundClick} stopProp={(e: any) => e.stopPropagation()} />
@@ -3014,6 +3014,28 @@ function MoneyHubContent() {
     () => new Set<HubTab>([urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'overview'])
   );
 
+  // v68 — "new activity" dot: a one-doc listener on the audit log lights a
+  // dot on the Activity tab when something happens while you're on another
+  // tab. First load counts as seen; only NEW entries during the session dot.
+  const { firestore: hubFirestore } = useFirebase();
+  const { selectedTenant: hubTenant } = useTenant();
+  const hubTenantId = hubTenant?.id;
+  const [latestAuditAt, setLatestAuditAt] = useState<string | null>(null);
+  const [seenAuditAt, setSeenAuditAt] = useState<string | null>(null);
+  useEffect(() => {
+    if (!hubFirestore || !hubTenantId) return;
+    const q = query(collection(hubFirestore, `tenants/${hubTenantId}/auditLogs`), orderBy('at', 'desc'), limit(1));
+    const unsub = onSnapshot(q,
+      snap => setLatestAuditAt((snap.docs[0]?.data() as any)?.at || null),
+      () => { /* non-fatal */ });
+    return () => unsub();
+  }, [hubFirestore, hubTenantId]);
+  useEffect(() => {
+    if (latestAuditAt && seenAuditAt === null) setSeenAuditAt(latestAuditAt);       // baseline on load
+    if (activeTab === 'activity' && latestAuditAt) setSeenAuditAt(latestAuditAt);   // viewing clears it
+  }, [latestAuditAt, seenAuditAt, activeTab]);
+  const hasNewActivity = !!latestAuditAt && !!seenAuditAt && latestAuditAt !== seenAuditAt && activeTab !== 'activity';
+
   const handleTabChange = (tab: HubTab) => {
     setActiveTab(tab);
     setVisitedTabs(prev => (prev.has(tab) ? prev : new Set(prev).add(tab)));
@@ -3037,12 +3059,15 @@ function MoneyHubContent() {
               size="sm"
               onClick={() => handleTabChange(key)}
               className={cn(
-                'flex-1 h-9 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all gap-1.5',
+                'relative flex-1 h-9 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all gap-1.5',
                 activeTab === key ? 'bg-white shadow-sm border border-border/50 text-primary' : 'hover:bg-white/50 text-muted-foreground'
               )}
             >
               <Icon className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden sm:inline">{label}</span>
+              {key === 'activity' && hasNewActivity && (
+                <span className="absolute top-1 right-1.5 h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-label="New activity" />
+              )}
             </Button>
           ))}
         </div>
