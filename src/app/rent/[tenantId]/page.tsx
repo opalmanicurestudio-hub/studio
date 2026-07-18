@@ -193,9 +193,10 @@ const LoginFlow = ({ tenantId, onSession }: {
 };
 
 // ─── Reservation card ─────────────────────────────────────────────────────────
-const ResCard = ({ r, isToday, onCheckIn, onCheckOut, busy }: {
+const ResCard = ({ r, isToday, onCheckIn, onCheckOut, onRequestReschedule, busy }: {
   r: any; isToday: boolean;
-  onCheckIn?: (id: string) => void; onCheckOut?: (id: string) => void; busy?: boolean;
+  onCheckIn?: (id: string) => void; onCheckOut?: (id: string) => void;
+  onRequestReschedule?: (id: string) => void; busy?: boolean;
 }) => {
   const window = r.bookingType === 'hourly' && r.startTime
     ? `${fmtTime(r.startTime)} – ${fmtTime(r.endTime)}`
@@ -256,6 +257,18 @@ const ResCard = ({ r, isToday, onCheckIn, onCheckOut, busy }: {
           className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[11px] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
           {busy ? <Loader className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />} Check Out
         </button>
+      )}
+      {!isToday && r.status === 'confirmed' && onRequestReschedule && (
+        r.rescheduleRequestedAt ? (
+          <p className="text-[10px] font-black uppercase tracking-widest text-violet-500 text-center py-1.5">
+            ⏱ Reschedule requested — the studio will reach out
+          </p>
+        ) : (
+          <button onClick={() => onRequestReschedule(r.id)} disabled={busy}
+            className="w-full h-10 rounded-2xl border-2 border-slate-200 text-slate-500 font-black uppercase tracking-widest text-[10px] active:scale-[0.98] transition-all disabled:opacity-50">
+            Request Reschedule
+          </button>
+        )
       )}
     </div>
   );
@@ -318,6 +331,18 @@ export default function RenterPortalPage() {
       refresh();
     } else if (d.status === 401) { saveSession(null); }
     else toast({ variant: 'destructive', title: 'Check-in didn’t go through', description: d.error || 'See the front desk.' });
+  };
+
+  const requestReschedule = async (reservationId: string) => {
+    if (!session) return;
+    setActionBusy(true);
+    const d = await api({ action: 'request-reschedule', tenantId, token: session.token, reservationId });
+    setActionBusy(false);
+    if (d.ok) {
+      toast({ title: 'Request sent ✓', description: 'The studio will reach out to move your booking.' });
+      refresh();
+    } else if (d.status === 401) { saveSession(null); }
+    else toast({ variant: 'destructive', title: 'Couldn’t send request', description: d.error || 'Try again.' });
   };
 
   const doCheckOut = async (reservationId: string) => {
@@ -433,7 +458,7 @@ export default function RenterPortalPage() {
                   <p className="text-[11px] font-bold text-slate-400">No upcoming bookings</p>
                 </div>
               ) : (
-                later.map((r: any) => <ResCard key={r.id} r={r} isToday={false} />)
+                later.map((r: any) => <ResCard key={r.id} r={r} isToday={false} onRequestReschedule={requestReschedule} busy={actionBusy} />)
               )}
               {data?.rebookUrl && (
                 <a href={data.rebookUrl}
