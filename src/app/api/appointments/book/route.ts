@@ -120,32 +120,54 @@ export async function POST(req: NextRequest) {
         list.push({ s: aS - aPadB, e: aE + aPadA });
         busyByStaff.set(a.staffId, list);
       }
-      const windowS = start.getTime() - padBefore * 60000;
-      const windowE = end.getTime() + padAfter * 60000;
-      const isFree = (sid: string) =>
-        !(busyByStaff.get(sid) || []).some((b) => overlaps(windowS, windowE, b.s, b.e));
+      const isFreeAt = (sid: string, s0: number, e0: number) =>
+        !(busyByStaff.get(sid) || []).some((b) => overlaps(s0 - padBefore * 60000, e0 + padAfter * 60000, b.s, b.e));
 
-      // Resolve the provider INSIDE the transaction so a concurrent booking
-      // re-runs this resolution against fresh data.
-      let staffId = requestedStaffId;
-      if (staffId === 'any') {
-        const pool = roster
-          .filter((s: any) => s.active !== false)
-          .filter((s: any) => !certified || certified.includes(s.id))
-          .filter((s: any) => isFree(s.id))
-          .sort((a: any, b: any) => {
-            const aL = a.lastBookingAssignedAt ? new Date(a.lastBookingAssignedAt).getTime() : 0;
-            const bL = b.lastBookingAssignedAt ? new Date(b.lastBookingAssignedAt).getTime() : 0;
-            return aL - bL;
-          });
-        if (pool.length === 0) {
-          return { conflict: 'No provider is free for that time — pick another slot.' };
-        }
-        staffId = pool[0].id;
-      } else if (!isFree(staffId)) {
-        const who = roster.find((s: any) => s.id === staffId)?.name?.split(' ')[0] || 'That provider';
-        return { conflict: `${who} was just booked for that time — pick another slot.` };
+      // v12 — FLEXIBLE mode (the walk-in "auto-turn"): when the requested
+      // time doesn't work, search forward in 15-min steps for the EARLIEST
+      // opening within flexWindowMin. The walk-in kiosk sends startTime=now
+      // + flexible:true and gets back "Dana at 1:15" — the fairness sort
+      // below IS the turn rotation, shared with every other surface.
+      const flexible = body.flexible === true;
+      const flexWindowMin = Math.min(Math.max(Number(body.flexWindowMin) || 240, 0), 480);
+      const stepMs = 15 * 60000;
+      const durMs = duration * 60000;
+      const fairSort = (a: any, b: any) => {
+        const aL = a.lastBookingAssignedAt ? new Date(a.lastBookingAssignedAt).getTime() : 0;
+        const bL = b.lastBookingAssignedAt ? new Date(b.lastBookingAssignedAt).getTime() : 0;
+        return aL - bL;
+      };
+      const baseline = roster
+        .filter((s: any) => s.active !== false)
+        .filter((s: any) => !certified || certified.includes(s.id))
+        .sort(fairSort);
+      const candidates = requestedStaffId === 'any'
+        ? baseline
+        : baseline.filter((s: any) => s.id === requestedStaffId);
+
+      let staffId: string | null = null;
+      let placedStartMs = start.getTime();
+      const maxOffsetMs = flexible ? flexWindowMin * 60000 : 0;
+      for (let off = 0; off <= maxOffsetMs; off += stepMs) {
+        const s0 = start.getTime() + off;
+        const hit = candidates.find((s: any) => isFreeAt(s.id, s0, s0 + durMs));
+        if (hit) { staffId = hit.id; placedStartMs = s0; break; }
+        if (!flexible) break;
       }
+      if (!staffId) {
+        const hours = Math.max(1, Math.round(flexWindowMin / 60));
+        if (requestedStaffId !== 'any') {
+          const who = roster.find((s: any) => s.id === requestedStaffId)?.name?.split(' ')[0] || 'That provider';
+          return { conflict: flexible
+            ? `${who} has no opening in the next ${hours} hours — see the front desk.`
+            : `${who} was just booked for that time — pick another slot.` };
+        }
+        return { conflict: flexible
+          ? `Everyone's booked for the next ${hours} hours — see the front desk.`
+          : 'No provider is free for that time — pick another slot.' };
+      }
+      const placedStart = new Date(placedStartMs);
+      const placedEnd = new Date(placedStartMs + durMs);
 
       // ── Client: existing id, or match-by-contact, or create ──
       let clientId = String(body?.client?.id || '');
@@ -157,18 +179,36 @@ export async function POST(req: NextRequest) {
       } else {
         clientName = String(body?.client?.name || '').slice(0, MAX_FIELD).trim();
         if (!clientName) return { conflict: 'Client name is required.' };
-        const newRef = db.collection(`tenants/${tenantId}/clients`).doc();
-        clientId = newRef.id;
-        tx.set(newRef, {
-          id: clientId,
-          name: clientName,
-          email: String(body?.client?.email || '').slice(0, MAX_FIELD) || null,
-          phone: String(body?.client?.phone || '').slice(0, 40) || null,
-          status: 'active',
-          lifetimeValue: 0,
-          lastAppointment: new Date().toISOString(),
-          createdVia: source,
-        });
+        // v12 — dedupe: a returning walk-in who types the same phone/email
+        // reuses their existing profile instead of minting a duplicate.
+        const phoneRaw = String(body?.client?.phone || '').slice(0, 40).trim();
+        const emailRaw = String(body?.client?.email || '').slice(0, MAX_FIELD).trim();
+        let reused: any = null;
+        if (phoneRaw) {
+          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', phoneRaw).limit(1));
+          if (!hit.empty) reused = hit.docs[0];
+        }
+        if (!reused && emailRaw) {
+          const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', emailRaw).limit(1));
+          if (!hit.empty) reused = hit.docs[0];
+        }
+        if (reused) {
+          clientId = reused.id;
+          clientName = (reused.data() as any).name || clientName;
+        } else {
+          const newRef = db.collection(`tenants/${tenantId}/clients`).doc();
+          clientId = newRef.id;
+          tx.set(newRef, {
+            id: clientId,
+            name: clientName,
+            email: emailRaw || null,
+            phone: phoneRaw || null,
+            status: 'active',
+            lifetimeValue: 0,
+            lastAppointment: new Date().toISOString(),
+            createdVia: source,
+          });
+        }
       }
 
       // ── Write the appointment + scoped check-in (legacy mirror) ──
@@ -181,13 +221,13 @@ export async function POST(req: NextRequest) {
         clientId, clientName,
         serviceId, addOnIds: addOnIds.length > 0 ? addOnIds : null,
         staffId,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
+        startTime: placedStart.toISOString(),
+        endTime: placedEnd.toISOString(),
         padBefore, padAfter,
         status: body.holdOnly ? 'pending_payment' : 'confirmed',
         source,
         checkInToken: token, shortCode,
-        checkInStatus: 'pending',
+        checkInStatus: body.checkInStatus === 'arrived' ? 'arrived' : 'pending',
         depositAmountCents: Number(body.depositCents) || 0,
         depositStatus: (Number(body.depositCents) || 0) > 0 ? 'pending' : 'none',
         notes: body.notes ? String(body.notes).slice(0, 500) : null,
@@ -202,7 +242,7 @@ export async function POST(req: NextRequest) {
       if (requestedStaffId === 'any') {
         tx.set(db.doc(`tenants/${tenantId}/staff/${staffId}`), { lastBookingAssignedAt: nowIso }, { merge: true });
       }
-      return { aptId, token, shortCode, staffId, clientId, clientName };
+      return { aptId, token, shortCode, staffId, clientId, clientName, placedStartIso: placedStart.toISOString(), placedEndIso: placedEnd.toISOString() };
     });
 
     if ((result as any).conflict) {
@@ -214,7 +254,7 @@ export async function POST(req: NextRequest) {
     await logAuditAdmin(db, tenantId, {
       action: 'appointment.booked',
       targetType: 'appointment', targetId: r.aptId,
-      summary: `${r.clientName || 'Client'} booked ${svc.name || 'a service'} with ${staffName || 'staff'} — ${start.toISOString().slice(0, 16).replace('T', ' ')}${body.holdOnly ? ' (awaiting payment)' : ''}`,
+      summary: `${r.clientName || 'Client'} booked ${svc.name || 'a service'} with ${staffName || 'staff'} — ${String(r.placedStartIso).slice(0, 16).replace('T', ' ')}${body.holdOnly ? ' (awaiting payment)' : ''}`,
       actor: { type: 'user', name: r.clientName || null, role: 'client', via: source },
     });
 
@@ -225,8 +265,8 @@ export async function POST(req: NextRequest) {
       shortCode: r.shortCode,
       staffId: r.staffId,
       staffName,
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
+      startTime: r.placedStartIso,
+      endTime: r.placedEndIso,
     });
   } catch (err) {
     console.error('[appointments/book] failed', err);
