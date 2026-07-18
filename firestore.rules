@@ -25,13 +25,8 @@ service cloud.firestore {
         hasStaffDoc(tenantId)
       );
     }
-    // ── Staff custody & replenishment ────────────────────────────────────
-    // 'admin' and 'owner' roles both count as a manager for approving
-    // replenishment requests / resolving overflow flags, matching
-    // isManager() in lib/replenishment-system.ts. isOwner() above only
-    // covers the 'owner' role (or the tenant's creator uid) — 'admin' was
-    // never treated as elevated anywhere in these rules before, so this is
-    // a new helper, not a replacement for isOwner().
+    // 'admin' and 'owner' both count as a manager (matches isManager() in
+    // lib/replenishment-system.ts).
     function isManager(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
@@ -51,6 +46,11 @@ service cloud.firestore {
     match /tenants/{tenantId}/services/{serviceId} {
       allow get, list: if true;
     }
+    // v77 NOTE: staff `get` stays public because the booking page reads
+    // provider names/bios. MIGRATION (portal rules ref, step 4): move pin,
+    // pinHash, phone, email, pay rates into staff/{id}/private/* (blocked
+    // below via the `private` exclusion) and then this public get exposes
+    // nothing sensitive. Until then this is a known, accepted exposure.
     match /tenants/{tenantId}/staff/{staffId} {
       allow get: if true;
       allow list, write: if isStaff(tenantId);
@@ -96,27 +96,23 @@ service cloud.firestore {
       allow read, update, delete: if isStaff(tenantId);
     }
 
-    // ── Staff custody & replenishment (new collections) ────────────────────
+    // ── Staff custody & replenishment ──────────────────────────────────
     match /tenants/{tenantId}/assetUnits/{unitId} {
       allow read, write: if isStaff(tenantId);
     }
-
     match /tenants/{tenantId}/assetScanEvents/{eventId} {
       allow read, create: if isStaff(tenantId);
       allow update, delete: if false;
     }
-
     match /tenants/{tenantId}/stationAllocations/{allocationId} {
       allow read, write: if isStaff(tenantId);
     }
-
     match /tenants/{tenantId}/staffReplenishmentRequests/{requestId} {
       allow read: if isStaff(tenantId);
       allow create: if isStaff(tenantId) && request.resource.data.staffId == request.auth.uid;
       allow update: if isManager(tenantId);
       allow delete: if false;
     }
-
     match /tenants/{tenantId}/overflowEvents/{eventId} {
       allow read: if isStaff(tenantId);
       allow create: if isStaff(tenantId);
@@ -124,17 +120,18 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Bank credentials + private server-side data: NEVER client-readable.
-    // The Plaid access tokens live here; only the Admin SDK (API routes,
-    // Cloud Functions) may touch them.
+    // ── Server-only material: NEVER client-readable ────────────────────
+    // Plaid access tokens, Gusto tokens, PIN reset codes, rate-limit state.
     match /tenants/{tenantId}/plaidItems/{itemId} {
       allow read, write: if false;
     }
     match /tenants/{tenantId}/private/{docId} {
       allow read, write: if false;
     }
-    // Bank transaction staging: owner-readable for the review inbox,
-    // writes only via the server.
+    // Bank staging: owner-readable inbox, server-only writes.
+    // (v77: these two were ALREADY declared this way but the catch-all at
+    // the bottom silently re-granted staff read/write because they were
+    // missing from its exclusion list — fixed there.)
     match /tenants/{tenantId}/bankTransactions/{txnId} {
       allow read: if isOwner(tenantId);
       allow write: if false;
@@ -144,6 +141,91 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── v77 Money & audit integrity ────────────────────────────────────
+    // Audit trail is APPEND-ONLY: anyone on the team can create entries
+    // (every money action writes one), only managers read them, and
+    // nothing edits or deletes them — corrections are new entries.
+    match /tenants/{tenantId}/auditLogs/{entryId} {
+      allow create: if isStaff(tenantId);
+      allow read: if isManager(tenantId);
+      allow update, delete: if false;
+    }
+    // Ledger: staff create/read/update (POS, refund flags, reconcile
+    // stamps) but NEVER delete — reversals are the only way to undo.
+    match /tenants/{tenantId}/transactions/{txnId} {
+      allow read, create, update: if isStaff(tenantId);
+      allow delete: if false;
+    }
+    // Rent invoices are written exclusively by the server rentCollector.
+    match /tenants/{tenantId}/rentInvoices/{invId} {
+      allow read: if isStaff(tenantId);
+      allow write: if false;
+    }
+    // Payroll drafts: cron-created (server), manager-approved (client).
+    match /tenants/{tenantId}/payrollDrafts/{draftId} {
+      allow read, update: if isManager(tenantId);
+      allow create, delete: if false;
+    }
+    // Owner's Financial Foundation profiles (personal + studio economics)
+    // are not floor-staff reading material.
+    match /tenants/{tenantId}/lifestyleProfiles/{pId} {
+      allow read, write: if isManager(tenantId);
+    }
+    match /tenants/{tenantId}/businessProfiles/{pId} {
+      allow read, write: if isManager(tenantId);
+    }
+    match /tenants/{tenantId}/billDefinitions/{defId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
+    match /tenants/{tenantId}/billInstances/{instId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
+
+    // ── v77 Booth rental ───────────────────────────────────────────────
+    // Booths are the public storefront: the listings page reads them
+    // without auth (photos, rates, amenities — public by design).
+    match /tenants/{tenantId}/booths/{boothId} {
+      allow get, list: if true;
+      allow write: if isStaff(tenantId);
+    }
+    // Public visitors submit applications from the listings page; the
+    // team reviews them. (Previously this depended on the catch-all,
+    // which actually BLOCKED anonymous submissions.)
+    match /tenants/{tenantId}/boothApplications/{appId} {
+      allow create: if true;
+      allow read, update: if isStaff(tenantId);
+      allow delete: if isManager(tenantId);
+    }
+    match /tenants/{tenantId}/boothReservations/{resId} {
+      allow read, update: if isStaff(tenantId);   // check-in/out at the desk
+      allow create: if false;                     // created by the reserve API
+      allow delete: if false;
+    }
+    match /tenants/{tenantId}/tours/{tourId} {
+      allow create: if true;                      // public tour requests
+      allow read, update: if isStaff(tenantId);
+      allow delete: if isManager(tenantId);
+    }
+    match /tenants/{tenantId}/boothCredits/{creditId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);        // issuing credits is a money action
+    }
+    match /tenants/{tenantId}/renters/{renterId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
+    match /tenants/{tenantId}/leases/{leaseId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
+
+    // ── Catch-all for everything not explicitly matched above ──────────
+    // v77: exclusion list expanded. Firestore ORs all matching rules, so
+    // every collection with STRICTER explicit rules above must be listed
+    // here or the catch-all re-grants staff read/write (this is exactly
+    // how bankTransactions/vendorRules were silently staff-writable).
     match /tenants/{tenantId}/{allSubcollections=**} {
       allow read, write: if isStaff(tenantId) &&
         !(allSubcollections.size() > 0 && allSubcollections[0] in [
@@ -153,10 +235,31 @@ service cloud.firestore {
           'staffReplenishmentRequests',
           'overflowEvents',
           'plaidItems',
-          'private'
+          'private',
+          'bankTransactions',
+          'vendorRules',
+          'auditLogs',
+          'transactions',
+          'rentInvoices',
+          'payrollDrafts',
+          'lifestyleProfiles',
+          'businessProfiles',
+          'billDefinitions',
+          'billInstances',
+          'boothApplications',
+          'boothReservations',
+          'tours',
+          'boothCredits',
+          'renters',
+          'leases'
         ]);
     }
 
+    // v77 NOTE: still public read/write — the kiosk check-in flow is
+    // unauthenticated and this is a TOP-LEVEL collection, so rules can't
+    // scope it per-tenant. MIGRATION (portal rules ref, step 5): move it
+    // under tenants/{tid}/ and route kiosk writes through a server API.
+    // Until then this is the known weakest spot in the file.
     match /appointmentCheckIns/{token} {
       allow read, write: if true;
     }
