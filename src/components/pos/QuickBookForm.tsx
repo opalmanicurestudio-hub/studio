@@ -1287,7 +1287,7 @@ function SuccessScreen({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export function QuickBookForm({
-  clients, services, staff, tenantId, tenant, firestore,
+  clients = [], services = [], staff = [], tenantId, tenant, firestore,
   appointments = [], forms = [], packages = [], memberships = [], discounts = [],
   currentStaffId, onSuccess, onCancel,
 }: Props) {
@@ -1485,7 +1485,7 @@ export function QuickBookForm({
   // gets reused below when writing into bookingCompletions.fileRequirements,
   // and that same id is what ends up on client.profileDocuments once
   // fulfilled.
-  const pendingServiceFileReqs = useMemo(() => {
+  const pendingServiceFileReqs = React.useMemo(() => {
     const reqs: any[] = (selectedSvc as any)?.requiredFileRequirements || [];
     const profileDocs: any[] = selectedClient?.profileDocuments || [];
     return reqs.filter((fr: any) => {
@@ -1603,7 +1603,12 @@ export function QuickBookForm({
 
   const formStatuses = requiredFormIds.map(fid => {
     const signed = selectedClient?.signedForms?.[fid];
-    const signedAt = signed ? new Date(signed.signedAt) : null;
+    // signedForms entries come in several shapes (ISO string, Firestore
+    // Timestamp, or just `true`) — normalize, and drop Invalid Dates so the
+    // review screen's format() can never throw RangeError.
+    const rawSignedAt = (signed as any)?.signedAt;
+    const parsedSignedAt = rawSignedAt ? new Date(rawSignedAt?.toDate?.() ?? rawSignedAt) : null;
+    const signedAt = parsedSignedAt && !Number.isNaN(parsedSignedAt.getTime()) ? parsedSignedAt : null;
     const expired = signedAt
       ? differenceInMonths(new Date(), signedAt) >= 18
       : true;
@@ -3475,7 +3480,7 @@ export function QuickBookForm({
                   disabled={isFullyBooked}
                 >
                   <StaffAvatar staffMember={s} size="w-5 h-5" />
-                  {s.name.split(' ')[0]}
+                  {s.name?.split(' ')[0] || 'Staff'}
                   {!isFullyBooked && (
                     <span className={cn(
                       'w-1.5 h-1.5 rounded-full',
@@ -3543,7 +3548,7 @@ export function QuickBookForm({
                         )}
                       >
                         <StaffAvatar staffMember={s} size="w-4 h-4" textSize="text-[8px]" />
-                        {s.name.split(' ')[0]}
+                        {s.name?.split(' ')[0] || 'Staff'}
                       </button>
                     ))}
                   </div>
@@ -3753,7 +3758,7 @@ export function QuickBookForm({
             {isMultiProvider && scheduledLegs.length > 0 && ` · ${scheduledLegs.length + 1} providers`}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            {format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a')} · {summaryStaff}
+            {(() => { try { return format(new Date(`${aptDate}T${aptTime}`), 'EEE MMM d · h:mm a'); } catch { return `${aptDate} ${aptTime}`; } })()} · {summaryStaff}
             {durationOffset > 0 && ` · +${durationOffset}m`}
           </p>
         </div>
@@ -3776,7 +3781,7 @@ export function QuickBookForm({
             return (
               <div key={leg.id} className="flex justify-between text-xs pl-3 border-l border-slate-100">
                 <span className="text-slate-400">+ {legSvc?.name || 'Service'}</span>
-                <span className="text-slate-700">{legStaff?.name?.split(' ')[0] || 'Any'} · {format(leg.startTime, 'h:mm a')}</span>
+                <span className="text-slate-700">{legStaff?.name?.split(' ')[0] || 'Any'} · {(() => { try { return format(leg.startTime, 'h:mm a'); } catch { return '—'; } })()}</span>
               </div>
             );
           })}
