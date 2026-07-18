@@ -1,12 +1,17 @@
 // src/app/api/gusto/callback/route.ts
 //
-// OAuth step 2 — Gusto redirects here with ?code=...&state=<tenantId>.
-// Exchange the code for tokens, store them server-side, mark the tenant
-// as connected, then bounce back to the Money Hub's Payday tab.
+// v87 — OAuth step 2, now fully wired. Gusto redirects here with
+// ?code=...&state=<tenantId>. Exchange the code for tokens, resolve the
+// company, persist everything server-side, mark the tenant connected,
+// then bounce back to the Money Hub's Payday tab.
 //
 // Required env vars: GUSTO_CLIENT_ID, GUSTO_CLIENT_SECRET, GUSTO_REDIRECT_URI
+// Sandbox: also set GUSTO_AUTH_BASE + GUSTO_API_BASE to https://api.gusto-demo.com
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { logAuditAdmin } from '@/lib/audit';
+import { saveGustoTokens, resolveGustoCompany } from '@/lib/gusto-server';
 
 const GUSTO_AUTH_BASE = process.env.GUSTO_AUTH_BASE || 'https://api.gusto.com';
 
@@ -34,17 +39,29 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) throw new Error(`Token exchange failed (${tokenRes.status})`);
     const tokens = await tokenRes.json(); // { access_token, refresh_token, expires_in, ... }
 
-    // ── TODO (server-side persistence) ─────────────────────────────────
-    // Using firebase-admin (NOT the client SDK):
-    //   1. Store tokens in a private collection the client can't read:
-    //        tenants/{tenantId}/private/gustoTokens
-    //        { accessToken, refreshToken, expiresAt }
-    //   2. Fetch the company via GET /v1/token_info + /v1/companies/{id}
-    //   3. Mark the tenant doc so the UI flips to "connected":
-    //        tenants/{tenantId} → { gusto: { connected: true, companyId,
-    //          companyName, connectedAt: new Date().toISOString() } }
-    // ────────────────────────────────────────────────────────────────────
-    void tokens; // remove once persistence above is implemented
+    const db = getAdminDb();
+
+    // ── Which Gusto company did the owner just authorize? ──
+    const { companyId, companyName } = await resolveGustoCompany(tokens.access_token);
+    if (!companyId) throw new Error('Could not resolve the Gusto company for this connection.');
+
+    // ── Persist: tokens server-only, connection state on the tenant doc ──
+    await saveGustoTokens(db, tenantId, tokens, companyId);
+    await db.doc(`tenants/${tenantId}`).set({
+      gusto: {
+        connected: true,
+        companyId,
+        companyName: companyName || null,
+        connectedAt: new Date().toISOString(),
+      },
+    }, { merge: true });
+
+    await logAuditAdmin(db, tenantId, {
+      action: 'gusto.connected',
+      targetType: 'tenant', targetId: tenantId,
+      summary: `Gusto connected${companyName ? ` — ${companyName}` : ''}`,
+      actor: { type: 'user', name: 'Owner', via: 'gusto-oauth' },
+    });
 
     return NextResponse.redirect(new URL('/money?tab=payday&gusto=connected', req.url));
   } catch (e) {
