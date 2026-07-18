@@ -135,6 +135,10 @@ export async function POST(req: NextRequest) {
         const finalBucket = taxBucket
           || (body.categoryOverride ? bucketFor(finalCategory, finalType) : (bt.suggestedTaxBucket || 'operating_cost'));
         const receiptUrl = typeof body.receiptUrl === 'string' && body.receiptUrl ? body.receiptUrl : null;
+        // v69 — bank-line-as-bill-payment: when the inbox line was matched
+        // to an unpaid bill and the owner kept the link, booking it ALSO
+        // marks the bill instance paid — one tap, no drift.
+        const billInstanceId = typeof body.billInstanceId === 'string' && body.billInstanceId ? body.billInstanceId : null;
 
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
@@ -150,9 +154,16 @@ export async function POST(req: NextRequest) {
           paymentMethod: 'Bank feed',
           hasReceipt: !!receiptUrl,
           ...(receiptUrl ? { receiptUrl } : {}),
+          ...(billInstanceId ? { relatedBillInstanceId: billInstanceId } : {}),
           reconciled: true, reconciledAt: nowIso, bankTransactionId: bankTxnId,
           tenantId, createdAt: nowIso,
         });
+        if (billInstanceId) {
+          await db.doc(`tenants/${tenantId}/billInstances/${billInstanceId}`).set({
+            status: 'paid', paidDate: nowIso, paidAmount: bt.amountCents / 100,
+            paidVia: 'bank-feed', bankTransactionId: bankTxnId, transactionId: txnRef.id,
+          }, { merge: true });
+        }
         await btRef.set({
           status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso,
           ...(receiptUrl ? { receiptUrl } : {}),
@@ -171,8 +182,11 @@ export async function POST(req: NextRequest) {
           }, { merge: true });
         }
         await logAuditAdmin(db, tenantId, {
-          action: 'bank.book', targetType: 'transaction', targetId: txnRef.id,
-          summary: `Booked bank line ${bt.merchant || bt.name} as ${finalCategory}${receiptUrl ? ' (receipt attached)' : ''} — rule learned`,
+          action: billInstanceId ? 'bill.pay' : 'bank.book',
+          targetType: 'transaction', targetId: txnRef.id,
+          summary: billInstanceId
+            ? `Bill paid from bank feed: ${bt.suggestedBillName || 'bill'} (${bt.merchant || bt.name})${receiptUrl ? ' — receipt attached' : ''}`
+            : `Booked bank line ${bt.merchant || bt.name} as ${finalCategory}${receiptUrl ? ' (receipt attached)' : ''} — rule learned`,
           amount: bt.amountCents / 100, actor,
         });
         return NextResponse.json({ ok: true, ruleLearned: true });
@@ -196,8 +210,17 @@ export async function POST(req: NextRequest) {
           amount: bt.amountCents / 100, category: bt.suggestedCategory || 'Uncategorized',
           description: bt.merchant || bt.name, clientOrVendor: bt.merchant || bt.name,
           date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false,
+          ...(bt.suggestedBillInstanceId ? { relatedBillInstanceId: bt.suggestedBillInstanceId } : {}),
           reconciled: true, reconciledAt: nowIso, bankTransactionId: d.id, tenantId, createdAt: nowIso,
         });
+        // v69 — accept-all honors bill matches too: accepting the
+        // suggestion also marks the matched bill instance paid.
+        if (bt.suggestedBillInstanceId) {
+          await db.doc(`tenants/${tenantId}/billInstances/${bt.suggestedBillInstanceId}`).set({
+            status: 'paid', paidDate: nowIso, paidAmount: bt.amountCents / 100,
+            paidVia: 'bank-feed', bankTransactionId: d.id, transactionId: txnRef.id,
+          }, { merge: true });
+        }
         await d.ref.set({ status: 'created', matchedTxnId: txnRef.id, resolvedAt: nowIso }, { merge: true });
         const vk = vendorKey(bt.merchant || bt.name);
         if (vk) await db.doc(`tenants/${tenantId}/vendorRules/${(bt.context || 'Business').toLowerCase()}:${vk}`).set({
