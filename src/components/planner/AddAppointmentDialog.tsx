@@ -350,7 +350,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     } else if (step === 'assignment') {
         setStep('timing');
     } else if (step === 'timing') {
-        if (!watchStartTime) return toast({ variant: 'destructive', title: "Select Time", description: "A valid session window must be selected." });
+        if (!watchStartTime) return toast({ variant: 'destructive', title: 'Pick a time', description: 'Choose an open slot to continue.' });
         if (depositDetails) setStep('deposit');
         else finalizeBooking();
     } else if (step === 'deposit') {
@@ -410,7 +410,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             finalStaffId = candidates[0].id;
         } else {
             setIsSubmitting(false);
-            return toast({ variant: 'destructive', title: 'Operational Conflict', description: 'No pros available for this specific window.' });
+            return toast({ variant: 'destructive', title: 'No one available', description: 'No providers are free at that time — try another slot.' });
         }
     }
 
@@ -468,10 +468,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         await batch.commit();
         setStep('success');
         if (isRemotePayment) {
-            toast({ title: "Settlement Queued", description: "Payment link ready for guest dispatch." });
+            toast({ title: 'Payment link ready', description: 'Send the check-in link so they can pay the deposit.' });
         }
     } catch (e) {
-        toast({ variant: 'destructive', title: 'Registry Error' });
+        toast({ variant: 'destructive', title: 'Booking failed', description: 'Nothing was saved — try again.' });
     } finally {
         setIsSubmitting(false);
     }
@@ -481,18 +481,18 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     if (checkInToken) {
         const link = `${window.location.origin}/check-in/${checkInToken}`;
         navigator.clipboard.writeText(link);
-        toast({ title: 'Portal Link Copied' });
+        toast({ title: 'Link copied' });
     }
   };
 
   const SelectionHeader = ({ icon: Icon, title, stepNum }: { icon: any, title: string, stepNum: number }) => (
-    <div className="flex items-center gap-4 mb-8 text-left">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-5 h-5" />
+    <div className="flex items-center gap-3 mb-6 text-left">
+        <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+            <Icon className="w-4 h-4" />
         </div>
         <div className="space-y-0.5">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module {stepNum}</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{title}</h3>
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Step {stepNum}</p>
+            <h3 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h3>
         </div>
     </div>
   );
@@ -512,10 +512,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2 text-left">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Strategic Intake</span>
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Front desk booking</span>
             </div>
-            <SheetTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 leading-none">Register Session</SheetTitle>
+            <SheetTitle className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900 leading-none">New Appointment</SheetTitle>
             {step !== 'success' && <div className="pt-6"><Progress value={(currentStepIndex + 1) / (steps.length - 1) * 100} className="h-1 rounded-full bg-muted" /></div>}
         </SheetHeader>
 
@@ -524,10 +524,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                 <AnimatePresence mode="wait">
                     {step === 'details' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
-                            <SelectionHeader icon={User} title="Guest & Protocol" stepNum={1} />
+                            <SelectionHeader icon={User} title="Client & Service" stepNum={1} />
                             <div className="space-y-8 text-left">
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Guest Identification</Label>
+                                    <Label className="text-[11px] font-medium text-muted-foreground ml-1">Client</Label>
                                     <Controller
                                         name="clientId"
                                         control={control}
@@ -536,10 +536,10 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 <div className="relative">
                                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                                     <Input 
-                                                        placeholder="SEARCH BY NAME, EMAIL, OR PHONE..." 
+                                                        placeholder="Search by name, email, or phone…" 
                                                         value={clientSearch}
                                                         onChange={e => setClientSearch(e.target.value)}
-                                                        className="h-14 pl-12 rounded-2xl border-2 font-black uppercase text-xs shadow-inner"
+                                                        className="h-12 pl-11 rounded-xl border font-medium text-sm"
                                                     />
                                                 </div>
                                                 <div className="grid grid-cols-1 gap-2">
@@ -547,12 +547,12 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                         type="button"
                                                         onClick={() => { field.onChange('new'); setClientSearch(''); }}
                                                         className={cn(
-                                                            "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left",
+                                                            "flex items-center gap-3 p-3.5 rounded-xl border transition-all text-left",
                                                             field.value === 'new' ? "border-primary bg-primary/5 shadow-md" : "border-dashed hover:border-primary/20"
                                                         )}
                                                     >
                                                         <div className="p-3 bg-muted rounded-xl shadow-inner"><UserPlus className="w-5 h-5 text-muted-foreground" /></div>
-                                                        <span className="font-black uppercase text-xs tracking-tight">Register New Profile</span>
+                                                        <span className="font-semibold text-sm">New client</span>
                                                     </button>
                                                     {filteredClients.map(c => {
                                                         const isSel = field.value === c.id;
@@ -565,7 +565,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                 type="button"
                                                                 onClick={() => { field.onChange(c.id); setClientSearch(''); }}
                                                                 className={cn(
-                                                                    "flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left",
+                                                                    "flex items-center gap-3 p-3.5 rounded-xl border transition-all text-left",
                                                                     isSel ? "border-primary bg-primary/5 shadow-md" : "border-transparent bg-muted/10 hover:bg-muted/20"
                                                                 )}
                                                             >
@@ -578,11 +578,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center gap-2">
-                                                                        <p className="font-black uppercase text-xs truncate leading-none text-left">{c.name}</p>
+                                                                        <p className="font-semibold text-sm truncate leading-none text-left">{c.name}</p>
                                                                         {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
                                                                         {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
                                                                     </div>
-                                                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 truncate text-left">{c.email || c.phone || 'No contact on file'}</p>
+                                                                    <p className="text-xs text-muted-foreground truncate text-left">{c.email || c.phone || 'No contact on file'}</p>
                                                                 </div>
                                                                 {isSel && <Check className="w-5 h-5 text-primary" />}
                                                             </button>
@@ -595,18 +595,18 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 </div>
 
                                 {watchClientId === 'new' && (
-                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-6 p-6 rounded-[2rem] border-2 bg-muted/5 shadow-inner overflow-hidden">
+                                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-5 p-5 rounded-2xl border bg-muted/5 overflow-hidden">
                                         <div className="space-y-1.5">
-                                            <Label className="text-[9px] font-black uppercase text-primary ml-1">Full Legal Name</Label>
-                                            <Input {...register('newClientName')} placeholder="ALEXANDER SMITH" className="h-12 rounded-xl border-2 font-black uppercase text-sm bg-white" />
+                                            <Label className="text-[11px] font-medium text-muted-foreground ml-1">Full name</Label>
+                                            <Input {...register('newClientName')} placeholder="Alexandra Smith" className="h-11 rounded-lg border text-sm bg-white" />
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
-                                                <Label className="text-[9px] font-black uppercase text-primary ml-1">Email</Label>
-                                                <Input type="email" {...register('newClientEmail')} placeholder="alex@example.com" className="h-12 rounded-xl border-2 font-bold text-xs bg-white" />
+                                                <Label className="text-[11px] font-medium text-muted-foreground ml-1">Email</Label>
+                                                <Input type="email" {...register('newClientEmail')} placeholder="alex@example.com" className="h-11 rounded-lg border text-sm bg-white" />
                                             </div>
                                             <div className="space-y-1.5 kiosk-phone-input text-left">
-                                                <Label className="text-[9px] font-black uppercase text-primary ml-1">Mobile</Label>
+                                                <Label className="text-[11px] font-medium text-muted-foreground ml-1">Mobile</Label>
                                                 <PhoneInput name="newClientPhone" label="" className="h-12" />
                                             </div>
                                         </div>
@@ -614,17 +614,17 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 )}
 
                                 <div className="space-y-3">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Service Protocol</Label>
+                                    <Label className="text-[11px] font-medium text-muted-foreground ml-1">Service</Label>
                                     <Controller
                                         name="serviceId"
                                         control={control}
                                         render={({ field }) => (
                                             <Select onValueChange={field.onChange} value={field.value}>
-                                                <SelectTrigger id="service-add-apt" className="h-14 rounded-2xl border-2 shadow-inner bg-muted/5 font-black uppercase text-xs tracking-tight">
-                                                    <SelectValue placeholder="SELECT TREATMENT..." />
+                                                <SelectTrigger id="service-add-apt" className="h-12 rounded-xl border bg-white font-medium text-sm">
+                                                    <SelectValue placeholder="Select a service…" />
                                                 </SelectTrigger>
                                                 <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                                    {(services || []).filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id} className="font-bold uppercase text-[10px] tracking-widest">{s.name}</SelectItem>)}
+                                                    {(services || []).filter(s => s.type === 'service').map(s => <SelectItem key={s.id} value={s.id} className="text-sm">{s.name}</SelectItem>)}
                                                 </SelectContent>
                                             </Select>
                                         )}
@@ -632,8 +632,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 </div>
 
                                 <div className="space-y-4 pt-4 border-t border-dashed">
-                                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-2">
-                                        <FileImage className="w-3.5 h-3.5 opacity-40" /> Visual Reference
+                                    <Label className="text-[11px] font-medium text-muted-foreground ml-1 flex items-center gap-2">
+                                        <FileImage className="w-3.5 h-3.5 opacity-40" /> Inspiration photo (optional)
                                     </Label>
                                     <ImageUpload onImageUploaded={setInspirationPhotoUrl} initialImage={inspirationPhotoUrl} />
                                 </div>
@@ -643,7 +643,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
                     {step === 'assignment' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="assignment" className="space-y-10">
-                            <SelectionHeader icon={Users} title="Provider Routing" stepNum={2} />
+                            <SelectionHeader icon={Users} title="Choose a Provider" stepNum={2} />
                             <Controller
                                 name="staffId"
                                 control={control}
@@ -672,7 +672,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
                             <div className="flex flex-col gap-4">
                                 <div className="flex items-center justify-between">
-                                    <SelectionHeader icon={Clock} title="Schedule Window" stepNum={3} />
+                                    <SelectionHeader icon={Clock} title="Pick a Time" stepNum={3} />
                                     <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
                                         <TooltipProvider>
                                             <Tooltip>
@@ -689,23 +689,23 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 </div>
                                 <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 shadow-inner">
                                     <div className="space-y-0.5 text-left">
-                                        <Label className="text-xs font-black uppercase text-primary flex items-center gap-2">
-                                            <Workflow className="w-3.5 h-3.5" /> Filter Optimized Slots
+                                        <Label className="text-xs font-semibold text-primary flex items-center gap-2">
+                                            <Workflow className="w-3.5 h-3.5" /> Smart slots
                                         </Label>
-                                        <p className="text-[8px] font-bold text-primary/60 uppercase">Hide orphaned gaps in schedule</p>
+                                        <p className="text-[11px] text-primary/70">Hides times that would strand unbookable gaps</p>
                                     </div>
                                     <Switch checked={!showAllSlots} onCheckedChange={(val) => setShowAllSlots(!val)} className="data-[state=checked]:bg-primary" />
                                 </div>
                             </div>
-                            <div className="rounded-[2.5rem] border-2 bg-muted/10 p-6 space-y-8 shadow-inner text-center">
+                            <div className="rounded-2xl border bg-muted/10 p-5 space-y-6 text-center">
                                 <div className="flex items-center justify-between">
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
-                                    <span className="font-black uppercase tracking-widest text-sm">{format(watchDate, 'MMMM yyyy')}</span>
+                                    <span className="font-semibold text-sm">{format(watchDate, 'MMMM yyyy')}</span>
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
                                 </div>
                                 <div className="grid grid-cols-7 gap-2">
                                     {weekDays.map(day => (
-                                        <button key={day.toISOString()} onClick={() => setValue('date', day)} className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, watchDate) ? "bg-primary text-primary-foreground border-primary shadow-2xl scale-110" : "bg-background border-transparent hover:border-primary/30", (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed")} type="button">
+                                        <button key={day.toISOString()} onClick={() => setValue('date', day)} className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, watchDate) ? "bg-primary text-primary-foreground border-primary shadow-md" : "bg-background border-transparent hover:border-primary/30", (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed")} type="button">
                                             <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
                                             <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
                                         </button>
@@ -713,11 +713,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 </div>
                                 <div className="grid grid-cols-3 gap-3 pt-8 border-t-2 border-dashed border-white/50">
                                     {timeSlots.map(time => (
-                                        <Button key={time} variant={watchStartTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} className={cn("h-14 font-black uppercase text-xs tracking-widest rounded-2xl border-2 transition-all", watchStartTime === time ? "shadow-2xl shadow-primary/20 scale-105" : "bg-background")}>
+                                        <Button key={time} variant={watchStartTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} className={cn("h-12 font-semibold text-sm rounded-xl border transition-all", watchStartTime === time ? "shadow-md" : "bg-background")}>
                                             {format(timeStringToDate(time, new Date()), 'h:mm a')}
                                         </Button>
                                     ))}
-                                    {timeSlots.length === 0 && <div className="col-span-full py-12 text-[10px] font-black uppercase text-muted-foreground/40 border-2 border-dashed rounded-3xl">No Availability</div>}
+                                    {timeSlots.length === 0 && <div className="col-span-full py-10 text-xs font-medium text-muted-foreground/60 border border-dashed rounded-2xl">No openings this day — try another date</div>}
                                 </div>
                             </div>
                         </motion.div>
@@ -725,16 +725,16 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
                     {step === 'deposit' && depositDetails && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
-                            <SelectionHeader icon={CreditCard} title="Secure Retainer" stepNum={4} />
-                            <div className="p-10 rounded-[3rem] bg-primary/5 border-4 border-primary/10 text-center space-y-4 shadow-2xl shadow-primary/5">
-                                <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
-                                <p className="text-5xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
+                            <SelectionHeader icon={CreditCard} title="Deposit" stepNum={4} />
+                            <div className="p-8 rounded-2xl bg-primary/5 border border-primary/15 text-center space-y-3">
+                                <p className="text-[11px] font-medium uppercase tracking-wider text-primary/70">Deposit due to book</p>
+                                <p className="text-4xl font-semibold text-primary tracking-tight font-mono">${depositDetails.amount.toFixed(2)}</p>
                                 <div className="pt-4 border-t border-primary/10">
-                                    <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">{(depositDetails.type || 'deposit').toUpperCase()} RECOVERY</Badge>
+                                    <Badge variant="outline" className="bg-white border text-primary font-medium text-[10px] h-6 px-3 capitalize">{depositDetails.type || 'standard'} deposit</Badge>
                                 </div>
                             </div>
                             <div className="space-y-4 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Settlement Mode</Label>
+                                <Label className="text-[11px] font-medium text-muted-foreground ml-1">How will they pay the deposit?</Label>
                                 <Controller
                                     name="paymentMethod"
                                     control={control}
@@ -744,8 +744,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="card_on_file" id="pay-vault" disabled={!selectedClient?.cardOnFile?.token}/>
                                                     <div className="space-y-0.5 text-left">
-                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Vaulted Card</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{selectedClient?.cardOnFile?.token ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No secure card archived'}</p>
+                                                        <span className="text-sm font-semibold text-slate-900">Card on file</span>
+                                                        <p className="text-xs text-muted-foreground">{selectedClient?.cardOnFile?.token ? `${selectedClient?.cardOnFile?.brand} •••• ${selectedClient?.cardOnFile?.last4}` : 'No card saved yet'}</p>
                                                     </div>
                                                 </div>
                                                 <ShieldCheck className={cn("w-5 h-5", selectedClient?.cardOnFile?.token ? "text-primary" : "text-slate-300")} />
@@ -754,8 +754,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="terminal" id="pay-terminal" />
                                                     <div className="space-y-0.5 text-left">
-                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Terminal Entry</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase font-bold tracking-tight opacity-60">Authorize new card via terminal</p>
+                                                        <span className="text-sm font-semibold text-slate-900">New card at terminal</span>
+                                                        <p className="text-xs text-muted-foreground">Run a new card right now</p>
                                                     </div>
                                                 </div>
                                                 <Zap className="w-5 h-5 text-primary" />
@@ -764,8 +764,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                 <div className="flex items-center gap-4">
                                                     <RadioGroupItem value="none" id="pay-pending" />
                                                     <div className="space-y-0.5 text-left">
-                                                        <span className="text-sm font-black uppercase tracking-tight text-slate-900">Remote Settlement Required</span>
-                                                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Guest pays via secure link before session</p>
+                                                        <span className="text-sm font-semibold text-slate-900">Send payment link</span>
+                                                        <p className="text-xs text-muted-foreground">They pay from their phone before the visit</p>
                                                     </div>
                                                 </div>
                                                 <Smartphone className="w-5 h-5 text-muted-foreground opacity-40" />
@@ -779,31 +779,31 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
                     {step === 'success' && (
                         <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} key="success" className="text-center py-12 space-y-12">
-                            <div className="w-32 h-32 bg-green-500/10 rounded-[3rem] flex items-center justify-center mx-auto shadow-2xl shadow-green-500/5 rotate-6">
-                                <CheckCircle2 className="w-16 h-16 text-green-500 -rotate-6" />
+                            <div className="w-24 h-24 bg-green-500/10 rounded-3xl flex items-center justify-center mx-auto">
+                                <CheckCircle2 className="w-12 h-12 text-green-500" />
                             </div>
                             <div className="space-y-3">
-                                <h2 className="text-4xl font-black uppercase tracking-tighter text-slate-900">Registry Entry Finalized</h2>
-                                <p className="text-muted-foreground font-medium max-w-xs mx-auto leading-relaxed text-center">The session has been successfully pinned to the studio manifest.</p>
+                                <h2 className="text-3xl font-semibold tracking-tight text-slate-900">Booked!</h2>
+                                <p className="text-muted-foreground font-medium max-w-xs mx-auto leading-relaxed text-center">The appointment is on the calendar and ready to go.</p>
                             </div>
                             
-                            <div className="grid gap-6 max-sm mx-auto">
-                                <Card className="p-6 rounded-[2.5rem] border-2 bg-white shadow-2xl flex flex-col items-center gap-4 text-left">
-                                    <p className="text-[9px] font-black uppercase tracking-widest text-primary">Assigned Professional</p>
+                            <div className="grid gap-4 max-w-sm mx-auto">
+                                <Card className="p-5 rounded-2xl border bg-white shadow-sm flex flex-col items-center gap-3 text-left">
+                                    <p className="text-[11px] font-medium uppercase tracking-wider text-primary/70">Their provider</p>
                                     <div className="flex items-center gap-4 w-full">
                                         <Avatar className="w-16 h-16 border-4 border-background shadow-xl rounded-2xl">
                                             <AvatarImage src={currentAssignedPro?.avatarUrl} className="object-cover" />
                                             <AvatarFallback className="bg-primary/10 text-primary font-black uppercase">{(currentAssignedPro?.name || 'S')[0]}</AvatarFallback>
                                         </Avatar>
                                         <div className="min-w-0 flex-1">
-                                            <p className="font-black text-xl uppercase tracking-tight leading-none mb-1 truncate text-left">{currentAssignedPro?.name}</p>
+                                            <p className="font-semibold text-lg leading-none mb-1 truncate text-left">{currentAssignedPro?.name}</p>
                                             <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-left">{currentAssignedPro?.role}</p>
                                         </div>
                                     </div>
                                 </Card>
-                                <Card className="p-6 rounded-[2rem] border-2 border-dashed bg-muted/10 space-y-4 text-left shadow-inner">
+                                <Card className="p-5 rounded-2xl border border-dashed bg-muted/10 space-y-4 text-left">
                                     <div className="flex items-center justify-between">
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Session Intel</p>
+                                        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Details</p>
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <CalendarIcon className="w-5 h-5 text-primary opacity-40" />
@@ -817,19 +817,19 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         <p className="font-black uppercase text-xs truncate">{selectedService?.name}</p>
                                     </div>
                                     <div className="pt-4 border-t border-white/50 space-y-3">
-                                        <p className="text-[9px] font-black uppercase text-primary">Remote Onboarding Protocol</p>
-                                        <Button variant="outline" size="sm" onClick={handleCopyLink} className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
-                                            <PlusCircle className="w-3.5 h-3.5 mr-2" /> Copy Portal Link
+                                        <p className="text-[11px] font-medium uppercase tracking-wider text-primary/70">Check-in link</p>
+                                        <Button variant="outline" size="sm" onClick={handleCopyLink} className="w-full h-10 rounded-lg border font-medium text-xs bg-white shadow-sm">
+                                            <PlusCircle className="w-3.5 h-3.5 mr-2" /> Copy check-in link
                                         </Button>
                                         <div className="p-3 bg-white/50 rounded-xl border-2 border-dashed border-primary/10 flex items-start gap-2">
                                             <Info className="w-3.5 h-3.5 text-primary opacity-40 mt-0.5" />
-                                            <p className="text-[8px] font-bold text-slate-500 leading-tight uppercase">The link has been queued for dispatch via email/SMS. Use this manual copy for priority communication.</p>
+                                            <p className="text-[11px] text-slate-500 leading-snug">The link was queued to send by text and email — copy it here if they need it right away.</p>
                                         </div>
                                     </div>
                                 </Card>
                             </div>
                             
-                            <Button className="w-full h-16 text-lg font-black uppercase tracking-widest rounded-3xl shadow-3xl shadow-primary/20 transition-all active:scale-95" onClick={() => onOpenChange(false)}>Return to Agenda</Button>
+                            <Button className="w-full h-12 text-sm font-semibold rounded-xl shadow-lg shadow-primary/10 transition-all active:scale-[0.98]" onClick={() => onOpenChange(false)}>Done</Button>
                         </motion.div>
                     )}
                 </AnimatePresence>
@@ -840,7 +840,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             <SheetFooter className={cn("p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-2xl")}>
                 <div className="flex w-full gap-4">
                     {currentStepIndex > 0 && (
-                        <Button variant="ghost" onClick={handlePrevStep} className="flex-1 h-12 md:h-20 rounded-3xl font-black uppercase tracking-tighter text-[10px] md:text-2xl text-slate-400">
+                        <Button variant="ghost" onClick={handlePrevStep} className="flex-1 h-12 md:h-14 rounded-xl font-medium text-sm text-slate-500">
                             Back
                         </Button>
                     )}
@@ -848,19 +848,19 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                         onClick={handleNext} 
                         disabled={isSubmitting || (step === 'details' && (!watchClientId || !watchServiceId))}
                         className={cn(
-                            "h-12 md:h-20 font-black uppercase tracking-widest text-[10px] md:text-2xl rounded-[2rem] shadow-2xl shadow-primary/30 group transition-all",
+                            "h-12 md:h-14 font-semibold text-sm rounded-xl shadow-md shadow-primary/20 group transition-all",
                             currentStepIndex === 0 ? "w-full" : "flex-[2.5]"
                         )}
                     >
                         {isSubmitting ? (
-                            <Loader className="animate-spin h-8 w-8" />
+                            <Loader className="animate-spin h-5 w-5" />
                         ) : (
                             <>
-                                {step === 'details' ? 'Provider Routing' : 
-                                 step === 'assignment' ? 'Select Window' : 
-                                 step === 'timing' && depositDetails ? 'Deposit Settlement' : 
-                                 'Finalize Booking'}
-                                <ArrowRight className="ml-3 w-4 h-4 md:w-8 md:h-8 transition-transform group-hover:translate-x-1" />
+                                {step === 'details' ? 'Next: Provider' :
+                                 step === 'assignment' ? 'Next: Time' :
+                                 step === 'timing' && depositDetails ? 'Next: Deposit' :
+                                 'Book Appointment'}
+                                <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                             </>
                         )}
                     </Button>
