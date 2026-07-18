@@ -66,7 +66,12 @@ const IconBtn = ({
   </button>
 );
 
-export function BankFeedSection({ tenantId, firestore }: { tenantId: string; firestore: Firestore }) {
+export function BankFeedSection({ tenantId, firestore, actor }: {
+  tenantId: string; firestore: Firestore;
+  /** Acting team member (from useAuditActor) — attached to every API call
+   *  so server-side audit entries name who did what. */
+  actor?: { type: 'user'; id?: string; name?: string; role?: string };
+}) {
   const [busy, setBusy] = useState<string>('');           // '' | 'connect' | 'sync' | 'all' | bankTxnId
   const [error, setError] = useState('');
   const [lastSync, setLastSync] = useState<{ pulled: number; matched: number; needsReview: number; autoBooked?: number } | null>(null);
@@ -81,6 +86,9 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
   const [catOverride, setCatOverride] = useState<Record<string, string>>({});
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [receiptOpenFor, setReceiptOpenFor] = useState('');
+  // v69 — bill links: lines matched to an unpaid bill are linked by
+  // default (booking also marks the bill paid); the owner can unlink.
+  const [billUnlinked, setBillUnlinked] = useState<Record<string, boolean>>({});
 
   // Review inbox: unmatched bank lines, live
   useEffect(() => {
@@ -95,10 +103,10 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
   const api = useCallback(async (payload: any) => {
     const res = await fetch('/api/plaid', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantId, ...payload }),
+      body: JSON.stringify({ tenantId, actor, ...payload }),
     });
     return res.json();
-  }, [tenantId]);
+  }, [tenantId, actor]);
 
   const loadPlaidScript = () => new Promise<void>((resolve, reject) => {
     if (window.Plaid) return resolve();
@@ -154,6 +162,9 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
       const chosen = catOverride[bt.id];
       if (mode === 'create' && chosen && chosen !== bt.suggestedCategory) payload.categoryOverride = chosen;
       if (mode === 'create' && receiptUrls[bt.id]) payload.receiptUrl = receiptUrls[bt.id];
+      if (mode === 'create' && bt.suggestedBillInstanceId && !billUnlinked[bt.id]) {
+        payload.billInstanceId = bt.suggestedBillInstanceId;
+      }
       const d = await api(payload);
       if (!d.ok) setError(d.error || 'Could not save.');
       else {
@@ -309,6 +320,24 @@ export function BankFeedSection({ tenantId, firestore }: { tenantId: string; fir
                   </div>
                   <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${bt.context === 'Personal' ? 'bg-slate-100 text-slate-500' : 'bg-slate-900 text-white'}`}>{bt.context === 'Personal' ? '🏠' : '💼'}</span>
                 </div>
+
+                {/* v69 — bill match chip: booking this line will also mark
+                    the matched bill paid unless the owner unlinks it */}
+                {bt.suggestedBillInstanceId && (
+                  <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${billUnlinked[bt.id] ? 'bg-slate-50 border-slate-200' : 'bg-purple-50 border-purple-200'}`}>
+                    <Landmark className={`w-3 h-3 shrink-0 ${billUnlinked[bt.id] ? 'text-slate-400' : 'text-purple-700'}`} />
+                    <span className={`text-[9px] font-black uppercase tracking-widest flex-1 truncate ${billUnlinked[bt.id] ? 'text-slate-400' : 'text-purple-700'}`}>
+                      {billUnlinked[bt.id] ? `Bill link off: ${bt.suggestedBillName}` : `Books + marks bill paid: ${bt.suggestedBillName}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setBillUnlinked(m => ({ ...m, [bt.id]: !m[bt.id] }))}
+                      className={`text-[9px] font-black uppercase underline underline-offset-2 shrink-0 ${billUnlinked[bt.id] ? 'text-slate-500' : 'text-purple-700'}`}
+                    >
+                      {billUnlinked[bt.id] ? 'Relink' : 'Unlink'}
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {/* Category — pulled from the shared library, editable pre-booking */}
