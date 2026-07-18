@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo, useState, useEffect } from 'react';
@@ -352,21 +351,76 @@ export default function ClientPortalPage() {
 
     const handleRescheduleConfirm = async (data: any) => {
         if (!firestore || !tenantId || !client) return;
-        setIsProcessing(true);
-        
+
         const { applyFee, feeAmount, paymentMethod, ...aptData } = data;
-        const batch = writeBatch(firestore);
-        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
         const now = new Date().toISOString();
         const svc = services?.find(s => s.id === aptData.serviceId);
-        
+
+        // v13 — CRITICAL FIX: previously, both 'settle_now' (charge card on
+        // file) and 'new_card' wrote a ledger income transaction with ZERO
+        // Stripe API call anywhere in this function — the fee was recorded
+        // as collected revenue whether or not any money actually moved.
+        // This is now a real charge attempt via the same
+        // /api/stripe/charge-card route (mode: 'auto', same pattern used
+        // for every other "client not present" charge in this codebase)
+        // BEFORE the batch commits, so the ledger only ever reflects what
+        // genuinely happened.
+        //
+        // 'new_card' is deliberately NOT wired to a real charge here — the
+        // dialog collects it via raw, untokenized text inputs, and
+        // charging that directly would mean handling a card number outside
+        // Stripe's Elements/tokenization flow, a real PCI problem. Until
+        // that's rebuilt with a proper Stripe Elements form (the same
+        // pattern CheckoutHub's EmbeddedCardForm already uses correctly),
+        // 'new_card' falls back to add_to_balance instead of silently
+        // faking success.
+        let actualPaymentMethod = paymentMethod;
+        let chargeSucceeded = false;
+        let stripePaymentIntentId: string | undefined;
+
+        if (applyFee && feeAmount > 0 && paymentMethod === 'settle_now') {
+            try {
+                const chargeRes = await fetch('/api/stripe/charge-card', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tenantId,
+                        clientId: client.id,
+                        amountCents: Math.round(feeAmount * 100),
+                        description: `Reschedule fee — ${svc?.name || 'Service'}`,
+                        category: 'Adjustment Fee',
+                        appointmentId: aptData.id,
+                        reason: 'Guest self-service reschedule fee',
+                        mode: 'auto',
+                        kind: 'arrears_fee',
+                    }),
+                });
+                const chargeData = await chargeRes.json().catch(() => ({ ok: false }));
+                if (chargeData.ok) {
+                    chargeSucceeded = true;
+                    stripePaymentIntentId = chargeData.paymentIntentId;
+                }
+            } catch {
+                /* falls through to add_to_balance below, same as a declined card */
+            }
+            if (!chargeSucceeded) actualPaymentMethod = 'add_to_balance';
+        } else if (applyFee && feeAmount > 0 && paymentMethod === 'new_card') {
+            // See comment above — not a safe charge path yet. Recorded as
+            // owed, never as already-collected revenue.
+            actualPaymentMethod = 'add_to_balance';
+        }
+
+        setIsProcessing(true);
+        const batch = writeBatch(firestore);
+        const appointmentRef = doc(firestore, `tenants/${tenantId}/appointments`, aptData.id);
+
         const updates: any = {
             startTime: aptData.startTime,
             endTime: aptData.endTime
         };
 
         if (applyFee && feeAmount > 0) {
-            if (paymentMethod === 'settle_now' || paymentMethod === 'new_card') {
+            if (actualPaymentMethod === 'settle_now' && chargeSucceeded) {
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
                     id: txnRef.id,
@@ -378,12 +432,13 @@ export default function ClientPortalPage() {
                     context: 'Business',
                     category: 'Adjustment Fee',
                     amount: feeAmount,
-                    paymentMethod: paymentMethod === 'new_card' ? 'New Card' : 'Card on File',
-                    hasReceipt: false,
+                    paymentMethod: 'Card on File (Stripe)',
+                    stripePaymentIntentId,
+                    hasReceipt: true,
                     appointmentId: aptData.id,
                     tenantId
                 });
-            } else if (paymentMethod === 'add_to_session') {
+            } else if (actualPaymentMethod === 'add_to_session') {
                 updates['checkoutState.additionalCharge'] = increment(feeAmount);
             } else {
                 const clientRef = doc(firestore, `tenants/${tenantId}/clients`, client.id);
@@ -482,6 +537,64 @@ export default function ClientPortalPage() {
     ) => {
         if (!firestore || !tenantId || !client) return;
         setIsProcessing(true);
+
+        // v12 — race-proof path: the shared booking engine conflict-checks
+        // server-side in a transaction. On success, consents + the staff
+        // ping still write client-side; on 404/error we fall back to the
+        // legacy direct batch below unchanged.
+        try {
+            const ad: any = appointmentDetails;
+            if (ad?.serviceId && ad?.startTime) {
+                const res = await fetch('/api/appointments/book', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tenantId,
+                        source: 'client-portal',
+                        serviceId: ad.serviceId,
+                        addOnIds: ad.addOnIds || [],
+                        staffId: ad.staffId || 'any',
+                        startTime: ad.startTime,
+                        client: { id: client.id },
+                    }),
+                });
+                if (res.status === 409) {
+                    const out = await res.json().catch(() => ({}));
+                    toast({ variant: 'destructive', title: 'That time was just taken', description: out?.error || 'Pick another slot and try again.' });
+                    setIsProcessing(false);
+                    return;
+                }
+                if (res.ok) {
+                    const out = await res.json().catch(() => null);
+                    if (out?.ok) {
+                        const sideBatch = writeBatch(firestore);
+                        const sideNow = new Date().toISOString();
+                        signedForms.forEach(form => {
+                            const consentDocRef = doc(collection(firestore, `tenants/${tenantId}/clients/${client.id}/signedConsents`));
+                            sideBatch.set(consentDocRef, { ...form, id: consentDocRef.id, clientId: client.id, signedAt: sideNow });
+                        });
+                        if (out.staffId) {
+                            const notificationRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+                            sideBatch.set(notificationRef, {
+                                id: nanoid(),
+                                userId: out.staffId,
+                                type: 'new_appointment',
+                                message: `New booking: ${client.name} for ${selectedServiceForBooking?.name} on ${format(parseISO(out.startTime), 'MMM d @ h:mm a')}`,
+                                link: '/planner',
+                                createdAt: sideNow,
+                                read: false,
+                            });
+                        }
+                        await sideBatch.commit().catch(() => { /* side-writes are secondary */ });
+                        toast({ title: 'Booking Confirmed!' });
+                        setBookingStep('confirmation');
+                        setIsProcessing(false);
+                        return;
+                    }
+                }
+            }
+        } catch { /* fall back to the legacy direct write below */ }
+
         const batch = writeBatch(firestore);
         const now = new Date().toISOString();
 
