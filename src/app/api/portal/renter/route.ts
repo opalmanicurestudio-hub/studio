@@ -37,6 +37,7 @@
 //   10 code requests / 15 min · 5 failed verifies / 15 min (423 when locked).
 
 import { NextRequest, NextResponse } from 'next/server';
+import Stripe from 'stripe';
 import { createHash, randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -507,6 +508,125 @@ export async function POST(req: NextRequest) {
         overageMinutes: updates.overageMinutes || 0,
         potentialCreditCents: updates.potentialCreditCents || 0,
       });
+    }
+
+    // ═══ pay-invoice — Stripe Checkout for an open rent invoice ═══════════
+    // Ownership chain verified server-side: invoice → lease → renter →
+    // renter's contact must match this session. Works for every renter,
+    // card on file or not (Checkout collects the card).
+    if (action === 'pay-invoice' || action === 'confirm-invoice') {
+      const invoiceId = String(body.invoiceId || '');
+      if (!invoiceId) return NextResponse.json({ ok: false, error: 'Missing invoice.' }, { status: 400 });
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return NextResponse.json({ ok: false, error: 'Online payments aren’t set up yet — pay at the front desk.' }, { status: 400 });
+      }
+      const invRef = db.doc(`tenants/${tenantId}/rentInvoices/${invoiceId}`);
+      const invSnap = await invRef.get();
+      const inv = invSnap.exists ? (invSnap.data() as any) : null;
+      if (!inv) return NextResponse.json({ ok: false, error: 'Invoice not found.' }, { status: 404 });
+      const leaseSnap = inv.leaseId ? await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).get() : null;
+      const lease = leaseSnap?.exists ? (leaseSnap.data() as any) : null;
+      const renterSnap = lease?.renterId ? await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).get() : null;
+      const renter = renterSnap?.exists ? (renterSnap.data() as any) : null;
+      if (!renter || !contactMatches(key, renter.phone, renter.email)) {
+        return NextResponse.json({ ok: false, error: 'This invoice belongs to a different renter.' }, { status: 403 });
+      }
+      const renterName = `${renter.firstName || ''} ${renter.lastName || ''}`.trim() || 'Renter';
+      const totalCents = (inv.amountCents || 0) + (inv.lateFeeCents || 0);
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+
+      if (action === 'pay-invoice') {
+        if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
+        if (!['due', 'late'].includes(inv.status)) {
+          return NextResponse.json({ ok: false, error: 'This invoice isn’t open.' }, { status: 409 });
+        }
+        if (totalCents <= 0) return NextResponse.json({ ok: false, error: 'Nothing to pay.' }, { status: 400 });
+        const returnUrl = String(body.returnUrl || '');
+        if (!returnUrl) return NextResponse.json({ ok: false, error: 'Missing return URL.' }, { status: 400 });
+        const base = returnUrl.split('?')[0];
+        const checkout = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer_email: renter.email || undefined,
+          line_items: [{
+            quantity: 1,
+            price_data: {
+              currency: 'usd',
+              unit_amount: totalCents,
+              product_data: {
+                name: `Booth rent — due ${String(inv.dueDate || '').slice(0, 10)}`,
+                description: renterName + (inv.lateFeeCents > 0 ? ` · incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee` : ''),
+              },
+            },
+          }],
+          success_url: `${base}?cfInvoiceId=${invoiceId}&cfSession={CHECKOUT_SESSION_ID}`,
+          cancel_url: base,
+          metadata: { tenantId, invoiceId, kind: 'rent_invoice' },
+        });
+        await invRef.set({ stripeSessionId: checkout.id, paymentStartedAt: new Date().toISOString() }, { merge: true });
+        return NextResponse.json({ ok: true, url: checkout.url });
+      }
+
+      // ═══ confirm-invoice — after Stripe redirects back ═════════════════
+      if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
+      const sessionId = String(body.sessionId || '');
+      if (!sessionId) return NextResponse.json({ ok: false, error: 'Missing session.' }, { status: 400 });
+      const cs: any = await stripe.checkout.sessions.retrieve(sessionId);
+      if (cs?.payment_status !== 'paid' || cs?.metadata?.invoiceId !== invoiceId) {
+        return NextResponse.json({ ok: false, error: 'Payment not completed — nothing was charged.' }, { status: 402 });
+      }
+      const nowIso = new Date().toISOString();
+      // Idempotent: refreshing the return page must never double-book income.
+      const existing = await db.collection(`tenants/${tenantId}/transactions`)
+        .where('sourceId', '==', invoiceId).get();
+      let txnId = existing.docs.find((d: any) => (d.data() as any).type === 'income')?.id || null;
+      if (!txnId) {
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        txnId = txnRef.id;
+        await txnRef.set({
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          source: 'booth_rent', category: 'Booth Rent',
+          amount: totalCents / 100,
+          description: `Booth rent — due ${String(inv.dueDate || '').slice(0, 10)} (paid online)${inv.lateFeeCents > 0 ? ` · incl. $${(inv.lateFeeCents / 100).toFixed(2)} late fee` : ''}`,
+          clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card (Stripe)',
+          hasReceipt: false, sourceId: invoiceId,
+          stripePaymentIntentId: cs.payment_intent || null,
+          tenantId, createdAt: nowIso,
+        });
+        // Paired Stripe fee — fail-open, fee recording never blocks revenue.
+        try {
+          const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent), { expand: ['latest_charge.balance_transaction'] });
+          const bt: any = pi?.latest_charge?.balance_transaction;
+          const feeCents = bt?.fee ?? 0;
+          if (feeCents > 0) {
+            const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+            await feeRef.set({
+              id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+              category: 'Processing Fee', amount: feeCents / 100,
+              description: `Stripe fee — rent due ${String(inv.dueDate || '').slice(0, 10)}`,
+              clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+              hasReceipt: false, relatedTxnId: txnId, sourceId: invoiceId, tenantId, createdAt: nowIso,
+            });
+          }
+        } catch { /* fee is informational */ }
+      }
+      await invRef.set({
+        status: 'paid', paidAt: nowIso, paidMethod: 'Card (Stripe)',
+        paidAmountCents: totalCents, paidLedgerEntryId: txnId,
+        stripePaymentIntentId: cs.payment_intent || null,
+      }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'rent.paid_online', targetType: 'rentInvoice', targetId: invoiceId,
+        summary: `${renterName} paid $${(totalCents / 100).toFixed(2)} rent online (due ${String(inv.dueDate || '').slice(0, 10)})`,
+        amount: totalCents / 100,
+        actor: { type: 'user', name: renterName, role: 'renter', via: 'renter-portal' },
+      });
+      const payNotif = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await payNotif.set({
+        id: payNotif.id, userId: null, read: false, createdAt: nowIso,
+        type: 'rent_paid', link: '/booths',
+        message: `💚 ${renterName} paid $${(totalCents / 100).toFixed(2)} rent online.`,
+      });
+      return NextResponse.json({ ok: true, paidCents: totalCents });
     }
 
     // ═══ request-reschedule ═══════════════════════════════════════════════
