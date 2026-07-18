@@ -28,10 +28,11 @@ import {
   Activity, ShoppingCart, LogIn,
   AlertCircle, ChevronRight, Trash2, Loader,
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
-  User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert,
+  User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert, Phone,
   PlusCircle, Car, Users, MessageSquare, CreditCard,
   Send, Mic, Square, Paperclip, ImagePlus, ArrowLeft, FileText,
 } from 'lucide-react';
+import { auditEntry } from '@/lib/audit';
 import {
   format, parseISO, startOfWeek, endOfWeek, addWeeks,
   eachDayOfInterval, isToday, isBefore, startOfDay,
@@ -1944,10 +1945,16 @@ function DateNavigator({ selectedDate, onChange }: { selectedDate: Date; onChang
 
 // ─── FORGOT PIN FLOW ──────────────────────────────────────────────────────────
 function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
-  const [step, setStep]     = useState<'name' | 'verify'>('name');
+  // v76 — the old flow was an authentication BYPASS: name + last-4-of-
+  // phone (both semi-public) granted a full session. Now: a 6-digit code
+  // is issued server-side, delivered to a manager to relay in person,
+  // and lets you set a NEW PIN — then you sign in normally.
+  const [step, setStep]     = useState<'name' | 'code'>('name');
   const [name, setName]     = useState('');
-  const [answer, setAnswer] = useState('');
-  const [found, setFound]   = useState<any>(null);
+  const [code, setCode]     = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [staffId, setStaffId] = useState<string | null>(null);
+  const [hint, setHint]     = useState<string | null>(null);
   const [error, setError]   = useState('');
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -1956,29 +1963,31 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
     if (!name.trim()) return;
     setLoading(true); setError('');
     try {
-      const allSnap = await getDocs(collection(firestore, `tenants/${tenantId}/staff`));
-      const match   = allSnap.docs.find(d =>
-        (d.data().name || '').toLowerCase().includes(name.trim().toLowerCase())
-      );
-      if (match) { setFound({ id: match.id, ...match.data() }); setStep('verify'); }
-      else setError('Name not found. Check spelling or ask a manager.');
+      const res = await fetch('/api/portal/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request-reset', tenantId, name: name.trim() }),
+      });
+      const d = await res.json();
+      if (d.ok) { setStaffId(d.staffId); setHint(d.contactHint); setStep('code'); }
+      else setError(d.error || 'Could not start reset — ask a manager.');
     } catch { setError('Error. Try again.'); }
     finally { setLoading(false); }
   };
 
-  const verify = () => {
-    if (!found) return;
+  const confirmReset = async () => {
+    if (!staffId) { setError('Ask a manager for your reset code, then try again.'); return; }
+    if (!/^\d{6}$/.test(code) || !/^\d{4}$/.test(newPin)) { setError('Enter the 6-digit code and a new 4-digit PIN.'); return; }
     setLoading(true); setError('');
-    const phone4 = (found.phone || '').replace(/\D/g, '').slice(-4);
-    const email  = (found.email || '').toLowerCase();
-    const input  = answer.trim().toLowerCase();
-    if (input === phone4 || input === email) {
-      toast({ title: `Welcome back, ${found.name?.split(' ')[0]}!` });
-      onSuccess(found);
-    } else {
-      setError('Verification failed. Ask a manager to reset your PIN.');
-    }
-    setLoading(false);
+    try {
+      const res = await fetch('/api/portal/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'confirm-reset', tenantId, staffId, code, newPin }),
+      });
+      const d = await res.json();
+      if (d.ok) { toast({ title: 'PIN updated ✓', description: 'Sign in with your new PIN.' }); onBack(); }
+      else setError(d.error || 'Could not reset — ask a manager.');
+    } catch { setError('Error. Try again.'); }
+    finally { setLoading(false); }
   };
 
   return (
@@ -2008,24 +2017,26 @@ function ForgotPinFlow({ tenantId, firestore, onBack, onSuccess }: any) {
           </motion.div>
         )}
 
-        {step === 'verify' && found && (
+        {step === 'code' && (
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
             <div className="text-center space-y-2">
               <div className="w-14 h-14 rounded-[2rem] bg-blue-500/20 border-2 border-blue-500/30 flex items-center justify-center mx-auto">
                 <Lock className="w-7 h-7 text-blue-400" />
               </div>
-              <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Verify Identity</h2>
+              <h2 className="text-2xl font-black uppercase tracking-tighter text-white">Enter Reset Code</h2>
               <p className="text-[10px] font-black uppercase tracking-[0.15em] text-white/40 leading-relaxed">
-                Enter your email address<br />or last 4 digits of your phone
+                A 6-digit code was sent to your manager{hint ? ` (on file: ${hint})` : ''}.<br />Ask them for it, then set a new PIN.
               </p>
             </div>
-            <input value={answer} onChange={e => setAnswer(e.target.value)} placeholder="email or last 4 of phone"
-              onKeyDown={e => e.key === 'Enter' && verify()}
-              className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/10 px-4 text-white font-bold placeholder:text-white/30 outline-none focus:border-primary/50" />
+            <input value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit code" inputMode="numeric"
+              className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/10 px-4 text-white font-black text-center text-2xl tracking-[0.4em] placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
+            <input value={newPin} onChange={e => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="new 4-digit PIN" inputMode="numeric" type="password"
+              onKeyDown={e => e.key === 'Enter' && confirmReset()}
+              className="w-full h-14 rounded-2xl bg-white/10 border-2 border-white/10 px-4 text-white font-black text-center text-2xl tracking-[0.4em] placeholder:text-white/30 placeholder:text-sm placeholder:tracking-normal outline-none focus:border-primary/50" />
             {error && <p className="text-[10px] font-black uppercase text-destructive text-center">{error}</p>}
-            <button onClick={verify} disabled={loading || !answer.trim()}
+            <button onClick={confirmReset} disabled={loading || code.length !== 6 || newPin.length !== 4}
               className="w-full h-14 rounded-2xl bg-primary font-black uppercase tracking-widest text-white disabled:opacity-40 active:scale-95 transition-all flex items-center justify-center gap-2">
-              {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Verify & Sign In'}
+              {loading ? <Loader className="w-4 h-4 animate-spin" /> : 'Set New PIN'}
             </button>
           </motion.div>
         )}
@@ -2044,13 +2055,33 @@ function PinEntry({ onSuccess, tenantId, firestore }: any) {
 
   if (showForgot) return <ForgotPinFlow tenantId={tenantId} firestore={firestore} onBack={() => setShowForgot(false)} onSuccess={onSuccess} />;
 
+  // v76 — PIN verification is server-side (rate-limited, roster never
+  // exposed). The legacy client query remains ONLY as a fallback for
+  // deployments where /api/portal/auth isn't live yet.
   const checkPin = async (entered: string) => {
     setChecking(true);
     try {
-      const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', entered)));
-      if (!snap.empty) { onSuccess({ id: snap.docs[0].id, ...snap.docs[0].data() }); }
-      else { setError('Incorrect PIN. Try again.'); setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
-    } catch { setError('Error. Try again.'); setPin(''); }
+      const res = await fetch('/api/portal/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', tenantId, pin: entered }),
+      });
+      if (res.status === 404) throw new Error('__legacy__');   // API not deployed yet
+      const d = await res.json();
+      if (d.ok && d.staff) {
+        onSuccess(d.staff);
+      } else {
+        setError(d.error || 'Incorrect PIN. Try again.');
+        setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600);
+      }
+    } catch {
+      // Fallback: legacy client-side check so the portal keeps working
+      // until the auth API is deployed. Remove once live.
+      try {
+        const snap = await getDocs(query(collection(firestore, `tenants/${tenantId}/staff`), where('pin', '==', entered)));
+        if (!snap.empty) { onSuccess({ id: snap.docs[0].id, ...snap.docs[0].data() }); }
+        else { setError('Incorrect PIN. Try again.'); setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
+      } catch { setError('Error. Try again.'); setPin(''); }
+    }
     finally { setChecking(false); }
   };
 
@@ -2130,6 +2161,12 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
       batch.set(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id),
         { status: type === 'clock_in' ? 'available' : 'off', ...(type === 'clock_in' ? { lastClockIn: now } : { lastClockOut: now }) },
         { merge: true });
+      const aRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
+      batch.set(aRef, { id: aRef.id, ...auditEntry({
+        action: 'time.' + type, targetType: 'activityLog', targetId: logRef.id,
+        summary: `${staffMember.name} ${type === 'clock_in' ? 'clocked in' : 'clocked out'} (portal)`,
+        actor: { type: 'user', id: staffMember.id, name: staffMember.name, role: staffMember.role },
+      }) });
       await batch.commit();
       toast({ title: type === 'clock_in' ? 'Clocked In ✓' : 'Clocked Out ✓' });
     } catch { toast({ variant: 'destructive', title: 'Clock action failed.' }); }
@@ -2147,6 +2184,12 @@ function StaffStatusButton({ staffMember, tenantId, firestore, clockStatus }: an
       batch.set(doc(firestore, `tenants/${tenantId}/staff`, staffMember.id),
         { status: isOnBreak ? 'available' : 'on_break', ...(isOnBreak ? { lastBreakEnd: now } : { lastBreakStart: now }) },
         { merge: true });
+      const aRef = doc(collection(firestore, `tenants/${tenantId}/auditLogs`));
+      batch.set(aRef, { id: aRef.id, ...auditEntry({
+        action: 'time.' + type, targetType: 'activityLog', targetId: logRef.id,
+        summary: `${staffMember.name} ${isOnBreak ? 'ended break' : 'started break'} (portal)`,
+        actor: { type: 'user', id: staffMember.id, name: staffMember.name, role: staffMember.role },
+      }) });
       await batch.commit();
       toast({ title: isOnBreak ? 'Break Ended ✓' : 'On Break ✓' });
     } catch { toast({ variant: 'destructive', title: 'Failed.' }); }
@@ -3084,8 +3127,8 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     const t = threads.find((x:any)=>x.id===threadId);
     const audiencePool = t?.type==='team'
       ? (allStaff||[]).filter((s:any) => threadId==='building_broadcast'
-          ? (s.isRenter || s.role==='owner' || s.role==='admin')
-          : !s.isRenter).map((s:any)=>s.id)
+          ? (s.isRenter || s.role === 'renter' || s.role==='owner' || s.role==='admin')
+          : !(s.isRenter || s.role === 'renter')).map((s:any)=>s.id)
       : (t?.participantIds||[]);
     const recipients = audiencePool.filter((id:string)=>id!==staffMember.id);
     for (const rid of recipients) {
@@ -3295,8 +3338,8 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
     const bid = isRenter ? 'building_broadcast' : 'team_broadcast';
     const members = (allStaff||[])
       .filter((s:any) => isRenter
-        ? (s.isRenter || s.role === 'owner' || s.role === 'admin')
-        : !s.isRenter)
+        ? (s.isRenter || s.role === 'renter' || s.role === 'owner' || s.role === 'admin')
+        : !(s.isRenter || s.role === 'renter'))
       .map((s:any)=>s.id);
     await setDoc(doc(firestore, `tenants/${tenantId}/staffThreads`, bid),
       { id: bid, tenantId, type:'team', audience: isRenter ? 'renters' : 'staff', participantIds: members }, { merge:true });
@@ -3512,7 +3555,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
 
         {pickerOpen && (
           <div className="rounded-2xl border-2 bg-white p-3 space-y-2">
-            {(allStaff||[]).filter((s:any)=>s.id!==staffMember.id && (isRenter ? (s.role==='owner'||s.role==='admin') : !s.isRenter)).map((s:any) => {
+            {(allStaff||[]).filter((s:any)=>s.id!==staffMember.id && (isRenter ? (s.role==='owner'||s.role==='admin') : !(s.isRenter || s.role === 'renter'))).map((s:any) => {
               const checked = selectedIds.includes(s.id);
               return (
                 <button key={s.id} onClick={()=>setSelectedIds(ids=>checked?ids.filter(i=>i!==s.id):[...ids,s.id])} className={cn('w-full flex items-center gap-2.5 p-2 rounded-xl border-2 text-left', checked ? 'border-indigo-400 bg-indigo-50' : 'border-transparent')}>
@@ -3579,26 +3622,29 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const [refreshKey, setRefreshKey]       = useState(0);
 
   const isOwnerOrAdmin = staffMember.role === 'owner' || staffMember.role === 'admin';
+  // v76 — renters don't get floor-wide subscriptions (client names, the
+  // whole roster's shifts, walk-ins). Their tabs never used this data.
+  const isRenterUser = staffMember.role === 'renter';
   const today = new Date();
 
   // ── Queries ──
   const myShiftsQ       = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shifts`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
-  const allShiftsQ      = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/shifts`), [firestore,tenantId]);
+  const allShiftsQ      = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : collection(firestore,`tenants/${tenantId}/shifts`), [firestore,tenantId,isRenterUser]);
   // Primary appointments
   const myApptsQ        = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   // Add-on handoff appointments — where this staff member is assigned via assignedStaffIds array
   const myAddonApptsQ   = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('assignedStaffIds','array-contains',staffMember.id)), [firestore,tenantId,staffMember?.id,refreshKey]);
   // Check-in status — separate collection merged by checkInToken (same pattern as InventoryContext)
-  const checkInsQ       = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,'appointmentCheckIns'), where('tenantId','==',tenantId)), [firestore,tenantId]);
+  const checkInsQ       = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,'appointmentCheckIns'), where('tenantId','==',tenantId)), [firestore,tenantId,isRenterUser]);
   // ── Floor view queries ──
   // All today's appointments across ALL staff for floor view
-  const allTodayApptsQ  = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('status','in',['confirmed','servicing','ready_for_checkout','pending'])), [firestore,tenantId,refreshKey]);
+  const allTodayApptsQ  = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('status','in',['confirmed','servicing','ready_for_checkout','pending'])), [firestore,tenantId,refreshKey,isRenterUser]);
   // All today's walk-ins for floor view
-  const allWalkInsQ     = useMemoFirebase(() => (!firestore||!tenantId) ? null : query(collection(firestore,`tenants/${tenantId}/walkIns`), where('status','in',['waiting','notified','in_service'])), [firestore,tenantId,refreshKey]);
+  const allWalkInsQ     = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,`tenants/${tenantId}/walkIns`), where('status','in',['waiting','notified','in_service'])), [firestore,tenantId,refreshKey,isRenterUser]);
   // Staff blocks (sequential add-on time holds)
-  const staffBlocksQ    = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/staffBlocks`), [firestore,tenantId,refreshKey]);
+  const staffBlocksQ    = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : collection(firestore,`tenants/${tenantId}/staffBlocks`), [firestore,tenantId,refreshKey,isRenterUser]);
   // Events (studio-wide blocked time, staff meetings, etc.)
-  const eventsQ         = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/events`), [firestore,tenantId,refreshKey]);
+  const eventsQ         = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : collection(firestore,`tenants/${tenantId}/events`), [firestore,tenantId,refreshKey,isRenterUser]);
 
   const myRequestsQ     = useMemoFirebase(() => (!firestore||!tenantId||!staffMember?.id) ? null : query(collection(firestore,`tenants/${tenantId}/shiftRequests`), where('staffId','==',staffMember.id)), [firestore,tenantId,staffMember?.id]);
   // Single-field where only — filter status client-side to avoid composite index requirement
@@ -3656,13 +3702,19 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   }, [checkInsRaw]);
 
   // Notify tech when a walk-in is newly assigned to them
-  const prevMyWalkIns = useRef<Set<string>>(new Set());
+  // v75 — null until first snapshot: the first load SEEDS silently instead
+  // of re-notifying every already-assigned walk-in on every portal mount.
+  const prevMyWalkIns = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!allWalkInsRaw || !staffMember?.id || !firestore || !tenantId) return;
     const myNotified = (allWalkInsRaw as any[]).filter(
       (w: any) => w.staffId === staffMember.id && w.status === 'notified'
     );
-    const newOnes = myNotified.filter((w: any) => !prevMyWalkIns.current.has(w.id));
+    if (prevMyWalkIns.current === null) {
+      prevMyWalkIns.current = new Set(myNotified.map((w: any) => w.id));
+      return;
+    }
+    const newOnes = myNotified.filter((w: any) => !prevMyWalkIns.current!.has(w.id));
     newOnes.forEach(async (w: any) => {
       // Write notification to inbox
       try {
@@ -3719,6 +3771,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     );
   }, [allMyApts, today]);
 
+  // v75 — ticks each minute so "Clocked In · Xh Ym" doesn't freeze until
+  // the next log write.
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setClockNow(Date.now()), 60000); return () => clearInterval(t); }, []);
   const clockStatus = useMemo(() => {
     if (!activityLogs) return { isClockedIn: false, isOnBreak: false, minutesWorked: 0, breakMinutes: 0, breakStartTime: null as Date | null };
     const logs = activityLogs
@@ -3743,9 +3799,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       }
     }
     // Add current open clock-in period
-    if (isClockedIn && clockInTime) totalWorked += differenceInMinutes(new Date(), clockInTime);
+    if (isClockedIn && clockInTime) totalWorked += differenceInMinutes(new Date(clockNow), clockInTime);
     // Add current open break period
-    if (isOnBreak && breakStartTime) totalBreak += differenceInMinutes(new Date(), breakStartTime);
+    if (isOnBreak && breakStartTime) totalBreak += differenceInMinutes(new Date(clockNow), breakStartTime);
 
     return {
       isClockedIn,
@@ -3754,7 +3810,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
       minutesWorked: Math.max(0, totalWorked - totalBreak), // net of breaks
       breakMinutes: totalBreak,
     };
-  }, [activityLogs]);
+  }, [activityLogs, clockNow]);
 
   const weekEarnings = useMemo(() => {
     const ws = startOfWeek(today, { weekStartsOn: 1 });
@@ -3967,14 +4023,17 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setIsRequestOpen(true)} className="h-9 px-3 rounded-xl bg-primary/20 border border-primary/30 text-primary font-black uppercase text-[9px] tracking-widest flex items-center gap-1.5 hover:bg-primary/30 transition-colors">
-              <Plus className="w-3.5 h-3.5" />Request
-            </button>
+            {staffMember.role !== 'renter' && (
+              <button onClick={() => setIsRequestOpen(true)} className="h-9 px-3 rounded-xl bg-primary/20 border border-primary/30 text-primary font-black uppercase text-[9px] tracking-widest flex items-center gap-1.5 hover:bg-primary/30 transition-colors">
+                <Plus className="w-3.5 h-3.5" />Request
+              </button>
+            )}
             <button onClick={onSignOut} className="p-2 rounded-xl bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 transition-colors">
               <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
+        {staffMember.role !== 'renter' && (
         <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/10">
           <div className={cn('w-2.5 h-2.5 rounded-full shrink-0',
             clockStatus.isOnBreak ? 'bg-amber-400 animate-pulse' :
@@ -3994,6 +4053,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             <ClockButton staffMember={staffMember} tenantId={tenantId} firestore={firestore} clockStatus={clockStatus} />
           </div>
         </div>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -4403,7 +4463,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             batch.update(doc(firestore, `tenants/${tenantId}/appointments`, aptId), {
               checkoutState: JSON.parse(JSON.stringify(checkoutState)),
             });
-            batch.commit().then(() => toast({ title: 'Handed off to front desk ✓' }));
+            batch.commit()
+              .then(() => toast({ title: 'Handed off to front desk ✓' }))
+              .catch(() => toast({ variant: 'destructive', title: 'Handoff FAILED', description: 'The front desk did not receive this checkout — reopen and send again.' }));
             setReviewApt(null); setReviewSvc(null);
           }}
           staff={allStaff || []}
