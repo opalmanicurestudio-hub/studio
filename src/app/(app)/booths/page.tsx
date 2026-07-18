@@ -2155,6 +2155,24 @@ export default function BoothsPage() {
       toast({ variant: 'destructive', title: 'Update failed', description: 'Try again.' });
     }
   };
+  // v74 — REAL refunds: calls the PATCH endpoint (Stripe refund + ledger
+  // reversal + audit) instead of the old status flip that moved no money.
+  const [refundingId, setRefundingId] = useState<string | null>(null);
+  const refundReservation = async (r: any) => {
+    if (refundingId) return;
+    setRefundingId(r.id);
+    try {
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, reservationId: r.id }),
+      });
+      const d = await res.json();
+      if (d.ok) toast({ title: 'Refunded', description: `$${((d.refundedCents || 0) / 100).toFixed(2)} refunded to ${r.name || 'guest'}'s card${d.alreadyRefunded ? ' (was already processed)' : ''}.` });
+      else toast({ variant: 'destructive', title: 'Refund failed', description: d.error || 'Try again, or record it manually.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Network error', description: 'The refund may not have completed — check Stripe before retrying.' });
+    } finally { setRefundingId(null); }
+  };
   const [chargingId, setChargingId] = useState<string | null>(null);
   const chargeOverageToCard = async (r: any) => {
     if (chargingId) return;
@@ -3846,10 +3864,10 @@ export default function BoothsPage() {
                       )}
                       {r.overageStatus === 'due' && <button onClick={() => markOverageCollected(r)} className={`${r.cardOnFile ? 'h-8 px-3 border-2 text-red-600 border-red-300' : 'flex-1 h-8 bg-red-600 text-white'} rounded-lg font-black uppercase text-[9px] tracking-widest`}>{r.cardOnFile ? 'Paid in person' : `Collect $${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger`}</button>}
                       {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
-                      {r.status === 'cancel_requested' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest">Approve → refund</button>}
+                      {r.status === 'cancel_requested' && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Approve → Refund Card'}</button>}
                       {r.status === 'cancel_requested' && <button onClick={() => setResStatus(r, 'confirmed')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Decline</button>}
                       <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
-                      {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => setResStatus(r, 'cancelled')} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Mark Refunded</button>}
+                      {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300 disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>}
                     </div>
                   </div>
                 ))}
