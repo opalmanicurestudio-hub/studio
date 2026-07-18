@@ -84,6 +84,25 @@ export async function POST(req: NextRequest) {
 
     // ── LOGIN ──────────────────────────────────────────────────────────
     if (action === 'login') {
+      // v80 — PIN-less path (floor page "tap your name"): allowed ONLY for
+      // staff who genuinely have no PIN configured anywhere.
+      if (body.staffId && !body.pin) {
+        const s = await db.doc(`tenants/${tenantId}/staff/${String(body.staffId)}`).get();
+        if (!s.exists) return NextResponse.json({ ok: false, error: 'Not found.' }, { status: 404 });
+        const sd = s.data() as any;
+        const priv = (await db.doc(`tenants/${tenantId}/staff/${s.id}/private/auth`).get()).data() as any;
+        const idx0 = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || {};
+        const hasPin = !!sd.pin || !!sd.pinHash || !!priv?.pinHash || Object.values(idx0).includes(s.id);
+        if (hasPin) return NextResponse.json({ ok: false, error: 'This team member has a PIN — enter it.' }, { status: 401 });
+        const staff0 = safeStaff(s.id, sd);
+        await logAuditAdmin(db, tenantId, {
+          action: 'portal.login', targetType: 'staff', targetId: staff0.id,
+          summary: `${staff0.name || 'Team member'} signed in (no-PIN name tap)`,
+          actor: { type: 'user', id: staff0.id, name: staff0.name, role: staff0.role },
+        });
+        return NextResponse.json({ ok: true, staff: staff0, customToken: null });
+      }
+
       const pin = String(body.pin || '');
       if (!/^\d{4}$/.test(pin)) return NextResponse.json({ ok: false, error: 'Enter a 4-digit PIN.' }, { status: 400 });
 
@@ -211,7 +230,7 @@ export async function POST(req: NextRequest) {
         { pinHash: sha256(newPin), updatedAt: new Date().toISOString() }, { merge: true });
       await db.doc(`tenants/${tenantId}/staff/${staffId}`).set(
         pinsPrivate
-          ? { pinHash: sha256(newPin), pinUpdatedAt: new Date().toISOString() }
+          ? { pinUpdatedAt: new Date().toISOString() }
           : { pin: newPin, pinHash: sha256(newPin), pinUpdatedAt: new Date().toISOString() },
         { merge: true });
       await resetsRef.set({ [staffId]: null }, { merge: true });
@@ -222,6 +241,26 @@ export async function POST(req: NextRequest) {
         actor: { type: 'user', id: staffId, name: sName },
       });
       return NextResponse.json({ ok: true });
+    }
+
+    // ── LIST STAFF (v80) — safe roster for login screens ───────────────
+    // The floor page previously downloaded the WHOLE staff collection
+    // (PINs included) to any unauthenticated browser. This returns only
+    // what a login screen needs.
+    if (action === 'list-staff') {
+      const snap = await db.collection(`tenants/${tenantId}/staff`).get();
+      const idx1 = ((await db.doc(`tenants/${tenantId}/private/pinIndex`).get()).data() as any) || {};
+      const claimed = new Set(Object.values(idx1));
+      const roster = snap.docs.map((d: any) => {
+        const s = d.data() as any;
+        return {
+          id: d.id, name: s.name || '', role: s.role || 'staff',
+          avatarUrl: s.avatarUrl || null,
+          isRenter: !!s.isRenter || s.role === 'renter',
+          hasPin: !!s.pin || !!s.pinHash || claimed.has(d.id),
+        };
+      });
+      return NextResponse.json({ ok: true, staff: roster });
     }
 
     // ── VERIFY MANAGER (v79) ───────────────────────────────────────────
@@ -284,9 +323,12 @@ export async function POST(req: NextRequest) {
         await db.doc(`tenants/${tenantId}/staff/${d.id}/private/auth`).set(
           { pinHash: hash, updatedAt: new Date().toISOString() }, { merge: true });
         indexed++;
-        if (remove && s.pin) {
+        if (remove && (s.pin || s.pinHash)) {
+          // v80 — strip BOTH: a sha256 of a 4-digit PIN on a client-readable
+          // doc is offline-brute-forceable in 10,000 tries. The hash lives
+          // only in private/auth + pinIndex now.
           const { FieldValue } = await import('firebase-admin/firestore');
-          await d.ref.update({ pin: FieldValue.delete(), pinHash: hash });
+          await d.ref.update({ pin: FieldValue.delete(), pinHash: FieldValue.delete() });
           cleaned++;
         }
       }
