@@ -485,6 +485,24 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     }
   };
 
+  // v10 — live "Booking so far" line for the summary rail (desktop) and
+  // the compact strip above the footer (mobile). Lucide icons only.
+  const SummaryLine = ({ icon: Icon, label, value }: { icon: any; label: string; value?: string | null }) => (
+    <div className="flex items-start gap-2.5 py-2.5 border-b border-dashed border-border/60 last:border-0">
+        <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Icon className="w-3.5 h-3.5" />
+        </div>
+        <div className="min-w-0">
+            <p className="text-[10px] text-muted-foreground">{label}</p>
+            <p className={cn('text-[13px] font-semibold truncate', !value && 'text-muted-foreground/40 font-normal')}>{value || 'Not chosen yet'}</p>
+        </div>
+    </div>
+  );
+
+  const STEP_LABELS: Record<string, string> = {
+    details: 'Client & service', assignment: 'Provider', timing: 'Time', deposit: 'Deposit',
+  };
+
   const SelectionHeader = ({ icon: Icon, title, stepNum }: { icon: any, title: string, stepNum: number }) => (
     <div className="flex items-center gap-3 mb-6 text-left">
         <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
@@ -509,18 +527,33 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   return (
     <FormProvider {...methods}>
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
+      <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2 text-left">
                 <Sparkles className="w-4 h-4 text-primary" />
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Front desk booking</span>
             </div>
             <SheetTitle className="text-xl md:text-2xl font-semibold tracking-tight text-slate-900 leading-none">New Appointment</SheetTitle>
-            {step !== 'success' && <div className="pt-6"><Progress value={(currentStepIndex + 1) / (steps.length - 1) * 100} className="h-1 rounded-full bg-muted" /></div>}
+            {step !== 'success' && (
+                <div className="pt-5 flex gap-1.5">
+                    {steps.filter(s => s !== 'success').map((s, i) => {
+                        const done = i < currentStepIndex;
+                        const active = s === step;
+                        return (
+                            <button key={s} type="button" onClick={() => { if (done) setStep(s); }}
+                                className={cn('flex-1 text-left min-w-0', done ? 'cursor-pointer' : 'cursor-default')}>
+                                <div className={cn('h-1 rounded-full mb-1.5 transition-colors', (done || active) ? 'bg-primary' : 'bg-muted')} />
+                                <p className={cn('text-[10px] font-medium truncate', active ? 'text-primary' : done ? 'text-muted-foreground' : 'text-muted-foreground/50')}>{STEP_LABELS[s]}</p>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
         </SheetHeader>
 
-        <ScrollArea className="flex-1">
-            <div className="p-8 pb-32">
+        <div className="flex-1 flex min-h-0">
+        <ScrollArea className="flex-1 min-w-0">
+            <div className="p-5 md:p-8 pb-28">
                 <AnimatePresence mode="wait">
                     {step === 'details' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
@@ -579,8 +612,9 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center gap-2">
                                                                         <p className="font-semibold text-sm truncate leading-none text-left">{c.name}</p>
-                                                                        {hasPkg && <Badge className="bg-teal-600 text-white border-none text-[7px] h-3.5 px-1 font-black uppercase">PKG</Badge>}
-                                                                        {hasDebt && <Badge variant="destructive" className="border-none text-[7px] h-3.5 px-1 font-black uppercase animate-pulse">ARREARS</Badge>}
+                                                                        {hasPkg && <Badge className="bg-teal-50 text-teal-700 border border-teal-200 text-[9px] h-4 px-1.5 font-medium">Package</Badge>}
+                                                                        {hasDebt && <Badge className="bg-red-50 text-red-600 border border-red-200 text-[9px] h-4 px-1.5 font-medium">Owes balance</Badge>}
+                                                                        {!!c.cardOnFile?.token && <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] h-4 px-1.5 font-medium"><CreditCard className="w-2.5 h-2.5 mr-0.5" />Card</Badge>}
                                                                     </div>
                                                                     <p className="text-xs text-muted-foreground truncate text-left">{c.email || c.phone || 'No contact on file'}</p>
                                                                 </div>
@@ -704,20 +738,43 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
                                 </div>
                                 <div className="grid grid-cols-7 gap-2">
-                                    {weekDays.map(day => (
-                                        <button key={day.toISOString()} onClick={() => setValue('date', day)} className={cn("flex flex-col items-center justify-center p-3 rounded-2xl border-2 transition-all aspect-square", isSameDay(day, watchDate) ? "bg-primary text-primary-foreground border-primary shadow-md" : "bg-background border-transparent hover:border-primary/30", (isBefore(day, startOfDay(new Date())) && !isToday(day)) && "opacity-20 cursor-not-allowed")} type="button">
-                                            <span className="text-[10px] uppercase font-black opacity-60 mb-1">{format(day, 'E')}</span>
-                                            <span className="font-black text-xl tracking-tighter">{format(day, 'd')}</span>
-                                        </button>
-                                    ))}
+                                    {weekDays.map(day => {
+                                        const dow = format(day, 'eeee').toLowerCase();
+                                        const openThatDay = !!(publicScheduleProfile?.week as any)?.[dow]?.enabled;
+                                        const past = isBefore(day, startOfDay(new Date())) && !isToday(day);
+                                        const sel = isSameDay(day, watchDate);
+                                        return (
+                                            <button key={day.toISOString()} onClick={() => setValue('date', day)} disabled={past}
+                                                className={cn("flex flex-col items-center justify-center p-1.5 sm:p-2 rounded-xl border transition-all aspect-square",
+                                                    sel ? "bg-primary text-primary-foreground border-primary shadow-md" : "bg-background border-transparent hover:border-primary/30",
+                                                    past && "opacity-25 cursor-not-allowed",
+                                                    !openThatDay && !sel && !past && "opacity-45")}
+                                                type="button">
+                                                <span className="text-[10px] uppercase font-medium opacity-60">{format(day, 'E')}</span>
+                                                <span className="font-semibold text-base sm:text-lg tracking-tight">{format(day, 'd')}</span>
+                                                <span className={cn("w-1 h-1 rounded-full mt-0.5", sel ? "bg-primary-foreground" : openThatDay ? "bg-emerald-500" : "bg-transparent")} />
+                                            </button>
+                                        );
+                                    })}
                                 </div>
-                                <div className="grid grid-cols-3 gap-3 pt-8 border-t-2 border-dashed border-white/50">
-                                    {timeSlots.map(time => (
-                                        <Button key={time} variant={watchStartTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} className={cn("h-12 font-semibold text-sm rounded-xl border transition-all", watchStartTime === time ? "shadow-md" : "bg-background")}>
-                                            {format(timeStringToDate(time, new Date()), 'h:mm a')}
-                                        </Button>
-                                    ))}
-                                    {timeSlots.length === 0 && <div className="col-span-full py-10 text-xs font-medium text-muted-foreground/60 border border-dashed rounded-2xl">No openings this day — try another date</div>}
+                                <div className="pt-5 border-t border-dashed space-y-1 text-left">
+                                    {([['Morning', (t: string) => t < '12:00'], ['Afternoon', (t: string) => t >= '12:00' && t < '17:00'], ['Evening', (t: string) => t >= '17:00']] as [string, (t: string) => boolean][]).map(([groupLabel, test]) => {
+                                        const group = timeSlots.filter(test);
+                                        if (group.length === 0) return null;
+                                        return (
+                                            <div key={groupLabel}>
+                                                <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mt-4 mb-2">{groupLabel}</p>
+                                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                                    {group.map(time => (
+                                                        <Button key={time} variant={watchStartTime === time ? 'default' : 'outline'} onClick={() => setValue('startTime', time)} className={cn("h-11 font-semibold text-sm rounded-xl border transition-all", watchStartTime === time ? "shadow-md" : "bg-background")}>
+                                                            {format(timeStringToDate(time, new Date()), 'h:mm a')}
+                                                        </Button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {timeSlots.length === 0 && <div className="py-10 text-xs font-medium text-muted-foreground/60 border border-dashed rounded-2xl text-center">No openings this day — try another date</div>}
                                 </div>
                             </div>
                         </motion.div>
@@ -835,10 +892,46 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                 </AnimatePresence>
             </div>
         </ScrollArea>
+
+        {/* v10 — desktop summary rail: follows the booking through every step */}
+        {step !== 'success' && (
+        <aside className="hidden md:flex w-[248px] shrink-0 border-l bg-muted/5 flex-col p-5 overflow-y-auto">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-2">Booking so far</p>
+            <SummaryLine icon={User} label="Client"
+                value={watchClientId === 'new' ? (watch('newClientName') || 'New client') : selectedClient?.name} />
+            <SummaryLine icon={Sparkles} label="Service" value={selectedService?.name} />
+            <SummaryLine icon={CalendarIcon} label="Day"
+                value={watchDate ? format(watchDate, 'EEE, MMM d') : undefined} />
+            <SummaryLine icon={Clock} label="Time"
+                value={watchStartTime ? format(timeStringToDate(watchStartTime, new Date()), 'h:mm a') : undefined} />
+            <SummaryLine icon={Users} label="Provider"
+                value={watchStaffId === 'any' ? 'First available' : (staff || []).find(s => s.id === watchStaffId)?.name} />
+            {depositDetails && (
+                <SummaryLine icon={ShieldCheck} label="Deposit" value={`$${depositDetails.amount.toFixed(2)}`} />
+            )}
+            {selectedService?.price != null && (
+                <div className="mt-auto pt-4 border-t flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Total</span>
+                    <span className="text-base font-semibold">${safeNumber(selectedService.price).toFixed(2)}</span>
+                </div>
+            )}
+        </aside>
+        )}
+        </div>
         
         {step !== 'success' && (
-            <SheetFooter className={cn("p-4 sm:p-8 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20 shadow-2xl")}>
-                <div className="flex w-full gap-4">
+            <SheetFooter className={cn("p-4 md:p-6 border-t bg-background/80 backdrop-blur-xl flex-shrink-0 z-20")}>
+                <div className="w-full space-y-2">
+                <div className="md:hidden flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-0">
+                    <User className="w-3 h-3 shrink-0 opacity-50" />
+                    <span className="truncate">
+                        {[watchClientId === 'new' ? (watch('newClientName') || 'New client') : selectedClient?.name,
+                          selectedService?.name,
+                          watchStartTime ? `${format(watchDate, 'EEE d')} · ${format(timeStringToDate(watchStartTime, new Date()), 'h:mm a')}` : null]
+                          .filter(Boolean).join('  ·  ') || 'Start by picking a client'}
+                    </span>
+                </div>
+                <div className="flex w-full gap-3">
                     {currentStepIndex > 0 && (
                         <Button variant="ghost" onClick={handlePrevStep} className="flex-1 h-12 md:h-14 rounded-xl font-medium text-sm text-slate-500">
                             Back
@@ -864,6 +957,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                             </>
                         )}
                     </Button>
+                </div>
                 </div>
             </SheetFooter>
         )}
