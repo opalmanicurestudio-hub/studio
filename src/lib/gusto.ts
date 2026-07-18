@@ -54,8 +54,11 @@ export type GustoPayrollDraft = {
 };
 
 export type GustoPayrollResult = {
-  status: 'submitted' | 'processing' | 'processed' | 'failed' | 'not_connected';
+  status: 'submitted' | 'processing' | 'processed' | 'failed' | 'not_connected'
+    /** numbers landed in Gusto but the final submit was refused — finish in Gusto */
+    | 'synced_not_submitted';
   payrollId?: string;
+  checkDate?: string | null;
   message?: string;
 };
 
