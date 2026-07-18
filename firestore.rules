@@ -54,6 +54,12 @@ service cloud.firestore {
     match /tenants/{tenantId}/staff/{staffId} {
       allow get: if true;
       allow list, write: if isStaff(tenantId);
+      // v79 — step 4: authentication secrets move here (pinHash via the
+      // migrate-pins action). NEVER client-readable — the auth API reads
+      // them with admin privileges.
+      match /private/{docId} {
+        allow read, write: if false;
+      }
     }
     match /tenants/{tenantId}/consentForms/{formId} {
       allow get, list: if true;
@@ -221,6 +227,13 @@ service cloud.firestore {
       allow write: if isManager(tenantId);
     }
 
+    // v79 — step 5: the scoped check-ins collection. Written only by
+    // /api/checkins (server); the portal and floor views read it.
+    match /tenants/{tenantId}/appointmentCheckIns/{token} {
+      allow read: if isStaff(tenantId);
+      allow write: if false;
+    }
+
     // ── Catch-all for everything not explicitly matched above ──────────
     // v77: exclusion list expanded. Firestore ORs all matching rules, so
     // every collection with STRICTER explicit rules above must be listed
@@ -236,6 +249,7 @@ service cloud.firestore {
           'overflowEvents',
           'plaidItems',
           'private',
+          'staff',
           'bankTransactions',
           'vendorRules',
           'auditLogs',
@@ -251,15 +265,17 @@ service cloud.firestore {
           'tours',
           'boothCredits',
           'renters',
-          'leases'
+          'leases',
+          'appointmentCheckIns'
         ]);
     }
 
-    // v77 NOTE: still public read/write — the kiosk check-in flow is
-    // unauthenticated and this is a TOP-LEVEL collection, so rules can't
-    // scope it per-tenant. MIGRATION (portal rules ref, step 5): move it
-    // under tenants/{tid}/ and route kiosk writes through a server API.
-    // Until then this is the known weakest spot in the file.
+    // v79 — LEGACY, compatibility window only. /api/checkins now writes
+    // the scoped tenants/{id}/appointmentCheckIns (rules above) and
+    // mirrors here so old readers keep working. TO CLOSE THIS HOLE:
+    // once the kiosk posts to /api/checkins and no page queries this
+    // top-level collection, change both lines to `if false` and remove
+    // the mirror write in the API.
     match /appointmentCheckIns/{token} {
       allow read, write: if true;
     }
