@@ -76,19 +76,17 @@ import { PhoneInput } from '../ui/phone-input';
 import { ImageUpload } from '../shared/ImageUpload';
 
 const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') {
-        try {
-            return parseISO(val);
-        } catch {
-            return new Date(val);
-        }
+    let d: Date;
+    if (!val) d = new Date();
+    else if (val instanceof Date) d = val;
+    else if (typeof val === 'string') {
+        try { d = parseISO(val); } catch { d = new Date(val); }
     }
-    if (typeof val === 'object' && 'seconds' in val) {
-        return new Date(val.seconds * 1000);
-    }
-    return new Date(val);
+    else if (typeof val === 'object' && 'seconds' in val) d = new Date(val.seconds * 1000);
+    else d = new Date(val);
+    // Never return an Invalid Date — date-fns format() and
+    // areIntervalsOverlapping() THROW on them and crash the whole page.
+    return Number.isNaN(d.getTime()) ? new Date(0) : d;
 };
 
 const timeStringToDate = (timeStr: string, date: Date): Date => {
@@ -174,8 +172,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             serviceId: appointmentToRebook ? appointmentToRebook.serviceId : '',
             staffId: staffDefault,
             selectedTierId: 'any',
-            date: appointmentToRebook ? new Date(appointmentToRebook.startTime) : new Date(),
-            startTime: appointmentToRebook ? format(new Date(appointmentToRebook.startTime), 'HH:mm') : '',
+            date: appointmentToRebook ? safeDate(appointmentToRebook.startTime) : new Date(),
+            startTime: appointmentToRebook ? (() => { try { return format(safeDate(appointmentToRebook.startTime), 'HH:mm'); } catch { return ''; } })() : '',
             addOnIds: appointmentToRebook ? (appointmentToRebook.addOnIds || []) : [],
             overrideBusinessHours: false,
             paymentMethod: 'card_on_file',
@@ -243,11 +241,15 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         const busyIntervals: { start: Date, end: Date, padBefore: number, padAfter: number }[] = [];
         appointmentsFromDB.filter(apt => isSameDay(safeDate(apt.startTime), watchDate) && apt.staffId === staffMember.id && apt.status !== 'cancelled').forEach(apt => {
             const aptService = services.find(s => s.id === apt.serviceId);
-            busyIntervals.push({ start: safeDate(apt.startTime), end: safeDate(apt.endTime), padBefore: aptService?.padBefore || 0, padAfter: aptService?.padAfter || 0 });
+            const bStart = safeDate(apt.startTime), bEnd = safeDate(apt.endTime);
+            if (bStart > bEnd) return; // malformed window — never crash the grid over it
+            busyIntervals.push({ start: bStart, end: bEnd, padBefore: aptService?.padBefore || 0, padAfter: aptService?.padAfter || 0 });
         });
 
         (eventsFromDB || []).filter(evt => isSameDay(safeDate(evt.startTime), watchDate) && evt.type === 'blocked' && (!evt.staffIds || evt.staffIds.includes('all') || evt.staffIds.includes(staffMember.id))).forEach(evt => {
-            busyIntervals.push({ start: safeDate(evt.startTime), end: safeDate(evt.endTime), padBefore: 0, padAfter: 0 });
+            const eStart = safeDate(evt.startTime), eEnd = safeDate(evt.endTime);
+            if (eStart > eEnd) return;
+            busyIntervals.push({ start: eStart, end: eEnd, padBefore: 0, padAfter: 0 });
         });
 
         let currentTime = dayStartWithBusinessHours;
@@ -499,12 +501,13 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
       if (!clients) return [];
       if (!clientSearch.trim()) return clients.slice(0, 10);
       const s = clientSearch.toLowerCase();
-      return clients.filter(c => c.name.toLowerCase().includes(s) || (c.email && c.email.toLowerCase().includes(s)) || (c.phone && c.phone.includes(s)));
+      return clients.filter(c => (c.name || '').toLowerCase().includes(s) || (c.email && c.email.toLowerCase().includes(s)) || (c.phone && c.phone.includes(s)));
   }, [clients, clientSearch]);
 
   const currentAssignedPro = useMemo(() => staff?.find(s => s.id === assignedStaffId), [staff, assignedStaffId]);
 
   return (
+    <FormProvider {...methods}>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-xl max-h-[95dvh]")}>
         <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
@@ -727,7 +730,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                 <p className="text-[10px] font-black uppercase text-primary/60 tracking-[0.3em]">Required Deposit</p>
                                 <p className="text-5xl font-black text-primary tracking-tighter font-mono">${depositDetails.amount.toFixed(2)}</p>
                                 <div className="pt-4 border-t border-primary/10">
-                                    <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">{depositDetails.type.toUpperCase()} RECOVERY</Badge>
+                                    <Badge variant="outline" className="bg-white border-2 text-primary font-black uppercase text-[9px] h-6 px-3">{(depositDetails.type || 'deposit').toUpperCase()} RECOVERY</Badge>
                                 </div>
                             </div>
                             <div className="space-y-4 text-left">
@@ -866,5 +869,6 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         )}
       </SheetContent>
     </Sheet>
+    </FormProvider>
   );
 };
