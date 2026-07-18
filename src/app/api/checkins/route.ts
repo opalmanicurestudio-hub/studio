@@ -23,6 +23,7 @@ const MAX_FIELD = 300;
 const ALLOWED_FIELDS = [
   'appointmentId', 'clientId', 'clientName', 'status', 'checkInToken',
   'checkedInAt', 'partySize', 'notes', 'serviceIds', 'staffId', 'source',
+  'checkInStatus', 'lateTimeMinutes', // client self-service status ("on my way", "running late", "arrived")
 ];
 
 export async function POST(req: NextRequest) {
@@ -52,11 +53,27 @@ export async function POST(req: NextRequest) {
       else if (typeof v === 'number' || typeof v === 'boolean') clean[k] = v;
       else if (Array.isArray(v)) clean[k] = v.slice(0, 20).map((x: any) => String(x).slice(0, 120));
     }
-    if (!clean.checkedInAt) clean.checkedInAt = new Date().toISOString();
+    // Only default checkedInAt on an actual check-in (kiosk writes include
+    // `status`) — a status-only update ("on my way") must NOT stamp arrival.
+    if (!clean.checkedInAt && clean.status) clean.checkedInAt = new Date().toISOString();
 
     // Scoped write (the target state) + legacy mirror (compatibility).
     await db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`).set(clean, { merge: true });
     await db.doc(`appointmentCheckIns/${token}`).set(clean, { merge: true }); // TODO: remove after legacy rule closes
+
+    // Owner-visible audit trail for self-service status changes.
+    if (clean.checkInStatus) {
+      try {
+        await db.collection(`tenants/${tenantId}/auditLogs`).add({
+          action: 'checkin.status',
+          targetType: 'appointmentCheckIn',
+          targetId: token,
+          summary: `${clean.clientName || 'Client'} set check-in status to "${String(clean.checkInStatus).replace(/_/g, ' ')}"${clean.lateTimeMinutes ? ` (~${clean.lateTimeMinutes} min late)` : ''}`,
+          actor: { type: 'user', id: clean.clientId || null, name: clean.clientName || null, role: 'client', via: 'check-in-link' },
+          at: new Date().toISOString(),
+        });
+      } catch { /* audit failures are non-fatal */ }
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
