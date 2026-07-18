@@ -406,7 +406,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             return !appointmentsFromDB?.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: safeDate(apt.startTime), end: safeDate(apt.endTime) }, { inclusive: false }));
         });
         if (candidates.length > 0) {
-            candidates.sort((a, b) => (a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0));
+            const fairKey = (s: any) => {
+                const v = s.lastBookingAssignedAt || s.lastServedTimestamp;
+                return v ? safeDate(v).getTime() : 0;
+            };
+            candidates.sort((a, b) => fairKey(a) - fairKey(b));
             finalStaffId = candidates[0].id;
         } else {
             setIsSubmitting(false);
@@ -445,6 +449,13 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
     batch.set(aptRef, sanitizeForFirestore(payload));
     batch.set(checkInRef, sanitizeForFirestore(payload));
+
+    // v11 — same fairness ledger QuickBook uses, so "Smart Rotation" here and
+    // "First available" there rotate through ONE shared queue, not two.
+    if (data.staffId === 'any' && finalStaffId) {
+        batch.set(doc(firestore!, `tenants/${tenantId}/staff`, finalStaffId),
+            { lastBookingAssignedAt: now }, { merge: true });
+    }
 
     if (depositDetails && data.paymentMethod !== 'none') {
         const txnRef = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
