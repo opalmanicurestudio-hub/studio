@@ -2300,6 +2300,12 @@ const BillRow = ({ bill, onMarkPaid }: { bill: EnrichedBill; onMarkPaid: (b: Enr
           <Badge className={cn('text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-none', bill.definition?.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>
             {bill.definition?.context || '—'}
           </Badge>
+          {/* v70 — cadence badge so non-monthly bills read at a glance */}
+          {bill.definition?.cadence && bill.definition.cadence !== 'monthly' && (
+            <Badge variant="outline" className="text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-2 text-muted-foreground">
+              {bill.definition.cadence}
+            </Badge>
+          )}
         </div>
       </div>
     </div>
