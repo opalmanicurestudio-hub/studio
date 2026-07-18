@@ -127,7 +127,26 @@ export default function TimeClockPage() {
   };
 
   const handlePinConfirm = async () => {
-    const member = (staff || []).find((s: any) => s.pin === pin);
+    // Verify the PIN server-side (rate-limited, PINs never compared in the browser).
+    // If the auth API isn't deployed yet (404), fall back to the legacy local compare.
+    setIsProcessing(true);
+    let member: any = null;
+    try {
+      const res = await fetch('/api/portal/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', tenantId, pin }),
+      });
+      if (res.status === 404) throw new Error('__legacy__');
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d?.staff?.id) {
+        // Pull the full doc (clock state, compliance fields) from the live subscription
+        member = (staff || []).find((s: any) => s.id === d.staff.id) || d.staff;
+      }
+    } catch {
+      member = (staff || []).find((s: any) => s.pin && s.pin === pin);
+    } finally {
+      setIsProcessing(false);
+    }
     if (!member) { showError('PIN Not Recognized', 'Check your PIN and try again.'); return; }
 
     // ---- RESTRICTION CHECKS (clock_in only) ----
@@ -284,6 +303,24 @@ export default function TimeClockPage() {
     try {
       await addDocumentNonBlocking(activityLogsRef, logEntry);
       await setDocumentNonBlocking(staffDocRef, staffUpdate, { merge: true });
+      // Owner-visible audit trail — must never block the punch itself
+      try {
+        const punchLabels: Record<string, string> = {
+          clock_in: 'clocked in', clock_out: 'clocked out',
+          break_start: 'started a break', break_end: 'ended a break',
+        };
+        const extra = logEntry.workedMinutes != null
+          ? ` (${Math.floor(logEntry.workedMinutes / 60)}h ${logEntry.workedMinutes % 60}m worked)`
+          : logEntry.durationMinutes != null ? ` (${logEntry.durationMinutes}m break)` : '';
+        await addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/auditLogs`), {
+          action: `timeclock.${pendingAction}`,
+          targetType: 'staff',
+          targetId: selectedStaff.id,
+          summary: `${selectedStaff.name || 'Staff member'} ${punchLabels[pendingAction] || pendingAction} via time clock${extra}`,
+          actor: { type: 'user', id: selectedStaff.id, name: selectedStaff.name || null, role: selectedStaff.role || 'staff', via: 'timeclock-kiosk' },
+          at: now,
+        });
+      } catch { /* audit failures are non-fatal */ }
       setStep('success');
       setTimeout(() => {
         setStep('idle');
