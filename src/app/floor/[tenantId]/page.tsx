@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useFirebase, useDoc, useMemoFirebase, useCollection } from '@/firebase';
 import {
   doc, collection, query, where, updateDoc, onSnapshot,
-  serverTimestamp, getDoc, setDoc,
+  serverTimestamp, getDoc, getDocs, setDoc,
 } from 'firebase/firestore';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -47,7 +47,7 @@ type FloorRequest = {
   source?: string; _pending?: boolean;
 };
 
-type StaffMember = { id: string; name: string; role?: string; pin?: string; avatarUrl?: string };
+type StaffMember = { id: string; name: string; role?: string; pin?: string; avatarUrl?: string; hasPin?: boolean };
 
 type SeatingTable = {
   id: string; name: string; x: number | null; y: number | null;
@@ -106,23 +106,65 @@ const ElapsedTimer = ({ createdAt, compact }: { createdAt: string; compact?: boo
 };
 
 // ─── PIN LOGIN ────────────────────────────────────────────────────────────────
-const PinLogin = ({ staff, tenantName, onLogin, isLoading }: {
-  staff: StaffMember[]; tenantName: string; onLogin: (m: StaffMember) => void; isLoading?: boolean;
+const PinLogin = ({ staff, tenantId, tenantName, onLogin, isLoading }: {
+  staff: StaffMember[]; tenantId: string; tenantName: string; onLogin: (m: StaffMember) => void; isLoading?: boolean;
 }) => {
   const [pin, setPin] = useState('');
   const [shake, setShake] = useState(false);
   const [ok, setOk] = useState<StaffMember | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  const fail = () => { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); };
+
+  // PINs are verified server-side so staff PINs never need to reach this device.
+  // If the auth API isn't deployed yet (404), fall back to the legacy local compare.
+  const verifyPin = async (next: string) => {
+    setVerifying(true);
+    try {
+      const res = await fetch('/api/portal/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', tenantId, pin: next }),
+      });
+      if (res.status === 404) throw new Error('__legacy__');
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d?.staff?.id) {
+        const m: StaffMember = { id: d.staff.id, name: d.staff.name || 'Staff', role: d.staff.role, avatarUrl: d.staff.avatarUrl };
+        setOk(m); setTimeout(() => onLogin(m), 600);
+      } else fail();
+    } catch {
+      const found = staff.find(s => s.pin && s.pin === next);
+      if (found) { setOk(found); setTimeout(() => onLogin(found), 600); }
+      else fail();
+    } finally { setVerifying(false); }
+  };
+
+  // No-PIN staff still register the login server-side (audit trail + PIN guard).
+  const tapName = async (s: StaffMember) => {
+    if (verifying || ok) return;
+    setVerifying(true);
+    try {
+      const res = await fetch('/api/portal/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'login', tenantId, staffId: s.id }),
+      });
+      if (res.status === 404) throw new Error('__legacy__');
+      const d = await res.json().catch(() => ({}));
+      if (res.ok && d?.staff?.id) {
+        const m: StaffMember = { id: d.staff.id, name: d.staff.name || s.name, role: d.staff.role ?? s.role, avatarUrl: d.staff.avatarUrl ?? s.avatarUrl };
+        setOk(m); setTimeout(() => onLogin(m), 600);
+      } else fail();
+    } catch {
+      setOk(s); setTimeout(() => onLogin(s), 600);
+    } finally { setVerifying(false); }
+  };
 
   const press = (key: string) => {
+    if (verifying || ok) return;
     if (key === '⌫') { setPin(p => p.slice(0, -1)); return; }
     if (pin.length >= 4) return;
     const next = pin + key;
     setPin(next);
-    if (next.length === 4) {
-      const found = staff.find(s => s.pin === next);
-      if (found) { setOk(found); setTimeout(() => onLogin(found), 600); }
-      else { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
-    }
+    if (next.length === 4) verifyPin(next);
   };
 
   return (
@@ -157,7 +199,7 @@ const PinLogin = ({ staff, tenantName, onLogin, isLoading }: {
             <button
               key={i}
               onClick={() => key && press(key)}
-              disabled={!key}
+              disabled={!key || verifying}
               className={cn('h-16 rounded-2xl font-black text-2xl transition-all active:scale-95 select-none',
                 key === '⌫' ? 'text-slate-500 hover:text-slate-300' :
                   key ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-lg shadow-black/30' :
@@ -167,6 +209,13 @@ const PinLogin = ({ staff, tenantName, onLogin, isLoading }: {
             </button>
           ))}
         </div>
+
+        {verifying && !ok && (
+          <div className="flex items-center gap-2 text-slate-500">
+            <Loader className="w-4 h-4 animate-spin" />
+            <p className="text-[10px] font-black uppercase tracking-widest">Verifying…</p>
+          </div>
+        )}
 
         <AnimatePresence>
           {ok && (
@@ -184,11 +233,11 @@ const PinLogin = ({ staff, tenantName, onLogin, isLoading }: {
             <div className="flex justify-center py-4">
               <Loader className="w-5 h-5 animate-spin text-slate-600" />
             </div>
-          ) : staff.filter(s => !s.pin).length > 0 ? (
-            staff.filter(s => !s.pin).map(s => (
+          ) : staff.filter(s => !s.hasPin && !s.pin).length > 0 ? (
+            staff.filter(s => !s.hasPin && !s.pin).map(s => (
               <button
                 key={s.id}
-                onClick={() => onLogin(s)}
+                onClick={() => tapName(s)}
                 className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800 hover:bg-slate-700 transition-all"
               >
                 <div className="w-8 h-8 rounded-lg bg-violet-500/20 flex items-center justify-center font-black text-violet-400 text-sm shrink-0">
@@ -819,8 +868,10 @@ export default function FloorStaffPage() {
     catch { return null; }
   });
   const handleLogin = (m: StaffMember) => {
-    sessionStorage.setItem(`opal_floor_staff_${tenantId}`, JSON.stringify(m));
-    setCurrentStaff(m);
+    // Persist only the safe identity subset — never PINs or auth fields.
+    const safe: StaffMember = { id: m.id, name: m.name, role: m.role, avatarUrl: m.avatarUrl };
+    sessionStorage.setItem(`opal_floor_staff_${tenantId}`, JSON.stringify(safe));
+    setCurrentStaff(safe);
   };
   const handleLogout = () => {
     sessionStorage.removeItem(`opal_floor_staff_${tenantId}`);
@@ -871,11 +922,36 @@ export default function FloorStaffPage() {
     [firestore, tenantId]
   );
   const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-  const staffQ = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
 
   const { data: allRequests, isLoading } = useCollection<FloorRequest>(floorQ);
   const { data: tenant } = useDoc<any>(tenantRef);
-  const { data: staffList, isLoading: staffLoading } = useCollection<StaffMember>(staffQ);
+
+  // Staff roster — fetched via the portal auth API so PINs never reach the browser.
+  // Falls back to a one-time direct read while the API isn't deployed yet.
+  const [staffList, setStaffList] = useState<StaffMember[] | null>(null);
+  const [staffLoading, setStaffLoading] = useState(true);
+  useEffect(() => {
+    if (!tenantId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/portal/auth', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'list-staff', tenantId }),
+        });
+        if (res.status === 404) throw new Error('__legacy__');
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || !Array.isArray(d?.staff)) throw new Error('__legacy__');
+        if (!cancelled) setStaffList(d.staff as StaffMember[]);
+      } catch {
+        try {
+          const snap = await getDocs(collection(firestore, `tenants/${tenantId}/staff`));
+          if (!cancelled) setStaffList(snap.docs.map(dd => ({ id: dd.id, ...(dd.data() as any) })) as StaffMember[]);
+        } catch { if (!cancelled) setStaffList([]); }
+      } finally { if (!cancelled) setStaffLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [firestore, tenantId]);
 
   // ── Active event listener ─────────────────────────────────────────────────
   useEffect(() => {
@@ -1107,6 +1183,7 @@ export default function FloorStaffPage() {
     return (
       <PinLogin
         staff={staffList || []}
+        tenantId={tenantId}
         tenantName={tenant?.name || 'Studio'}
         onLogin={handleLogin}
         isLoading={staffLoading || (!staffList && !isLoading)}
@@ -1279,7 +1356,7 @@ export default function FloorStaffPage() {
             </p>
             {activeEvent.date && (
               <p className="text-[8px] font-bold text-violet-400/70">
-                {format(new Date(activeEvent.date), 'MMM d')}
+                {format(safeDate(activeEvent.date), 'MMM d')}
               </p>
             )}
             {/* Quick-jump to floor plan */}
