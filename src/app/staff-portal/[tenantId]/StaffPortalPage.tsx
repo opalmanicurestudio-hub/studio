@@ -30,7 +30,7 @@ import {
   ChevronLeft, ChevronDown, ChevronUp, RefreshCw,
   User, Lock, AlertTriangle, Workflow, MapPin, ShieldAlert, Phone,
   PlusCircle, Car, Users, MessageSquare, CreditCard,
-  Send, Mic, Square, Paperclip, ImagePlus, ArrowLeft, FileText,
+  Send, Mic, Square, Paperclip, ImagePlus, ArrowLeft, FileText, Landmark, Wallet,
 } from 'lucide-react';
 import { auditEntry } from '@/lib/audit';
 import {
@@ -3602,10 +3602,223 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   );
 }
 
+// ─── RENTER RENT TAB (v78) ────────────────────────────────────────────────────
+// The renter's money world: lease + open rent (due/late with late fee),
+// card on file, schedule slot, unused-time credits, upcoming bookings,
+// and payment history. Read-only by design — payments happen via
+// auto-collect, the front desk, or the public booking flow; this surface
+// keeps the renter informed so nothing is a surprise.
+function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
+  const fmtC = (c: number) => `$${((c || 0) / 100).toFixed(2)}`;
+  const todayLocal = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+
+  const leasesQ = useMemoFirebase(() => (!firestore || !tenantId || !renter?.id) ? null
+    : query(collection(firestore, `tenants/${tenantId}/leases`), where('renterId', '==', renter.id)), [firestore, tenantId, renter?.id]);
+  const { data: myLeases } = useCollection<any>(leasesQ);
+  const activeLease = useMemo(() =>
+    (myLeases || []).find((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status)) || null,
+    [myLeases]);
+
+  const invoicesQ = useMemoFirebase(() => (!firestore || !tenantId || !activeLease?.id) ? null
+    : query(collection(firestore, `tenants/${tenantId}/rentInvoices`), where('leaseId', '==', activeLease.id)), [firestore, tenantId, activeLease?.id]);
+  const { data: myInvoices } = useCollection<any>(invoicesQ);
+  const openInvoice = useMemo(() =>
+    (myInvoices || []).filter((i: any) => i.status === 'due' || i.status === 'late')
+      .sort((a: any, b: any) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')))[0] || null,
+    [myInvoices]);
+
+  const boothsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/booths`), [firestore, tenantId]);
+  const { data: booths } = useCollection<any>(boothsQ);
+  const myBooth = useMemo(() => (booths || []).find((b: any) => b.id === activeLease?.boothId) || null, [booths, activeLease?.boothId]);
+
+  const creditsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/boothCredits`), [firestore, tenantId]);
+  const { data: allCredits } = useCollection<any>(creditsQ);
+  const myCredits = useMemo(() => {
+    const digits = (v: any) => String(v || '').replace(/\D/g, '');
+    const norm = (v: any) => String(v || '').trim().toLowerCase();
+    const keys = [norm(renter?.email), norm(staffMember?.email), digits(renter?.phone), digits(staffMember?.phone)].filter(Boolean);
+    return (allCredits || []).filter((c: any) => {
+      const k = String(c.contactKey || '');
+      return keys.includes(norm(k)) || keys.includes(digits(k));
+    });
+  }, [allCredits, renter, staffMember]);
+  const availableCreditCents = myCredits.filter((c: any) => c.status === 'available').reduce((s: number, c: any) => s + (c.amountCents || 0), 0);
+
+  const resQ = useMemoFirebase(() => (!firestore || !tenantId) ? null : collection(firestore, `tenants/${tenantId}/boothReservations`), [firestore, tenantId]);
+  const { data: allRes } = useCollection<any>(resQ);
+  const myUpcoming = useMemo(() => {
+    const digits = (v: any) => String(v || '').replace(/\D/g, '');
+    const norm = (v: any) => String(v || '').trim().toLowerCase();
+    const emails = [norm(renter?.email), norm(staffMember?.email)].filter(Boolean);
+    const phones = [digits(renter?.phone), digits(staffMember?.phone)].filter(Boolean);
+    return (allRes || [])
+      .filter((r: any) => (emails.includes(norm(r.email)) || phones.includes(digits(r.phone)))
+        && ['confirmed', 'checked_in'].includes(r.status) && String(r.endDate || '') >= todayLocal)
+      .sort((a: any, b: any) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  }, [allRes, renter, staffMember, todayLocal]);
+
+  const txnsQ = useMemoFirebase(() => (!firestore || !tenantId) ? null
+    : query(collection(firestore, `tenants/${tenantId}/transactions`), where('source', '==', 'booth_rent')), [firestore, tenantId]);
+  const { data: rentTxns } = useCollection<any>(txnsQ);
+  const myPayments = useMemo(() => {
+    const names = [renter ? `${renter.firstName || ''} ${renter.lastName || ''}`.trim() : '', staffMember?.name || ''].map(n => n.toLowerCase()).filter(Boolean);
+    return (rentTxns || [])
+      .filter((t: any) => t.type === 'income' && names.includes(String(t.clientOrVendor || '').toLowerCase()))
+      .sort((a: any, b: any) => String(b.date || '').localeCompare(String(a.date || '')))
+      .slice(0, 12);
+  }, [rentTxns, renter, staffMember?.name]);
+
+  const FREQ_LABEL: Record<string, string> = { weekly: '/wk', biweekly: '/2wk', monthly: '/mo', daily: '/day', hourly: '/hr' };
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  if (!renter) {
+    return (
+      <div className="p-5">
+        <div className="rounded-2xl border-2 border-dashed bg-white p-8 text-center space-y-2">
+          <Landmark className="w-10 h-10 mx-auto text-slate-300" />
+          <p className="font-black uppercase text-sm text-slate-700">No rental profile linked</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 leading-relaxed">Ask the owner to link your renter profile to this portal account.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-5 space-y-4">
+      {/* ── Rent status ── */}
+      <div className={cn('rounded-2xl border-2 p-5 space-y-3', openInvoice?.status === 'late' ? 'border-red-300 bg-red-50' : openInvoice ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50/50')}>
+        <div className="flex items-center justify-between">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Rent Status</p>
+          <span className={cn('text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full', openInvoice?.status === 'late' ? 'bg-red-600 text-white' : openInvoice ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white')}>
+            {openInvoice?.status === 'late' ? 'Late' : openInvoice ? 'Due' : 'Current'}
+          </span>
+        </div>
+        {openInvoice ? (
+          <>
+            <p className="text-3xl font-black font-mono tracking-tighter text-slate-900">
+              {fmtC((openInvoice.amountCents || 0) + (openInvoice.lateFeeCents || 0))}
+            </p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+              Due {openInvoice.dueDate ? format(new Date(String(openInvoice.dueDate).slice(0, 10) + 'T12:00:00'), 'EEE, MMM d') : '—'}
+              {(openInvoice.lateFeeCents || 0) > 0 ? ` · incl. ${fmtC(openInvoice.lateFeeCents)} late fee` : ''}
+            </p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+              {renter.cardOnFile ? 'Auto-collect will charge your card on file — or pay at the front desk.' : 'Pay at the front desk, or add a card on file in Documents.'}
+            </p>
+          </>
+        ) : (
+          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Nothing owed right now.</p>
+        )}
+      </div>
+
+      {/* ── Lease ── */}
+      {activeLease && (
+        <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">My Lease</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-black uppercase text-sm text-slate-900">{myBooth?.name || 'Space'}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                Since {activeLease.startDate ? format(new Date(String(activeLease.startDate).slice(0, 10) + 'T12:00:00'), 'MMM d, yyyy') : '—'}
+                {activeLease.status !== 'active' ? ` · ${String(activeLease.status).replace(/_/g, ' ')}` : ''}
+              </p>
+            </div>
+            <p className="font-black font-mono text-lg tracking-tighter text-slate-900">
+              {fmtC(activeLease.rentAmountCents)}<span className="text-[10px] text-slate-400">{FREQ_LABEL[activeLease.frequency] || ''}</span>
+            </p>
+          </div>
+          {activeLease.scheduleSlot?.days?.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-dashed">
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mr-1">My days:</span>
+              {activeLease.scheduleSlot.days.map((d: number) => (
+                <span key={d} className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-primary/10 text-primary">{DOW[d] || d}</span>
+              ))}
+              {activeLease.scheduleSlot.startTime && (
+                <span className="text-[9px] font-bold uppercase text-slate-400 ml-1">{activeLease.scheduleSlot.startTime}–{activeLease.scheduleSlot.endTime}</span>
+              )}
+            </div>
+          )}
+          <div className="flex items-center gap-2 pt-2 border-t border-dashed">
+            <CreditCard className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+              {renter.cardOnFile ? `Card on file ${renter.cardBrand ? `· ${renter.cardBrand}` : ''} ${renter.cardLast4 ? `•••• ${renter.cardLast4}` : ''}` : 'No card on file'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Credits ── */}
+      {myCredits.length > 0 && (
+        <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Booking Credits</p>
+            {availableCreditCents > 0 && (
+              <span className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{fmtC(availableCreditCents)} available</span>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            {myCredits.slice(0, 5).map((c: any) => (
+              <div key={c.id} className="flex items-center justify-between text-[10px] font-bold">
+                <span className="uppercase tracking-widest text-slate-500">{c.minutes ? `${c.minutes} min unused` : 'Credit'} {c.sourceBoothName ? `· ${c.sourceBoothName}` : ''}</span>
+                <span className={cn('font-mono font-black', c.status === 'available' ? 'text-emerald-600' : 'text-slate-400')}>
+                  {fmtC(c.amountCents)}{c.status !== 'available' ? ` (${c.status})` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[8px] font-bold uppercase tracking-widest text-slate-400">Available credits auto-apply to your next booking.</p>
+        </div>
+      )}
+
+      {/* ── Upcoming bookings ── */}
+      {myUpcoming.length > 0 && (
+        <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Upcoming Bookings</p>
+          <div className="space-y-2">
+            {myUpcoming.slice(0, 6).map((r: any) => (
+              <div key={r.id} className="flex items-center justify-between rounded-xl border p-3">
+                <div>
+                  <p className="text-[11px] font-black uppercase text-slate-800">{r.boothName || 'Space'}</p>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-slate-400">
+                    {r.startDate}{r.endDate !== r.startDate ? ` → ${r.endDate}` : ''}{r.startTime ? ` · ${r.startTime}–${r.endTime}` : ''}
+                  </p>
+                </div>
+                <span className={cn('text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full', r.status === 'checked_in' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700')}>
+                  {r.status === 'checked_in' ? 'Checked in' : 'Confirmed'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Payment history ── */}
+      <div className="rounded-2xl border-2 bg-white p-5 space-y-3">
+        <p className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-400">Payment History</p>
+        {myPayments.length === 0 ? (
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 py-3 text-center">No payments on record yet</p>
+        ) : (
+          <div className="space-y-1.5">
+            {myPayments.map((t: any) => (
+              <div key={t.id} className="flex items-center justify-between text-[10px] font-bold border-b border-dashed last:border-0 pb-1.5 last:pb-0">
+                <div className="min-w-0 mr-2">
+                  <p className="uppercase tracking-tight text-slate-700 truncate">{t.description || t.category}</p>
+                  <p className="text-[8px] uppercase tracking-widest text-slate-400">{t.date ? format(new Date(t.date), 'MMM d, yyyy') : ''} · {t.paymentMethod || ''}</p>
+                </div>
+                <span className="font-mono font-black text-slate-900 shrink-0">${(t.amount || 0).toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'>(staffMember.role === 'renter' ? 'messages' : 'today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'>(staffMember.role === 'renter' ? 'rent' : 'today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -3957,6 +4170,24 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // schedules, earnings, or studio requests. Same link, same PIN flow,
   // different world once inside.
   const isRenter = staffMember.role === 'renter';
+  // v78 — HYBRID MODEL: a renter record can be linked to this identity
+  // (linkedStaffId), or matched by email/phone. Renter-role users get
+  // their renter doc resolved for the Rent tab; STAFF with a linked
+  // renter record are hybrids — chair renters who also work the book —
+  // and get the union of both worlds: all staff tabs + Rent + Documents.
+  const rentersColQ = useMemoFirebase(() => (!firestore||!tenantId) ? null : collection(firestore,`tenants/${tenantId}/renters`), [firestore,tenantId]);
+  const { data: allRenters } = useCollection<any>(rentersColQ);
+  const myRenter = useMemo(() => {
+    const list = (allRenters || []) as any[];
+    const norm = (v: any) => String(v || '').trim().toLowerCase();
+    const digits = (v: any) => String(v || '').replace(/\D/g, '');
+    return list.find(r => r.linkedStaffId === staffMember.id)
+      || (staffMember.email ? list.find(r => norm(r.email) && norm(r.email) === norm(staffMember.email)) : null)
+      || (staffMember.phone ? list.find(r => digits(r.phone) && digits(r.phone) === digits(staffMember.phone)) : null)
+      || null;
+  }, [allRenters, staffMember.id, staffMember.email, staffMember.phone]);
+  const isHybrid = !isRenter && !!myRenter;
+
   const ALL_TABS = [
     { id:'today',    label:'Today',    icon:CalendarDays },
     { id:'schedule', label:'Schedule', icon:Calendar },
@@ -3965,21 +4196,26 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     { id:'messages', label:'Messages', icon:MessageSquare, badge:messagesBadge + teamBadge },
     { id:'inbox',    label:'Inbox',    icon:Bell, badge:unreadCount },
   ] as const;
-  // Renters get: Messages, Inbox, Documents (receipts + statements)
+  // v78 — Renters get: Rent, Messages, Inbox, Documents.
+  // Hybrids get everything: staff tabs + Rent + Documents.
+  const RENT_TAB = { id:'rent' as any, label:'Rent', icon:Landmark as any };
+  const DOCS_TAB = { id:'documents' as any, label:'Documents', icon:FileText as any };
   const TABS = isRenter
-    ? ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox').concat([{ id:'documents' as any, label:'Documents', icon:FileText as any }])
-    : ALL_TABS;
+    ? ([RENT_TAB] as any[]).concat(ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox') as any[]).concat([DOCS_TAB])
+    : isHybrid
+      ? (ALL_TABS as any[]).concat([RENT_TAB, DOCS_TAB])
+      : ALL_TABS;
 
   // v63 — W-9 state lives in the main portal component so Documents tab can access it
   const [w9Status, setW9Status] = useState<{tinMasked:string;legalName:string;collectedAt:string}|null|'loading'>('loading');
   const [showW9Form, setShowW9Form] = useState(false);
   useEffect(() => {
-    if (!isRenter) return;
-    fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(staffMember.id)}`)
+    if (!isRenter && !isHybrid) return;
+    fetch(`/api/booths/w9?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(myRenter?.id || staffMember.id)}`)
       .then(r=>r.json())
       .then(d => setW9Status(d.w9 ? { tinMasked: d.w9.tinMasked, legalName: d.w9.legalName, collectedAt: d.w9.collectedAt } : null))
       .catch(() => setW9Status(null));
-  }, [isRenter, tenantId, staffMember.id]);
+  }, [isRenter, isHybrid, tenantId, staffMember.id, myRenter?.id]);
 
   const NOTIF_ICONS: Record<string,any> = {
     timesheet_approved: <CheckCircle2 className="w-4 h-4 text-green-500" />,
@@ -4353,6 +4589,10 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           )}
 
           {/* INBOX */}
+          {activeTab==='rent' && (isRenter || isHybrid) && (
+            <RenterRentTab tenantId={tenantId} firestore={firestore} staffMember={staffMember} renter={myRenter} />
+          )}
+
           {activeTab==='messages' && <StaffMessagesTab staffMember={staffMember} tenantId={tenantId} firestore={firestore} />}
 
           {activeTab==='inbox' && (
@@ -4378,7 +4618,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
               ))}
             </div>
           )}
-          {activeTab==='documents' && isRenter && (
+          {activeTab==='documents' && (isRenter || isHybrid) && (
             <div className="space-y-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">Documents & Receipts</p>
               {/* W-9 status / collection */}
@@ -4560,4 +4800,4 @@ export default function StaffPortalPage({ params }: { params: { tenantId: string
   if (!signedInStaff) return <PinEntry firestore={firestore} tenantId={tenantId} onSuccess={(s: any) => { setActiveStaffId(s.id); setSignedInStaff(s); registerPushForStaff(firestore, tenantId, s.id).catch(() => {}); }} />;
 
   return <ErrorBoundary><StaffDashboard staffMember={signedInStaff} tenantId={tenantId} firestore={firestore} onSignOut={() => { clearActiveStaffId(); setSignedInStaff(null); }} /></ErrorBoundary>;
-}
+}m
