@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { logAuditAdmin } from '@/lib/audit';
 
 const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -379,6 +380,9 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
     type:                  'income',
     context:               'Business',
     taxBucket:             'revenue',
+    // v74 — REQUIRED: every booth ledger view filters on this field;
+    // without it, paid bookings were invisible in the booth Money tab.
+    source:                'booth_rent',
     amount:                (r.amountCents || 0) / 100,
     stripeFeeCents:        feeCents || null,
     netAmountCents:        feeCents ? (r.amountCents || 0) - feeCents : null,
@@ -408,7 +412,7 @@ async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string,
       context: 'Business',
       taxBucket: 'operating_cost',
       amount: feeCents / 100,
-      category: 'Processing Fees',
+      category: 'Processing Fee',
       description: `Stripe fee — ${r.bookingType === 'hourly' ? 'hourly' : 'day'} rental — ${r.boothName || 'Space'} (${r.name})`,
       clientOrVendor: 'Stripe',
       date: nowIso,
@@ -488,6 +492,11 @@ export async function GET(req: NextRequest) {
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
       message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
+    await logAuditAdmin(db, tenantId, {
+      action: 'booth.booking_paid', targetType: 'boothReservation', targetId: reservationId,
+      summary: `Booking paid via Stripe: ${r.name || 'guest'} · ${r.boothName || 'space'} (${r.startDate}${r.endDate !== r.startDate ? ` → ${r.endDate}` : ''})${(r.creditAppliedCents || 0) > 0 ? ` · $${((r.creditAppliedCents || 0) / 100).toFixed(2)} credit applied` : ''}`,
+      amount: (r.amountCents || 0) / 100, actor: { type: 'system', name: 'booth-checkout' },
+    });
     return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
   } catch (err) {
     console.error('[booth-reserve] GET failed', err);
@@ -542,6 +551,7 @@ export async function PUT(req: NextRequest) {
     const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
     await txnRef.set({
       id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+      source: 'booth_rent',
       amount: r.overageDueCents / 100, category: 'Booth Rent',
       description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
       clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
@@ -554,7 +564,7 @@ export async function PUT(req: NextRequest) {
         const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await feeRef.set({
           id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-          amount: feeCents / 100, category: 'Processing Fees',
+          amount: feeCents / 100, category: 'Processing Fee',
           description: `Stripe fee — overage — ${r.boothName || 'Space'} (${r.name})`,
           clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
           hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
@@ -562,21 +572,8 @@ export async function PUT(req: NextRequest) {
         });
       }
     }
-    // Record the exact Stripe fee as a paired Processing Fees expense.
-    try {
-      const { feeCents: __fee, chargeId: __chg } = await stripeFeeFor(intent.id);
-      if (__fee > 0) {
-        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
-        await feeRef.set({
-          id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-          amount: __fee / 100, category: 'Processing Fees',
-          description: `Stripe fee — overage — ${r.boothName || 'Space'} (${r.name})`,
-          clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
-          hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: __chg,
-          sourceId: reservationId, tenantId, createdAt: nowIso,
-        });
-      }
-    } catch { /* fee recording never blocks the charge */ }
+    // v74 — removed: this block was an exact DUPLICATE of the fee write
+    // above, double-counting the Stripe fee expense on every overage charge.
 
     await resRef.set({ overageStatus: 'charged', overageChargedAt: nowIso, overagePaymentIntentId: intent.id }, { merge: true });
 
@@ -584,5 +581,92 @@ export async function PUT(req: NextRequest) {
   } catch (err) {
     console.error('[booth-reserve] PUT failed', err);
     return NextResponse.json({ ok: false, error: 'Could not charge overage.' }, { status: 500 });
+  }
+}
+
+
+// ── PATCH: real Stripe refund for a paid reservation ─────────────────────────
+// v74 — replaces the old "Mark Refunded" status flip, which moved no money
+// and left the ledger permanently showing income for refunded stays.
+// Body: { tenantId, reservationId, amountCents?, reason?, actor? }
+//   amountCents — optional partial refund; defaults to the full charge.
+// Does, atomically in sequence with idempotency guards:
+//   1. stripe.refunds.create against the booking's PaymentIntent
+//   2. ledger reversal (type 'reversal', category 'Refunds', source
+//      'booth_rent') so booth income reports stay truthful
+//   3. reservation → status 'refunded' with the Stripe refund id
+//   4. audit entry naming who refunded and why
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { tenantId, reservationId, reason } = body || {};
+    if (!tenantId || !reservationId) {
+      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+    }
+    const db = getAdminDb();
+    const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
+    const snap = await resRef.get();
+    if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
+    const r = snap.data() as any;
+
+    if (r.status === 'refunded') {
+      // Idempotent: repeat calls succeed without double-refunding.
+      return NextResponse.json({ ok: true, refundedCents: r.refundedCents || 0, alreadyRefunded: true });
+    }
+    const REFUNDABLE = ['confirmed', 'checked_in', 'completed', 'cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'];
+    if (!REFUNDABLE.includes(r.status)) {
+      return NextResponse.json({ ok: false, error: `A ${String(r.status).replace(/_/g, ' ')} reservation can't be refunded.` }, { status: 400 });
+    }
+    if (!r.stripePaymentIntentId) {
+      return NextResponse.json({ ok: false, error: 'No Stripe payment on this reservation — record the refund manually in the ledger.' }, { status: 400 });
+    }
+    const paidCents = Number(r.amountCents) || 0;
+    const requested = Number(body.amountCents) || paidCents;
+    const refundCents = Math.min(Math.max(0, Math.round(requested)), paidCents);
+    if (refundCents <= 0) return NextResponse.json({ ok: false, error: 'Nothing to refund.' }, { status: 400 });
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+    let refund;
+    try {
+      refund = await stripe.refunds.create({
+        payment_intent: r.stripePaymentIntentId,
+        amount: refundCents,
+        metadata: { tenantId, reservationId, kind: 'booth_refund' },
+      });
+    } catch (err: any) {
+      const msg = err?.raw?.message || err?.message || 'Refund failed.';
+      return NextResponse.json({ ok: false, error: `Stripe refund failed: ${msg}` }, { status: 402 });
+    }
+
+    const nowIso = new Date().toISOString();
+    const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    await txnRef.set({
+      id: txnRef.id, type: 'reversal', context: 'Business', taxBucket: 'refund',
+      source: 'booth_rent',
+      amount: refundCents / 100, category: 'Refunds',
+      description: `Refund — ${r.boothName || 'Space'} — ${r.name || 'guest'}${reason ? ` (${String(reason).slice(0, 120)})` : ''}`,
+      clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card (Stripe refund)',
+      hasReceipt: false, stripePaymentIntentId: r.stripePaymentIntentId, stripeRefundId: refund.id,
+      sourceId: reservationId, tenantId, createdAt: nowIso,
+    });
+    await resRef.set({
+      status: 'refunded', refundedAt: nowIso,
+      refundedCents: refundCents, stripeRefundId: refund.id,
+      refundReason: reason ? String(reason).slice(0, 300) : null,
+    }, { merge: true });
+
+    const actor = (body?.actor && body.actor.type === 'user')
+      ? { type: 'user' as const, id: body.actor.id || undefined, name: body.actor.name || undefined, role: body.actor.role || undefined }
+      : { type: 'user' as const };
+    await logAuditAdmin(db, tenantId, {
+      action: 'booth.refunded', targetType: 'boothReservation', targetId: reservationId,
+      summary: `Refunded ${refundCents === paidCents ? 'in full' : `$${(refundCents / 100).toFixed(2)} of $${(paidCents / 100).toFixed(2)}`}: ${r.name || 'guest'} · ${r.boothName || 'space'}${reason ? ` — ${String(reason).slice(0, 80)}` : ''} · Stripe ${refund.id}`,
+      amount: refundCents / 100, actor,
+    });
+
+    return NextResponse.json({ ok: true, refundedCents: refundCents, stripeRefundId: refund.id });
+  } catch (err) {
+    console.error('[booth-reserve] PATCH failed', err);
+    return NextResponse.json({ ok: false, error: 'Could not process refund.' }, { status: 500 });
   }
 }
