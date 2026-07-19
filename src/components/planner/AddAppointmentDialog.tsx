@@ -70,7 +70,6 @@ import { useInventory } from '@/context/InventoryContext';
 import { collection, doc, writeBatch, increment, arrayUnion, query, where, getDocs } from 'firebase/firestore';
 import { Badge } from '../ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
-import { StaffSelectionCard } from '../shared/StaffSelectionCard';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PhoneInput } from '../ui/phone-input';
 import { ImageUpload } from '../shared/ImageUpload';
@@ -115,7 +114,7 @@ const sanitizeForFirestore = (obj: any): any => {
   );
 };
 
-type Step = 'details' | 'assignment' | 'timing' | 'deposit' | 'success';
+type Step = 'details' | 'timing' | 'deposit' | 'success';
 
 export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client: initialClient, appointmentToRebook }) => {
   const isMobile = useIsMobile();
@@ -333,7 +332,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   }, [selectedService, selectedClient, selectedTenant]);
 
   const steps = useMemo(() => {
-    const flow: Step[] = ['details', 'assignment', 'timing'];
+    const flow: Step[] = ['details', 'timing'];
     if (depositDetails) flow.push('deposit');
     flow.push('success');
     return flow;
@@ -346,9 +345,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         const isNew = watchClientId === 'new';
         const fieldsToValidate: any[] = isNew ? ['newClientName', 'newClientEmail', 'serviceId'] : ['clientId', 'serviceId'];
         const valid = await trigger(fieldsToValidate);
-        if (valid) setStep('assignment');
-    } else if (step === 'assignment') {
-        setStep('timing');
+        if (valid) setStep('timing');
     } else if (step === 'timing') {
         if (!watchStartTime) return toast({ variant: 'destructive', title: 'Pick a time', description: 'Choose an open slot to continue.' });
         if (depositDetails) setStep('deposit');
@@ -370,6 +367,66 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     const [hours, minutes] = data.startTime.split(':').map(Number);
     const startDateTime = setMinutes(setHours(startOfDay(data.date), hours), minutes);
     const endDateTime = addMinutes(startDateTime, selectedService!.duration);
+
+    // ── v13: try the shared booking engine first — server-side transaction,
+    // shared fairness rotation, no double-booking. Remote-payment bookings
+    // (status deposit_pending) and any API failure fall through to the
+    // legacy direct write below, unchanged.
+    const remotePay = depositDetails && data.paymentMethod === 'none';
+    if (!remotePay) {
+      try {
+        const res = await fetch('/api/appointments/book', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId, source: 'pos_add_appointment',
+            serviceId: data.serviceId,
+            staffId: data.staffId || 'any',
+            startTime: startDateTime.toISOString(),
+            client: data.clientId === 'new'
+              ? { name: data.newClientName, email: data.newClientEmail, phone: data.newClientPhone }
+              : { id: data.clientId },
+            depositCents: depositDetails ? Math.round(depositDetails.amount * 100) : 0,
+            inspirationPhotoUrl: inspirationPhotoUrl || undefined,
+          }),
+        });
+        if (res.status === 409) {
+          const out = await res.json().catch(() => ({}));
+          toast({ variant: 'destructive', title: 'That time was just taken', description: out?.error || 'Pick another slot.' });
+          setStep('timing');
+          setIsSubmitting(false);
+          return;
+        }
+        if (res.ok) {
+          const out = await res.json().catch(() => null);
+          if (out?.ok) {
+            setAssignedStaffId(out.staffId);
+            setCheckInToken(out.checkInToken);
+            if (depositDetails && data.paymentMethod !== 'none') {
+              try {
+                const b2 = writeBatch(firestore!);
+                const txnRef2 = doc(collection(firestore!, `tenants/${tenantId}/transactions`));
+                b2.set(txnRef2, sanitizeForFirestore({
+                  id: txnRef2.id,
+                  date: new Date().toISOString(),
+                  description: `Retainer: ${selectedService?.name}`,
+                  clientOrVendor: selectedClient?.name || data.newClientName,
+                  clientId: out.clientId || undefined,
+                  type: 'income', context: 'Business', category: 'Retainers',
+                  amount: depositDetails.amount,
+                  paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
+                  appointmentId: out.appointmentId,
+                  staffId: out.staffId,
+                }));
+                await b2.commit();
+              } catch { /* booking exists — retainer can be logged from the ledger */ }
+            }
+            setStep('success');
+            setIsSubmitting(false);
+            return;
+          }
+        }
+      } catch { /* fall through to the legacy write */ }
+    }
 
     const batch = writeBatch(firestore!);
     const now = new Date().toISOString();
@@ -511,7 +568,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
   );
 
   const STEP_LABELS: Record<string, string> = {
-    details: 'Client & service', assignment: 'Provider', timing: 'Time', deposit: 'Deposit',
+    details: 'Client & service', timing: 'Provider & time', deposit: 'Deposit',
   };
 
   const SelectionHeader = ({ icon: Icon, title, stepNum }: { icon: any, title: string, stepNum: number }) => (
@@ -707,38 +764,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                         </motion.div>
                     )}
 
-                    {step === 'assignment' && (
-                        <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="assignment" className="space-y-10">
-                            <SelectionHeader icon={Users} title="Choose a Provider" stepNum={2} />
-                            <Controller
-                                name="staffId"
-                                control={control}
-                                render={({ field }) => (
-                                    <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-4">
-                                        <StaffSelectionCard 
-                                            staff={{ id: 'any', name: 'Smart Rotation', avatarUrl: '' }} 
-                                            pricingTiers={pricingTiers || []} 
-                                            isSelected={field.value === 'any'}
-                                        />
-                                        {(staff || []).map(s => (
-                                            <StaffSelectionCard 
-                                                key={s.id} 
-                                                staff={s} 
-                                                pricingTiers={pricingTiers || []} 
-                                                isSelected={field.value === s.id}
-                                            />
-                                        ))}
-                                    </RadioGroup>
-                                )}
-                            />
-                        </motion.div>
-                    )}
-
                     {step === 'timing' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
                             <div className="flex flex-col gap-4">
                                 <div className="flex items-center justify-between">
-                                    <SelectionHeader icon={Clock} title="Pick a Time" stepNum={3} />
+                                    <SelectionHeader icon={Clock} title="Provider & Time" stepNum={2} />
                                     <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
                                         <TooltipProvider>
                                             <Tooltip>
@@ -753,6 +783,47 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                         </TooltipProvider>
                                     </div>
                                 </div>
+                                {/* v13 — provider strip, in-file and crash-proof. Shows what an
+                                    operator actually needs: today's load and who's off that day.
+                                    Only staff QUALIFIED for the chosen service appear. */}
+                                <div className="space-y-2">
+                                    <Label className="text-[11px] font-medium text-muted-foreground ml-1">Provider</Label>
+                                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                                        <button type="button" onClick={() => setValue('staffId', 'any')}
+                                            className={cn('flex flex-col items-center gap-1.5 min-w-[86px] p-3 rounded-2xl border-2 transition-all shrink-0',
+                                                watchStaffId === 'any' ? 'border-primary bg-primary/5' : 'border-transparent bg-muted/10 hover:bg-muted/20')}>
+                                            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><Zap className="w-4 h-4" /></div>
+                                            <p className="text-[11px] font-semibold leading-none">First available</p>
+                                            <p className="text-[9px] text-muted-foreground">fair rotation</p>
+                                        </button>
+                                        {qualifiedStaff.map(s => {
+                                            const dayLoad = (appointmentsFromDB || []).filter(a => a.staffId === s.id && a.status !== 'cancelled' && isSameDay(safeDate(a.startTime), watchDate)).length;
+                                            const dow2 = format(watchDate, 'eeee').toLowerCase();
+                                            const sched = s?.availability?.week?.[dow2 as keyof typeof s.availability.week] ?? (publicScheduleProfile?.week as any)?.[dow2];
+                                            const offToday = sched ? sched.enabled === false : false;
+                                            const sel = watchStaffId === s.id;
+                                            return (
+                                                <button key={s.id} type="button" onClick={() => setValue('staffId', s.id)}
+                                                    className={cn('flex flex-col items-center gap-1.5 min-w-[86px] p-3 rounded-2xl border-2 transition-all shrink-0',
+                                                        sel ? 'border-primary bg-primary/5' : 'border-transparent bg-muted/10 hover:bg-muted/20',
+                                                        offToday && !sel && 'opacity-50')}>
+                                                    <Avatar className="w-10 h-10 rounded-xl border">
+                                                        <AvatarImage src={s.avatarUrl} className="object-cover" />
+                                                        <AvatarFallback className="text-xs font-semibold">{(s.name || 'S')[0]}</AvatarFallback>
+                                                    </Avatar>
+                                                    <p className="text-[11px] font-semibold leading-none truncate max-w-[78px]">{(s.name || 'Staff').split(' ')[0]}</p>
+                                                    <p className={cn('text-[9px]', offToday ? 'text-amber-600 font-medium' : 'text-muted-foreground')}>
+                                                        {offToday ? 'off this day' : `${dayLoad} today`}
+                                                    </p>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    {qualifiedStaff.length === 0 && (
+                                        <p className="text-[11px] text-amber-600 px-1">No one is certified for this service — check the service's required skills.</p>
+                                    )}
+                                </div>
+
                                 <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-primary/20 bg-primary/5 shadow-inner">
                                     <div className="space-y-0.5 text-left">
                                         <Label className="text-xs font-semibold text-primary flex items-center gap-2">
@@ -814,7 +885,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
 
                     {step === 'deposit' && depositDetails && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="deposit" className="space-y-10">
-                            <SelectionHeader icon={CreditCard} title="Deposit" stepNum={4} />
+                            <SelectionHeader icon={CreditCard} title="Deposit" stepNum={3} />
                             <div className="p-8 rounded-2xl bg-primary/5 border border-primary/15 text-center space-y-3">
                                 <p className="text-[11px] font-medium uppercase tracking-wider text-primary/70">Deposit due to book</p>
                                 <p className="text-4xl font-semibold text-primary tracking-tight font-mono">${depositDetails.amount.toFixed(2)}</p>
@@ -981,8 +1052,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                             <Loader className="animate-spin h-5 w-5" />
                         ) : (
                             <>
-                                {step === 'details' ? 'Next: Provider' :
-                                 step === 'assignment' ? 'Next: Time' :
+                                {step === 'details' ? 'Next: Provider & time' :
                                  step === 'timing' && depositDetails ? 'Next: Deposit' :
                                  'Book Appointment'}
                                 <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
