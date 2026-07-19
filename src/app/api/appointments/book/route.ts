@@ -265,6 +265,7 @@ export async function POST(req: NextRequest) {
       shortCode: r.shortCode,
       staffId: r.staffId,
       staffName,
+      clientId: r.clientId,
       startTime: r.placedStartIso,
       endTime: r.placedEndIso,
     });
