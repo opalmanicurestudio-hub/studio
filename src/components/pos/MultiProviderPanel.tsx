@@ -98,6 +98,8 @@ function LegAvailabilityCheck({
   });
 
   if (!leg.serviceId || !leg.staffId || leg.staffId === 'any') return null;
+  // No main time picked yet → leg times are Invalid Dates; format() throws on those.
+  if (Number.isNaN(leg.startTime?.getTime?.() ?? NaN)) return null;
 
   const targetTimeStr = format(leg.startTime, 'HH:mm');
   const isAvailable = (slots || []).some((s: any) => s.time === targetTimeStr && (s.staffId === leg.staffId || !s.staffId));
@@ -139,8 +141,8 @@ export function MultiProviderPanel({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-          Additional providers · sequential
+        <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Additional providers · one after another
         </p>
       </div>
 
@@ -149,8 +151,8 @@ export function MultiProviderPanel({
         return (
           <div key={leg.id} className="rounded-2xl border-2 border-border bg-white p-3.5 space-y-3">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-1.5">
-                <Clock className="w-3 h-3" /> Then · {format(leg.startTime, 'h:mm a')}
+              <p className="text-[10px] font-medium uppercase tracking-wider text-primary flex items-center gap-1.5">
+                <Clock className="w-3 h-3" /> Then · {Number.isNaN(leg.startTime?.getTime?.() ?? NaN) ? 'pick the main time first' : format(leg.startTime, 'h:mm a')}
               </p>
               <button onClick={() => removeLeg(leg.id)} className="text-destructive/60 hover:text-destructive">
                 <Trash2 className="w-3.5 h-3.5" />
@@ -204,7 +206,7 @@ export function MultiProviderPanel({
         type="button"
         variant="outline"
         onClick={addLeg}
-        className="w-full h-11 rounded-xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest"
+        className="w-full h-11 rounded-xl border border-dashed font-medium text-xs"
       >
         <Plus className="w-3.5 h-3.5 mr-1.5" /> Add another provider
       </Button>
