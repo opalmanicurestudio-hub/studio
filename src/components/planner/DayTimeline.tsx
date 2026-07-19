@@ -13,6 +13,15 @@ import { Building, HardHat, Lock, Users, Landmark, Briefcase } from 'lucide-reac
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '@/components/ui/badge';
 
+// React #130 tripwire — if either card import resolves to undefined (a
+// named-vs-default export mismatch inside AppointmentCard.tsx / EventCard.tsx),
+// name the culprit on screen instead of letting React take down the planner.
+const _CARD_IMPORTS: Array<[string, any]> = [
+    ['AppointmentCard (src/components/planner/AppointmentCard.tsx)', AppointmentCard],
+    ['EventCard (src/components/planner/EventCard.tsx)', EventCard],
+];
+const _MISSING_CARDS = _CARD_IMPORTS.filter(([, c]) => !c).map(([n]) => n);
+
 const safeDate = (val: any): Date => {
     if (!val) return new Date();
     if (val instanceof Date) return val;
@@ -58,18 +67,19 @@ export const DayTimeline = ({
     const START_HOUR = 0;
     const hours = Array.from({ length: 24 }, (_, i) => i);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const safeColumns = columns || [];
 
     const displayedColumns = useMemo(() => {
-        if (!isMobile) return columns;
-        const selected = columns.find((c:any) => c.id === mobileSelectedColumnId);
-        return selected ? [selected] : (columns.length > 0 ? [columns[0]] : []);
-    }, [isMobile, columns, mobileSelectedColumnId]);
+        if (!isMobile) return safeColumns;
+        const selected = safeColumns.find((c:any) => c.id === mobileSelectedColumnId);
+        return selected ? [selected] : (safeColumns.length > 0 ? [safeColumns[0]] : []);
+    }, [isMobile, safeColumns, mobileSelectedColumnId]);
 
     const positionedItemsByColumn = useMemo(() => {
         const map = new Map<string, any[]>();
         if (!itemsByColumn) return map;
         
-        for (const column of columns) {
+        for (const column of safeColumns) {
             const columnId = column.id;
             const items = itemsByColumn.get(columnId) || [];
             let layoutInfo = items.map(item => ({ ...item, layout: { width: '100%', left: '0', cols: 1, col: 0 } }));
@@ -111,7 +121,7 @@ export const DayTimeline = ({
             map.set(columnId, layoutInfo.map(item => ({ ...item, layout: { width: `${100 / item.layout.cols}%`, left: `${(100 / item.layout.cols) * item.layout.col}%` } })));
         }
         return map;
-    }, [itemsByColumn, columns]);
+    }, [itemsByColumn, safeColumns]);
 
     const renderBill = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
@@ -189,6 +199,17 @@ export const DayTimeline = ({
 
     const gridStyle = { gridTemplateColumns: `repeat(${displayedColumns.length}, minmax(${isMobile ? '0' : '280px'}, 1fr))` };
 
+    if (_MISSING_CARDS.length > 0) {
+        return (
+            <div className="m-4 p-4 rounded-xl border-2 border-red-300 bg-red-50 text-sm text-red-800">
+                <p className="font-black uppercase tracking-widest text-[10px] mb-2">Planner import problem</p>
+                {_MISSING_CARDS.map(n => (
+                    <p key={n} className="font-semibold">{n} resolved to <code>undefined</code> — that file likely uses <code>export default</code> instead of a named export (or the export name doesn't match).</p>
+                ))}
+            </div>
+        );
+    }
+
     return (
         <div className="flex-1 relative overflow-auto" ref={scrollContainerRef}>
             <div className="grid grid-cols-[auto,1fr] min-w-max md:min-w-full">
@@ -204,11 +225,11 @@ export const DayTimeline = ({
                                         </div>
                                     </SelectTrigger>
                                     <SelectContent className="rounded-2xl border-2 shadow-2xl">
-                                        {columns.map(c => (
+                                        {safeColumns.map((c: any) => (
                                             <SelectItem key={c.id} value={c.id}>
                                                 <div className="flex items-center gap-2">
-                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[7px] bg-primary/10 text-primary">{c.name.charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
-                                                    <span className="font-black uppercase text-[9px] tracking-widest">{c.name}</span>
+                                                    {'isBusiness' in c ? <Briefcase className="w-3.5 h-3.5 text-primary" /> : 'role' in c ? <Avatar className="w-5 h-5"><AvatarImage src={(c as Staff).avatarUrl} /><AvatarFallback className="font-black text-[7px] bg-primary/10 text-primary">{(c.name || '?').charAt(0)}</AvatarFallback></Avatar> : ((c as Resource).type === 'room' ? <Building className="w-3.5 h-3.5" /> : <HardHat className="w-3.5 h-3.5" />)}
+                                                    <span className="font-black uppercase text-[9px] tracking-widest">{c.name || 'Unnamed'}</span>
                                                 </div>
                                             </SelectItem>
                                         ))}
@@ -221,12 +242,12 @@ export const DayTimeline = ({
                                     ) : 'role' in column ? (
                                         <Avatar className="w-9 h-9 border-2 border-background shadow-md rounded-xl">
                                             <AvatarImage src={(column as Staff).avatarUrl} className="object-cover" />
-                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{column.name.charAt(0)}</AvatarFallback>
+                                            <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(column.name || '?').charAt(0)}</AvatarFallback>
                                         </Avatar>
                                     ) : (
                                         (column as Resource).type === 'room' ? <Building className="w-5 h-5 text-muted-foreground" /> : <HardHat className="w-5 h-5 text-muted-foreground" />
                                     )}
-                                    <p className="font-black uppercase tracking-tight text-xs truncate max-w-[180px]">{column.name}</p>
+                                    <p className="font-black uppercase tracking-tight text-xs truncate max-w-[180px]">{column.name || 'Unnamed'}</p>
                                 </div>
                             )}
                         </div>
