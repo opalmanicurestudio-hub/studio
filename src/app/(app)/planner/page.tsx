@@ -178,7 +178,7 @@ function PlannerPageContent() {
 
     if (map.has('business')) {
         billInstances?.filter(i => isSameDay(safeDate(i.dueDate), targetDateStart)).forEach(i => {
-            const def = billDefinitions.find(d => d.id === i.billDefinitionId);
+            const def = (billDefinitions || []).find(d => d.id === i.billDefinitionId);
             map.get('business')!.push({ ...i, definition: def, itemType: 'bill' } as any);
         });
 
@@ -331,7 +331,7 @@ function PlannerPageContent() {
     if (!selectedAppointment || !firestore || !tenantId) return;
     const appointmentRef = doc(firestore, 'tenants', tenantId, 'appointments', selectedAppointment.id);
     const clientRef = doc(firestore, 'tenants', tenantId, 'clients', selectedAppointment.clientId);
-    const currentClient = clients.find(c => c.id === selectedAppointment.clientId);
+    const currentClient = (clients || []).find(c => c.id === selectedAppointment.clientId);
     const batch = writeBatch(firestore);
     const now = new Date().toISOString();
 
@@ -349,7 +349,7 @@ function PlannerPageContent() {
     if (currentClient && (data.reason === 'late' || data.reason === 'no-show' || data.reason === 'client_request')) {
         const isLateOrNoShow = data.reason === 'late' || data.reason === 'no-show';
         if (currentClient.activeMembershipId) {
-            const membership = memberships.find(m => m.id === currentClient.activeMembershipId);
+            const membership = (memberships || []).find(m => m.id === currentClient.activeMembershipId);
             const shouldForfeit = (data.reason === 'no-show' && membership?.forfeitOnNoShow) || (data.reason === 'late' && membership?.forfeitOnLateCancel);
             if (shouldForfeit) {
                 const perkId = selectedAppointment.serviceId;
@@ -359,7 +359,7 @@ function PlannerPageContent() {
                 batch.set(redemptionRef, sanitizeForFirestore({ id: redemptionRef.id, clientId: currentClient.id, type: 'membership', offeringId: membership!.id, offeringName: membership!.name, serviceId: selectedAppointment.serviceId, serviceName: services.find(s => s.id === selectedAppointment.serviceId)?.name || 'Service', date: now, staffId: currentUser?.uid, isForfeit: true }));
             }
         }
-        const activePack = currentClient.activePackages?.find(p => { const pkgDef = packages.find(pkg => pkg.id === p.packageId); return pkgDef?.serviceId === selectedAppointment.serviceId; });
+        const activePack = currentClient.activePackages?.find(p => { const pkgDef = (packages || []).find(pkg => pkg.id === p.packageId); return pkgDef?.serviceId === selectedAppointment.serviceId; });
         if (activePack && isLateOrNoShow) {
             const nextPackages = currentClient.activePackages!.map(p => p.packageId === activePack.packageId ? { ...p, sessionsRemaining: p.sessionsRemaining - 1 } : p).filter(p => p.sessionsRemaining > 0);
             batch.update(clientRef, { activePackages: nextPackages });
@@ -581,7 +581,7 @@ function PlannerPageContent() {
                     <div className="text-left">
                       <p className="font-black uppercase text-[10px] text-slate-800">{apt.clientName || 'Guest'}</p>
                       <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
-                        {svc?.name || 'Service'} · {format(safeDate(apt.startTime), 'MMM d, h:mm a')}
+                        {svc?.name || 'Service'} · {(() => { try { const d = safeDate(apt.startTime); return isNaN(d.getTime()) ? '' : format(d, 'MMM d, h:mm a'); } catch { return ''; } })()}
                       </p>
                     </div>
                     <Badge className={cn('font-black text-[8px] uppercase border-none shrink-0',
@@ -627,7 +627,7 @@ function PlannerPageContent() {
           onStartService={handleStartService} onFinishService={handleFinishService}
           onEdit={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
           onDelete={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
-          onCancel={id => { setSelectedAppointment(appointments.find(a => a.id === id) || null); setIsCancelDialogOpen(true); }}
+          onCancel={id => { setSelectedAppointment((appointments || []).find(a => a.id === id) || null); setIsCancelDialogOpen(true); }}
           onRebook={a => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
           onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
           onPrintTicket={() => {}} onOverride={handleOverrideConfirm}
