@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -49,34 +48,42 @@ import { cn } from '@/lib/utils';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 
-const ResourceCard = ({ 
-    resource, 
-    inventory, 
+const ResourceCard = ({
+    resource,
+    inventory,
     appointments,
-    onDelete, 
-    onEdit 
-}: { 
-    resource: Resource, 
-    inventory: InventoryItem[], 
+    onDelete,
+    onEdit
+}: {
+    resource: Resource,
+    inventory: InventoryItem[],
     appointments: Appointment[],
-    onDelete: (id: string) => void, 
-    onEdit: (resource: Resource) => void 
+    onDelete: (id: string) => void,
+    onEdit: (resource: Resource) => void
 }) => {
     const linkedItem = resource.inventoryItemId ? inventory.find(i => i.id === resource.inventoryItemId) : null;
     const Icon = resource.type === 'room' ? Building : HardHat;
     const imageUrl = linkedItem?.imageUrl;
+    // Defensive display — a resource that somehow saved without a name should
+    // never render as a blank card. It reads "Unnamed Unit" so it's obvious
+    // (and deletable) rather than an invisible mystery row.
+    const displayName = (resource.name && resource.name.trim()) ? resource.name : 'Unnamed Unit';
+    const displayType = (resource.type && String(resource.type).trim()) ? resource.type : 'uncategorized';
 
     const isOccupied = useMemo(() => {
-        return appointments.some(a => 
-            a.status === 'servicing' && 
+        return appointments.some(a =>
+            a.status === 'servicing' &&
             a.requiredResourceIds?.includes(resource.id)
         );
     }, [appointments, resource.id]);
 
+    const isNameless = !(resource.name && resource.name.trim());
+
     return (
         <Card className={cn(
             "transition-all duration-500 border-2 rounded-[2rem] overflow-hidden group h-full flex flex-col bg-white hover:border-primary/20 hover:shadow-2xl hover:shadow-primary/5 shadow-sm",
-            resource.isOutOfService && "opacity-60 grayscale-[0.5] border-dashed"
+            resource.isOutOfService && "opacity-60 grayscale-[0.5] border-dashed",
+            isNameless && "border-destructive/30 border-dashed"
         )}>
             <CardHeader className="p-6 pb-2 bg-muted/5 border-b">
                 <div className="flex justify-between items-start">
@@ -91,11 +98,15 @@ const ResourceCard = ({
                             )} />
                         </div>
                         <div className="min-w-0">
-                            <CardTitle className="text-lg md:text-xl font-black uppercase tracking-tight text-slate-900 leading-none mb-1.5 truncate">{resource.name}</CardTitle>
+                            <CardTitle className={cn(
+                                "text-lg md:text-xl font-black uppercase tracking-tight leading-none mb-1.5 truncate",
+                                isNameless ? "text-destructive/70 italic" : "text-slate-900"
+                            )}>{displayName}</CardTitle>
                             <div className="flex items-center gap-2">
-                                <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{resource.type}</p>
+                                <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{displayType}</p>
                                 {isOccupied && <Badge className="bg-amber-500 text-white border-none h-4 px-1.5 font-black text-[7px] uppercase animate-pulse">Occupied</Badge>}
                                 {resource.isOutOfService && <Badge variant="destructive" className="h-4 px-1.5 font-black text-[7px] uppercase">Service Required</Badge>}
+                                {isNameless && <Badge variant="destructive" className="h-4 px-1.5 font-black text-[7px] uppercase">Needs Cleanup</Badge>}
                             </div>
                         </div>
                     </div>
@@ -142,7 +153,7 @@ const ResourceCard = ({
                         ))}
                     </div>
                 )}
-                
+
                 <div className="grid grid-cols-1 gap-4 mt-auto">
                     <div className="p-4 rounded-2xl bg-muted/20 border-2 border-transparent group-hover:border-border/50 transition-all flex justify-between items-center text-left">
                         <div className="space-y-0.5">
@@ -177,16 +188,35 @@ export default function ResourcesPage() {
 
     const handleSaveResource = (resourceData: Omit<Resource, 'id'>) => {
         if (!firestore || !tenantId) return;
-        
+
+        // Guard: a resource with no name is what produced the mystery "Unnamed"
+        // unit in the planner. Refuse to write one — the name is required.
+        const cleanName = (resourceData?.name || '').trim();
+        if (!cleanName) {
+            toast({
+                variant: 'destructive',
+                title: 'Name Required',
+                description: 'Give this unit a name before registering it.',
+            });
+            return;
+        }
+        // Guard: type must be one we actually render. Default to 'equipment'
+        // (a bookable unit) rather than letting an unrenderable type orphan it.
+        const cleanType = (resourceData as any)?.type === 'room' ? 'room'
+            : (resourceData as any)?.type === 'equipment' ? 'equipment'
+            : 'equipment';
+
         const newResourceId = nanoid();
         const newResource: Resource = {
             ...resourceData,
+            name: cleanName,
+            type: cleanType as any,
             id: newResourceId,
         };
 
         const resourceRef = doc(firestore, 'tenants', tenantId, 'resources', newResourceId);
         setDocumentNonBlocking(resourceRef, newResource, {});
-        
+
         toast({
             title: "Resource Registered",
             description: `${newResource.name} has been established in the studio matrix.`
@@ -196,12 +226,24 @@ export default function ResourcesPage() {
 
     const handleUpdateResource = (resourceData: Resource) => {
         if (!firestore || !tenantId) return;
+
+        // Same guard on edit — you can't rename a unit to blank.
+        const cleanName = (resourceData?.name || '').trim();
+        if (!cleanName) {
+            toast({
+                variant: 'destructive',
+                title: 'Name Required',
+                description: 'A unit must have a name. Enter one or delete the unit instead.',
+            });
+            return;
+        }
+
         const resourceRef = doc(firestore, 'tenants', tenantId, 'resources', resourceData.id);
-        updateDocumentNonBlocking(resourceRef, resourceData);
+        updateDocumentNonBlocking(resourceRef, { ...resourceData, name: cleanName });
         toast({ title: "Resource Refined" });
         setIsEditResourceOpen(false);
     }
-    
+
     const handleDeleteResource = (resourceId: string) => {
         if (!firestore || !tenantId) return;
         const resourceRef = doc(firestore, 'tenants', tenantId, 'resources', resourceId);
@@ -222,6 +264,13 @@ export default function ResourcesPage() {
 
     const roomsAndStations = useMemo(() => resources?.filter(r => r.type === 'room') || [], [resources]);
     const equipment = useMemo(() => resources?.filter(r => r.type === 'equipment') || [], [resources]);
+    // Catch-all: any resource whose type is neither 'room' nor 'equipment'
+    // (including nameless/typeless orphans) surfaces here so it's visible and
+    // deletable instead of haunting the planner dropdown invisibly.
+    const otherUnits = useMemo(
+        () => (resources || []).filter(r => r.type !== 'room' && r.type !== 'equipment'),
+        [resources]
+    );
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
@@ -238,7 +287,7 @@ export default function ResourcesPage() {
             <PlusCircle className="mr-2 h-4 w-4" /> Register New Unit
           </Button>
         </div>
-        
+
         {resourcesLoading ? (
             <div className="flex flex-col items-center justify-center p-24 gap-4">
                 <Loader className="animate-spin h-8 w-8 text-primary" />
@@ -283,6 +332,23 @@ export default function ResourcesPage() {
                         </div>
                     )}
                 </section>
+
+                {otherUnits.length > 0 && (
+                    <section className="space-y-8">
+                        <div className="space-y-1 text-left px-1">
+                            <div className="flex items-center gap-2">
+                                <AlertCircle className="w-5 h-5 text-destructive" />
+                                <h2 className="text-xl md:text-2xl font-black uppercase tracking-tight text-destructive">Needs Cleanup</h2>
+                            </div>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60">Units with a missing name or unrecognized type — edit to fix, or delete to remove them from your planner.</p>
+                        </div>
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 animate-in fade-in duration-500">
+                            {otherUnits.map(resource => (
+                                <ResourceCard key={resource.id} resource={resource} inventory={inventory} appointments={appointments} onDelete={handleDeleteResource} onEdit={handleEditResource} />
+                            ))}
+                        </div>
+                    </section>
+                )}
             </div>
         ) : (
              <div className="text-center py-24 md:py-32 px-6 border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-6">
