@@ -629,7 +629,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
     img.crossOrigin = "anonymous";
     img.onload = () => {
       baseImageRef.current = img;
-      const padding = isMobile ? 20 : 40;
+      const padding = isMobile ? 8 : 24;
       const availW = container.clientWidth - padding;
       const availH = container.clientHeight - padding;
       const imgScale = Math.min(availW / img.width, availH / img.height);
@@ -706,17 +706,16 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl p-0 border-4 rounded-[3rem] md:rounded-[3rem] overflow-hidden shadow-3xl bg-background flex flex-col h-[95dvh] sm:h-[90dvh]">
-        <DialogHeader className="p-6 md:p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left">
-          <div className="flex items-center gap-3 mb-1.5 md:mb-2 text-left">
-            <Sparkles className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-            <span className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Technical Mapping</span>
-          </div>
-          <DialogTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</DialogTitle>
+      <DialogContent className="p-0 border-0 overflow-hidden shadow-2xl bg-background flex flex-col w-screen h-[100dvh] max-w-none rounded-none sm:w-[96vw] sm:h-[94dvh] sm:max-w-[1200px] sm:rounded-3xl">
+        <DialogHeader className="px-4 py-2.5 border-b bg-muted/5 flex-shrink-0 text-left">
+          <DialogTitle className="text-sm md:text-base font-semibold tracking-tight text-slate-900 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary shrink-0" />
+            <span className="truncate">{title}</span>
+          </DialogTitle>
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden bg-muted/20 relative flex flex-col">
-            <div className="w-full bg-background border-b p-3 md:p-4 flex-shrink-0">
+            <div className="w-full bg-background border-b px-2 py-1.5 md:px-3 md:py-2 flex-shrink-0">
                 <ScrollArea className="w-full">
                     <div className="flex items-center gap-6 pb-2 min-w-max">
                         <div className="flex items-center gap-2">
@@ -810,7 +809,7 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
                 </ScrollArea>
             </div>
 
-            <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-4 overflow-hidden touch-none select-none">
+            <div ref={containerRef} className="flex-1 relative flex items-center justify-center p-1.5 sm:p-3 overflow-hidden touch-none select-none">
                 {isLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/10 z-10 gap-4 text-center">
                         <Loader className="w-10 h-10 animate-spin text-primary opacity-40" />
@@ -837,17 +836,15 @@ export const ImageMarkupDialog: React.FC<ImageMarkupDialogProps> = ({
             </div>
         </div>
 
-        <DialogFooter className="p-6 md:p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
-            <div className="flex w-full flex-col sm:flex-row gap-4">
-                <div className="flex gap-2 flex-1">
-                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[9px] md:text-[10px] text-slate-400">Cancel</Button>
-                    <Button variant="outline" onClick={() => setViewTransform({ scale: 1, x: 0, y: 0 })} className="flex-1 h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[9px] md:text-[10px] border-2 bg-white shadow-sm">
-                        <Navigation className="w-4 h-4 mr-2 opacity-40" />
-                        Reset View
-                    </Button>
-                </div>
-                <Button onClick={handleSave} disabled={isLoading} className="flex-[1.5] h-12 md:h-14 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/30 group">
-                    Commit to Dossier <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
+        <DialogFooter className="px-3 py-2.5 border-t bg-muted/5 flex-shrink-0">
+            <div className="flex w-full gap-2">
+                <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-11 px-4 font-medium text-sm text-slate-500">Cancel</Button>
+                <Button variant="outline" onClick={() => setViewTransform({ scale: 1, x: 0, y: 0 })} className="h-11 px-4 rounded-xl font-medium text-sm border bg-white">
+                    <Navigation className="w-4 h-4 mr-1.5 opacity-40" />
+                    Reset view
+                </Button>
+                <Button onClick={handleSave} disabled={isLoading} className="flex-1 h-11 rounded-xl font-semibold text-sm shadow-md shadow-primary/20 group">
+                    Save markup <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </Button>
             </div>
         </DialogFooter>
