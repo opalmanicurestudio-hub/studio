@@ -596,7 +596,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     <FormProvider {...methods}>
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side={isMobile ? "bottom" : "right"} className={cn("p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden", isMobile ? "h-[92dvh] rounded-t-[2.5rem]" : "sm:max-w-3xl max-h-[95dvh]")}>
-        <SheetHeader className={cn("p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-6" : "p-8 pb-6")}>
+        <SheetHeader className={cn("border-b bg-muted/5 flex-shrink-0 text-left", isMobile ? "p-4 pt-5" : "p-8 pb-6")}>
             <div className="flex items-center gap-3 mb-2 text-left">
                 <Sparkles className="w-4 h-4 text-primary" />
                 <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Front desk booking</span>
@@ -620,8 +620,8 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         </SheetHeader>
 
         <div className="flex-1 flex min-h-0">
-        <ScrollArea className="flex-1 min-w-0">
-            <div className="p-5 md:p-8 pb-28">
+        <div className="flex-1 min-w-0 max-w-full overflow-y-auto overscroll-contain">
+            <div className="p-4 sm:p-5 md:p-8 pb-10 max-w-full">
                 <AnimatePresence mode="wait">
                     {step === 'details' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="details" className="space-y-10">
@@ -767,7 +767,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                     {step === 'timing' && (
                         <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} key="timing" className="space-y-10">
                             <div className="flex flex-col gap-4">
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
                                     <SelectionHeader icon={Clock} title="Provider & Time" stepNum={2} />
                                     <div className="flex items-center gap-3 p-2 bg-muted/20 rounded-xl border-2 border-transparent">
                                         <TooltipProvider>
@@ -788,7 +788,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     Only staff QUALIFIED for the chosen service appear. */}
                                 <div className="space-y-2">
                                     <Label className="text-[11px] font-medium text-muted-foreground ml-1">Provider</Label>
-                                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+                                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 max-w-full min-w-0">
                                         <button type="button" onClick={() => setValue('staffId', 'any')}
                                             className={cn('flex flex-col items-center gap-1.5 min-w-[86px] p-3 rounded-2xl border-2 transition-all shrink-0',
                                                 watchStaffId === 'any' ? 'border-primary bg-primary/5' : 'border-transparent bg-muted/10 hover:bg-muted/20')}>
@@ -834,13 +834,13 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                                     <Switch checked={!showAllSlots} onCheckedChange={(val) => setShowAllSlots(!val)} className="data-[state=checked]:bg-primary" />
                                 </div>
                             </div>
-                            <div className="rounded-2xl border bg-muted/10 p-5 space-y-6 text-center">
+                            <div className="rounded-2xl border bg-muted/10 p-3.5 sm:p-5 space-y-5 text-center max-w-full">
                                 <div className="flex items-center justify-between">
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', subWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronLeft className="w-5 h-5" /></Button>
                                     <span className="font-semibold text-sm">{format(watchDate, 'MMMM yyyy')}</span>
                                     <Button variant="outline" size="icon" onClick={() => setValue('date', addWeeks(watchDate, 1))} type="button" className="h-10 w-10 rounded-full bg-background shadow-md border-none"><ChevronRight className="w-5 h-5" /></Button>
                                 </div>
-                                <div className="grid grid-cols-7 gap-2">
+                                <div className="grid grid-cols-7 gap-1 sm:gap-2">
                                     {weekDays.map(day => {
                                         const dow = format(day, 'eeee').toLowerCase();
                                         const openThatDay = !!(publicScheduleProfile?.week as any)?.[dow]?.enabled;
@@ -938,7 +938,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                     )}
 
                     {step === 'success' && (
-                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} key="success" className="text-center py-12 space-y-12">
+                        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} key="success" className="text-center py-6 sm:py-10 space-y-7 sm:space-y-10">
                             <div className="w-24 h-24 bg-green-500/10 rounded-3xl flex items-center justify-center mx-auto">
                                 <CheckCircle2 className="w-12 h-12 text-green-500" />
                             </div>
@@ -994,7 +994,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                     )}
                 </AnimatePresence>
             </div>
-        </ScrollArea>
+        </div>
 
         {/* v10 — desktop summary rail: follows the booking through every step */}
         {step !== 'success' && (
