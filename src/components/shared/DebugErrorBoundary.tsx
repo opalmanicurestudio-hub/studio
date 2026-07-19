@@ -1,45 +1,44 @@
 'use client';
 
+// src/components/shared/DebugErrorBoundary.tsx
+//
+// Catches render crashes in its children and shows WHAT broke instead of
+// the blank "Application error" page — the component name and message are
+// right there to copy. Add this file ONLY if your build says
+// "Module not found: Can't resolve '@/components/shared/DebugErrorBoundary'".
+
 import React from 'react';
 
-type Props = { children: React.ReactNode };
-type State = { error: Error | null; componentStack: string | null };
+type State = { error: Error | null };
 
-export class DebugErrorBoundary extends React.Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { error: null, componentStack: null };
-  }
+export class DebugErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
+  state: State = { error: null };
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): State {
     return { error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error('[AppointmentDetailsSheet crash]', error.message);
-    console.error('[component stack]', info.componentStack);
-    this.setState({ componentStack: info.componentStack || null });
+    console.error('[DebugErrorBoundary]', error, info?.componentStack);
   }
 
   render() {
     if (this.state.error) {
-      const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
-
-      if (isDebug) {
-        return (
-          <div style={{ padding: 20, background: '#fee', border: '2px solid red', borderRadius: 12, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 11, margin: 16 }}>
-            <p style={{ fontWeight: 900, marginBottom: 8 }}>{this.state.error.message}</p>
-            <p>{this.state.componentStack}</p>
-          </div>
-        );
-      }
-
       return (
-        <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 12, fontWeight: 700, textTransform: 'uppercase' }}>
-          Couldn't load this appointment. Please try again.
+        <div className="m-4 p-4 rounded-xl border-2 border-red-200 bg-red-50 text-left">
+          <p className="text-sm font-semibold text-red-700">Something crashed here</p>
+          <p className="text-xs text-red-600 mt-1 font-mono break-all">{String(this.state.error?.message || this.state.error)}</p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="mt-3 h-9 px-4 rounded-lg bg-red-600 text-white text-xs font-semibold"
+          >
+            Try again
+          </button>
         </div>
       );
     }
     return this.props.children;
   }
 }
+
+export default DebugErrorBoundary;
