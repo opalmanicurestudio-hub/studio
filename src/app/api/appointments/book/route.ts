@@ -229,7 +229,14 @@ export async function POST(req: NextRequest) {
         checkInToken: token, shortCode,
         checkInStatus: body.checkInStatus === 'arrived' ? 'arrived' : 'pending',
         depositAmountCents: Number(body.depositCents) || 0,
-        depositStatus: (Number(body.depositCents) || 0) > 0 ? 'pending' : 'none',
+        // v14 — depositPaid:true = the caller is collecting the deposit at
+        // booking time (card on file / terminal). Anything else that owes a
+        // deposit starts 'pending'.
+        depositStatus: (Number(body.depositCents) || 0) > 0
+          ? (body.depositPaid === true ? 'paid' : 'pending')
+          : 'none',
+        ...(body.depositPaid === true && (Number(body.depositCents) || 0) > 0
+          ? { depositPaidAt: nowIso } : {}),
         notes: body.notes ? String(body.notes).slice(0, 500) : null,
         inspirationPhotoUrl: body.inspirationPhotoUrl ? String(body.inspirationPhotoUrl).slice(0, 500) : null,
         createdAt: nowIso,
