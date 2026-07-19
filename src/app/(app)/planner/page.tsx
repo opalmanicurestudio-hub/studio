@@ -144,8 +144,14 @@ function PlannerPageContent() {
   const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
 
   const staff = useMemo(() => {
-    if (role === 'staff' && currentUser) return (allStaff || []).filter(s => s.id === currentUser.uid);
-    return (allStaff || []);
+    // Skip "ghost" staff docs — records with no name AND no role. These are
+    // created accidentally when a merge-write (status/lastBookingAssignedAt)
+    // fires against a provider id that has no real staff record yet. They have
+    // no business appearing as a bookable provider column, so we hide them
+    // here. (A real provider always has a name.)
+    const real = (allStaff || []).filter((s: any) => s && (s.name || '').trim());
+    if (role === 'staff' && currentUser) return real.filter((s: any) => s.id === currentUser.uid);
+    return real;
   }, [allStaff, role, currentUser]);
 
   const columns = useMemo(() => {
