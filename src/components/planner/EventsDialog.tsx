@@ -340,6 +340,13 @@ const AddEventForm = ({
 // ─── EDIT EVENT FORM ───────────────────────────────────────────────────────────
 // Uses native <input type="date"> and <input type="time"> — works correctly on
 // mobile inside Sheets/Dialogs (no Popover/Calendar needed).
+const fmtSafe = (v: any, f: string, fallback: string): string => {
+  try {
+    const d = safeDate(v);
+    return isNaN(d.getTime()) ? fallback : format(d, f);
+  } catch { return fallback; }
+};
+
 const EditEventForm = ({
   event, onConfirm, staff,
 }: {
@@ -351,10 +358,11 @@ const EditEventForm = ({
 
   const [title,    setTitle]    = useState(event.title);
   const [type,     setType]     = useState(event.type);
-  // Native date string "yyyy-MM-dd"
-  const [dateStr,  setDateStr]  = useState(format(safeDate(event.startTime), 'yyyy-MM-dd'));
-  const [startTime, setStartTime] = useState(format(safeDate(event.startTime), 'HH:mm'));
-  const [endTime,   setEndTime]   = useState(format(safeDate(event.endTime),   'HH:mm'));
+  // Native date string "yyyy-MM-dd" — guarded: a malformed stored time
+  // must never crash the dialog, it just falls back to today/defaults.
+  const [dateStr,  setDateStr]  = useState(fmtSafe(event.startTime, 'yyyy-MM-dd', format(new Date(), 'yyyy-MM-dd')));
+  const [startTime, setStartTime] = useState(fmtSafe(event.startTime, 'HH:mm', '09:00'));
+  const [endTime,   setEndTime]   = useState(fmtSafe(event.endTime, 'HH:mm', '10:00'));
   const [notes,    setNotes]    = useState(event.notes    || '');
   const [location, setLocation] = useState(event.location || '');
   const [checklist, setChecklist] = useState<EventChecklistItem[]>(event.checklist || []);
@@ -365,9 +373,9 @@ const EditEventForm = ({
   useEffect(() => {
     setTitle(event.title);
     setType(event.type);
-    setDateStr(format(safeDate(event.startTime), 'yyyy-MM-dd'));
-    setStartTime(format(safeDate(event.startTime), 'HH:mm'));
-    setEndTime(format(safeDate(event.endTime), 'HH:mm'));
+    setDateStr(fmtSafe(event.startTime, 'yyyy-MM-dd', format(new Date(), 'yyyy-MM-dd')));
+    setStartTime(fmtSafe(event.startTime, 'HH:mm', '09:00'));
+    setEndTime(fmtSafe(event.endTime, 'HH:mm', '10:00'));
     setNotes(event.notes    || '');
     setLocation(event.location || '');
     setChecklist(event.checklist || []);
@@ -457,9 +465,9 @@ const EditEventForm = ({
                   <Checkbox checked={selectedStaffIds.includes(s.id)} onCheckedChange={() => toggleStaffSelection(s.id)} className="h-5 w-5" />
                   <Avatar className="h-8 w-8 border shadow-sm">
                     <AvatarImage src={s.avatarUrl} className="object-cover" />
-                    <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{s.name.charAt(0)}</AvatarFallback>
+                    <AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(s.name || 'S').charAt(0)}</AvatarFallback>
                   </Avatar>
-                  <span className="text-[11px] font-black uppercase tracking-tight truncate">{s.name}</span>
+                  <span className="text-[11px] font-black uppercase tracking-tight truncate">{s.name || 'Staff'}</span>
                 </label>
               ))}
             </div>
