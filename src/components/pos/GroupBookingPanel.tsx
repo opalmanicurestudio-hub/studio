@@ -233,7 +233,7 @@ function GuestRow({
           <p className="text-[10px] text-muted-foreground truncate">
             {selectedSvc?.name || 'No service'}{price > 0 ? ` · $${price.toFixed(0)}` : ''}
             {(guest.addOnIds || []).length > 0 ? ` · +${guest.addOnIds!.length} add-on${guest.addOnIds!.length > 1 ? 's' : ''}` : ''}
-            {selectedStaff ? ` · ${selectedStaff.name.split(' ')[0]}` : ''}
+            {selectedStaff ? ` · ${selectedStaff.name?.split(' ')[0] || 'Staff'}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -461,7 +461,7 @@ function GuestRow({
                   )}
                 >
                   <StaffAvatar staffMember={s} />
-                  {s.name.split(' ')[0]}
+                  {s.name?.split(' ')[0] || 'Staff'}
                   {(s.status === 'idle' || s.status === 'available') && (
                     <span className="ml-1 w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
                   )}
