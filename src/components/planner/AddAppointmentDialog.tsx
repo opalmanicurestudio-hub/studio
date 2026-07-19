@@ -386,6 +386,7 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
               ? { name: data.newClientName, email: data.newClientEmail, phone: data.newClientPhone }
               : { id: data.clientId },
             depositCents: depositDetails ? Math.round(depositDetails.amount * 100) : 0,
+            depositPaid: !!(depositDetails && data.paymentMethod !== 'none'),
             inspirationPhotoUrl: inspirationPhotoUrl || undefined,
           }),
         });
@@ -415,8 +416,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
                   amount: depositDetails.amount,
                   paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
                   appointmentId: out.appointmentId,
+                  kind: 'deposit',
                   staffId: out.staffId,
                 }));
+                b2.set(doc(firestore!, `tenants/${tenantId}/appointments`, out.appointmentId),
+                  sanitizeForFirestore({ depositTransactionId: txnRef2.id }), { merge: true });
                 await b2.commit();
               } catch { /* booking exists — retainer can be logged from the ledger */ }
             }
@@ -500,7 +504,15 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
         checkInToken: token,
         checkInStatus: 'pending',
         depositAmountCents: depositCentsForApt,
-        depositStatus: depositDetails ? 'pending' : 'none',
+        // v14 — double-charge fix: a deposit collected AT booking is PAID.
+        // 'pending' belongs only to the send-a-payment-link path. Writing
+        // 'pending' here made the detail sheet show an unpaid deposit that
+        // staff would then collect a second time.
+        depositStatus: depositDetails ? (isRemotePayment ? 'pending' : 'paid') : 'none',
+        ...(depositDetails && !isRemotePayment ? {
+            depositPaidAt: now,
+            depositPaymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Terminal',
+        } : {}),
         inspirationPhotoUrl: inspirationPhotoUrl || undefined
     };
 
@@ -528,8 +540,11 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
             amount: depositDetails.amount,
             paymentMethod: data.paymentMethod === 'card_on_file' ? 'Vault' : 'Manual Entry',
             appointmentId: aptId,
+            kind: 'deposit',
             staffId: finalStaffId
         }));
+        // Cross-link so any 'collect deposit' surface can see it's already done.
+        batch.set(aptRef, sanitizeForFirestore({ depositTransactionId: txnRef.id }), { merge: true });
     }
 
     try {
