@@ -56,6 +56,23 @@ const sanitizeForFirestore = (obj: any): any => {
     );
 };
 
+// v16 — SELF-DIAGNOSIS for React error #130 ("element type is invalid…
+// got: undefined"). That error means one of the components imported above
+// is undefined at runtime — a named-vs-default export mismatch in its
+// file. Instead of guessing which of ~15 imports it is, this checks them
+// all and prints the guilty name(s) on screen. Zero cost when all is well.
+const IMPORT_CHECK: Record<string, any> = {
+  AppHeader, Button, Badge, Label, Separator, ScrollArea, ScrollBar,
+  RadioGroup, RadioGroupItem, Tooltip, TooltipProvider, TooltipTrigger, TooltipContent,
+  AddAppointmentDialog, EditAppointmentDialog, AddEventDialog, DayTimeline,
+  WeeklyKpiSheet, BillsDueSheet, AppointmentDetailsSheet, LogPaymentDialog,
+  FloatingActionButton, OverrideCancellationDialog, CancelAppointmentDialog,
+  TechnicianReviewDialog, DebugErrorBoundary,
+};
+const UNDEFINED_IMPORTS = Object.entries(IMPORT_CHECK)
+  .filter(([, v]) => v === undefined)
+  .map(([k]) => k);
+
 function PlannerPageContent() {
   const searchParams = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -461,6 +478,22 @@ function PlannerPageContent() {
     const today = startOfDay(new Date());
     return billInstances.filter(i => { const d = safeDate(i.dueDate); return i.status !== 'paid' && (isPast(d) || isToday(d) || differenceInDays(d, today) <= 7); }).map(instance => { const definition = billDefinitions.find(def => def.id === instance.billDefinitionId); return definition ? { ...instance, definition } : null; }).filter((i): i is any => i !== null);
   }, [billInstances, billDefinitions]);
+
+  if (UNDEFINED_IMPORTS.length > 0) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-background p-8">
+        <div className="max-w-md p-6 rounded-2xl border-2 border-red-200 bg-red-50 text-left space-y-3">
+          <p className="text-sm font-semibold text-red-700">Found the crash — a component import is undefined:</p>
+          <p className="text-lg font-mono font-bold text-red-800">{UNDEFINED_IMPORTS.join(', ')}</p>
+          <p className="text-xs text-red-600 leading-relaxed">
+            The file for {UNDEFINED_IMPORTS.length === 1 ? 'this component' : 'these components'} exists but doesn't export
+            {UNDEFINED_IMPORTS.length === 1 ? ' this exact name' : ' these exact names'} (it probably uses a default export
+            or a different name). Send this name to Claude and it's a one-line fix.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) return <div className="flex h-screen w-full items-center justify-center bg-background"><Loader className="h-8 w-8 animate-spin text-primary" /></div>;
 
