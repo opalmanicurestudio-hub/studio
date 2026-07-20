@@ -156,6 +156,14 @@ service cloud.firestore {
       allow read: if isManager(tenantId);
       allow update, delete: if false;
     }
+    // Signed documents (e-signatures: work agreements, house rules, leases,
+    // consents) are legal evidence — APPEND-ONLY. The team creates them during
+    // onboarding; managers read them; nothing edits or deletes them.
+    match /tenants/{tenantId}/signedDocuments/{docId} {
+      allow create: if isStaff(tenantId);
+      allow read: if isManager(tenantId);
+      allow update, delete: if false;
+    }
     // Ledger: staff create/read/update (POS, refund flags, reconcile
     // stamps) but NEVER delete — reversals are the only way to undo.
     match /tenants/{tenantId}/transactions/{txnId} {
@@ -253,6 +261,7 @@ service cloud.firestore {
           'bankTransactions',
           'vendorRules',
           'auditLogs',
+          'signedDocuments',
           'transactions',
           'rentInvoices',
           'payrollDrafts',
