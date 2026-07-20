@@ -309,6 +309,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // Reserve are full applications; tours, questions, and waitlist are
   // lighter flows — same collection, a `kind` field, one owner queue.
   const [inquiryKind, setInquiryKind] = useState<'application' | 'tour' | 'question' | 'waitlist'>('application');
+  const [showChooser, setShowChooser] = useState(false);
   const openApply = (b: any, mode?: 'lease' | 'day') => {
     setApplyFor(b); setApplyMode(mode || (leaseRates(b).length > 0 ? 'lease' : 'day'));
     setPickedSlot(null);
@@ -324,8 +325,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
-    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setShowVideo(false);
+    // Tour/question/waitlist aren't day reservations — force a non-'day' mode so
+    // the contact fields (gated on applyMode !== 'day') always show, even for a
+    // space that only offers day rentals.
+    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setShowVideo(false);
   };
+  // Open a space into the guided chooser (capability-aware: only shows the
+  // actions this space actually offers).
+  const openSpace = (b: any) => { openApply(b, leaseRates(b).length > 0 ? 'lease' : 'day'); setShowChooser(true); };
 
   const uploadDoc = async (docName: string, file: File) => {
     setDocs(d => ({ ...d, [docName]: 'uploading' }));
@@ -578,12 +585,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     );
   };
   const CTA = ({ b }: { b: any }) => {
-    const hasLease = leaseRates(b).length > 0;
-    // One clear action per card. Intent (apply / reserve / tour / ask) is
-    // chosen inside the space view, so the grid isn't a wall of competing
-    // buttons — fewer decisions before the visitor engages.
+    // One clear action per card. Intent is chosen inside the guided view —
+    // capability-aware, so unoffered options never appear.
     return (
-      <button onClick={() => openApply(b, hasLease ? 'lease' : 'day')} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-slate-900 hover:bg-slate-800 transition-transform active:scale-[0.98]">
+      <button onClick={() => openSpace(b)} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-slate-900 hover:bg-slate-800 transition-transform active:scale-[0.98]">
         {config.viewBookCtaText || 'View & Book'}
       </button>
     );
@@ -784,6 +789,44 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   );
                 })()}
                 <div className="p-6 space-y-3.5 overflow-y-auto">
+                  {showChooser && (
+                    <div className="space-y-4 py-1">
+                      <div>
+                        <h3 className="font-black text-xl tracking-tight">{applyFor.name || 'This space'}</h3>
+                        <p className="text-xs opacity-60 font-bold mt-0.5">{((isLease(applyFor) ? leaseRates(applyFor) : ratesOf(applyFor)).slice(0, 2).map((r: any) => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ')) || ''} · We respond within one business day.</p>
+                      </div>
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">What would you like to do?</p>
+                        {leaseRates(applyFor).length > 0 && (
+                          <button type="button" onClick={() => { openApply(applyFor, 'lease'); setShowChooser(false); }} className="w-full rounded-2xl border-2 border-slate-900 bg-slate-900 text-white p-4 flex items-center justify-between text-left transition-all active:scale-[0.99]">
+                            <span className="min-w-0"><span className="block text-sm font-black">Apply for full-time rental</span>{leaseRates(applyFor)[0] && <span className="block text-[11px] font-bold text-white/60">${Math.round(leaseRates(applyFor)[0].amountCents / 100).toLocaleString()}{FREQ_LABEL[leaseRates(applyFor)[0].frequency] || '/mo'}</span>}</span>
+                            <span className="text-lg font-black text-white">›</span>
+                          </button>
+                        )}
+                        {dailyRateOf(applyFor) && (
+                          <button type="button" onClick={() => { openApply(applyFor, 'day'); setGranularity('daily'); setReserveStep('when'); setShowChooser(false); }} className="w-full rounded-2xl border-2 border-slate-200 p-4 flex items-center justify-between text-left transition-all active:scale-[0.99] hover:border-slate-900">
+                            <span className="min-w-0"><span className="block text-sm font-black">Reserve a day</span><span className="block text-[11px] font-bold text-slate-400">${(dailyRateOf(applyFor).amountCents / 100).toFixed(0)}/day</span></span>
+                            <span className="text-lg font-black text-slate-300">›</span>
+                          </button>
+                        )}
+                        {(hourlyRateOf(applyFor) || slotsOf(applyFor).length > 0) && (
+                          <button type="button" onClick={() => { openApply(applyFor, 'day'); setGranularity('hourly'); setReserveStep('when'); setShowChooser(false); }} className="w-full rounded-2xl border-2 border-slate-200 p-4 flex items-center justify-between text-left transition-all active:scale-[0.99] hover:border-slate-900">
+                            <span className="min-w-0"><span className="block text-sm font-black">{slotsOf(applyFor).length > 0 ? 'Book a time slot' : 'Book by the hour'}</span>{hourlyRateOf(applyFor) && <span className="block text-[11px] font-bold text-slate-400">${(hourlyRateOf(applyFor).amountCents / 100).toFixed(0)}/hr</span>}</span>
+                            <span className="text-lg font-black text-slate-300">›</span>
+                          </button>
+                        )}
+                        <button type="button" onClick={() => { openInquiry(applyFor, 'tour'); setShowChooser(false); }} className="w-full rounded-2xl border-2 border-slate-200 p-4 flex items-center justify-between text-left transition-all active:scale-[0.99] hover:border-slate-900">
+                          <span className="block text-sm font-black">Book a tour</span>
+                          <span className="text-lg font-black text-slate-300">›</span>
+                        </button>
+                        <button type="button" onClick={() => { openInquiry(applyFor, 'question'); setShowChooser(false); }} className="w-full rounded-2xl border-2 border-slate-200 p-4 flex items-center justify-between text-left transition-all active:scale-[0.99] hover:border-slate-900">
+                          <span className="block text-sm font-black">Ask a question</span>
+                          <span className="text-lg font-black text-slate-300">›</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {!showChooser && (<>
                   <div>
                     <h3 className="font-black text-xl tracking-tight">
                     {inquiryKind === 'tour' ? `Tour ${applyFor.name || 'the space'}`
@@ -794,31 +837,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <p className="text-xs opacity-60 font-bold mt-0.5">{(applyMode === 'lease' ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ') || `$${priceOf(applyFor).amount.toLocaleString()}${priceOf(applyFor).suffix}`} · We respond within one business day.</p>
                   </div>
 
-                  {/* Intent switcher — pick what you want to do, in-place.
-                      openApply/openInquiry keep the visitor's typed contact. */}
-                  {inquiryKind !== 'waitlist' && applyFor.id && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {leaseRates(applyFor).length > 0 && (
-                        <button type="button" onClick={() => openApply(applyFor, 'lease')}
-                          className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'application' && applyMode === 'lease' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                          Apply to rent
-                        </button>
-                      )}
-                      {dayRates(applyFor).length > 0 && (
-                        <button type="button" onClick={() => openApply(applyFor, 'day')}
-                          className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'application' && applyMode === 'day' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                          Reserve a day
-                        </button>
-                      )}
-                      <button type="button" onClick={() => openInquiry(applyFor, 'tour')}
-                        className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'tour' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                        Book a tour
-                      </button>
-                      <button type="button" onClick={() => openInquiry(applyFor, 'question')}
-                        className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'question' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                        Ask a question
-                      </button>
-                    </div>
+                  {applyFor.id && (
+                    <button type="button" onClick={() => setShowChooser(true)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors">‹ Back to options</button>
                   )}
 
                   {inquiryKind !== 'waitlist' && (
@@ -1309,6 +1329,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </button>
                   </div>
                   </div>
+                  )}
+                  </>
                   )}
                 </div>
               </>
