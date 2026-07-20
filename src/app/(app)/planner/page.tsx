@@ -113,6 +113,26 @@ function PlannerPageContent() {
     });
   }, [studioEventsRaw, currentDate]);
 
+  // Tours booked through the public Rentals page land as boothApplications
+  // (kind:'tour'). Any with a concrete tourStartIso show on the Studio lane so
+  // a solo owner sees tours beside appointments. Declined/cancelled are hidden.
+  const tourAppsQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/boothApplications`), where('kind', '==', 'tour')),
+    [firestore, tenantId]
+  );
+  const { data: tourAppsRaw } = useCollection<any>(tourAppsQ);
+
+  const toursToday = useMemo(() => {
+    if (!tourAppsRaw) return [];
+    return tourAppsRaw.filter((t: any) => {
+      if (!t || !t.tourStartIso) return false;
+      if (t.status === 'declined' || t.status === 'cancelled') return false;
+      const d = safeDate(t.tourStartIso);
+      return d && !isNaN(d.getTime()) && isSameDay(d, currentDate);
+    });
+  }, [tourAppsRaw, currentDate]);
+
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -249,6 +269,28 @@ function PlannerPageContent() {
                 isStudioEvent: true,
             } as any);
         });
+
+        toursToday.forEach(t => {
+            const start = safeDate(t.tourStartIso);
+            const end = t.tourEndIso ? safeDate(t.tourEndIso) : addMinutes(start, 20);
+            map.get('business')!.push({
+                id:        `tour-${t.id}`,
+                itemType:  'event',
+                type:      'tour',
+                title:     `Tour — ${t.name || 'Guest'}`,
+                name:      `Tour — ${t.name || 'Guest'}`,
+                startTime: start.toISOString(),
+                endTime:   (isNaN(end.getTime()) ? addMinutes(start, 20) : end).toISOString(),
+                allDay:    false,
+                staffIds:  [],
+                checklist: [],
+                guestCount: 0,
+                notes:     [t.boothName, t.phone, t.email].filter(Boolean).join(' · '),
+                location:  t.boothName || '',
+                status:    t.status || 'new',
+                isTourRequest: true,
+            } as any);
+        });
     }
 
     events?.filter(e => isSameDay(safeDate(e.startTime), targetDateStart)).forEach(e => {
@@ -268,7 +310,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday]);
+  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday, toursToday]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
