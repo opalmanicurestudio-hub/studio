@@ -305,6 +305,10 @@ function PlannerPageContent() {
                 notes:     [t.boothName, t.phone, t.email].filter(Boolean).join(' · '),
                 location:  t.boothName || '',
                 status:    t.status || 'new',
+                guestName: t.name || 'Guest',
+                boothName: t.boothName || null,
+                phone:     t.phone || null,
+                tourTimeTBD: !!t.tourTimeTBD,
                 isTourRequest: true,
             } as any);
         });
@@ -330,6 +334,15 @@ function PlannerPageContent() {
                 notes:     [r.boothName, r.phone].filter(Boolean).join(' · '),
                 location:  r.boothName || '',
                 status:    r.status,
+                guestName: r.name || 'Guest',
+                boothName: r.boothName || null,
+                phone:     r.phone || null,
+                bookingType: isHourly ? 'hourly' : 'daily',
+                checkedInAt: r.checked_inAt || null,
+                bookedEndIso: isHourly ? end.toISOString() : null,
+                overageStatus: r.overageStatus || null,
+                overageDueCents: r.overageDueCents || 0,
+                balanceDueCents: r.balancePaid ? 0 : (r.balanceDueCents || 0),
                 isReservation: true,
             } as any);
         });
