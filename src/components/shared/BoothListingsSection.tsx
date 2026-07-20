@@ -795,6 +795,20 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         <h3 className="font-black text-xl tracking-tight">{applyFor.name || 'This space'}</h3>
                         <p className="text-xs opacity-60 font-bold mt-0.5">{((isLease(applyFor) ? leaseRates(applyFor) : ratesOf(applyFor)).slice(0, 2).map((r: any) => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ')) || ''} · We respond within one business day.</p>
                       </div>
+                      {(ratingOf(applyFor) || blurbOf(applyFor) || (Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0)) && (
+                        <div className="rounded-2xl bg-slate-50 border-2 border-slate-100 p-3.5 space-y-2.5">
+                          {ratingOf(applyFor) && (
+                            <div className="flex items-center gap-2"><Stars avg={ratingOf(applyFor)!.avg} /><span className="text-xs font-black">{ratingOf(applyFor)!.avg.toFixed(1)}</span><span className="text-[10px] font-bold text-slate-400">· {ratingOf(applyFor)!.count} review{ratingOf(applyFor)!.count === 1 ? '' : 's'}</span></div>
+                          )}
+                          {blurbOf(applyFor) && <p className="text-xs leading-relaxed text-slate-600 font-medium whitespace-pre-wrap max-h-24 overflow-y-auto">{blurbOf(applyFor)}</p>}
+                          {Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">{applyFor.amenities.map((a: string) => (<span key={a} className="text-[10px] font-bold text-slate-600 bg-white border rounded-full px-2.5 py-1">✓ {a}</span>))}</div>
+                          )}
+                          {ratesOf(applyFor).length > 1 && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-1 pt-0.5">{ratesOf(applyFor).map((rt: any) => (<span key={rt.frequency} className="text-[10px] font-black text-slate-500"><span className="uppercase tracking-wide">{rt.frequency}</span> ${(rt.amountCents / 100).toFixed(rt.amountCents % 100 === 0 ? 0 : 2)}</span>))}</div>
+                          )}
+                        </div>
+                      )}
                       <div className="space-y-2">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">What would you like to do?</p>
                         {leaseRates(applyFor).length > 0 && (
@@ -841,46 +855,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <button type="button" onClick={() => setShowChooser(true)} className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 transition-colors">‹ Back to options</button>
                   )}
 
-                  {inquiryKind !== 'waitlist' && (
-                    <div className="space-y-3">
-                      {ratingOf(applyFor) && (
-                        <div className="flex items-center gap-2">
-                          <Stars avg={ratingOf(applyFor)!.avg} />
-                          <span className="text-xs font-black">{ratingOf(applyFor)!.avg.toFixed(1)}</span>
-                          <span className="text-[10px] font-bold text-slate-400">· {ratingOf(applyFor)!.count} review{ratingOf(applyFor)!.count === 1 ? '' : 's'}</span>
-                        </div>
-                      )}
-                      {blurbOf(applyFor) && (
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">About this space</p>
-                          <p className="text-xs leading-relaxed text-slate-600 font-medium whitespace-pre-wrap max-h-28 overflow-y-auto">{blurbOf(applyFor)}</p>
-                        </div>
-                      )}
-                      {Array.isArray(applyFor.amenities) && applyFor.amenities.length > 0 && (
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">What this space offers</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {applyFor.amenities.map((a: string) => (
-                              <span key={a} className="text-[10px] font-bold text-slate-600 bg-slate-100 rounded-full px-2.5 py-1">✓ {a}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {ratesOf(applyFor).length > 1 && (
-                        <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">All rates</p>
-                          <div className="rounded-xl border divide-y">
-                            {ratesOf(applyFor).map((rt: any) => (
-                              <div key={rt.frequency} className="flex items-center justify-between px-3 py-2">
-                                <span className="text-[10px] font-black uppercase tracking-wide text-slate-500">{rt.frequency}</span>
-                                <span className="text-xs font-black">${(rt.amountCents / 100).toFixed(rt.amountCents % 100 === 0 ? 0 : 2)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Space details now live in the chooser overview above — the
+                      focused flow stays clean, just the form for the chosen action. */}
                   {(applyMode !== 'day' || reserveStep === 'you') && (
                   <div className="space-y-3 animate-in fade-in duration-200">
                   <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
@@ -929,8 +905,25 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       ) : (
                         <>
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Preferred tour date</p>
-                            <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a preferred day</p>
+                            {(() => {
+                              const dates = availableDates(applyFor);
+                              if (dates.length === 0) return <p className="text-[11px] font-medium text-slate-500">Send your request and we'll arrange a time.</p>;
+                              return (
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-48 overflow-y-auto pr-0.5">
+                                  {dates.map(diso => {
+                                    const d = new Date(diso + 'T00:00:00'); const sel = form.moveIn === diso;
+                                    return (
+                                      <button key={diso} type="button" onClick={() => setForm(f => ({ ...f, moveIn: diso }))}
+                                        className={`h-14 rounded-2xl border-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.97] ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700 hover:border-slate-400'}`}>
+                                        <span className="text-[9px] font-black uppercase tracking-widest opacity-70">{TOUR_DOW_SHORT[d.getDay()]}</span>
+                                        <span className="text-sm font-black leading-none">{TOUR_MON_SHORT[d.getMonth()]} {d.getDate()}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
                           </div>
                           {tourSlots.length > 0 && (
                             <div>
@@ -950,8 +943,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     </div>
                   ) : inquiryKind !== 'application' ? null : applyMode === 'lease' ? (
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Ideal move-in date</p>
-                      <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">When are you looking to start?</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {['Immediately', 'Within 1 month', '1–3 months', 'Just exploring'].map(p => (
+                          <button key={p} type="button" onClick={() => setForm(f => ({ ...f, moveIn: p }))}
+                            className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${form.moveIn === p ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                            {p}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-3">
