@@ -513,6 +513,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         moveInDate: lease ? (form.moveIn || null) : null,
         tourStartIso: inquiryKind === 'tour' ? (tourStartIso || null) : null,
         tourEndIso: inquiryKind === 'tour' ? (tourEndIso || null) : null,
+        tourTimeTBD: inquiryKind === 'tour' && /time to confirm/i.test(tourSlot),
         licensed: inquiryKind === 'application' ? (form.licensed || null) : null,
         bringsClients: inquiryKind === 'application' ? (form.bringClients || null) : null,
         experience: inquiryKind === 'application' ? (form.experience || null) : null,
