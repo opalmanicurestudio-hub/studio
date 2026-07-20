@@ -92,7 +92,7 @@ type SectionType =
 type FieldType =
   | 'text' | 'textarea' | 'toggle' | 'select' | 'image' | 'color'
   | 'range' | 'image-array' | 'social-links' | 'policy-list' | 'tag-list'
-  | 'beforeafter-pairs' | 'link';
+  | 'beforeafter-pairs' | 'link' | 'tour-schedule';
 
 interface SectionField { k: string; t: FieldType; l: string; d: any; opts?: string[]; min?: number; max?: number; step?: number; }
 interface SectionLayoutOption { id: string; label: string; preview: string; }
@@ -228,7 +228,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'emptyMessage',   t: 'text',     l: 'Message when nothing is vacant', d: 'All spaces are currently occupied — check back soon.' },
     { k: 'nicheOptions',   t: 'tag-list', l: 'Applicant niches (prefilled options)', d: ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'] },
     { k: 'requiredDocs',   t: 'tag-list', l: 'Required application documents (e.g. License, Insurance)', d: [] },
-    { k: 'tourSlots',      t: 'tag-list', l: 'Tour availability (e.g. "Tue 2:00 PM", "Sat mornings")', d: [] },
+    { k: 'tourSchedule',   t: 'tour-schedule', l: 'Tour availability', d: { enabled: false, days: [2, 4], start: '10:00 AM', end: '12:00 PM', slotMin: 20, weeksAhead: 2 } },
     { k: 'applicationAgreement', t: 'textarea', l: 'Application agreement / consent text (shown as a required checkbox)', d: '' },
   ], layouts: [
     { id: 'grid',     label: 'Listing Grid',   preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
@@ -784,6 +784,61 @@ const TagListEditor = ({ value, onChange }: { value: string[]; onChange: (v: str
   );
 };
 
+// ─── Tour Schedule (weekly windows → auto-generated tour times) ──────────────────
+const TOUR_TIME_OPTS: string[] = (() => {
+  const out: string[] = [];
+  for (let m = 6 * 60; m <= 21 * 60; m += 15) {
+    const h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? 'PM' : 'AM', hh = (h % 12) || 12;
+    out.push(`${hh}:${String(mm).padStart(2, '0')} ${ap}`);
+  }
+  return out;
+})();
+const TOUR_DOW: [string, number][] = [['S',0],['M',1],['T',2],['W',3],['T',4],['F',5],['S',6]];
+const TOUR_SEL_CLS = 'w-full h-10 rounded-xl border-2 px-3 text-xs font-black uppercase bg-white';
+const TOUR_LBL_CLS = 'text-[9px] font-black uppercase tracking-[0.18em] text-muted-foreground/70 mb-1';
+
+const TourScheduleEditor = ({ value, onChange }: { value: any; onChange: (v: any) => void }) => {
+  const v = (value && typeof value === 'object') ? value : {};
+  const enabled = !!v.enabled;
+  const days: number[] = Array.isArray(v.days) ? v.days : [];
+  const base = { enabled, days, start: v.start || '10:00 AM', end: v.end || '12:00 PM', slotMin: v.slotMin || 20, weeksAhead: v.weeksAhead || 2 };
+  const set = (patch: any) => onChange({ ...base, ...patch });
+  const toggleDay = (d: number) => set({ days: days.includes(d) ? days.filter(x => x !== d) : [...days, d].sort((a, b) => a - b) });
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between py-1">
+        <span className="text-[9px] font-black uppercase tracking-[0.18em] text-muted-foreground/70">Offer guided tours (auto-generate times)</span>
+        <Switch checked={enabled} onCheckedChange={(c: boolean) => set({ enabled: c })}/>
+      </div>
+      {enabled && (
+        <div className="space-y-3 pt-1">
+          <div>
+            <p className={TOUR_LBL_CLS}>Tour days</p>
+            <div className="flex gap-1.5">
+              {TOUR_DOW.map(([lbl, d], i) => (
+                <button key={i} type="button" onClick={() => toggleDay(d as number)}
+                  className={cn('w-9 h-9 rounded-full border-2 text-[11px] font-black transition-colors',
+                    days.includes(d as number) ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500 hover:border-slate-400')}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><p className={TOUR_LBL_CLS}>From</p><select value={base.start} onChange={e => set({ start: e.target.value })} className={TOUR_SEL_CLS}>{TOUR_TIME_OPTS.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+            <div><p className={TOUR_LBL_CLS}>To</p><select value={base.end} onChange={e => set({ end: e.target.value })} className={TOUR_SEL_CLS}>{TOUR_TIME_OPTS.map(t => <option key={t} value={t}>{t}</option>)}</select></div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div><p className={TOUR_LBL_CLS}>Tour length</p><select value={String(base.slotMin)} onChange={e => set({ slotMin: Number(e.target.value) })} className={TOUR_SEL_CLS}>{['15','20','30','45','60'].map(t => <option key={t} value={t}>{t} min</option>)}</select></div>
+            <div><p className={TOUR_LBL_CLS}>Weeks ahead</p><select value={String(base.weeksAhead)} onChange={e => set({ weeksAhead: Number(e.target.value) })} className={TOUR_SEL_CLS}>{['1','2','3','4','6','8'].map(t => <option key={t} value={t}>{t} wk</option>)}</select></div>
+          </div>
+          <p className="text-[9px] font-medium text-muted-foreground/60 leading-relaxed">Bookable tour times generate automatically from this window and always stay current — no list to maintain.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Link Picker ───────────────────────────────────────────────────────────────
 const SECTION_LINK_LABELS: Record<string, string> = {
   services: 'Services', team: 'Team', gallery: 'Gallery',
@@ -904,6 +959,7 @@ const renderFieldEditor_FieldRenderer = ({ field, value, onChange, highlightedFi
   if (field.t === 'social-links')      return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><SocialLinksEditor value={value || []} onChange={onChange}/></div>);
   if (field.t === 'policy-list')       return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><PolicyListEditor value={value || []} onChange={onChange}/></div>);
   if (field.t === 'tag-list')          return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><TagListEditor value={value || []} onChange={onChange}/></div>);
+  if (field.t === 'tour-schedule')     return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><TourScheduleEditor value={value} onChange={onChange}/></div>);
   if (field.t === 'toggle')            return wrapper(<div className="flex items-center justify-between py-2.5 border-b border-dashed last:border-0"><span className={labelCls}>{field.l}</span><Switch checked={!!value} onCheckedChange={onChange}/></div>);
   if (field.t === 'textarea')          return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Textarea value={value || ''} onChange={e => onChange(e.target.value)} className="rounded-xl border-2 text-sm min-h-[80px] resize-none"/></div>);
   if (field.t === 'select')            return wrapper(<div className="space-y-1.5"><Label className={labelCls}>{field.l}</Label><Select value={value ?? field.d} onValueChange={onChange}><SelectTrigger className="h-10 rounded-xl border-2 text-xs font-black uppercase"><SelectValue/></SelectTrigger><SelectContent className="rounded-xl border-2">{field.opts!.map(o => <SelectItem key={o} value={o} className="text-xs font-black uppercase">{o.replace(/-/g,' ').charAt(0).toUpperCase()+o.replace(/-/g,' ').slice(1)}</SelectItem>)}</SelectContent></Select></div>);
