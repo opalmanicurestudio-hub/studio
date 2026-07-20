@@ -51,7 +51,7 @@ function tourFmt12(mins: number): string {
 }
 // Returns null when no weekly schedule is configured (caller falls back to the
 // legacy manual list). Returns [] when configured but nothing upcoming fits.
-function genTourSlots(sched: any, now: Date): string[] | null {
+function genTourSlots(sched: any, now: Date): Array<{ label: string; startIso: string; endIso: string }> | null {
   if (!sched || typeof sched !== 'object' || !sched.enabled) return null;
   const days: number[] = Array.isArray(sched.days) ? sched.days.map(Number) : [];
   const startM = tourParse12(sched.start || '10:00 AM');
@@ -59,7 +59,7 @@ function genTourSlots(sched: any, now: Date): string[] | null {
   const step = Math.max(5, Number(sched.slotMin) || 20);
   const weeks = Math.min(8, Math.max(1, Number(sched.weeksAhead) || 2));
   if (!days.length || startM == null || endM == null || endM <= startM) return [];
-  const out: string[] = [];
+  const out: Array<{ label: string; startIso: string; endIso: string }> = [];
   const horizon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + weeks * 7);
   const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   for (; cur <= horizon; cur.setDate(cur.getDate() + 1)) {
@@ -67,7 +67,8 @@ function genTourSlots(sched: any, now: Date): string[] | null {
     for (let m = startM; m + step <= endM; m += step) {
       const dt = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), Math.floor(m / 60), m % 60);
       if (dt.getTime() <= now.getTime()) continue;
-      out.push(`${TOUR_DOW_SHORT[dt.getDay()]} ${TOUR_MON_SHORT[dt.getMonth()]} ${dt.getDate()} · ${tourFmt12(m)}`);
+      const dtEnd = new Date(dt.getTime() + step * 60000);
+      out.push({ label: `${TOUR_DOW_SHORT[dt.getDay()]} ${TOUR_MON_SHORT[dt.getMonth()]} ${dt.getDate()} · ${tourFmt12(m)}`, startIso: dt.toISOString(), endIso: dtEnd.toISOString() });
     }
   }
   return out.slice(0, 48);
@@ -190,13 +191,21 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // v92 — tour times now auto-generate from a weekly schedule (config.tourSchedule)
   // and stay current; falls back to the legacy manual list if no schedule is set.
   const scheduledTours = !!(config.tourSchedule && config.tourSchedule.enabled);
-  const tourSlots: string[] = useMemo(() => {
+  const tourSlotObjs = useMemo(() => {
     const gen = genTourSlots(config.tourSchedule, new Date());
     if (gen) return gen;
-    return Array.isArray(config.tourSlots) ? config.tourSlots.filter(Boolean) : [];
+    const legacy = Array.isArray(config.tourSlots) ? config.tourSlots.filter(Boolean) : [];
+    return legacy.map((s: string) => ({ label: s, startIso: '', endIso: '' }));
   }, [config.tourSchedule, config.tourSlots]);
+  const tourSlots: string[] = useMemo(() => tourSlotObjs.map(o => o.label), [tourSlotObjs]);
   const agreementText: string = typeof config.applicationAgreement === 'string' ? config.applicationAgreement.trim() : '';
   const [tourSlot, setTourSlot] = useState('');
+  const [tourStartIso, setTourStartIso] = useState('');
+  const [tourEndIso, setTourEndIso] = useState('');
+  const pickTour = (o: { label: string; startIso: string; endIso: string }) => {
+    if (tourSlot === o.label) { setTourSlot(''); setTourStartIso(''); setTourEndIso(''); }
+    else { setTourSlot(o.label); setTourStartIso(o.startIso); setTourEndIso(o.endIso); }
+  };
   const [agreed, setAgreed] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
@@ -308,11 +317,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
-    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setAgreed(false); setShowVideo(false);
+    setInquiryKind(kind); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setShowVideo(false);
   };
 
   const uploadDoc = async (docName: string, file: File) => {
@@ -471,6 +480,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           : applyMode === 'lease' ? (form.moveIn ? `Move-in ${form.moveIn}` : '')
           : [form.startDate, form.endDate].filter(Boolean).join(' → '),
         moveInDate: lease ? (form.moveIn || null) : null,
+        tourStartIso: inquiryKind === 'tour' ? (tourStartIso || null) : null,
+        tourEndIso: inquiryKind === 'tour' ? (tourEndIso || null) : null,
         startDate: !lease ? (form.startDate || null) : null,
         endDate: !lease ? (form.endDate || null) : null,
         message: form.message.trim(),
@@ -830,10 +841,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a tour time</p>
                           <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto">
-                            {tourSlots.map(s => (
-                              <button key={s} type="button" onClick={() => setTourSlot(tourSlot === s ? '' : s)}
-                                className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === s ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                                {s}
+                            {tourSlotObjs.map(o => (
+                              <button key={o.label} type="button" onClick={() => pickTour(o)}
+                                className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === o.label ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                {o.label}
                               </button>
                             ))}
                           </div>
@@ -850,10 +861,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                             <div>
                               <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Times we give tours</p>
                               <div className="flex flex-wrap gap-1.5">
-                                {tourSlots.map(s => (
-                                  <button key={s} type="button" onClick={() => setTourSlot(tourSlot === s ? '' : s)}
-                                    className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === s ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                                    {s}
+                                {tourSlotObjs.map(o => (
+                                  <button key={o.label} type="button" onClick={() => pickTour(o)}
+                                    className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === o.label ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                    {o.label}
                                   </button>
                                 ))}
                               </div>
