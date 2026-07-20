@@ -64,6 +64,7 @@ import { useFirebase, useUser } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
+import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -3499,17 +3500,21 @@ export default function BoothsPage() {
   const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="flex min-h-screen w-full flex-col bg-slate-50">
+      <AppHeader title="Booths" />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />
 
       {/* ── KPI HEADER STRIP ─────────────────────────────────────────── */}
       <div className="bg-white border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
-              <Armchair className="h-5 w-5 text-slate-500" /> Spaces
+            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 flex items-center gap-2.5 leading-none">
+              <span className="h-9 w-9 rounded-2xl bg-slate-900 flex items-center justify-center shadow-md shadow-slate-900/10">
+                <Armchair className="h-5 w-5 text-white" />
+              </span>
+              Spaces
             </h1>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">
+            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] mt-1.5 ml-0.5">
               {metrics.occupancyPct}% occupied · {metrics.activeRenters} active renter{metrics.activeRenters !== 1 ? 's' : ''}
             </p>
           </div>
