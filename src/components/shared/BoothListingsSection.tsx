@@ -209,6 +209,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [agreed, setAgreed] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
+  // Owner toggle: when true, license/insurance/ID/documents are collected
+  // AFTER approval instead of gating the first application.
+  const deferPaperwork = !!config.collectDocsAfterApproval;
   // Tranche 1 — compliance-at-booking, from the owner's automation rules
   const compRules = (config.automationRules || {}) as any;
   const [comp, setComp] = useState({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false });
@@ -226,7 +229,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const compDocUrl = (slot: string) => { const s = compDocs[slot]; return s && s !== 'uploading' ? s.url : null; };
   const compNeeded = (compRules.requireLicense || compRules.requireInsurance || compRules.requireIdVerification);
   const compApplies = compNeeded && (compRules.complianceAppliesTo === 'all' || comp.doingServices);
-  const compSatisfied = !compApplies || (
+  const compSatisfied = deferPaperwork || !compApplies || (
     (!compRules.requireLicense || (comp.licenseNumber.trim() && compDocUrl('license'))) &&
     (!compRules.requireInsurance || (comp.insuranceConfirmed && compDocUrl('insurance'))) &&
     (!compRules.requireIdVerification || compDocUrl('id'))
@@ -338,7 +341,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     }
   };
 
-  const allDocsAttached = inquiryKind !== 'application' || requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
+  const allDocsAttached = deferPaperwork || inquiryKind !== 'application' || requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
   const nicheValue = form.niche === 'Other' ? (form.nicheOther || 'Other') : form.niche;
   const agreementSatisfied = inquiryKind !== 'application' || !agreementText || agreed;
   // v66 — AVAILABILITY: mirror the server's schedule check so visitors
@@ -1155,7 +1158,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                   })()}
                                 </div>
 
-                                {compNeeded && (
+                                {compNeeded && !deferPaperwork && (
                                   <div className="rounded-2xl border-2 p-4 space-y-3">
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Before you book</p>
                                     {compRules.complianceAppliesTo === 'services' && (
@@ -1235,8 +1238,13 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
                   {(applyMode !== 'day' || reserveStep === 'you') && (
                   <div className="space-y-3 animate-in fade-in duration-200">
+                  {deferPaperwork && inquiryKind === 'application' && (compNeeded || requiredDocs.length > 0) && (
+                    <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-[11px] font-bold text-slate-500 leading-snug">No paperwork needed yet — we'll collect your license, insurance{requiredDocs.length > 0 ? ' and documents' : ''} once your application is approved.</p>
+                    </div>
+                  )}
                   {/* Required documents — owner-configured */}
-                  {inquiryKind === 'application' && requiredDocs.map(rd => {
+                  {inquiryKind === 'application' && !deferPaperwork && requiredDocs.map(rd => {
                     const state = docs[rd];
                     return (
                       <div key={rd} className="flex items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3">
