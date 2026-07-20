@@ -230,6 +230,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'requiredDocs',   t: 'tag-list', l: 'Required application documents (e.g. License, Insurance)', d: [] },
     { k: 'tourSchedule',   t: 'tour-schedule', l: 'Tour availability', d: { enabled: false, days: [2, 4], start: '10:00 AM', end: '12:00 PM', slotMin: 20, weeksAhead: 2 } },
     { k: 'applicationAgreement', t: 'textarea', l: 'Application agreement / consent text (shown as a required checkbox)', d: '' },
+    { k: 'collectDocsAfterApproval', t: 'toggle', l: 'Collect license, insurance & documents AFTER approval (lighter first application)', d: false },
   ], layouts: [
     { id: 'grid',     label: 'Listing Grid',   preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
     { id: 'showcase', label: 'Magazine',       preview: '[ 📷 | featured  ]' },
