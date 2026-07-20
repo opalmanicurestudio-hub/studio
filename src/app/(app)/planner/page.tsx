@@ -133,6 +133,23 @@ function PlannerPageContent() {
     });
   }, [tourAppsRaw, currentDate]);
 
+  // Paid day/hourly reservations (from the reserve API, via Stripe) land here so
+  // the Studio lane is one unified calendar — appointments, tours, and rentals.
+  const reservationsQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/boothReservations`), where('status', 'in', ['confirmed', 'checked_in'])),
+    [firestore, tenantId]
+  );
+  const { data: reservationsRaw } = useCollection<any>(reservationsQ);
+
+  const reservationsToday = useMemo(() => {
+    if (!reservationsRaw) return [];
+    const cd = currentDate;
+    const curIso = `${cd.getFullYear()}-${String(cd.getMonth() + 1).padStart(2, '0')}-${String(cd.getDate()).padStart(2, '0')}`;
+    return (reservationsRaw as any[]).filter(r =>
+      r && r.startDate && r.startDate <= curIso && (r.endDate || r.startDate) >= curIso);
+  }, [reservationsRaw, currentDate]);
+
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
   const [isAddAppointmentOpen, setIsAddAppointmentOpen] = useState(false);
@@ -291,6 +308,31 @@ function PlannerPageContent() {
                 isTourRequest: true,
             } as any);
         });
+
+        reservationsToday.forEach(r => {
+            const cd = currentDate;
+            const curIso = `${cd.getFullYear()}-${String(cd.getMonth() + 1).padStart(2, '0')}-${String(cd.getDate()).padStart(2, '0')}`;
+            const isHourly = r.bookingType === 'hourly' && r.startTime && r.endTime;
+            const start = safeDate(`${curIso}T${isHourly ? r.startTime : '09:00'}:00`);
+            const end = safeDate(`${curIso}T${isHourly ? r.endTime : '17:00'}:00`);
+            map.get('business')!.push({
+                id:        `resv-${r.id}-${curIso}`,
+                itemType:  'event',
+                type:      'reservation',
+                title:     `${isHourly ? 'Hourly' : 'Day'} rental — ${r.name || 'Guest'}`,
+                name:      `${r.boothName || 'Space'} · ${r.name || 'Guest'}`,
+                startTime: start.toISOString(),
+                endTime:   end.toISOString(),
+                allDay:    !isHourly,
+                staffIds:  [],
+                checklist: [],
+                guestCount: 0,
+                notes:     [r.boothName, r.phone].filter(Boolean).join(' · '),
+                location:  r.boothName || '',
+                status:    r.status,
+                isReservation: true,
+            } as any);
+        });
     }
 
     events?.filter(e => isSameDay(safeDate(e.startTime), targetDateStart)).forEach(e => {
@@ -310,7 +352,7 @@ function PlannerPageContent() {
 
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday, toursToday]);
+  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
