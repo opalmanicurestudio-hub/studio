@@ -939,7 +939,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                                   {dates.map(diso => {
                                     const d = new Date(diso + 'T00:00:00'); const sel = form.moveIn === diso;
                                     return (
-                                      <button key={diso} type="button" onClick={() => setForm(f => ({ ...f, moveIn: diso }))}
+                                      <button key={diso} type="button" onClick={() => { const _st = new Date(diso + 'T10:00:00'); const _en = new Date(_st.getTime() + 30 * 60000); setForm(f => ({ ...f, moveIn: diso })); setTourSlot(`${TOUR_DOW_SHORT[d.getDay()]} ${TOUR_MON_SHORT[d.getMonth()]} ${d.getDate()} · time to confirm`); setTourStartIso(_st.toISOString()); setTourEndIso(_en.toISOString()); }}
                                         className={`h-14 rounded-2xl border-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.97] ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700 hover:border-slate-400'}`}>
                                         <span className="text-[9px] font-black uppercase tracking-widest opacity-70">{TOUR_DOW_SHORT[d.getDay()]}</span>
                                         <span className="text-sm font-black leading-none">{TOUR_MON_SHORT[d.getMonth()]} {d.getDate()}</span>
