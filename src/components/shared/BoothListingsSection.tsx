@@ -555,16 +555,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   };
   const CTA = ({ b }: { b: any }) => {
     const hasLease = leaseRates(b).length > 0;
-    const hasDay = dayRates(b).length > 0;
-    if (hasLease && hasDay) return (
-      <div className="flex gap-2">
-        <button onClick={() => openApply(b, 'lease')} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-slate-900 hover:bg-slate-800 transition-transform active:scale-[0.98]">{config.applyCtaText || 'Apply Now'}</button>
-        <button onClick={() => openApply(b, 'day')} className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-amber-600 hover:bg-amber-700 transition-transform active:scale-[0.98]">{config.reserveCtaText || 'Reserve'}</button>
-      </div>
-    );
+    // One clear action per card. Intent (apply / reserve / tour / ask) is
+    // chosen inside the space view, so the grid isn't a wall of competing
+    // buttons — fewer decisions before the visitor engages.
     return (
-      <button onClick={() => openApply(b, hasLease ? 'lease' : 'day')} className={`w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white transition-transform active:scale-[0.98] ${hasLease ? 'bg-slate-900 hover:bg-slate-800' : 'bg-amber-600 hover:bg-amber-700'}`}>
-        {hasLease ? (config.applyCtaText || 'Apply Now') : (config.reserveCtaText || 'Reserve')}
+      <button onClick={() => openApply(b, hasLease ? 'lease' : 'day')} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest text-white bg-slate-900 hover:bg-slate-800 transition-transform active:scale-[0.98]">
+        {config.viewBookCtaText || 'View & Book'}
       </button>
     );
   };
@@ -765,6 +761,33 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   </h3>
                     <p className="text-xs opacity-60 font-bold mt-0.5">{(applyMode === 'lease' ? leaseRates(applyFor) : dayRates(applyFor)).slice(0, 2).map(r => `$${Math.round(r.amountCents / 100).toLocaleString()}${FREQ_LABEL[r.frequency] || ''}`).join(' · ') || `$${priceOf(applyFor).amount.toLocaleString()}${priceOf(applyFor).suffix}`} · We respond within one business day.</p>
                   </div>
+
+                  {/* Intent switcher — pick what you want to do, in-place.
+                      openApply/openInquiry keep the visitor's typed contact. */}
+                  {inquiryKind !== 'waitlist' && applyFor.id && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {leaseRates(applyFor).length > 0 && (
+                        <button type="button" onClick={() => openApply(applyFor, 'lease')}
+                          className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'application' && applyMode === 'lease' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                          Apply to rent
+                        </button>
+                      )}
+                      {dayRates(applyFor).length > 0 && (
+                        <button type="button" onClick={() => openApply(applyFor, 'day')}
+                          className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'application' && applyMode === 'day' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                          Reserve a day
+                        </button>
+                      )}
+                      <button type="button" onClick={() => openInquiry(applyFor, 'tour')}
+                        className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'tour' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                        Book a tour
+                      </button>
+                      <button type="button" onClick={() => openInquiry(applyFor, 'question')}
+                        className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${inquiryKind === 'question' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                        Ask a question
+                      </button>
+                    </div>
+                  )}
 
                   {inquiryKind !== 'waitlist' && (
                     <div className="space-y-3">
