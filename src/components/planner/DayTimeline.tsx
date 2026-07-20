@@ -13,7 +13,7 @@ import { Building, HardHat, Lock, Users, Landmark, Briefcase, Eye, DollarSign } 
 
 // Live elapsed timer for a checked-in reservation — ticks itself so only the
 // timer re-renders, not the whole timeline. Turns red + "OVER" past booked end.
-const LiveTimer = ({ startIso, bookedEndIso }: { startIso?: string | null; bookedEndIso?: string | null }) => {
+const LiveTimer = ({ startIso, bookedEndIso, overageRateCentsPerHour }: { startIso?: string | null; bookedEndIso?: string | null; overageRateCentsPerHour?: number }) => {
     const [now, setNow] = React.useState<number>(() => new Date().getTime());
     React.useEffect(() => {
         const id = setInterval(() => setNow(new Date().getTime()), 1000);
@@ -28,7 +28,14 @@ const LiveTimer = ({ startIso, bookedEndIso }: { startIso?: string | null; booke
         return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
     };
     const endMs = bookedEndIso ? new Date(bookedEndIso).getTime() : NaN;
-    if (!isNaN(endMs) && now - endMs > 0) return <span className="tabular-nums font-black text-red-600">OVER +{fmt(now - endMs)}</span>;
+    if (!isNaN(endMs) && now - endMs > 0) {
+        // Running overage total — mirrors the booth rule (10-min grace, 15-min
+        // increments). Live estimate; the authoritative charge is at checkout.
+        const overMin = (now - endMs) / 60000;
+        let est = 0;
+        if (overageRateCentsPerHour && overMin > 10) est = overageRateCentsPerHour * (Math.ceil(overMin / 15) * 15) / 60;
+        return <span className="tabular-nums font-black text-red-600">OVER +{fmt(now - endMs)}{est > 0 ? ` · ~$${(est / 100).toFixed(0)}` : ''}</span>;
+    }
     return <span className="tabular-nums font-black">{fmt(now - start)}</span>;
 };
 import { Card, CardContent } from '../ui/card';
@@ -241,7 +248,7 @@ export const DayTimeline = ({
                             {isTour ? <Eye className="w-2 h-2" /> : <DollarSign className="w-2 h-2" />}{label}
                         </span>
                         {live ? (
-                            <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-700"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} /></span>
+                            <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-700"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} overageRateCentsPerHour={item.overageRateCentsPerHour} /></span>
                         ) : (
                             <span className={cn('text-[7px] sm:text-[8px] font-black uppercase tracking-widest', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
                         )}
