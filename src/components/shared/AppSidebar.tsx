@@ -15,7 +15,7 @@ import {
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
-  MessageSquare,
+  MessageSquare, DoorOpen,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -104,7 +104,10 @@ const EVENTS = [
 
 const PUBLIC_PORTALS = [
   { href: '/book',         icon: Globe,       label: 'Booking Page'     },
-  { href: '/kiosk',        icon: Fingerprint, label: 'Walk-in Kiosk'    },
+  // Walk-in APPOINTMENT kiosk (rebuilt) lives at /walk-in/[tenantId].
+  { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in Kiosk'    },
+  // The old /kiosk route is now the booth-renter CHECK-IN kiosk.
+  { href: '/kiosk',        icon: DoorOpen,    label: 'Check-in Kiosk'   },
   { href: '/concierge',    icon: Coffee,      label: 'Lounge Concierge' },
   { href: '/kds',          icon: ChefHat,     label: 'KDS Display'      },
   { href: '/floor',        icon: Layers,      label: 'Floor Staff'      },
