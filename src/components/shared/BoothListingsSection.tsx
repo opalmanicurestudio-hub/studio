@@ -173,7 +173,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [booths, setBooths] = useState<any[] | null>(null);
   const [applyFor, setApplyFor] = useState<any | null>(null);
   const [photoIdx, setPhotoIdx] = useState(0);
-  const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '', startTime: '', endTime: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '', startTime: '', endTime: '', licensed: '', bringClients: '', experience: '' });
   const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
   // v89 — stepped reserve flow: 'type' → 'when' → 'time' → 'you'
   const [reserveStep, setReserveStep] = useState<'type' | 'when' | 'time' | 'you'>('type');
@@ -513,6 +513,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         moveInDate: lease ? (form.moveIn || null) : null,
         tourStartIso: inquiryKind === 'tour' ? (tourStartIso || null) : null,
         tourEndIso: inquiryKind === 'tour' ? (tourEndIso || null) : null,
+        licensed: inquiryKind === 'application' ? (form.licensed || null) : null,
+        bringsClients: inquiryKind === 'application' ? (form.bringClients || null) : null,
+        experience: inquiryKind === 'application' ? (form.experience || null) : null,
         startDate: !lease ? (form.startDate || null) : null,
         endDate: !lease ? (form.endDate || null) : null,
         message: form.message.trim(),
@@ -877,6 +880,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   </div>
                   {form.niche === 'Other' && (
                     <input type="text" value={form.nicheOther} onChange={e => setForm(f => ({ ...f, nicheOther: e.target.value }))} placeholder="Tell us your specialty" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                  )}
+                  {config.applicationQualifiers && inquiryKind === 'application' && (
+                    <div className="space-y-3 rounded-2xl border-2 border-slate-100 bg-slate-50 p-3.5">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">A few quick questions</p>
+                      {[
+                        { key: 'licensed', label: 'Are you licensed?', opts: ['Yes', 'No', 'In progress'] },
+                        { key: 'bringClients', label: 'Do you bring your own clients?', opts: ['Yes', 'Building', 'No'] },
+                        { key: 'experience', label: 'Years of experience', opts: ['<1', '1–3', '3–5', '5+'] },
+                      ].map(q => (
+                        <div key={q.key}>
+                          <p className="text-[10px] font-bold text-slate-500 mb-1">{q.label}</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {q.opts.map(v => (
+                              <button key={v} type="button" onClick={() => setForm(f => ({ ...f, [q.key]: v }))}
+                                className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${(form as any)[q.key] === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                {v}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                   </>
                   )}
