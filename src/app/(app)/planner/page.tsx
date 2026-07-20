@@ -343,6 +343,7 @@ function PlannerPageContent() {
                 overageStatus: r.overageStatus || null,
                 overageDueCents: r.overageDueCents || 0,
                 balanceDueCents: r.balancePaid ? 0 : (r.balanceDueCents || 0),
+                overageRateCentsPerHour: isHourly ? ((): number => { const h = (end.getTime() - start.getTime()) / 3600000; return h > 0 ? Math.round((r.amountCents || 0) / h) : 0; })() : 0,
                 isReservation: true,
             } as any);
         });
