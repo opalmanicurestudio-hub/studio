@@ -28,7 +28,8 @@ import {
   Check,
   Loader,
   MoreHorizontal,
-  ShieldAlert
+  ShieldAlert,
+  FileSignature
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -57,6 +58,7 @@ import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
+import { StaffOnboardingDialog } from '@/components/staff/StaffOnboardingDialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -101,7 +103,7 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, canManage: boolean }) => {
+const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, pricingTiers, onForceIdle, onDelete, onOnboard, canManage }: { member: Staff & { stats: any }, onEdit: (member: Staff) => void, onStatusChange: (staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end') => void, onViewActivity: (member: Staff & { stats: any }) => void, pricingTiers: PricingTier[], onForceIdle: (id: string) => void, onDelete: (member: Staff) => void, onOnboard: (member: Staff) => void, canManage: boolean }) => {
     const [licenseInfo, setLicenseInfo] = useState<{
         isExpired: boolean;
         isExpiringSoon: boolean;
@@ -252,6 +254,16 @@ const StaffStatusCard = ({ member, onEdit, onStatusChange, onViewActivity, prici
                 )}
             </CardContent>
             <CardFooter className="p-4 border-t mt-auto flex flex-col gap-3 bg-muted/5">
+                {canManage && !(member as any).onboardingComplete && (
+                    <Button variant="outline" onClick={() => onOnboard(member)} className="w-full h-11 rounded-2xl font-black uppercase tracking-widest text-[10px] border-2 border-amber-300 text-amber-700 hover:bg-amber-50">
+                        <FileSignature className="mr-2 h-4 w-4" /> Onboard — Sign Documents
+                    </Button>
+                )}
+                {canManage && (member as any).onboardingComplete && (
+                    <div className="flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-emerald-600">
+                        <Check className="h-3.5 w-3.5" /> Onboarding complete
+                    </div>
+                )}
                 {renderActionButtons()}
             </CardFooter>
         </Card>
@@ -392,10 +404,12 @@ export default function StaffPage() {
   const [authPin, setAuthPin] = useState('');
   const [pendingStatusAction, setPendingStatusAction] = useState<{ staffId: string, action: 'clock_in' | 'clock_out' | 'break_start' | 'break_end' } | null>(null);
   const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null);
+  const [onboardingStaff, setOnboardingStaff] = useState<Staff | null>(null);
 
   const { firestore, user } = useFirebase();
   const { selectedTenant, role } = useTenant();
   const tenantId = selectedTenant?.id;
+  const studioName = selectedTenant?.name || 'the studio';
   const canManage = role === 'owner' || role === 'admin';
   const { toast: uiToast } = useToast();
   
@@ -824,7 +838,7 @@ export default function StaffPage() {
                         {(staff || []).length > 0 ? (
                             <div className="grid gap-6 md:grid-cols-1 xl:grid-cols-2">
                                 {staffWithStats.map((member) => (
-                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} canManage={canManage} />
+                                <StaffStatusCard key={member.id} member={member} onViewActivity={handleViewActivity} onEdit={handleEditClick} onStatusChange={handleStatusChangeWithAuth} pricingTiers={pricingTiers || []} onForceIdle={handleForceIdle} onDelete={handleDeleteStaffClick} onOnboard={(m) => setOnboardingStaff(m)} canManage={canManage} />
                                 ))}
                             </div>
                             ) : (
@@ -861,6 +875,17 @@ export default function StaffPage() {
         pricingTiers={pricingTiers || []}
         existingStaff={staff || []}
       />
+      {onboardingStaff && (
+        <StaffOnboardingDialog
+          open={!!onboardingStaff}
+          onOpenChange={(o) => { if (!o) setOnboardingStaff(null); }}
+          firestore={firestore}
+          tenantId={tenantId!}
+          studioName={studioName}
+          staffMember={onboardingStaff}
+          onComplete={() => uiToast({ title: 'Onboarding complete', description: `${onboardingStaff?.name} is cleared to work.` })}
+        />
+      )}
       {selectedStaffMember && (
           <StaffDetailsSheet
             open={isDetailsSheetOpen}
