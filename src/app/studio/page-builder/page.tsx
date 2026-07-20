@@ -231,6 +231,7 @@ const SECTION_DEFS: Record<SectionType, SectionDef> = {
     { k: 'tourSchedule',   t: 'tour-schedule', l: 'Tour availability', d: { enabled: false, days: [2, 4], start: '10:00 AM', end: '12:00 PM', slotMin: 20, weeksAhead: 2 } },
     { k: 'applicationAgreement', t: 'textarea', l: 'Application agreement / consent text (shown as a required checkbox)', d: '' },
     { k: 'collectDocsAfterApproval', t: 'toggle', l: 'Collect license, insurance & documents AFTER approval (lighter first application)', d: false },
+    { k: 'applicationQualifiers', t: 'toggle', l: 'Ask applicants qualifying questions (licensed, own clients, experience)', d: false },
   ], layouts: [
     { id: 'grid',     label: 'Listing Grid',   preview: '[ 🏠 ][ 🏠 ][ 🏠 ]' },
     { id: 'showcase', label: 'Magazine',       preview: '[ 📷 | featured  ]' },
