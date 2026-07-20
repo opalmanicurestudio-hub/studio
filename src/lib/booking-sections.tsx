@@ -248,7 +248,7 @@ const SECTION_LABEL_MAP: Record<string, string> = {
   faq: 'FAQ', beforeafter: 'Gallery', memberships: 'Memberships',
   packages: 'Packages', giftcards: 'Gift Cards', instagram: 'Insta',
   trust: 'Trust', quote: 'Quote', newclient: 'Offers', referral: 'Refer',
-  waitlist: 'Waitlist', policies: 'Policies',
+  waitlist: 'Waitlist', policies: 'Policies', booths: 'Rentals',
 };
 
 const SECTION_ICON_MAP: Record<string, React.ElementType> = {
@@ -256,7 +256,7 @@ const SECTION_ICON_MAP: Record<string, React.ElementType> = {
   reviews: Star, contact: MapPin, story: BookOpen, events: Calendar,
   faq: HelpCircle, beforeafter: LayoutDashboard, memberships: Crown,
   packages: Package, giftcards: Gift, instagram: Camera,
-  quote: Mail, newclient: Sparkles, referral: Users, waitlist: Clock,
+  quote: Mail, newclient: Sparkles, referral: Users, waitlist: Clock, booths: Package,
 };
 
 // ─── NavSection ────────────────────────────────────────────────────────────────
