@@ -35,6 +35,44 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'fire
 const FREQ_LABEL: Record<string, string> = { monthly: '/mo', weekly: '/wk', daily: '/day', hourly: '/hr' };
 const DEFAULT_NICHES = ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'];
 
+// ─── Tour availability: weekly window → concrete, always-current tour times ───────
+const TOUR_DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const TOUR_MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function tourParse12(str: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((str || '').trim());
+  if (!m) return null;
+  let h = Number(m[1]) % 12;
+  if (/PM/i.test(m[3])) h += 12;
+  return h * 60 + Number(m[2]);
+}
+function tourFmt12(mins: number): string {
+  const h = Math.floor(mins / 60), mm = mins % 60, ap = h >= 12 ? 'PM' : 'AM', hh = (h % 12) || 12;
+  return `${hh}:${String(mm).padStart(2, '0')} ${ap}`;
+}
+// Returns null when no weekly schedule is configured (caller falls back to the
+// legacy manual list). Returns [] when configured but nothing upcoming fits.
+function genTourSlots(sched: any, now: Date): string[] | null {
+  if (!sched || typeof sched !== 'object' || !sched.enabled) return null;
+  const days: number[] = Array.isArray(sched.days) ? sched.days.map(Number) : [];
+  const startM = tourParse12(sched.start || '10:00 AM');
+  const endM = tourParse12(sched.end || '12:00 PM');
+  const step = Math.max(5, Number(sched.slotMin) || 20);
+  const weeks = Math.min(8, Math.max(1, Number(sched.weeksAhead) || 2));
+  if (!days.length || startM == null || endM == null || endM <= startM) return [];
+  const out: string[] = [];
+  const horizon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + weeks * 7);
+  const cur = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (; cur <= horizon; cur.setDate(cur.getDate() + 1)) {
+    if (!days.includes(cur.getDay())) continue;
+    for (let m = startM; m + step <= endM; m += step) {
+      const dt = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate(), Math.floor(m / 60), m % 60);
+      if (dt.getTime() <= now.getTime()) continue;
+      out.push(`${TOUR_DOW_SHORT[dt.getDay()]} ${TOUR_MON_SHORT[dt.getMonth()]} ${dt.getDate()} · ${tourFmt12(m)}`);
+    }
+  }
+  return out.slice(0, 48);
+}
+
 // ─── BookingCalendar (v90) — dependency-free month grid ──────────────────────
 // A purpose-built booking calendar: proper 7-col grid, weekday header,
 // range + single select, and per-day disabled gating. No react-day-picker,
@@ -149,7 +187,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
   const niches: string[] = (Array.isArray(config.nicheOptions) && config.nicheOptions.length > 0) ? config.nicheOptions : DEFAULT_NICHES;
   // v53 — owner-configured tour availability + application agreement.
-  const tourSlots: string[] = Array.isArray(config.tourSlots) ? config.tourSlots.filter(Boolean) : [];
+  // v92 — tour times now auto-generate from a weekly schedule (config.tourSchedule)
+  // and stay current; falls back to the legacy manual list if no schedule is set.
+  const scheduledTours = !!(config.tourSchedule && config.tourSchedule.enabled);
+  const tourSlots: string[] = useMemo(() => {
+    const gen = genTourSlots(config.tourSchedule, new Date());
+    if (gen) return gen;
+    return Array.isArray(config.tourSlots) ? config.tourSlots.filter(Boolean) : [];
+  }, [config.tourSchedule, config.tourSlots]);
   const agreementText: string = typeof config.applicationAgreement === 'string' ? config.applicationAgreement.trim() : '';
   const [tourSlot, setTourSlot] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -779,14 +824,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                   {/* Dates — different question per product */}
                   {inquiryKind === 'tour' ? (
                     <div className="space-y-2">
-                      <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Preferred tour date</p>
-                        <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
-                      </div>
-                      {tourSlots.length > 0 && (
+                      {scheduledTours && tourSlots.length > 0 ? (
+                        // Weekly schedule → concrete, always-current times. The slot
+                        // already carries the date, so no separate date field is needed.
                         <div>
-                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Times we give tours</p>
-                          <div className="flex flex-wrap gap-1.5">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a tour time</p>
+                          <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto">
                             {tourSlots.map(s => (
                               <button key={s} type="button" onClick={() => setTourSlot(tourSlot === s ? '' : s)}
                                 className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === s ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
@@ -795,6 +838,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                             ))}
                           </div>
                         </div>
+                      ) : scheduledTours ? (
+                        <p className="text-[11px] font-medium text-slate-500 py-2">No tour times available in the next few weeks — send your request and we'll reach out to arrange one.</p>
+                      ) : (
+                        <>
+                          <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Preferred tour date</p>
+                            <input type="date" value={form.moveIn} onChange={e => setForm(f => ({ ...f, moveIn: e.target.value }))} className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                          </div>
+                          {tourSlots.length > 0 && (
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Times we give tours</p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {tourSlots.map(s => (
+                                  <button key={s} type="button" onClick={() => setTourSlot(tourSlot === s ? '' : s)}
+                                    className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === s ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                    {s}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   ) : inquiryKind !== 'application' ? null : applyMode === 'lease' ? (
