@@ -9,7 +9,28 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Building, HardHat, Lock, Users, Landmark, Briefcase } from 'lucide-react';
+import { Building, HardHat, Lock, Users, Landmark, Briefcase, Eye, DollarSign } from 'lucide-react';
+
+// Live elapsed timer for a checked-in reservation — ticks itself so only the
+// timer re-renders, not the whole timeline. Turns red + "OVER" past booked end.
+const LiveTimer = ({ startIso, bookedEndIso }: { startIso?: string | null; bookedEndIso?: string | null }) => {
+    const [now, setNow] = React.useState<number>(() => new Date().getTime());
+    React.useEffect(() => {
+        const id = setInterval(() => setNow(new Date().getTime()), 1000);
+        return () => clearInterval(id);
+    }, []);
+    if (!startIso) return null;
+    const start = new Date(startIso).getTime();
+    if (isNaN(start)) return null;
+    const fmt = (ms: number) => {
+        const s = Math.max(0, Math.floor(ms / 1000));
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+        return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${m}:${String(ss).padStart(2, '0')}`;
+    };
+    const endMs = bookedEndIso ? new Date(bookedEndIso).getTime() : NaN;
+    if (!isNaN(endMs) && now - endMs > 0) return <span className="tabular-nums font-black text-red-600">OVER +{fmt(now - endMs)}</span>;
+    return <span className="tabular-nums font-black">{fmt(now - start)}</span>;
+};
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -190,6 +211,60 @@ export const DayTimeline = ({
         )
     };
 
+    // Standout card for booth tours & paid reservations on the Studio lane.
+    const renderBooking = (item: any) => {
+        const dayStart = setHours(startOfDay(date), START_HOUR);
+        const startTime = safeDate(item.startTime);
+        const endTime = safeDate(item.endTime);
+        const mins = differenceInMinutes(startTime, dayStart);
+        if (mins < 0) return null;
+        const height = Math.max(30, differenceInMinutes(endTime, startTime) * (160 / 60));
+        const style = { top: `${mins * (160 / 60)}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.5rem)`, left: item.layout.left };
+        const fmtT = (d: Date) => { try { return format(d, 'h:mma').toLowerCase(); } catch { return ''; } };
+        const isTour = item.type === 'tour';
+        const live = item.status === 'checked_in';
+        const overageDue = item.overageStatus === 'due' || (item.overageDueCents || 0) > 0;
+        const balanceDue = (item.balanceDueCents || 0) > 0;
+        const med = height > 58;
+        const tall = height > 104;
+        const scheme = live
+            ? { bg: 'bg-emerald-500/10', border: 'border-emerald-500/50', text: 'text-emerald-800', badge: 'bg-emerald-500' }
+            : isTour
+            ? { bg: 'bg-sky-500/10', border: 'border-sky-400/60 border-dashed', text: 'text-sky-800', badge: 'bg-sky-500' }
+            : { bg: 'bg-amber-500/10', border: 'border-amber-500/50', text: 'text-amber-800', badge: 'bg-amber-500' };
+        const label = isTour ? 'Tour' : (item.bookingType === 'hourly' ? 'Hourly' : 'Day rental');
+        return (
+            <div key={item.id} className="absolute pr-2 z-10" style={style}>
+                <a href="/booths" className={cn('block h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-md hover:shadow-lg transition-all p-1.5 sm:p-2', scheme.bg, scheme.border)}>
+                    <div className="flex items-center justify-between gap-1">
+                        <span className={cn('inline-flex items-center gap-0.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white rounded-full px-1.5 py-0.5', scheme.badge)}>
+                            {isTour ? <Eye className="w-2 h-2" /> : <DollarSign className="w-2 h-2" />}{label}
+                        </span>
+                        {live ? (
+                            <span className="inline-flex items-center gap-1 text-[8px] sm:text-[9px] text-emerald-700"><span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /><LiveTimer startIso={item.checkedInAt} bookedEndIso={item.bookedEndIso} /></span>
+                        ) : (
+                            <span className={cn('text-[7px] sm:text-[8px] font-black uppercase tracking-widest', scheme.text)}>{item.tourTimeTBD ? 'Time TBD' : fmtT(startTime)}</span>
+                        )}
+                    </div>
+                    <p className={cn('font-black text-[11px] sm:text-sm tracking-tight truncate mt-0.5', scheme.text)}>{item.guestName || item.name || 'Guest'}</p>
+                    {med && <p className="text-[8px] sm:text-[10px] font-bold text-slate-500 truncate">{item.boothName || item.location || ''}{!live && !isTour ? ` · ${fmtT(startTime)}–${fmtT(endTime)}` : ''}</p>}
+                    {(overageDue || balanceDue) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                            {overageDue && <span className="text-[7px] font-black uppercase tracking-widest bg-red-500 text-white rounded-full px-1.5 py-0.5">Overage due</span>}
+                            {balanceDue && <span className="text-[7px] font-black uppercase tracking-widest bg-amber-600 text-white rounded-full px-1.5 py-0.5">Balance ${(item.balanceDueCents / 100).toFixed(0)}</span>}
+                        </div>
+                    )}
+                    {tall && item.phone && (
+                        <div className="flex gap-1 mt-1.5">
+                            <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `tel:${item.phone}`; }} className="flex-1 text-center text-[7px] font-black uppercase tracking-widest rounded-md bg-white/70 border py-1">Call</span>
+                            <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.location.href = `sms:${item.phone}`; }} className="flex-1 text-center text-[7px] font-black uppercase tracking-widest rounded-md bg-white/70 border py-1">Text</span>
+                        </div>
+                    )}
+                </a>
+            </div>
+        );
+    };
+
     useEffect(() => {
         if (isToday(date) && scrollContainerRef.current) {
             const pos = (differenceInMinutes(new Date(), startOfDay(new Date())) * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
@@ -262,7 +337,10 @@ export const DayTimeline = ({
                             {hours.map(hour => (<div key={hour} className="h-40 border-b border-dashed border-slate-100" />))}
                             {(positionedItemsByColumn.get(column.id) || []).map(item => {
                                 if (item.itemType === 'bill') return renderBill(item);
-                                if (item.itemType === 'event') return renderEvent(item);
+                                if (item.itemType === 'event') {
+                                    if (item.type === 'tour' || item.type === 'reservation') return renderBooking(item);
+                                    return renderEvent(item);
+                                }
                                 return renderAppointment(item);
                             })}
                         </div>
