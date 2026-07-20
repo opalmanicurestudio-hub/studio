@@ -357,6 +357,27 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
     return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
   };
   const [bookedDates, setBookedDates] = useState<Set<string>>(new Set());
+  // Only-available scheduling: build the concrete list of open days (matches
+  // the space's allowed weekdays, skips blackouts + already-booked days), so
+  // the visitor picks from what's bookable instead of a broad month grid.
+  const localIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const availableDates = (b: any): string[] => {
+    const out: string[] = [];
+    const now = new Date();
+    const todayIso = localIso(now);
+    const sched: number[] | null = Array.isArray(b?.dayRentalDays) && b.dayRentalDays.length > 0 && b.dayRentalDays.length < 7 ? b.dayRentalDays.map(Number) : null;
+    const bl: string[] = Array.isArray(b?.blackoutDates) ? b.blackoutDates : [];
+    for (let i = 0; i < 90 && out.length < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+      const diso = localIso(d);
+      if (diso < todayIso) continue;
+      if (sched && !sched.includes(d.getDay())) continue;
+      if (bl.includes(diso)) continue;
+      if (bookedDates.has(diso)) continue;
+      out.push(diso);
+    }
+    return out;
+  };
   // Start-time grid + duration options from a space's window + increment.
   const toMin = (t: string) => { const [h, m] = (t || '').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
   const toHHMM = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
@@ -729,31 +750,39 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
               </div>
             ) : (
               <>
-                {(photosOf(applyFor).length > 0 || embedOf(applyFor.videoUrl)) && (
-                  <div className="relative h-48 shrink-0 bg-black">
-                    {showVideo && embedOf(applyFor.videoUrl) ? (
-                      embedOf(applyFor.videoUrl)!.kind === 'iframe' ? (
-                        <iframe src={embedOf(applyFor.videoUrl)!.src} className="w-full h-full" allow="autoplay; fullscreen" allowFullScreen />
-                      ) : (
-                        <video src={embedOf(applyFor.videoUrl)!.src} className="w-full h-full object-cover" controls autoPlay muted />
-                      )
-                    ) : photosOf(applyFor).length > 0 ? (
-                      <img src={photosOf(applyFor)[photoIdx]} alt="" className="w-full h-full object-cover" />
-                    ) : null}
-                    {!showVideo && photosOf(applyFor).length > 1 && (
-                      <div className="absolute bottom-2 inset-x-0 flex justify-center gap-1.5">
-                        {photosOf(applyFor).map((_, i) => (
-                          <button key={i} onClick={() => setPhotoIdx(i)} className={`w-2 h-2 rounded-full ${i === photoIdx ? 'bg-white' : 'bg-white/40'}`} />
+                {(photosOf(applyFor).length > 0 || embedOf(applyFor.videoUrl)) && (() => {
+                  // Full media gallery — every photo AND the video are slides in
+                  // one horizontal, swipeable, scroll-snapping strip, so nothing
+                  // is hidden behind a toggle or off-screen.
+                  const vid = embedOf(applyFor.videoUrl);
+                  const photos = photosOf(applyFor);
+                  const total = photos.length + (vid ? 1 : 0);
+                  return (
+                    <div className="relative shrink-0 bg-black">
+                      <div className="flex overflow-x-auto snap-x snap-mandatory" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+                        {photos.map((src, i) => (
+                          <div key={i} className="snap-center shrink-0 w-full h-56 relative">
+                            <img src={src} alt="" className="w-full h-full object-cover" />
+                            {total > 1 && <span className="absolute top-2 left-2 text-[9px] font-black uppercase tracking-widest bg-black/60 text-white rounded-full px-2.5 py-1 backdrop-blur">{i + 1}/{total}</span>}
+                          </div>
                         ))}
+                        {vid && (
+                          <div className="snap-center shrink-0 w-full h-56 relative">
+                            {vid.kind === 'iframe'
+                              ? <iframe src={vid.src} className="w-full h-full" allow="autoplay; fullscreen" allowFullScreen />
+                              : <video src={vid.src} className="w-full h-full object-cover" controls muted playsInline />}
+                            <span className="absolute top-2 left-2 text-[9px] font-black uppercase tracking-widest bg-black/70 text-white rounded-full px-2.5 py-1 backdrop-blur pointer-events-none">▶ Video</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {embedOf(applyFor.videoUrl) && (
-                      <button onClick={() => setShowVideo(v => !v)} className="absolute top-2 right-2 text-[9px] font-black uppercase tracking-widest bg-black/70 text-white rounded-full px-3 py-1.5 backdrop-blur">
-                        {showVideo ? '📷 Photos' : '▶ Video tour'}
-                      </button>
-                    )}
-                  </div>
-                )}
+                      {total > 1 && (
+                        <div className="py-1.5 text-center bg-black">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-white/60">← Swipe · {photos.length} photo{photos.length === 1 ? '' : 's'}{vid ? ' + video' : ''} →</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
                 <div className="p-6 space-y-3.5 overflow-y-auto">
                   <div>
                     <h3 className="font-black text-xl tracking-tight">
@@ -973,42 +1002,33 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                             {step === 'when' && (
                               <div className="space-y-2">
                                 <div className="flex items-center justify-between">
-                                  <p className="text-sm font-black tracking-tight">{useTime ? 'Pick your day' : 'Pick your dates'}</p>
+                                  <p className="text-sm font-black tracking-tight">Pick an available day</p>
                                   {hasChoice && <button type="button" onClick={() => setReserveStep('type')} className="text-[10px] font-black uppercase tracking-widest text-slate-400">← Back</button>}
                                 </div>
                                 {Array.isArray((applyFor as any)?.dayRentalDays) && (applyFor as any).dayRentalDays.length > 0 && (applyFor as any).dayRentalDays.length < 7 && (
                                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Available {(applyFor as any).dayRentalDays.slice().sort((a: number, b: number) => a - b).map((d: number) => DOW_NAMES[d]).join(' · ')}</p>
                                 )}
-                                <div className="rounded-2xl border-2 p-3">
-                                  <BookingCalendar
-                                    mode={useTime ? 'single' : 'range'}
-                                    selectedStart={form.startDate || undefined}
-                                    selectedEnd={form.endDate || undefined}
-                                    onPick={(picked: string) => {
-                                      if (useTime) { setForm(f => ({ ...f, startDate: picked, endDate: picked })); return; }
-                                      // Single tap books that one day (start = end) so it's
-                                      // always payment-ready. Tapping a later day extends to a
-                                      // range; tapping again restarts a fresh single day.
-                                      if (!form.startDate || (form.startDate !== form.endDate) || picked < form.startDate) {
-                                        setForm(f => ({ ...f, startDate: picked, endDate: picked }));
-                                      } else if (picked > form.startDate) {
-                                        setForm(f => ({ ...f, endDate: picked }));
-                                      } else {
-                                        setForm(f => ({ ...f, startDate: picked, endDate: picked }));
-                                      }
-                                    }}
-                                    isDisabled={(dIso: string) => {
-                                      const _t = new Date(); const _todayLocal = `${_t.getFullYear()}-${String(_t.getMonth() + 1).padStart(2, '0')}-${String(_t.getDate()).padStart(2, '0')}`;
-                                      if (dIso < _todayLocal) return true;
-                                      if (!useTime && bookedDates.has(dIso)) return true;
-                                      const dow = new Date(dIso + 'T00:00:00').getDay();
-                                      const sched: number[] | undefined = Array.isArray((applyFor as any)?.dayRentalDays) ? (applyFor as any).dayRentalDays : undefined;
-                                      if (sched && !sched.includes(dow)) return true;
-                                      const bl: string[] = Array.isArray((applyFor as any)?.blackoutDates) ? (applyFor as any).blackoutDates : [];
-                                      return bl.includes(dIso);
-                                    }}
-                                  />
-                                </div>
+                                {(() => {
+                                  const dates = availableDates(applyFor);
+                                  if (dates.length === 0) return (
+                                    <p className="text-[11px] font-medium text-slate-500 rounded-xl bg-slate-50 border-2 border-dashed px-3.5 py-3">No open days coming up — send a question and we'll help you find a time.</p>
+                                  );
+                                  return (
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-56 overflow-y-auto pr-0.5">
+                                      {dates.map(diso => {
+                                        const d = new Date(diso + 'T00:00:00');
+                                        const sel = form.startDate === diso;
+                                        return (
+                                          <button key={diso} type="button" onClick={() => setForm(f => ({ ...f, startDate: diso, endDate: diso }))}
+                                            className={`h-16 rounded-2xl border-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.97] ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700 hover:border-slate-400'}`}>
+                                            <span className="text-[9px] font-black uppercase tracking-widest opacity-70">{TOUR_DOW_SHORT[d.getDay()]}</span>
+                                            <span className="text-sm font-black leading-none">{TOUR_MON_SHORT[d.getMonth()]} {d.getDate()}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                })()}
                                 {scheduleIssue && <p className="text-[10px] font-black uppercase text-amber-600 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2">⚠ {scheduleIssue}</p>}
                                 {form.startDate && (!useTime ? form.endDate : true) && !scheduleIssue && (
                                   <button type="button" onClick={() => setReserveStep(useTime ? 'time' : 'you')}
@@ -1281,9 +1301,13 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       )}
                     </div>
                   )}
-                  <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                    {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? 'Agree to the terms to continue' : (applyMode === 'day' ? (isLease(applyFor) ? 'Submit' : 'Pay & Reserve') : 'Submit')}
-                  </button>
+                  {/* Sticky action bar — the primary action is always reachable,
+                      pinned to the bottom of the modal regardless of scroll. */}
+                  <div className="sticky bottom-0 -mx-6 mt-1 px-6 pt-3 bg-white border-t" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
+                    <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40 active:scale-[0.99] transition-transform">
+                      {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? 'Agree to the terms to continue' : (applyMode === 'day' ? (isLease(applyFor) ? 'Submit' : 'Pay & Reserve') : 'Submit')}
+                    </button>
+                  </div>
                   </div>
                   )}
                 </div>
