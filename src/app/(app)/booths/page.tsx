@@ -139,6 +139,7 @@ import {
   Gift,
   Clock,
   Pause,
+  Shield,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -2230,25 +2231,66 @@ export default function BoothsPage() {
   const [incidentalForId, setIncidentalForId] = useState<string | null>(null);
   const [incidentalAmt, setIncidentalAmt] = useState('');
   const [incidentalDesc, setIncidentalDesc] = useState('');
+  const [incidentalCat, setIncidentalCat] = useState('');
+  const DEFAULT_INCIDENTALS = [
+    { label: 'Cleaning fee', capCents: 7500 },
+    { label: 'Damage', capCents: 50000 },
+    { label: 'Lost key / fob', capCents: 2500 },
+    { label: 'Late checkout', capCents: 5000 },
+    { label: 'Missing product / supplies', capCents: 15000 },
+  ];
+  const incidentalPolicy: any[] = (Array.isArray((selectedTenant as any)?.incidentalCategories) && (selectedTenant as any).incidentalCategories.length)
+    ? (selectedTenant as any).incidentalCategories : DEFAULT_INCIDENTALS;
   const [incidentalBusyId, setIncidentalBusyId] = useState<string | null>(null);
+  // ── Incidentals charge-policy editor ───────────────────────────────────────
+  // Owners set the ALLOWED charge types and a hard cap on each. The server
+  // enforces these on every card charge (reserve route PATCH action:'incidental'),
+  // and the same list is folded into the signed lease — so nobody can invent a fee.
+  const [chargePolicyOpen, setChargePolicyOpen] = useState(false);
+  const [policyDraft, setPolicyDraft] = useState<{ label: string; cap: string }[]>([]);
+  const [policySaving, setPolicySaving] = useState(false);
+  const openChargePolicy = () => {
+    setPolicyDraft(incidentalPolicy.map((c: any) => ({ label: String(c.label || ''), cap: c.capCents ? (c.capCents / 100).toFixed(0) : '' })));
+    setChargePolicyOpen(true);
+  };
+  const savePolicy = async () => {
+    if (!tenantId) return;
+    const cleaned = policyDraft
+      .map(r => ({ label: r.label.trim(), capCents: Math.max(0, Math.round((parseFloat(r.cap) || 0) * 100)) }))
+      .filter(r => r.label.length > 0);
+    if (!cleaned.length) { toast({ variant: 'destructive', title: 'Add at least one charge type', description: 'A policy needs at least one allowed charge.' }); return; }
+    setPolicySaving(true);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { incidentalCategories: cleaned });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.incidental_policy_updated', targetType: 'tenant', targetId: tenantId,
+        summary: `Incidental charge policy updated — ${cleaned.length} allowed charge${cleaned.length === 1 ? '' : 's'} (${cleaned.map(c => `${c.label} ≤ $${(c.capCents / 100).toFixed(0)}`).join(', ')})`,
+        actor: { type: 'user' },
+      });
+      toast({ title: 'Charge policy saved', description: `${cleaned.length} allowed charge type${cleaned.length === 1 ? '' : 's'}. Caps are enforced on every card charge and shown in the lease.` });
+      setChargePolicyOpen(false);
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save', description: 'Network error — try again.' });
+    } finally { setPolicySaving(false); }
+  };
   const chargeIncidentalToCard = async (r: any) => {
     const cents = Math.round(parseFloat(incidentalAmt) * 100);
-    if (!(cents >= 50) || !incidentalDesc.trim() || incidentalBusyId) return;
+    if (!(cents >= 50) || !incidentalCat || incidentalBusyId) return;
     setIncidentalBusyId(r.id);
     try {
       const res = await fetch('/api/booths/reserve', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'incidental', tenantId, reservationId: r.id, amountCents: cents, description: incidentalDesc.trim() }),
+        body: JSON.stringify({ action: 'incidental', tenantId, reservationId: r.id, amountCents: cents, category: incidentalCat, note: incidentalDesc.trim() }),
       });
       const data = await res.json();
       if (data.ok) {
-        toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} — ${incidentalDesc.trim()} recorded in the ledger.` });
+        toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} — ${incidentalCat} recorded in the ledger.` });
         writeBoothAudit(firestore, tenantId, {
           action: 'booth.incidental_charged', targetType: 'boothReservation', targetId: r.id,
-          summary: `Incidental charged to card on file: ${r.name || 'guest'} · ${r.boothName || 'space'} — ${incidentalDesc.trim()}`,
+          summary: `Incidental charged to card on file: ${r.name || 'guest'} · ${r.boothName || 'space'} — ${incidentalCat}${incidentalDesc.trim() ? ` (${incidentalDesc.trim()})` : ''}`,
           amount: (data.chargedCents || 0) / 100, actor: { type: 'user' },
         });
-        setIncidentalForId(null); setIncidentalAmt(''); setIncidentalDesc('');
+        setIncidentalForId(null); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat('');
       } else toast({ variant: 'destructive', title: 'Charge failed', description: data.error || 'Collect in person instead.' });
     } catch {
       toast({ variant: 'destructive', title: 'Charge failed', description: 'Network error — try again.' });
@@ -3993,7 +4035,16 @@ export default function BoothsPage() {
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
           {/* Tour scorecard */}
           <div className="space-y-3">
-            <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
+              <button
+                onClick={openChargePolicy}
+                className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
+                title="Set the allowed incidental charges and their caps"
+              >
+                <Shield className="h-3.5 w-3.5" /> Charge policy
+              </button>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { label: 'Tours booked', value: String(tourKpis.total), sub: 'all time', color: 'text-slate-900' },
@@ -4210,22 +4261,32 @@ export default function BoothsPage() {
                       {r.status === 'cancel_requested' && <button onClick={() => setResStatus(r, 'confirmed')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Decline</button>}
                       <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
                       {r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) && (
-                        <button onClick={() => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); }} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 border-slate-300">＋ Incidental</button>
+                        <button onClick={() => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); }} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 border-slate-300">＋ Incidental</button>
                       )}
                       {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300 disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>}
                     </div>
-                    {incidentalForId === r.id && (
-                      <div className="mt-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-2.5 space-y-2">
-                        <div className="flex gap-2">
-                          <input type="number" inputMode="decimal" placeholder="$" value={incidentalAmt} onChange={e => setIncidentalAmt(e.target.value)} className="w-20 h-9 rounded-lg border-2 px-2.5 text-sm font-bold" />
-                          <input type="text" placeholder="What for? (damage, cleaning, product…)" value={incidentalDesc} onChange={e => setIncidentalDesc(e.target.value)} className="flex-1 h-9 rounded-lg border-2 px-3 text-sm font-medium" />
+                    {incidentalForId === r.id && (() => {
+                      const sel = incidentalPolicy.find((c: any) => c.label === incidentalCat) || null;
+                      const capCents = sel ? Math.round(Number(sel.capCents) || 0) : 0;
+                      const overCap = capCents > 0 && Math.round(parseFloat(incidentalAmt) * 100) > capCents;
+                      return (
+                        <div className="mt-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-2.5 space-y-2">
+                          <select value={incidentalCat} onChange={e => setIncidentalCat(e.target.value)} className="w-full h-9 rounded-lg border-2 px-2 text-xs font-black uppercase bg-white">
+                            <option value="">Select a charge type…</option>
+                            {incidentalPolicy.map((c: any) => <option key={c.label} value={c.label}>{c.label}{c.capCents ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}</option>)}
+                          </select>
+                          <div className="flex gap-2">
+                            <input type="number" inputMode="decimal" placeholder="$" value={incidentalAmt} onChange={e => setIncidentalAmt(e.target.value)} className={`w-20 h-9 rounded-lg border-2 px-2.5 text-sm font-bold ${overCap ? 'border-red-400' : ''}`} />
+                            <input type="text" placeholder="Note (optional)" value={incidentalDesc} onChange={e => setIncidentalDesc(e.target.value)} className="flex-1 h-9 rounded-lg border-2 px-3 text-sm font-medium" />
+                          </div>
+                          {overCap && sel && <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Over the ${(capCents / 100).toFixed(0)} cap for {sel.label}</p>}
+                          <button onClick={() => chargeIncidentalToCard(r)} disabled={!incidentalCat || !(parseFloat(incidentalAmt) > 0) || overCap || incidentalBusyId === r.id} className="w-full h-9 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                            {incidentalBusyId === r.id ? 'Charging…' : `Charge card${parseFloat(incidentalAmt) > 0 ? ` $${parseFloat(incidentalAmt).toFixed(2)}` : ''}`}
+                          </button>
+                          <p className="text-[9px] font-bold text-muted-foreground">Only your policy's charge types, each capped — no made-up charges. Records under “Renter Incidental” in the ledger.</p>
                         </div>
-                        <button onClick={() => chargeIncidentalToCard(r)} disabled={!(parseFloat(incidentalAmt) > 0) || !incidentalDesc.trim() || incidentalBusyId === r.id} className="w-full h-9 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                          {incidentalBusyId === r.id ? 'Charging…' : `Charge card${parseFloat(incidentalAmt) > 0 ? ` $${parseFloat(incidentalAmt).toFixed(2)}` : ''}`}
-                        </button>
-                        <p className="text-[9px] font-bold text-muted-foreground">Charges the card on file off-session, records under “Renter Incidental” in the ledger.</p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -5443,6 +5504,62 @@ export default function BoothsPage() {
           tour={managingTour}
         />
       )}
+
+      {/* ── Incidentals charge-policy editor ── */}
+      <Dialog open={chargePolicyOpen} onOpenChange={(o) => { if (!o) setChargePolicyOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Shield className="h-4 w-4" /> Incidental charge policy</DialogTitle>
+            <DialogDescription>
+              These are the only charges that can be billed to a card on file, each with a hard cap. Staff can't exceed a cap or invent a charge — the server enforces it, and this exact list is written into every signed lease.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+            <div className="grid grid-cols-[1fr_5.5rem_2rem] gap-2 items-center px-0.5">
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Charge type</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cap ($)</span>
+              <span />
+            </div>
+            {policyDraft.map((row, i) => (
+              <div key={i} className="grid grid-cols-[1fr_5.5rem_2rem] gap-2 items-center">
+                <Input
+                  value={row.label}
+                  placeholder="e.g. Damage"
+                  onChange={(e) => setPolicyDraft(d => d.map((r, j) => j === i ? { ...r, label: e.target.value } : r))}
+                  className="h-9 text-xs font-bold"
+                />
+                <Input
+                  value={row.cap}
+                  inputMode="decimal"
+                  placeholder="No cap"
+                  onChange={(e) => setPolicyDraft(d => d.map((r, j) => j === i ? { ...r, cap: e.target.value } : r))}
+                  className="h-9 text-xs font-bold text-center"
+                />
+                <button
+                  onClick={() => setPolicyDraft(d => d.filter((_, j) => j !== i))}
+                  className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200"
+                  title="Remove"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setPolicyDraft(d => [...d, { label: '', cap: '' }])}
+              className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add charge type
+            </button>
+          </div>
+          <p className="text-[10px] font-medium text-muted-foreground">
+            Leave the cap blank for no limit (not recommended). A blank cap means staff can charge any amount for that type.
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setChargePolicyOpen(false)} disabled={policySaving}>Cancel</Button>
+            <Button onClick={savePolicy} disabled={policySaving}>{policySaving ? 'Saving…' : 'Save policy'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <PricingAdvisor
         open={pricingOpen}
