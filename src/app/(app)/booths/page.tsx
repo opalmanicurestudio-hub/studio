@@ -2481,6 +2481,25 @@ export default function BoothsPage() {
     return arr.sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
   }, [reservations, applications, leases.data, renterById]);
 
+  // Deep-link from the planner: /booths?contact=<phone|email> opens that exact
+  // person's history & details on load — renter profile if they're a renter,
+  // otherwise their guest/contact profile (reservations, tours, lifetime value).
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    if (deepLinkHandled.current || typeof window === 'undefined') return;
+    const raw = new URLSearchParams(window.location.search).get('contact');
+    if (!raw || !guestBook || guestBook.length === 0) return;
+    const norm = (s: any) => String(s || '').replace(/[^\da-z@.]/gi, '').toLowerCase();
+    const nkey = norm(raw);
+    if (!nkey) return;
+    const match = guestBook.find((g: any) =>
+      (g.phone && norm(g.phone) === nkey) || (g.email && norm(g.email) === nkey) || (g.key && norm(g.key) === nkey));
+    if (!match) return;
+    deepLinkHandled.current = true;
+    if (match.isRenter && match.renterId) { const rt = renterById.get(match.renterId); if (rt) { setProfileRenter(rt); return; } }
+    setProfileContact(match);
+  }, [guestBook, renterById]);
+
   const rentRoll = useMemo(() => {
     const occupying = (leases.data || []).filter((l: any) => ['active', 'on_leave', 'pending_signature'].includes(l.status));
     return occupying.map((l: any) => {
@@ -3994,7 +4013,7 @@ export default function BoothsPage() {
                           {decidingAppId === app.id ? 'Working…' : app.rentalType === 'lease' ? 'Approve → Create Renter' : 'Approve'}
                         </button>
                       ) : (
-                        <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
+                        <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">{app.kind === 'tour' ? 'Mark Toured' : app.kind === 'question' ? 'Mark Answered' : app.kind === 'waitlist' ? 'Remove' : 'Close Out'}</button>
                       )}
                       {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
                       {(!app.kind || app.kind === 'application') && <button onClick={() => { setAppStatus(app, 'declined'); openDecisionEmail(app, 'declined'); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
