@@ -1883,6 +1883,33 @@ export default function BoothsPage() {
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [applications, selectedLocationId]);
 
+  // Follow-up tasks (created by the tour manager's outcome capture).
+  const [tasks, setTasks] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tasks'),
+      (snap) => setTasks(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setTasks([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const openTasks = useMemo(() => tasks.filter((t: any) => !t.done).sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || '')), [tasks]);
+
+  // Tour scorecard — outcomes recorded by the tour manager drive these KPIs.
+  const tourKpis = useMemo(() => {
+    const tourApps = applications.filter((a: any) => a.kind === 'tour');
+    const closed = tourApps.filter((a: any) => a.status === 'closed').length;
+    const noShow = tourApps.filter((a: any) => a.status === 'no_show').length;
+    const hot = tourApps.filter((a: any) => a.tourOutcome?.interest === 'Hot').length;
+    const resolvedCount = closed + noShow;
+    const showRate = resolvedCount > 0 ? Math.round((closed / resolvedCount) * 100) : 0;
+    const norm = (x: any) => String(x || '').replace(/[^\da-z@.]/gi, '').toLowerCase();
+    const tourKeys = new Set(tourApps.map((a: any) => norm(a.phone || a.email)).filter(Boolean));
+    const convertedKeys = new Set(applications.filter((a: any) => a.kind !== 'tour' && (a.rentalType === 'lease' || a.status === 'approved')).map((a: any) => norm(a.phone || a.email)).filter(Boolean));
+    let converted = 0; tourKeys.forEach(k => { if (convertedKeys.has(k)) converted++; });
+    const convRate = tourKeys.size > 0 ? Math.round((converted / tourKeys.size) * 100) : 0;
+    return { total: tourApps.length, closed, noShow, hot, showRate, convRate, converted };
+  }, [applications]);
+
   // v53 — owner's view of paid day rentals
   const [reservations, setReservations] = useState<any[]>([]);
   // v76 — LIVE FLOOR: a slow heartbeat so time-remaining bars tick.
@@ -3964,6 +3991,48 @@ export default function BoothsPage() {
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
+          {/* Tour scorecard */}
+          <div className="space-y-3">
+            <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Tours booked', value: String(tourKpis.total), sub: 'all time', color: 'text-slate-900' },
+                { label: 'Show rate', value: `${tourKpis.showRate}%`, sub: `${tourKpis.noShow} no-show${tourKpis.noShow === 1 ? '' : 's'}`, color: tourKpis.showRate >= 70 ? 'text-emerald-700' : 'text-amber-600' },
+                { label: 'Hot leads', value: String(tourKpis.hot), sub: 'from tours', color: 'text-red-600' },
+                { label: 'Tour → rental', value: `${tourKpis.convRate}%`, sub: `${tourKpis.converted} converted`, color: 'text-slate-900' },
+              ].map(k => (
+                <div key={k.label} className="rounded-2xl border-2 bg-white px-4 py-3 space-y-0.5 shadow-sm">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
+                  <p className={`text-xl md:text-2xl font-black tracking-tighter ${k.color}`}>{k.value}</p>
+                  <p className="text-[9px] font-bold text-muted-foreground">{k.sub}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Follow-ups */}
+          {openTasks.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-black uppercase tracking-widest">Follow-ups</h2>
+                <span className="h-5 min-w-5 px-1.5 bg-indigo-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{openTasks.length}</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {openTasks.map((t: any) => (
+                  <div key={t.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black truncate">{t.title}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground truncate">{[t.contactPhone, t.contactEmail].filter(Boolean).join(' · ') || 'No contact on file'}</p>
+                    </div>
+                    {t.contactPhone && <a href={`sms:${t.contactPhone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
+                    {!t.contactPhone && t.contactEmail && <a href={`mailto:${t.contactEmail}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Email</a>}
+                    <button onClick={() => updateDoc(doc(firestore, 'tenants', tenantId, 'tasks', t.id), { done: true, doneAt: new Date().toISOString() })} className="h-8 px-3 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">Done</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Applications */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
