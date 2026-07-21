@@ -644,6 +644,67 @@ export async function PATCH(req: NextRequest) {
     if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
     const r = snap.data() as any;
 
+    // ── INCIDENTAL (action:'incidental') — charge an arbitrary amount (damage,
+    // cleaning, lost key, product) to the reservation's card on file, hotel-
+    // style. Off-session + confirmed; records to the ledger with a paired
+    // Stripe-fee expense, and appends to the reservation's incidentals log.
+    if (body.action === 'incidental') {
+      const amountCents = Math.round(Number(body.amountCents) || 0);
+      const description = String(body.description || 'Incidental').slice(0, 140).trim() || 'Incidental';
+      if (!(amountCents >= 50)) {
+        return NextResponse.json({ ok: false, error: 'Enter an amount of at least $0.50.' }, { status: 400 });
+      }
+      if (!r.stripeCustomerId || !r.stripePaymentMethodId) {
+        return NextResponse.json({ ok: false, error: 'No card on file for this booking — collect in person.' }, { status: 400 });
+      }
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      let intent;
+      try {
+        intent = await stripe.paymentIntents.create({
+          amount: amountCents, currency: 'usd',
+          customer: r.stripeCustomerId, payment_method: r.stripePaymentMethodId,
+          off_session: true, confirm: true,
+          description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
+          metadata: { tenantId, reservationId, kind: 'booth_incidental' },
+        });
+      } catch (err: any) {
+        const msg = err?.raw?.message || err?.message || 'Card charge failed.';
+        return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect in person instead.` }, { status: 402 });
+      }
+      const nowIso = new Date().toISOString();
+      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      await txnRef.set({
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
+        amount: amountCents / 100, category: 'Renter Incidental',
+        description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
+        clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
+        hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
+      });
+      try {
+        const { feeCents, chargeId } = await stripeFeeFor(intent.id);
+        if (feeCents > 0) {
+          const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await feeRef.set({
+            id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+            amount: feeCents / 100, category: 'Processing Fee',
+            description: `Stripe fee — incidental — ${r.boothName || 'Space'} (${r.name})`,
+            clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+            hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
+            sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
+          });
+        }
+      } catch { /* fee accounting is best-effort */ }
+      const list = Array.isArray(r.incidentals) ? r.incidentals : [];
+      list.push({ amountCents, description, at: nowIso, paymentIntentId: intent.id });
+      await resRef.set({ incidentals: list, incidentalsTotalCents: (r.incidentalsTotalCents || 0) + amountCents }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.incidental_charged', targetType: 'boothReservation', targetId: reservationId,
+        summary: `Incidental charged: ${r.name || 'guest'} · ${r.boothName || 'space'} — ${description} ($${(amountCents / 100).toFixed(2)})`,
+        amount: amountCents / 100, actor: { type: 'system', name: 'booth-incidental' },
+      });
+      return NextResponse.json({ ok: true, chargedCents: amountCents });
+    }
+
     // ── v85: RESCHEDULE (action:'reschedule') — same length, new time, ─────
     // conflict-checked against other bookings AND resident-renter slots.
     if (body.action === 'reschedule') {
