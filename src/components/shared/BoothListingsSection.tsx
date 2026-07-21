@@ -749,13 +749,30 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       {/* ── Application dialog — immersive: photo strip + guided form ── */}
       {applyFor && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => !submitting && setApplyFor(null)}>
-          <div className="bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[92dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl overflow-hidden max-h-[92dvh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {submitting && (
+              <div className="absolute inset-0 z-20 bg-white/75 backdrop-blur-sm flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-10 h-10 rounded-full border-[3px] border-slate-200 border-t-slate-900 animate-spin" />
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">{inquiryKind === 'tour' ? 'Requesting your tour…' : (applyMode === 'day' && !isLease(applyFor)) ? 'Starting secure checkout…' : 'Sending…'}</p>
+                </div>
+              </div>
+            )}
             {submitted ? (
-              <div className="text-center py-14 px-6 space-y-3">
-                <p className="text-4xl">🎉</p>
-                <h3 className="font-black text-xl">Application received!</h3>
-                <p className="text-sm opacity-70 font-medium">We'll reach out shortly about {applyFor.name || 'the space'}.</p>
-                <button onClick={() => setApplyFor(null)} className="h-11 px-8 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest">Done</button>
+              <div className="text-center py-12 px-6 space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center text-white text-3xl font-black shadow-lg shadow-emerald-500/30 animate-in zoom-in duration-300">✓</div>
+                <div className="space-y-1">
+                  <h3 className="font-black text-xl tracking-tight">
+                    {inquiryKind === 'tour' ? 'Tour requested!' : inquiryKind === 'question' ? 'Question sent!' : inquiryKind === 'waitlist' ? "You're on the waitlist!" : 'Application received!'}
+                  </h3>
+                  <p className="text-sm text-slate-500 font-medium">
+                    {inquiryKind === 'tour' && tourSlot ? `${applyFor.name || 'The space'} · ${tourSlot}` : (applyFor.name || 'The space')}
+                  </p>
+                </div>
+                <p className="text-[13px] text-slate-500 font-medium max-w-xs mx-auto leading-relaxed">
+                  {inquiryKind === 'tour' ? "We'll confirm your tour shortly by phone or email — keep an eye out." : inquiryKind === 'question' ? "We'll get back to you within one business day." : inquiryKind === 'waitlist' ? "We'll notify you the moment a spot opens up." : "We'll review your application and reach out within one business day."}
+                </p>
+                <button onClick={() => setApplyFor(null)} className="h-12 px-10 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest active:scale-[0.98] transition-transform">Done</button>
               </div>
             ) : (
               <>
