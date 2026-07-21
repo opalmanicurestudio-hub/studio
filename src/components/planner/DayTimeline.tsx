@@ -242,7 +242,7 @@ export const DayTimeline = ({
         const label = isTour ? 'Tour' : (item.bookingType === 'hourly' ? 'Hourly' : 'Day rental');
         return (
             <div key={item.id} className="absolute pr-2 z-10" style={style}>
-                <a href="/booths" className={cn('block h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-md hover:shadow-lg transition-all p-1.5 sm:p-2', scheme.bg, scheme.border)}>
+                <a href={(item.phone || item.email) ? `/booths?contact=${encodeURIComponent(item.phone || item.email)}` : '/booths'} className={cn('block h-full rounded-xl sm:rounded-2xl border-2 overflow-hidden shadow-md hover:shadow-lg transition-all p-1.5 sm:p-2', scheme.bg, scheme.border)}>
                     <div className="flex items-center justify-between gap-1">
                         <span className={cn('inline-flex items-center gap-0.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white rounded-full px-1.5 py-0.5', scheme.badge)}>
                             {isTour ? <Eye className="w-2 h-2" /> : <DollarSign className="w-2 h-2" />}{label}
