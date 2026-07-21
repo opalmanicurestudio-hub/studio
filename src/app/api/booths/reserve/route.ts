@@ -403,6 +403,23 @@ async function stripeFeeFor(paymentIntentId: string | null): Promise<{ feeCents:
   } catch { return { feeCents: 0, chargeId: null }; }
 }
 
+// Robust fee resolver for OFF-SESSION charges. They settle in the same request,
+// so the balance-transaction fee may not be readable yet. Try the expanded
+// intent, then a re-fetch, then fall back to an ESTIMATE (US standard 2.9% +
+// $0.30) so the processing-fee expense is NEVER silently dropped.
+async function resolveFeeCents(intent: any, grossCents: number): Promise<{ feeCents: number; chargeId: string | null; estimated: boolean }> {
+  const charge: any = intent?.latest_charge;
+  let chargeId: string | null = (charge && typeof charge === 'object') ? (charge.id || null) : (typeof charge === 'string' ? charge : null);
+  const bt: any = (charge && typeof charge === 'object') ? charge.balance_transaction : null;
+  let fee = (bt && typeof bt === 'object') ? (Number(bt.fee) || 0) : 0;
+  if (!fee && intent?.id) {
+    const r = await stripeFeeFor(intent.id);
+    fee = r.feeCents; chargeId = chargeId || r.chargeId;
+  }
+  if (!fee && grossCents > 0) return { feeCents: Math.round(grossCents * 0.029) + 30, chargeId, estimated: true };
+  return { feeCents: fee, chargeId, estimated: false };
+}
+
 // Canonical Transaction shape (verified against the Ledger page):
 // amount in DOLLARS, required type 'income'.
 async function writeLedgerTxn(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, paymentIntentId: string | null) {
@@ -574,6 +591,7 @@ export async function PUT(req: NextRequest) {
         payment_method: r.stripePaymentMethodId,
         off_session: true,
         confirm: true,
+        expand: ['latest_charge.balance_transaction'],
         description: `Overage — ${r.boothName || 'Space'} — ${r.name} (+${r.overageMinutes} min)`,
         metadata: { tenantId, reservationId, kind: 'booth_overage' },
       });
@@ -592,15 +610,15 @@ export async function PUT(req: NextRequest) {
       clientOrVendor: r.name || 'Day renter', date: nowIso, paymentMethod: 'Card on file (Stripe)',
       hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
     });
-    // Paired Stripe processing-fee expense (exact, from the balance txn)
+    // Paired Stripe processing-fee expense — resolved robustly so it's never dropped.
     {
-      const { feeCents, chargeId } = await stripeFeeFor(intent.id);
+      const { feeCents, chargeId, estimated } = await resolveFeeCents(intent, r.overageDueCents);
       if (feeCents > 0) {
         const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await feeRef.set({
           id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-          amount: feeCents / 100, category: 'Processing Fee',
-          description: `Stripe fee — overage — ${r.boothName || 'Space'} (${r.name})`,
+          amount: feeCents / 100, category: 'Processing Fee', estimated,
+          description: `Stripe fee${estimated ? ' (est.)' : ''} — overage — ${r.boothName || 'Space'} (${r.name})`,
           clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
           hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
           sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
@@ -664,6 +682,7 @@ export async function PATCH(req: NextRequest) {
           amount: amountCents, currency: 'usd',
           customer: r.stripeCustomerId, payment_method: r.stripePaymentMethodId,
           off_session: true, confirm: true,
+          expand: ['latest_charge.balance_transaction'],
           description: `Incidental — ${r.boothName || 'Space'} — ${r.name}: ${description}`,
           metadata: { tenantId, reservationId, kind: 'booth_incidental' },
         });
@@ -681,13 +700,13 @@ export async function PATCH(req: NextRequest) {
         hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: reservationId, tenantId, createdAt: nowIso,
       });
       try {
-        const { feeCents, chargeId } = await stripeFeeFor(intent.id);
+        const { feeCents, chargeId, estimated } = await resolveFeeCents(intent, amountCents);
         if (feeCents > 0) {
           const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
           await feeRef.set({
             id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-            amount: feeCents / 100, category: 'Processing Fee',
-            description: `Stripe fee — incidental — ${r.boothName || 'Space'} (${r.name})`,
+            amount: feeCents / 100, category: 'Processing Fee', estimated,
+            description: `Stripe fee${estimated ? ' (est.)' : ''} — incidental — ${r.boothName || 'Space'} (${r.name})`,
             clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
             hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
             sourceId: reservationId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
