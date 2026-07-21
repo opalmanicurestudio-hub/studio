@@ -2197,6 +2197,34 @@ export default function BoothsPage() {
       toast({ variant: 'destructive', title: 'Charge failed', description: 'Network error — try again or collect in person.' });
     } finally { setChargingId(null); }
   };
+  // Arbitrary incidental/damage charge to a reservation's card on file (hotel-style).
+  const [incidentalForId, setIncidentalForId] = useState<string | null>(null);
+  const [incidentalAmt, setIncidentalAmt] = useState('');
+  const [incidentalDesc, setIncidentalDesc] = useState('');
+  const [incidentalBusyId, setIncidentalBusyId] = useState<string | null>(null);
+  const chargeIncidentalToCard = async (r: any) => {
+    const cents = Math.round(parseFloat(incidentalAmt) * 100);
+    if (!(cents >= 50) || !incidentalDesc.trim() || incidentalBusyId) return;
+    setIncidentalBusyId(r.id);
+    try {
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'incidental', tenantId, reservationId: r.id, amountCents: cents, description: incidentalDesc.trim() }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        toast({ title: 'Card charged', description: `$${(data.chargedCents / 100).toFixed(2)} — ${incidentalDesc.trim()} recorded in the ledger.` });
+        writeBoothAudit(firestore, tenantId, {
+          action: 'booth.incidental_charged', targetType: 'boothReservation', targetId: r.id,
+          summary: `Incidental charged to card on file: ${r.name || 'guest'} · ${r.boothName || 'space'} — ${incidentalDesc.trim()}`,
+          amount: (data.chargedCents || 0) / 100, actor: { type: 'user' },
+        });
+        setIncidentalForId(null); setIncidentalAmt(''); setIncidentalDesc('');
+      } else toast({ variant: 'destructive', title: 'Charge failed', description: data.error || 'Collect in person instead.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Charge failed', description: 'Network error — try again.' });
+    } finally { setIncidentalBusyId(null); }
+  };
   const markOverageCollected = async (r: any) => {
     const nowIso = new Date().toISOString();
     try {
@@ -4090,8 +4118,23 @@ export default function BoothsPage() {
                       {r.status === 'cancel_requested' && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Approve → Refund Card'}</button>}
                       {r.status === 'cancel_requested' && <button onClick={() => setResStatus(r, 'confirmed')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Decline</button>}
                       <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
+                      {r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) && (
+                        <button onClick={() => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); }} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 border-slate-300">＋ Incidental</button>
+                      )}
                       {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300 disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>}
                     </div>
+                    {incidentalForId === r.id && (
+                      <div className="mt-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-2.5 space-y-2">
+                        <div className="flex gap-2">
+                          <input type="number" inputMode="decimal" placeholder="$" value={incidentalAmt} onChange={e => setIncidentalAmt(e.target.value)} className="w-20 h-9 rounded-lg border-2 px-2.5 text-sm font-bold" />
+                          <input type="text" placeholder="What for? (damage, cleaning, product…)" value={incidentalDesc} onChange={e => setIncidentalDesc(e.target.value)} className="flex-1 h-9 rounded-lg border-2 px-3 text-sm font-medium" />
+                        </div>
+                        <button onClick={() => chargeIncidentalToCard(r)} disabled={!(parseFloat(incidentalAmt) > 0) || !incidentalDesc.trim() || incidentalBusyId === r.id} className="w-full h-9 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                          {incidentalBusyId === r.id ? 'Charging…' : `Charge card${parseFloat(incidentalAmt) > 0 ? ` $${parseFloat(incidentalAmt).toFixed(2)}` : ''}`}
+                        </button>
+                        <p className="text-[9px] font-bold text-muted-foreground">Charges the card on file off-session, records under “Renter Incidental” in the ledger.</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
