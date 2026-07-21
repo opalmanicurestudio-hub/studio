@@ -931,16 +931,16 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                       ) : (
                         <>
                           <div>
-                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a preferred day</p>
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a day</p>
                             {(() => {
                               const dates = availableDates(applyFor);
                               if (dates.length === 0) return <p className="text-[11px] font-medium text-slate-500">Send your request and we'll arrange a time.</p>;
                               return (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-48 overflow-y-auto pr-0.5">
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-0.5">
                                   {dates.map(diso => {
                                     const d = new Date(diso + 'T00:00:00'); const sel = form.moveIn === diso;
                                     return (
-                                      <button key={diso} type="button" onClick={() => { const _st = new Date(diso + 'T10:00:00'); const _en = new Date(_st.getTime() + 30 * 60000); setForm(f => ({ ...f, moveIn: diso })); setTourSlot(`${TOUR_DOW_SHORT[d.getDay()]} ${TOUR_MON_SHORT[d.getMonth()]} ${d.getDate()} · time to confirm`); setTourStartIso(_st.toISOString()); setTourEndIso(_en.toISOString()); }}
+                                      <button key={diso} type="button" onClick={() => { setForm(f => ({ ...f, moveIn: diso })); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); }}
                                         className={`h-14 rounded-2xl border-2 flex flex-col items-center justify-center gap-0.5 transition-colors active:scale-[0.97] ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-700 hover:border-slate-400'}`}>
                                         <span className="text-[9px] font-black uppercase tracking-widest opacity-70">{TOUR_DOW_SHORT[d.getDay()]}</span>
                                         <span className="text-sm font-black leading-none">{TOUR_MON_SHORT[d.getMonth()]} {d.getDate()}</span>
@@ -951,16 +951,27 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                               );
                             })()}
                           </div>
-                          {tourSlots.length > 0 && (
+                          {form.moveIn && (
                             <div>
-                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Times we give tours</p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {tourSlotObjs.map(o => (
-                                  <button key={o.label} type="button" onClick={() => pickTour(o)}
-                                    className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${tourSlot === o.label ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
-                                    {o.label}
-                                  </button>
-                                ))}
+                              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Pick a time</p>
+                              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                                {(() => {
+                                  const openM = toMin((applyFor as any).openTime || '10:00');
+                                  const closeM = toMin((applyFor as any).closeTime || '17:00');
+                                  const times: number[] = [];
+                                  for (let m = (closeM > openM ? openM : 600); m + 30 <= (closeM > openM ? closeM : 1020); m += 30) times.push(m);
+                                  return times.map(m => {
+                                    const hh = String(Math.floor(m / 60)).padStart(2, '0'); const mm = String(m % 60).padStart(2, '0');
+                                    const st = new Date(`${form.moveIn}T${hh}:${mm}:00`);
+                                    const sel = tourStartIso === st.toISOString();
+                                    return (
+                                      <button key={m} type="button" onClick={() => { const en = new Date(st.getTime() + 30 * 60000); const d = new Date(form.moveIn + 'T00:00:00'); setTourStartIso(st.toISOString()); setTourEndIso(en.toISOString()); setTourSlot(`${TOUR_DOW_SHORT[d.getDay()]} ${TOUR_MON_SHORT[d.getMonth()]} ${d.getDate()} · ${t12(`${hh}:${mm}`)}`); }}
+                                        className={`h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${sel ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+                                        {t12(`${hh}:${mm}`)}
+                                      </button>
+                                    );
+                                  });
+                                })()}
                               </div>
                             </div>
                           )}
