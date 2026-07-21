@@ -65,6 +65,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -1982,6 +1983,7 @@ export default function BoothsPage() {
 
   const [guestBookOpen, setGuestBookOpen] = useState(false);
   const [profileContact, setProfileContact] = useState<any | null>(null);
+  const [managingTour, setManagingTour] = useState<any | null>(null);
 
   const upcomingReservations = useMemo(() => {
     const today = localISO();
@@ -4015,7 +4017,8 @@ export default function BoothsPage() {
                       ) : (
                         <button onClick={() => setAppStatus(app, 'closed')} className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">{app.kind === 'tour' ? 'Mark Toured' : app.kind === 'question' ? 'Mark Answered' : app.kind === 'waitlist' ? 'Remove' : 'Close Out'}</button>
                       )}
-                      {app.status === 'new' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
+                      {app.kind === 'tour' && <button onClick={() => setManagingTour(app)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-indigo-700 border-indigo-300">Manage Tour</button>}
+                      {app.status === 'new' && app.kind !== 'tour' && <button onClick={() => setAppStatus(app, 'in_review')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-sky-700 border-sky-300">Contacted</button>}
                       {(!app.kind || app.kind === 'application') && <button onClick={() => { setAppStatus(app, 'declined'); openDecisionEmail(app, 'declined'); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>}
                     </div>
                   </div>
@@ -5359,6 +5362,16 @@ export default function BoothsPage() {
           onEdit={() => { const r = profileRenter; setProfileRenter(null); openEditRenter(r); }}
           onLease={() => { const r = profileRenter; setProfileRenter(null); openLeaseWizard(r.id); }}
           onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEndLeaseTarget(r); }}
+        />
+      )}
+
+      {managingTour && (
+        <TourManagerDialog
+          open={!!managingTour}
+          onOpenChange={(o) => { if (!o) setManagingTour(null); }}
+          firestore={firestore}
+          tenantId={tenantId}
+          tour={managingTour}
         />
       )}
 
