@@ -310,6 +310,7 @@ function PlannerPageContent() {
                 guestName: t.name || 'Guest',
                 boothName: t.boothName || null,
                 phone:     t.phone || null,
+                email:     t.email || null,
                 tourTimeTBD: !!t.tourTimeTBD,
                 isTourRequest: true,
             } as any);
@@ -339,6 +340,7 @@ function PlannerPageContent() {
                 guestName: r.name || 'Guest',
                 boothName: r.boothName || null,
                 phone:     r.phone || null,
+                email:     r.email || null,
                 bookingType: isHourly ? 'hourly' : 'daily',
                 checkedInAt: r.checked_inAt || null,
                 bookedEndIso: isHourly ? end.toISOString() : null,
