@@ -81,6 +81,14 @@ export function fillTemplate(tpl: string, vars: Record<string, string | number |
 // ── Default templates (editable starting points, NOT legal advice) ───────────
 // Placeholders are filled with fillTemplate(). Keep the wording your own /
 // lawyer-reviewed; these exist so onboarding works out of the box.
+export const DEFAULT_INCIDENTALS_SCHEDULE = [
+  'Cleaning fee — up to $75',
+  'Damage — up to $500',
+  'Lost key / fob — up to $25',
+  'Late checkout — up to $50',
+  'Missing product / supplies — up to $150',
+].join('\n');
+
 export const AGREEMENT_TEMPLATES: Record<SignedDocumentKind, { title: string; body: string }> = {
   contractor_agreement: {
     title: 'Independent Contractor Agreement',
@@ -155,6 +163,9 @@ Acknowledged and agreed on {{date}}.`,
 6. CONDUCT. The Renter agrees to the Studio's House Rules & Policies and to maintain the space in good, sanitary condition.
 
 7. TERMINATION. Either party may end this agreement with the notice period stated in the Studio's policy.
+
+8. INCIDENTAL CHARGES. The Renter authorizes the Studio to charge the card on file for the following, each only up to the stated cap:
+{{incidentalsSchedule}}
 
 By signing below, the Renter confirms they have read, understood, and agree to the terms of this Agreement.`,
   },
