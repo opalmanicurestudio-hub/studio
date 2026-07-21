@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ESignAgreement } from '@/components/shared/ESignAgreement';
-import { AGREEMENT_TEMPLATES, fillTemplate, saveSignedDocument } from '@/lib/esign';
+import { AGREEMENT_TEMPLATES, fillTemplate, saveSignedDocument, DEFAULT_INCIDENTALS_SCHEDULE } from '@/lib/esign';
 import { doc, setDoc, collection } from 'firebase/firestore';
 import { CheckCircle2, PartyPopper } from 'lucide-react';
 
@@ -38,6 +38,7 @@ interface RenterOnboardingDialogProps {
   renterName: string;
   renterId?: string | null;
   lease: Lease;
+  incidentalsSchedule?: string;   // the studio's capped charge list, shown in the lease
   onComplete?: () => void;
 }
 
@@ -47,7 +48,7 @@ const PERIOD: Record<string, string> = { monthly: 'month', weekly: 'week', daily
 const money = (c?: number) => `$${(((c || 0) / 100)).toFixed(2)}`;
 
 export function RenterOnboardingDialog({
-  open, onOpenChange, firestore, tenantId, studioName, renterName, renterId, lease, onComplete,
+  open, onOpenChange, firestore, tenantId, studioName, renterName, renterId, lease, incidentalsSchedule, onComplete,
 }: RenterOnboardingDialogProps) {
   const [step, setStep] = useState<Step>('lease');
   const [busy, setBusy] = useState(false);
@@ -66,6 +67,7 @@ export function RenterOnboardingDialog({
     rentAmount: money(lease.rentAmountCents),
     rentPeriod: PERIOD[String(lease.frequency)] || 'period',
     deposit: money(depositCents),
+    incidentalsSchedule: incidentalsSchedule || DEFAULT_INCIDENTALS_SCHEDULE,
   };
   const leaseText = fillTemplate(AGREEMENT_TEMPLATES.lease.body, vars);
   const houseRulesText = fillTemplate(AGREEMENT_TEMPLATES.house_rules.body, vars);
