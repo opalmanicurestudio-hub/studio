@@ -9,12 +9,21 @@
 //     they want, a walkthrough checklist, and the exact fields to capture for
 //     the tour → rental KPIs, with room to write by hand.
 //
+// NOTHING here is hardcoded to a single business. Two layers feed every sheet:
+//   1) Data     — the studio's own record (name/phone/email/address) and the
+//                 tour record (guest, space, time, specialty, message, notes).
+//   2) Copy     — every headline, list, and note is a TourPrintoutConfig field
+//                 the owner can edit (stored on tenants/{id}.tourPrintoutConfig).
+//                 When a field is unset, the DEFAULT_TOUR_PRINTOUT_CONFIG value
+//                 below is used — so it works out of the box AND is fully
+//                 customizable, with no code change.
+//
 // These are framework-free: each function returns a complete, self-contained
 // HTML string (inline CSS, no external assets) so it prints identically
 // anywhere. openPrintable() opens one in a new tab and fires the print dialog.
 //
-// Everything user-provided is HTML-escaped — a visitor named "A & B <Studio>"
-// can never break the layout or inject markup.
+// Everything user-provided (studio, tour, AND custom copy) is HTML-escaped — a
+// visitor named "A & B <Studio>" can never break the layout or inject markup.
 
 export interface TourStudio {
   name?: string | null;
@@ -39,6 +48,73 @@ export interface TourLike {
   message?: string | null;
   tourNotes?: string | null;
   status?: string | null;
+}
+
+// Owner-editable copy for both sheets. Every field is optional; anything left
+// out falls back to DEFAULT_TOUR_PRINTOUT_CONFIG. Persisted at
+// tenants/{id}.tourPrintoutConfig.
+export interface TourPrintoutConfig {
+  confirmationTitle?: string;      // visitor sheet headline
+  confirmationIntro?: string;      // visitor sheet sub-line
+  whatToBringTitle?: string;       // visitor sheet section heading
+  whatToBring?: string[];          // visitor sheet checklist items
+  changeTimeTitle?: string;        // visitor sheet reschedule heading
+  changeTimeNote?: string;         // visitor sheet reschedule body
+  prepTitle?: string;              // staff sheet headline
+  prepIntro?: string;              // staff sheet sub-line
+  checklistTitle?: string;         // staff sheet walkthrough heading
+  checklist?: string[];            // staff sheet walkthrough items
+  footerNote?: string;             // extra line on BOTH sheets (e.g. a tagline)
+  hideBranding?: boolean;          // hide the "Powered by ClarityFlow" footer
+}
+
+export const DEFAULT_TOUR_PRINTOUT_CONFIG: Required<Omit<TourPrintoutConfig, 'footerNote' | 'hideBranding'>> & { footerNote: string; hideBranding: boolean } = {
+  confirmationTitle: "You're booked for a tour",
+  confirmationIntro: "We're looking forward to showing you around. Here are your details.",
+  whatToBringTitle: 'What to bring',
+  whatToBring: [
+    'A few questions — anything you want to know about the space, terms, or community.',
+    'Your schedule, so we can talk through availability and move-in timing.',
+    "If you're licensed, it's helpful to know your license and insurance status.",
+  ],
+  changeTimeTitle: 'Need to change your time?',
+  changeTimeNote: "No problem at all — just reach out and we'll find a slot that works.",
+  prepTitle: 'Tour prep sheet',
+  prepIntro: 'Internal — run-of-show and what to capture. Not for the visitor.',
+  checklistTitle: 'Walkthrough checklist',
+  checklist: [
+    "Welcome & quick intro — how the studio works, who's here.",
+    'Show the space itself — the station, storage, shared areas, restroom.',
+    'Amenities & access — hours, keys/entry, wifi, laundry, parking.',
+    "Terms — rent, what's included, deposit, and the incidentals policy.",
+    'Their business — clientele, products, schedule, growth plans.',
+    "Next step — hand them an application or lease if it's a fit.",
+  ],
+  footerNote: '',
+  hideBranding: false,
+};
+
+// Merge a partial config over the defaults, dropping empty strings / empty
+// arrays so a half-filled config still shows sensible copy.
+export function resolveTourPrintoutConfig(cfg?: TourPrintoutConfig | null) {
+  const d = DEFAULT_TOUR_PRINTOUT_CONFIG;
+  const c = cfg || {};
+  const str = (v: any, fb: string) => (typeof v === 'string' && v.trim() ? v : fb);
+  const list = (v: any, fb: string[]) => (Array.isArray(v) && v.filter((x) => String(x || '').trim()).length ? v.filter((x: any) => String(x || '').trim()) : fb);
+  return {
+    confirmationTitle: str(c.confirmationTitle, d.confirmationTitle),
+    confirmationIntro: str(c.confirmationIntro, d.confirmationIntro),
+    whatToBringTitle: str(c.whatToBringTitle, d.whatToBringTitle),
+    whatToBring: list(c.whatToBring, d.whatToBring),
+    changeTimeTitle: str(c.changeTimeTitle, d.changeTimeTitle),
+    changeTimeNote: str(c.changeTimeNote, d.changeTimeNote),
+    prepTitle: str(c.prepTitle, d.prepTitle),
+    prepIntro: str(c.prepIntro, d.prepIntro),
+    checklistTitle: str(c.checklistTitle, d.checklistTitle),
+    checklist: list(c.checklist, d.checklist),
+    footerNote: str(c.footerNote, ''),
+    hideBranding: !!c.hideBranding,
+  };
 }
 
 const esc = (v: any): string =>
@@ -71,7 +147,13 @@ const todayLabel = (): string => {
 };
 
 // Shared page chrome: print button (hidden on paper), studio wordmark, footer.
-function page(title: string, studioName: string, innerHtml: string): string {
+function page(title: string, studioName: string, innerHtml: string, footerNote: string, hideBranding: boolean): string {
+  const footerBits = [
+    esc(studioName),
+    footerNote ? esc(footerNote) : '',
+    `Generated ${esc(todayLabel())}`,
+    hideBranding ? '' : 'Powered by ClarityFlow',
+  ].filter(Boolean).join(' · ');
   return `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -130,7 +212,7 @@ function page(title: string, studioName: string, innerHtml: string): string {
   <div class="sheet">
     <p class="brand">${esc(studioName)}</p>
     ${innerHtml}
-    <div class="foot">${esc(studioName)} · Generated ${esc(todayLabel())} · Powered by ClarityFlow</div>
+    <div class="foot">${footerBits}</div>
   </div>
   <script>try{window.focus();}catch(e){}</script>
 </body></html>`;
@@ -142,18 +224,23 @@ function row(k: string, v: any): string {
   return `<div class="row"><div class="k">${esc(k)}</div><div class="v">${esc(val)}</div></div>`;
 }
 
+function checklistItems(items: string[]): string {
+  return items.map((it) => `<li><span class="box"></span> ${esc(it)}</li>`).join('');
+}
+
 // ── Visitor confirmation ─────────────────────────────────────────────────────
-export function visitorConfirmationHtml(tour: TourLike, studio: TourStudio = {}): string {
+export function visitorConfirmationHtml(tour: TourLike, studio: TourStudio = {}, config?: TourPrintoutConfig | null): string {
   const studioName = String(studio.name || 'Our studio');
+  const c = resolveTourPrintoutConfig(config);
   const contactBits = [
-    studio.phone ? `Call or text ${esc(studio.phone)}` : '',
-    studio.email ? esc(studio.email) : '',
-    studio.website ? esc(studio.website) : '',
-  ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+    studio.phone ? `Call or text ${studio.phone}` : '',
+    studio.email || '',
+    studio.website || '',
+  ].filter(Boolean).map(esc).join(' · ');
 
   const inner = `
-    <h1>You're booked for a tour</h1>
-    <p class="sub">We're looking forward to showing you around. Here are your details.</p>
+    <h1>${esc(c.confirmationTitle)}</h1>
+    <p class="sub">${esc(c.confirmationIntro)}</p>
 
     <div class="hero">
       <div class="lbl">When</div>
@@ -167,27 +254,26 @@ export function visitorConfirmationHtml(tour: TourLike, studio: TourStudio = {})
       ${tour.specialty ? row('Your specialty', tour.specialty) : ''}
     </div>
 
-    <h2>What to bring</h2>
+    <h2>${esc(c.whatToBringTitle)}</h2>
     <ul class="check">
-      <li><span class="box"></span> A few questions — anything you want to know about the space, terms, or community.</li>
-      <li><span class="box"></span> Your schedule, so we can talk through availability and move-in timing.</li>
-      <li><span class="box"></span> If you're licensed, it's helpful to know your license and insurance status.</li>
+      ${checklistItems(c.whatToBring)}
     </ul>
 
-    <h2>Need to change your time?</h2>
-    <p class="note">No problem at all — just reach out and we'll find a slot that works.${contactBits ? `\n${studioName}: ${contactBits.replace(/&nbsp;/g, ' ').replace(/·/g, '·')}` : ''}</p>
+    <h2>${esc(c.changeTimeTitle)}</h2>
+    <p class="note">${esc(c.changeTimeNote)}${contactBits ? `\n${esc(studioName)}: ${contactBits}` : ''}</p>
   `;
-  return page('Tour confirmation', studioName, inner);
+  return page('Tour confirmation', studioName, inner, c.footerNote, c.hideBranding);
 }
 
 // ── Staff prep sheet ─────────────────────────────────────────────────────────
-export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}): string {
+export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}, config?: TourPrintoutConfig | null): string {
   const studioName = String(studio.name || 'Studio');
+  const c = resolveTourPrintoutConfig(config);
   const contact = [tour.phone, tour.email].filter(Boolean).map(esc).join(' · ');
 
   const inner = `
-    <h1>Tour prep sheet</h1>
-    <p class="sub">Internal — run-of-show and what to capture. Not for the visitor.</p>
+    <h1>${esc(c.prepTitle)}</h1>
+    <p class="sub">${esc(c.prepIntro)}</p>
 
     <div class="hero">
       <div class="lbl">${esc(tour.name || 'Visitor')} &nbsp;·&nbsp; ${esc(tour.boothName || 'Studio tour')}</div>
@@ -206,14 +292,9 @@ export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}): str
     ${tour.message ? `<h2>What they said</h2><p class="note">${esc(tour.message)}</p>` : ''}
     ${tour.tourNotes ? `<h2>Prior notes</h2><p class="note">${esc(tour.tourNotes)}</p>` : ''}
 
-    <h2>Walkthrough checklist</h2>
+    <h2>${esc(c.checklistTitle)}</h2>
     <ul class="check">
-      <li><span class="box"></span> Welcome &amp; quick intro — how the studio works, who's here.</li>
-      <li><span class="box"></span> Show the space itself — the station, storage, shared areas, restroom.</li>
-      <li><span class="box"></span> Amenities &amp; access — hours, keys/entry, wifi, laundry, parking.</li>
-      <li><span class="box"></span> Terms — rent, what's included, deposit, and the incidentals policy.</li>
-      <li><span class="box"></span> Their business — clientele, products, schedule, growth plans.</li>
-      <li><span class="box"></span> Next step — hand them an application or lease if it's a fit.</li>
+      ${checklistItems(c.checklist)}
     </ul>
 
     <h2>Capture after the tour</h2>
@@ -239,7 +320,7 @@ export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}): str
       <div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div>
     </div>
   `;
-  return page('Tour prep sheet', studioName, inner);
+  return page('Tour prep sheet', studioName, inner, c.footerNote, c.hideBranding);
 }
 
 // Open a generated HTML document in a new tab and trigger the print dialog.
@@ -251,7 +332,6 @@ export function openPrintable(html: string): boolean {
   w.document.open();
   w.document.write(html);
   w.document.close();
-  // Give the new document a tick to lay out before the print dialog.
   try {
     w.onload = () => { try { w.focus(); } catch { /* noop */ } };
   } catch { /* noop */ }
