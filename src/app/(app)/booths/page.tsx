@@ -317,6 +317,22 @@ const EMPTY_RENTER_FORM: RenterFormState = {
 const localISO = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// Single default incidentals policy for the whole booths surface — the allowed
+// charge types and their hard caps. Mirrors src/lib/incidentals.ts (server) and
+// esign.ts's lease schedule, so the UI, the signed lease, and the server
+// enforcement all agree. Owners override this on tenants/{id}.incidentalCategories.
+const BOOTH_DEFAULT_INCIDENTALS: { label: string; capCents: number }[] = [
+  { label: 'Cleaning fee', capCents: 7500 },
+  { label: 'Damage', capCents: 50000 },
+  { label: 'Lost key / fob', capCents: 2500 },
+  { label: 'Late checkout', capCents: 5000 },
+  { label: 'Missing product / supplies', capCents: 15000 },
+];
+const resolveBoothIncidentalPolicy = (tenant: any): { label: string; capCents: number }[] => {
+  const saved = tenant?.incidentalCategories;
+  return (Array.isArray(saved) && saved.length) ? saved : BOOTH_DEFAULT_INCIDENTALS;
+};
+
 // v73 — booth money actions now follow the app's audit-trail convention
 // (tenants/{id}/auditLogs). Logging never breaks the action it describes.
 const writeBoothAudit = (firestore: any, tenantId: string, e: any) => {
@@ -1442,26 +1458,40 @@ function RenterProfileDrawer({
 }) {
   const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'activity'>('overview');
   const [chargeAmt, setChargeAmt] = useState('');
-  const [chargeDesc, setChargeDesc] = useState('');
+  const [chargeCat, setChargeCat] = useState('');
+  const [chargeNote, setChargeNote] = useState('');
   const [renterChargingId, setRenterChargingId] = useState<string | null>(null);
   const { toast: drawerToast } = useToast();
+  const { selectedTenant: drawerTenant } = useTenant();
+  // Constrained to the studio's capped incidentals policy — no made-up charges.
+  const chargePolicy = resolveBoothIncidentalPolicy(drawerTenant);
+  const chargeCatObj = chargePolicy.find((c: any) => c.label === chargeCat) || null;
+  const chargeCapCents = chargeCatObj ? Math.round(Number(chargeCatObj.capCents) || 0) : 0;
+  const chargeCents = Math.round((parseFloat(chargeAmt) || 0) * 100);
+  const chargeOverCap = chargeCapCents > 0 && chargeCents > chargeCapCents;
   const chargeRenterCard = async (rt: Renter) => {
-    const cents = Math.round(parseFloat(chargeAmt) * 100);
-    if (!(cents > 0) || !chargeDesc.trim() || renterChargingId) return;
+    if (!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId) return;
+    if (!lease?.id) {
+      drawerToast({ variant: 'destructive', title: 'No active lease', description: 'Assign a space first — incidentals bill against the lease.' });
+      return;
+    }
     setRenterChargingId(rt.id);
     try {
-      const res = await fetch('/api/booths/setup-card', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, renterId: rt.id, amountCents: cents, description: chargeDesc.trim() }),
+      // Hardened monthly-renter path: same capped policy as day/hourly renters,
+      // enforced server-side (reserve route action:'lease_incidental').
+      const res = await fetch('/api/booths/reserve', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'lease_incidental', tenantId, leaseId: lease.id, amountCents: chargeCents, category: chargeCat, note: chargeNote.trim() }),
       });
       const d = await res.json();
       if (d.ok) {
-        setChargeAmt(''); setChargeDesc('');
-        drawerToast({ title: 'Card charged', description: `$${(d.chargedCents / 100).toFixed(2)} — recorded in the ledger.` });
+        const label = chargeCat + (chargeNote.trim() ? ` — ${chargeNote.trim()}` : '');
+        setChargeAmt(''); setChargeCat(''); setChargeNote('');
+        drawerToast({ title: 'Card charged', description: `$${(d.chargedCents / 100).toFixed(2)} — ${chargeCat} recorded in the ledger.` });
         writeBoothAudit(firestore, tenantId, {
           action: 'booth.renter_charged', targetType: 'renter', targetId: rt.id,
-          summary: `Card on file charged: ${rt.firstName || ''} ${rt.lastName || ''}`.trim() + ` — ${chargeDesc.trim()}`,
-          amount: (d.chargedCents || cents) / 100, actor: { type: 'user' },
+          summary: `Card on file charged: ${rt.firstName || ''} ${rt.lastName || ''}`.trim() + ` — ${label}`,
+          amount: (d.chargedCents || chargeCents) / 100, actor: { type: 'user' },
         });
       } else {
         drawerToast({ variant: 'destructive', title: 'Charge failed', description: d.error || 'Try again or collect another way.' });
@@ -1625,30 +1655,46 @@ function RenterProfileDrawer({
                 </div>
               )}
 
-              {/* v71 — card on file + incidental charge */}
-              {(renter as any).cardOnFile ? (
+              {/* v71 — card on file + incidental charge (v86: capped policy picker,
+                  no made-up charges — same policy the day/hourly path enforces) */}
+              {((lease as any)?.cardOnFile || (renter as any).cardOnFile) ? (
                 <div className="rounded-2xl border-2 p-4 space-y-2">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Card on file · {(renter as any).cardBrand} ····{(renter as any).cardLast4}</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                    Card on file{(renter as any).cardBrand ? ` · ${(renter as any).cardBrand} ····${(renter as any).cardLast4}` : ' · Stripe'}
+                  </p>
+                  <select
+                    value={chargeCat}
+                    onChange={e => { setChargeCat(e.target.value); const c = chargePolicy.find((x: any) => x.label === e.target.value); if (c && c.capCents > 0 && chargeCents > c.capCents) setChargeAmt((c.capCents / 100).toFixed(0)); }}
+                    className="w-full h-10 rounded-xl border-2 px-3 text-sm font-bold bg-white"
+                  >
+                    <option value="">Select charge type…</option>
+                    {chargePolicy.map((c: any) => (
+                      <option key={c.label} value={c.label}>{c.label}{c.capCents > 0 ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}</option>
+                    ))}
+                  </select>
                   <div className="grid grid-cols-[90px_1fr] gap-2">
                     <input type="number" inputMode="decimal" placeholder="$" value={chargeAmt}
                       onChange={e => setChargeAmt(e.target.value)}
-                      className="h-10 rounded-xl border-2 px-3 text-sm font-bold" />
-                    <input type="text" placeholder="What for? (product, damage, fee…)" value={chargeDesc}
-                      onChange={e => setChargeDesc(e.target.value)}
+                      className={`h-10 rounded-xl border-2 px-3 text-sm font-bold ${chargeOverCap ? 'border-red-400 text-red-600' : ''}`} />
+                    <input type="text" placeholder="Note (optional)" value={chargeNote}
+                      onChange={e => setChargeNote(e.target.value)}
                       className="h-10 rounded-xl border-2 px-3 text-sm font-medium" />
                   </div>
+                  {chargeOverCap && (
+                    <p className="text-[9px] font-black uppercase tracking-widest text-red-600">Over the ${(chargeCapCents / 100).toFixed(0)} cap for {chargeCat}</p>
+                  )}
                   <button
                     onClick={() => chargeRenterCard(renter)}
-                    disabled={!(parseFloat(chargeAmt) > 0) || !chargeDesc.trim() || renterChargingId === renter.id}
+                    disabled={!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId === renter.id}
                     className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40"
                   >
-                    {renterChargingId === renter.id ? 'Charging…' : `Charge Card${parseFloat(chargeAmt) > 0 ? ` $${parseFloat(chargeAmt).toFixed(2)}` : ''}`}
+                    {renterChargingId === renter.id ? 'Charging…' : `Charge Card${chargeCents >= 50 ? ` $${(chargeCents / 100).toFixed(2)}` : ''}`}
                   </button>
-                  <p className="text-[9px] font-bold text-muted-foreground">Charges off-session and records under "Renter Incidental" in the ledger.</p>
+                  <p className="text-[9px] font-bold text-muted-foreground">Only your policy's charge types, each capped. Charges off-session and records under "Renter Incidental" in the ledger.</p>
                 </div>
               ) : (
                 <div className="rounded-2xl border-2 border-dashed p-3">
-                  <p className="text-[10px] font-bold text-muted-foreground">No card on file — the renter adds one in their portal's Documents tab. Once added, incidentals charge from right here.</p>
+                  <p className="text-[10px] font-bold text-muted-foreground">No card on file yet — it's saved automatically the first time this renter pays rent online, or they can add one in their portal. Once on file, capped incidentals charge from right here.</p>
                 </div>
               )}
             </>
