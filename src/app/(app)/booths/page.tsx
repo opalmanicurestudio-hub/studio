@@ -66,6 +66,7 @@ import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
+import { DEFAULT_TOUR_PRINTOUT_CONFIG } from '@/lib/tour-printouts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -2295,6 +2296,63 @@ export default function BoothsPage() {
     setPolicyDraft(incidentalPolicy.map((c: any) => ({ label: String(c.label || ''), cap: c.capCents ? (c.capCents / 100).toFixed(0) : '' })));
     setChargePolicyOpen(true);
   };
+  // ── Tour-sheet copy editor ─────────────────────────────────────────────────
+  // Everything printed on the visitor confirmation + staff prep sheet is
+  // owner-editable here (stored on tenants/{id}.tourPrintoutConfig). Unset
+  // fields fall back to the defaults, so the sheets always read well.
+  const [tourSheetsOpen, setTourSheetsOpen] = useState(false);
+  const [sheetSaving, setSheetSaving] = useState(false);
+  const [sheetDraft, setSheetDraft] = useState<any>(null);
+  const openTourSheets = () => {
+    const saved = (selectedTenant as any)?.tourPrintoutConfig || {};
+    const d = DEFAULT_TOUR_PRINTOUT_CONFIG;
+    setSheetDraft({
+      confirmationTitle: saved.confirmationTitle ?? d.confirmationTitle,
+      confirmationIntro: saved.confirmationIntro ?? d.confirmationIntro,
+      whatToBringTitle: saved.whatToBringTitle ?? d.whatToBringTitle,
+      whatToBring: Array.isArray(saved.whatToBring) && saved.whatToBring.length ? [...saved.whatToBring] : [...d.whatToBring],
+      changeTimeTitle: saved.changeTimeTitle ?? d.changeTimeTitle,
+      changeTimeNote: saved.changeTimeNote ?? d.changeTimeNote,
+      prepTitle: saved.prepTitle ?? d.prepTitle,
+      prepIntro: saved.prepIntro ?? d.prepIntro,
+      checklistTitle: saved.checklistTitle ?? d.checklistTitle,
+      checklist: Array.isArray(saved.checklist) && saved.checklist.length ? [...saved.checklist] : [...d.checklist],
+      footerNote: saved.footerNote ?? '',
+      hideBranding: !!saved.hideBranding,
+    });
+    setTourSheetsOpen(true);
+  };
+  const saveTourSheets = async () => {
+    if (!tenantId || !sheetDraft) return;
+    setSheetSaving(true);
+    try {
+      const clean = {
+        confirmationTitle: String(sheetDraft.confirmationTitle || '').trim(),
+        confirmationIntro: String(sheetDraft.confirmationIntro || '').trim(),
+        whatToBringTitle: String(sheetDraft.whatToBringTitle || '').trim(),
+        whatToBring: (sheetDraft.whatToBring || []).map((s: string) => String(s || '').trim()).filter(Boolean),
+        changeTimeTitle: String(sheetDraft.changeTimeTitle || '').trim(),
+        changeTimeNote: String(sheetDraft.changeTimeNote || '').trim(),
+        prepTitle: String(sheetDraft.prepTitle || '').trim(),
+        prepIntro: String(sheetDraft.prepIntro || '').trim(),
+        checklistTitle: String(sheetDraft.checklistTitle || '').trim(),
+        checklist: (sheetDraft.checklist || []).map((s: string) => String(s || '').trim()).filter(Boolean),
+        footerNote: String(sheetDraft.footerNote || '').trim(),
+        hideBranding: !!sheetDraft.hideBranding,
+      };
+      await updateDoc(doc(firestore, 'tenants', tenantId), { tourPrintoutConfig: clean });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.tour_sheets_updated', targetType: 'tenant', targetId: tenantId,
+        summary: 'Tour printout copy updated (visitor confirmation + staff prep sheet)',
+        actor: { type: 'user' },
+      });
+      toast({ title: 'Tour sheets saved', description: 'Your custom wording now prints on both sheets.' });
+      setTourSheetsOpen(false);
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save', description: 'Network error — try again.' });
+    } finally { setSheetSaving(false); }
+  };
+
   const savePolicy = async () => {
     if (!tenantId) return;
     const cleaned = policyDraft
@@ -4079,13 +4137,22 @@ export default function BoothsPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
-              <button
-                onClick={openChargePolicy}
-                className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
-                title="Set the allowed incidental charges and their caps"
-              >
-                <Shield className="h-3.5 w-3.5" /> Charge policy
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openTourSheets}
+                  className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
+                  title="Customize the visitor confirmation and staff prep sheet"
+                >
+                  <FileText className="h-3.5 w-3.5" /> Tour sheets
+                </button>
+                <button
+                  onClick={openChargePolicy}
+                  className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
+                  title="Set the allowed incidental charges and their caps"
+                >
+                  <Shield className="h-3.5 w-3.5" /> Charge policy
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
@@ -5548,6 +5615,7 @@ export default function BoothsPage() {
           studioPhone={(selectedTenant as any)?.phone || null}
           studioEmail={(selectedTenant as any)?.email || null}
           studioAddress={(selectedTenant as any)?.address || null}
+          printConfig={(selectedTenant as any)?.tourPrintoutConfig || null}
         />
       )}
 
@@ -5603,6 +5671,103 @@ export default function BoothsPage() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setChargePolicyOpen(false)} disabled={policySaving}>Cancel</Button>
             <Button onClick={savePolicy} disabled={policySaving}>{policySaving ? 'Saving…' : 'Save policy'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Tour-sheet copy editor ── */}
+      <Dialog open={tourSheetsOpen} onOpenChange={(o) => { if (!o) setTourSheetsOpen(false); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><FileText className="h-4 w-4" /> Tour sheets</DialogTitle>
+            <DialogDescription>
+              Every word printed on the visitor confirmation and the staff prep sheet is yours to edit. Leave a field as-is to keep the default. Guest name, space, time, and your studio's contact details fill in automatically.
+            </DialogDescription>
+          </DialogHeader>
+          {sheetDraft && (
+            <div className="space-y-5 max-h-[60vh] overflow-y-auto pr-1">
+              {/* Visitor confirmation */}
+              <div className="space-y-2.5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Visitor confirmation</p>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Headline</Label>
+                  <Input value={sheetDraft.confirmationTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, confirmationTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Intro line</Label>
+                  <Textarea value={sheetDraft.confirmationIntro} onChange={(e) => setSheetDraft((s: any) => ({ ...s, confirmationIntro: e.target.value }))} rows={2} className="text-sm resize-none" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">"What to bring" heading</Label>
+                  <Input value={sheetDraft.whatToBringTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, whatToBringTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">"What to bring" items</Label>
+                  {sheetDraft.whatToBring.map((it: string, i: number) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <Input value={it} onChange={(e) => setSheetDraft((s: any) => ({ ...s, whatToBring: s.whatToBring.map((x: string, j: number) => j === i ? e.target.value : x) }))} className="h-9 text-sm flex-1" />
+                      <button onClick={() => setSheetDraft((s: any) => ({ ...s, whatToBring: s.whatToBring.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, whatToBring: [...s.whatToBring, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add item</button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reschedule heading</Label>
+                    <Input value={sheetDraft.changeTimeTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, changeTimeTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Reschedule note</Label>
+                    <Input value={sheetDraft.changeTimeNote} onChange={(e) => setSheetDraft((s: any) => ({ ...s, changeTimeNote: e.target.value }))} className="h-9 text-sm" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Staff prep sheet */}
+              <div className="space-y-2.5 border-t pt-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">Staff prep sheet</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Headline</Label>
+                    <Input value={sheetDraft.prepTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, prepTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Checklist heading</Label>
+                    <Input value={sheetDraft.checklistTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, checklistTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Sub-line</Label>
+                  <Input value={sheetDraft.prepIntro} onChange={(e) => setSheetDraft((s: any) => ({ ...s, prepIntro: e.target.value }))} className="h-9 text-sm" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Walkthrough checklist items</Label>
+                  {sheetDraft.checklist.map((it: string, i: number) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <Input value={it} onChange={(e) => setSheetDraft((s: any) => ({ ...s, checklist: s.checklist.map((x: string, j: number) => j === i ? e.target.value : x) }))} className="h-9 text-sm flex-1" />
+                      <button onClick={() => setSheetDraft((s: any) => ({ ...s, checklist: s.checklist.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, checklist: [...s.checklist, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add step</button>
+                </div>
+              </div>
+
+              {/* Footer / branding */}
+              <div className="space-y-2.5 border-t pt-4">
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Footer note (both sheets, optional)</Label>
+                  <Input value={sheetDraft.footerNote} placeholder="e.g. Questions? Text us anytime." onChange={(e) => setSheetDraft((s: any) => ({ ...s, footerNote: e.target.value }))} className="h-9 text-sm" />
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={!!sheetDraft.hideBranding} onChange={(e) => setSheetDraft((s: any) => ({ ...s, hideBranding: e.target.checked }))} className="h-4 w-4" />
+                  <span className="text-xs font-bold text-slate-700">Hide "Powered by ClarityFlow" on printed sheets</span>
+                </label>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setTourSheetsOpen(false)} disabled={sheetSaving}>Cancel</Button>
+            <Button onClick={saveTourSheets} disabled={sheetSaving}>{sheetSaving ? 'Saving…' : 'Save sheets'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
