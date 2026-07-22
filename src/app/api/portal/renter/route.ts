@@ -544,19 +544,20 @@ export async function POST(req: NextRequest) {
         const returnUrl = String(body.returnUrl || '');
         if (!returnUrl) return NextResponse.json({ ok: false, error: 'Missing return URL.' }, { status: 400 });
         const base = returnUrl.split('?')[0];
-        // Reuse the renter's Stripe customer if we've made one; otherwise create
-        // it now so the card can be saved on file for future incidentals. Paying
-        // rent online is what enrolls a monthly renter's card — no separate step.
-        let customerId: string | null = lease?.stripeCustomerId || null;
+        // Reuse the renter's Stripe customer if one exists (from setup-card or a
+        // prior payment); otherwise create it now. The renter doc is the single
+        // card-on-file store — paying rent online enrolls the card automatically,
+        // so no separate setup step is needed for incidentals.
+        let customerId: string | null = renter.stripeCustomerId || null;
         if (!customerId) {
           const customer = await stripe.customers.create({
             email: renter.email || undefined,
             name: renterName,
-            metadata: { tenantId, leaseId: inv.leaseId || '', renterId: lease?.renterId || '' },
+            metadata: { tenantId, renterId: lease?.renterId || '', leaseId: inv.leaseId || '' },
           });
           customerId = customer.id;
-          if (inv.leaseId) {
-            await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).set({ stripeCustomerId: customerId }, { merge: true });
+          if (lease?.renterId) {
+            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({ stripeCustomerId: customerId }, { merge: true });
           }
         }
         const checkout = await stripe.checkout.sessions.create({
@@ -632,19 +633,28 @@ export async function POST(req: NextRequest) {
         paidAmountCents: totalCents, paidLedgerEntryId: txnId,
         stripePaymentIntentId: cs.payment_intent || null,
       }, { merge: true });
-      // Save the card on file to the lease so the studio can charge policy-capped
-      // incidentals off-session later. Best-effort — never blocks the receipt.
+      // Save the card on file to the RENTER doc (the single card store the
+      // studio's capped incidentals charge reads) so incidentals can be charged
+      // off-session later. Best-effort — never blocks the receipt.
       try {
-        if (inv.leaseId && cs.payment_intent) {
+        if (lease?.renterId && cs.payment_intent) {
           const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent));
           const pmId = pi?.payment_method ? String(pi.payment_method) : null;
           const custId = pi?.customer ? String(pi.customer) : (cs.customer ? String(cs.customer) : null);
           if (pmId) {
-            await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).set({
-              stripeCustomerId: custId || null,
+            let brand = 'card', last4 = '';
+            try {
+              const pm: any = await stripe.paymentMethods.retrieve(pmId);
+              brand = pm?.card?.brand || 'card';
+              last4 = pm?.card?.last4 || '';
+            } catch { /* card summary is cosmetic */ }
+            await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).set({
+              stripeCustomerId: custId || renter.stripeCustomerId || null,
               stripePaymentMethodId: pmId,
               cardOnFile: true,
-              cardOnFileAt: nowIso,
+              cardBrand: brand,
+              cardLast4: last4,
+              cardSetupAt: nowIso,
             }, { merge: true });
           }
         }
