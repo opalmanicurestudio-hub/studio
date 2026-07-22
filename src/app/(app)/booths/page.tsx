@@ -1471,17 +1471,13 @@ function RenterProfileDrawer({
   const chargeOverCap = chargeCapCents > 0 && chargeCents > chargeCapCents;
   const chargeRenterCard = async (rt: Renter) => {
     if (!(chargeCents >= 50) || !chargeCat || chargeOverCap || renterChargingId) return;
-    if (!lease?.id) {
-      drawerToast({ variant: 'destructive', title: 'No active lease', description: 'Assign a space first — incidentals bill against the lease.' });
-      return;
-    }
     setRenterChargingId(rt.id);
     try {
       // Hardened monthly-renter path: same capped policy as day/hourly renters,
-      // enforced server-side (reserve route action:'lease_incidental').
-      const res = await fetch('/api/booths/reserve', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'lease_incidental', tenantId, leaseId: lease.id, amountCents: chargeCents, category: chargeCat, note: chargeNote.trim() }),
+      // enforced server-side (setup-card PUT validates category + cap).
+      const res = await fetch('/api/booths/setup-card', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, renterId: rt.id, amountCents: chargeCents, category: chargeCat, note: chargeNote.trim() }),
       });
       const d = await res.json();
       if (d.ok) {
@@ -1657,7 +1653,7 @@ function RenterProfileDrawer({
 
               {/* v71 — card on file + incidental charge (v86: capped policy picker,
                   no made-up charges — same policy the day/hourly path enforces) */}
-              {((lease as any)?.cardOnFile || (renter as any).cardOnFile) ? (
+              {(renter as any).cardOnFile ? (
                 <div className="rounded-2xl border-2 p-4 space-y-2">
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                     Card on file{(renter as any).cardBrand ? ` · ${(renter as any).cardBrand} ····${(renter as any).cardLast4}` : ' · Stripe'}
