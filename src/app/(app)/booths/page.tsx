@@ -5544,6 +5544,10 @@ export default function BoothsPage() {
           firestore={firestore}
           tenantId={tenantId}
           tour={managingTour}
+          studioName={(selectedTenant as any)?.name || null}
+          studioPhone={(selectedTenant as any)?.phone || null}
+          studioEmail={(selectedTenant as any)?.email || null}
+          studioAddress={(selectedTenant as any)?.address || null}
         />
       )}
 
