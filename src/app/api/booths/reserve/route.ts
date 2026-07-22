@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
+import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
 
 const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -653,10 +654,88 @@ export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
     const { tenantId, reservationId, reason } = body || {};
-    if (!tenantId || !reservationId) {
+    if (!tenantId) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
     const db = getAdminDb();
+
+    // ── LEASE INCIDENTAL (action:'lease_incidental') — charge a MONTHLY resident
+    // renter's card on file (damage, cleaning, lost key, product), governed by
+    // the SAME capped policy as day/hourly renters. Keyed by leaseId, not a
+    // reservation. Records income + paired Stripe fee, appends to the lease's
+    // incidentals log, and audits. Off-session + confirmed.
+    if (body.action === 'lease_incidental') {
+      const leaseId = String(body.leaseId || '').trim();
+      if (!leaseId) return NextResponse.json({ ok: false, error: 'Missing lease.' }, { status: 400 });
+      const amountCents = Math.round(Number(body.amountCents) || 0);
+      const leaseRef = db.doc(`tenants/${tenantId}/leases/${leaseId}`);
+      const leaseSnap = await leaseRef.get();
+      if (!leaseSnap.exists) return NextResponse.json({ ok: false, error: 'Lease not found.' }, { status: 404 });
+      const lease = leaseSnap.data() as any;
+      const renterName = lease.renterName || lease.name || 'Renter';
+      const boothName = lease.boothName || 'Space';
+      if (!lease.stripeCustomerId || !lease.stripePaymentMethodId) {
+        return NextResponse.json({ ok: false, error: 'No card on file for this renter yet — it’s saved the first time they pay rent online. Collect in person for now.' }, { status: 400 });
+      }
+      // Same single-source-of-truth policy the day/hourly path and lease use.
+      const cats = resolveIncidentalPolicy((await db.doc(`tenants/${tenantId}`).get()).data());
+      const v = validateIncidental(cats, String(body.category || body.description || ''), amountCents, String(body.note || ''));
+      if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: v.status });
+      const description = v.description;
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      let intent;
+      try {
+        intent = await stripe.paymentIntents.create({
+          amount: amountCents, currency: 'usd',
+          customer: lease.stripeCustomerId, payment_method: lease.stripePaymentMethodId,
+          off_session: true, confirm: true,
+          expand: ['latest_charge.balance_transaction'],
+          description: `Incidental — ${boothName} — ${renterName}: ${description}`,
+          metadata: { tenantId, leaseId, kind: 'lease_incidental' },
+        });
+      } catch (err: any) {
+        const msg = err?.raw?.message || err?.message || 'Card charge failed.';
+        // Card decline is NOT a suspension — the renter keeps their space; the
+        // owner just collects another way. (Same non-punitive posture as overages.)
+        return NextResponse.json({ ok: false, error: `Card charge failed: ${msg} — collect another way; the renter is not affected.` }, { status: 402 });
+      }
+      const nowIso = new Date().toISOString();
+      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      await txnRef.set({
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
+        amount: amountCents / 100, category: 'Renter Incidental',
+        description: `Incidental — ${boothName} — ${renterName}: ${description}`,
+        clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card on file (Stripe)',
+        hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: leaseId, tenantId, createdAt: nowIso,
+      });
+      try {
+        const { feeCents, chargeId, estimated } = await resolveFeeCents(intent, amountCents);
+        if (feeCents > 0) {
+          const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await feeRef.set({
+            id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+            amount: feeCents / 100, category: 'Processing Fee', estimated,
+            description: `Stripe fee${estimated ? ' (est.)' : ''} — incidental — ${boothName} (${renterName})`,
+            clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+            hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: chargeId,
+            sourceId: leaseId, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
+          });
+        }
+      } catch { /* fee accounting is best-effort */ }
+      const list = Array.isArray(lease.incidentals) ? lease.incidentals : [];
+      list.push({ amountCents, description, at: nowIso, paymentIntentId: intent.id });
+      await leaseRef.set({ incidentals: list, incidentalsTotalCents: (lease.incidentalsTotalCents || 0) + amountCents }, { merge: true });
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.incidental_charged', targetType: 'lease', targetId: leaseId,
+        summary: `Incidental charged: ${renterName} · ${boothName} — ${description} ($${(amountCents / 100).toFixed(2)})`,
+        amount: amountCents / 100, actor: { type: 'system', name: 'lease-incidental' },
+      });
+      return NextResponse.json({ ok: true, chargedCents: amountCents });
+    }
+
+    if (!reservationId) {
+      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+    }
     const resRef = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
     const snap = await resRef.get();
     if (!snap.exists) return NextResponse.json({ ok: false, error: 'Reservation not found.' }, { status: 404 });
@@ -668,13 +747,17 @@ export async function PATCH(req: NextRequest) {
     // Stripe-fee expense, and appends to the reservation's incidentals log.
     if (body.action === 'incidental') {
       const amountCents = Math.round(Number(body.amountCents) || 0);
-      const description = String(body.description || 'Incidental').slice(0, 140).trim() || 'Incidental';
-      if (!(amountCents >= 50)) {
-        return NextResponse.json({ ok: false, error: 'Enter an amount of at least $0.50.' }, { status: 400 });
-      }
       if (!r.stripeCustomerId || !r.stripePaymentMethodId) {
         return NextResponse.json({ ok: false, error: 'No card on file for this booking — collect in person.' }, { status: 400 });
       }
+      // ── Incidentals policy — no made-up charges. Only owner-defined charge
+      // types are allowed, and each is capped. Validated HERE (server) via the
+      // shared policy module so it holds even if the UI is bypassed, and stays
+      // in lockstep with the monthly-renter path and the signed lease.
+      const cats = resolveIncidentalPolicy((await db.doc(`tenants/${tenantId}`).get()).data());
+      const v = validateIncidental(cats, String(body.category || body.description || ''), amountCents, String(body.note || ''));
+      if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: v.status });
+      const description = v.description;
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
       let intent;
       try {
