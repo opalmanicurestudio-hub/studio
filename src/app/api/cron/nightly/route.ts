@@ -192,7 +192,7 @@ export async function GET(req: NextRequest) {
   // upcoming tours, rent coming due, credential/license expiry, and leases up
   // for renewal. Isolated in its own loop + try/catch so a reminder failure can
   // never affect bank sync, bill scheduling, or the late-rent sweep above.
-  const reminderTotals = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0 };
+  const reminderTotals = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0, contactFollowUps: 0 };
   const nowForReminders = new Date();
   for (const tDoc of allTenantsSnap.docs) {
     try {
@@ -201,6 +201,7 @@ export async function GET(req: NextRequest) {
       reminderTotals.balanceDue += c.balanceDue;
       reminderTotals.licenseExpiry += c.licenseExpiry;
       reminderTotals.leaseRenewal += c.leaseRenewal;
+      reminderTotals.contactFollowUps += c.contactFollowUps;
     } catch (e) {
       results[`reminders:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
     }
