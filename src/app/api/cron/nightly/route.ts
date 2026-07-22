@@ -19,6 +19,7 @@ import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
 import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
+import { sweepNoShows } from '@/lib/no-show';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -205,6 +206,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, results });
+  // ── No-show sweep — for EVERY tenant, flag confirmed reservations whose booked
+  // window fully elapsed without a check-in, and (only if the owner enabled it
+  // with a fee and a card is on file) charge the no-show fee. Isolated loop so a
+  // charge failure can never affect anything above it.
+  const noShowTotals = { swept: 0, feesCharged: 0, feesDeclined: 0, feesNoCard: 0, feeCentsCharged: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const c = await sweepNoShows(db, tDoc.id, nowForReminders);
+      noShowTotals.swept += c.swept;
+      noShowTotals.feesCharged += c.feesCharged;
+      noShowTotals.feesDeclined += c.feesDeclined;
+      noShowTotals.feesNoCard += c.feesNoCard;
+      noShowTotals.feeCentsCharged += c.feeCentsCharged;
+    } catch (e) {
+      results[`noshow:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, results });
 }
