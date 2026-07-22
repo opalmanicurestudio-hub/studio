@@ -544,9 +544,27 @@ export async function POST(req: NextRequest) {
         const returnUrl = String(body.returnUrl || '');
         if (!returnUrl) return NextResponse.json({ ok: false, error: 'Missing return URL.' }, { status: 400 });
         const base = returnUrl.split('?')[0];
+        // Reuse the renter's Stripe customer if we've made one; otherwise create
+        // it now so the card can be saved on file for future incidentals. Paying
+        // rent online is what enrolls a monthly renter's card — no separate step.
+        let customerId: string | null = lease?.stripeCustomerId || null;
+        if (!customerId) {
+          const customer = await stripe.customers.create({
+            email: renter.email || undefined,
+            name: renterName,
+            metadata: { tenantId, leaseId: inv.leaseId || '', renterId: lease?.renterId || '' },
+          });
+          customerId = customer.id;
+          if (inv.leaseId) {
+            await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).set({ stripeCustomerId: customerId }, { merge: true });
+          }
+        }
         const checkout = await stripe.checkout.sessions.create({
           mode: 'payment',
-          customer_email: renter.email || undefined,
+          customer: customerId,
+          // Save the card for off-session incidental charges (hotel-style),
+          // governed by the studio's capped incidentals policy.
+          payment_intent_data: { setup_future_usage: 'off_session' },
           line_items: [{
             quantity: 1,
             price_data: {
@@ -614,6 +632,23 @@ export async function POST(req: NextRequest) {
         paidAmountCents: totalCents, paidLedgerEntryId: txnId,
         stripePaymentIntentId: cs.payment_intent || null,
       }, { merge: true });
+      // Save the card on file to the lease so the studio can charge policy-capped
+      // incidentals off-session later. Best-effort — never blocks the receipt.
+      try {
+        if (inv.leaseId && cs.payment_intent) {
+          const pi: any = await stripe.paymentIntents.retrieve(String(cs.payment_intent));
+          const pmId = pi?.payment_method ? String(pi.payment_method) : null;
+          const custId = pi?.customer ? String(pi.customer) : (cs.customer ? String(cs.customer) : null);
+          if (pmId) {
+            await db.doc(`tenants/${tenantId}/leases/${inv.leaseId}`).set({
+              stripeCustomerId: custId || null,
+              stripePaymentMethodId: pmId,
+              cardOnFile: true,
+              cardOnFileAt: nowIso,
+            }, { merge: true });
+          }
+        }
+      } catch { /* card-on-file capture is best-effort */ }
       await logAuditAdmin(db, tenantId, {
         action: 'rent.paid_online', targetType: 'rentInvoice', targetId: invoiceId,
         summary: `${renterName} paid $${(totalCents / 100).toFixed(2)} rent online (due ${String(inv.dueDate || '').slice(0, 10)})`,
