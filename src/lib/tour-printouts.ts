@@ -64,11 +64,15 @@ export interface TourPrintoutConfig {
   prepIntro?: string;              // staff sheet sub-line
   checklistTitle?: string;         // staff sheet walkthrough heading
   checklist?: string[];            // staff sheet walkthrough items
+  captureTitle?: string;           // staff sheet "capture after tour" heading
+  interestLevels?: string[];       // interest tiers — drives sheet, in-app chips, and KPI
+  nextSteps?: string[];            // next-step options — drives sheet + in-app chips
+  notesTitle?: string;             // staff sheet notes heading
   footerNote?: string;             // extra line on BOTH sheets (e.g. a tagline)
   hideBranding?: boolean;          // hide the "Powered by ClarityFlow" footer
 }
 
-export const DEFAULT_TOUR_PRINTOUT_CONFIG: Required<Omit<TourPrintoutConfig, 'footerNote' | 'hideBranding'>> & { footerNote: string; hideBranding: boolean } = {
+export const DEFAULT_TOUR_PRINTOUT_CONFIG: Required<TourPrintoutConfig> = {
   confirmationTitle: "You're booked for a tour",
   confirmationIntro: "We're looking forward to showing you around. Here are your details.",
   whatToBringTitle: 'What to bring',
@@ -90,6 +94,12 @@ export const DEFAULT_TOUR_PRINTOUT_CONFIG: Required<Omit<TourPrintoutConfig, 'fo
     'Their business — clientele, products, schedule, growth plans.',
     "Next step — hand them an application or lease if it's a fit.",
   ],
+  captureTitle: 'Capture after the tour',
+  // The FIRST interest level is the "hottest" tier — it's what the Hot-leads KPI
+  // counts. Keep the strongest option first when you customize these.
+  interestLevels: ['Hot', 'Warm', 'Cold'],
+  nextSteps: ['Send lease', 'Send application', 'Follow up', 'None'],
+  notesTitle: 'Notes',
   footerNote: '',
   hideBranding: false,
 };
@@ -112,6 +122,10 @@ export function resolveTourPrintoutConfig(cfg?: TourPrintoutConfig | null) {
     prepIntro: str(c.prepIntro, d.prepIntro),
     checklistTitle: str(c.checklistTitle, d.checklistTitle),
     checklist: list(c.checklist, d.checklist),
+    captureTitle: str(c.captureTitle, d.captureTitle),
+    interestLevels: list(c.interestLevels, d.interestLevels),
+    nextSteps: list(c.nextSteps, d.nextSteps),
+    notesTitle: str(c.notesTitle, d.notesTitle),
     footerNote: str(c.footerNote, ''),
     hideBranding: !!c.hideBranding,
   };
@@ -297,25 +311,25 @@ export function staffPrepSheetHtml(tour: TourLike, studio: TourStudio = {}, conf
       ${checklistItems(c.checklist)}
     </ul>
 
-    <h2>Capture after the tour</h2>
+    <h2>${esc(c.captureTitle)}</h2>
     <div class="grid" style="margin-bottom:8px;">
       <div>
         <div class="row"><div class="k">Interest level</div>
           <div class="v" style="margin-top:6px;">
-            <span class="pill">Hot</span><span class="pill">Warm</span><span class="pill">Cold</span>
+            ${c.interestLevels.map((v) => `<span class="pill">${esc(v)}</span>`).join('')}
           </div>
         </div>
       </div>
       <div>
         <div class="row"><div class="k">Next step</div>
           <div class="v" style="margin-top:6px;">
-            <span class="pill">Send lease</span><span class="pill">Send application</span><span class="pill">Follow up</span>
+            ${c.nextSteps.filter((v) => v && v.toLowerCase() !== 'none').map((v) => `<span class="pill">${esc(v)}</span>`).join('')}
           </div>
         </div>
       </div>
     </div>
 
-    <h2>Notes</h2>
+    <h2>${esc(c.notesTitle)}</h2>
     <div class="lines">
       <div class="ln"></div><div class="ln"></div><div class="ln"></div><div class="ln"></div>
     </div>
