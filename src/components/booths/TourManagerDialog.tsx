@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { doc, setDoc, collection } from 'firebase/firestore';
 import { Calendar, Clock, CheckCircle2, XCircle, LogIn, RotateCcw, Printer, FileText } from 'lucide-react';
-import { visitorConfirmationHtml, staffPrepSheetHtml, openPrintable, TourPrintoutConfig } from '@/lib/tour-printouts';
+import { visitorConfirmationHtml, staffPrepSheetHtml, openPrintable, resolveTourPrintoutConfig, TourPrintoutConfig } from '@/lib/tour-printouts';
 
 interface TourManagerDialogProps {
   open: boolean;
@@ -96,6 +96,10 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
   };
   const printVisitor = () => openPrintable(visitorConfirmationHtml(tour || {}, studio, printConfig));
   const printPrep = () => openPrintable(staffPrepSheetHtml({ ...(tour || {}), tourNotes: notes || tour?.tourNotes }, studio, printConfig));
+
+  // Outcome chips read the SAME config as the printed prep sheet, so what you
+  // capture in-app always matches the sheet (and the Hot-leads KPI).
+  const cfg = resolveTourPrintoutConfig(printConfig);
 
   const completeTour = async () => {
     await patch({
@@ -199,8 +203,8 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
               <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Tour outcome</p>
               <div>
                 <p className="text-[10px] font-bold text-slate-500 mb-1">Interest level</p>
-                <div className="flex gap-1.5">
-                  {['Hot', 'Warm', 'Cold'].map(v => (
+                <div className="flex flex-wrap gap-1.5">
+                  {cfg.interestLevels.map(v => (
                     <button key={v} type="button" onClick={() => setInterest(v)} className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide ${interest === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>{v}</button>
                   ))}
                 </div>
@@ -208,7 +212,7 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
               <div>
                 <p className="text-[10px] font-bold text-slate-500 mb-1">Next step</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {['Send lease', 'Send application', 'Follow up', 'None'].map(v => (
+                  {cfg.nextSteps.map(v => (
                     <button key={v} type="button" onClick={() => setNextStep(v)} className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide ${nextStep === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'}`}>{v}</button>
                   ))}
                 </div>
