@@ -129,7 +129,7 @@ function PlannerPageContent() {
       if (!t || !t.tourStartIso) return false;
       // Hide every resolved state — 'closed' is what the "Resolve" button sets,
       // so without it a handled tour lingered on the planner all day.
-      if (['declined', 'cancelled', 'closed', 'completed', 'archived', 'no_show', 'done'].includes(String(t.status || ''))) return false;
+      if (['declined', 'cancelled', 'closed', 'completed', 'archived', 'no_show', 'done', 'converted'].includes(String(t.status || ''))) return false;
       const d = safeDate(t.tourStartIso);
       return d && !isNaN(d.getTime()) && isSameDay(d, currentDate);
     });
