@@ -18,6 +18,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { syncTenantBankFeed, listBankFeedTenants } from '@/lib/plaid-sync';
 import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
+import { runReminderSweep } from '@/lib/reminders';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -186,6 +187,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, results });
+  // ── Reminder suite — for EVERY tenant, emit idempotent in-app reminders for
+  // upcoming tours, rent coming due, credential/license expiry, and leases up
+  // for renewal. Isolated in its own loop + try/catch so a reminder failure can
+  // never affect bank sync, bill scheduling, or the late-rent sweep above.
+  const reminderTotals = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0 };
+  const nowForReminders = new Date();
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const c = await runReminderSweep(db, tDoc.id, nowForReminders);
+      reminderTotals.tourReminders += c.tourReminders;
+      reminderTotals.balanceDue += c.balanceDue;
+      reminderTotals.licenseExpiry += c.licenseExpiry;
+      reminderTotals.leaseRenewal += c.leaseRenewal;
+    } catch (e) {
+      results[`reminders:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, results });
 }
