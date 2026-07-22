@@ -12,7 +12,7 @@ import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { doc, setDoc, collection } from 'firebase/firestore';
-import { Calendar, Clock, CheckCircle2, XCircle, LogIn, RotateCcw, Printer, FileText } from 'lucide-react';
+import { Calendar, Clock, CheckCircle2, XCircle, LogIn, RotateCcw, Printer, FileText, UserPlus } from 'lucide-react';
 import { visitorConfirmationHtml, staffPrepSheetHtml, openPrintable, resolveTourPrintoutConfig, TourPrintoutConfig } from '@/lib/tour-printouts';
 
 interface TourManagerDialogProps {
@@ -26,6 +26,7 @@ interface TourManagerDialogProps {
   studioEmail?: string | null;
   studioAddress?: string | null;
   printConfig?: TourPrintoutConfig | null;   // owner-customized sheet copy
+  onConvert?: (tour: any) => void;           // convert this visitor to a renter
   onDone?: () => void;
 }
 
@@ -42,7 +43,7 @@ const fmtWhen = (iso?: string | null): string => {
   try { return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return iso; }
 };
 
-export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, studioName, studioPhone, studioEmail, studioAddress, printConfig, onDone }: TourManagerDialogProps) {
+export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, studioName, studioPhone, studioEmail, studioAddress, printConfig, onConvert, onDone }: TourManagerDialogProps) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(tour?.tourNotes || '');
   const [rescheduling, setRescheduling] = useState(false);
@@ -160,6 +161,21 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             <button onClick={printVisitor} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center gap-1.5 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" /> Visitor confirmation</button>
             <button onClick={printPrep} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center gap-1.5 hover:bg-slate-50"><FileText className="w-3.5 h-3.5" /> Prep sheet</button>
           </div>
+
+          {/* Convert to renter — the post-tour bridge */}
+          {onConvert && status !== 'converted' && !tour?.convertedRenterId && (tour?.name || tour?.phone || tour?.email) && (
+            <button
+              onClick={() => onConvert(tour)}
+              className="w-full h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5"
+            >
+              <UserPlus className="w-4 h-4" /> Convert to renter
+            </button>
+          )}
+          {(status === 'converted' || tour?.convertedRenterId) && (
+            <div className="rounded-xl bg-emerald-50 border-2 border-emerald-200 px-3 py-2 text-center">
+              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">✓ Converted to renter</p>
+            </div>
+          )}
 
           {/* Reschedule */}
           <div className="rounded-2xl border-2 p-3.5 space-y-2.5">
