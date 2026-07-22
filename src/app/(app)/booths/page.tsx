@@ -67,6 +67,11 @@ import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { DEFAULT_TOUR_PRINTOUT_CONFIG } from '@/lib/tour-printouts';
+import {
+  PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
+  ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
+  markContactLost, reengageContact, setContactNote, linkContactRenter,
+} from '@/lib/booth-contacts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -1283,16 +1288,30 @@ function DetailPanel({
 // from reservations, tours, applications, and reviews.
 function ContactProfileDrawer({
   contact, reservations, applications, tenantId, onClose,
+  onConvert, onSetPipeline, onFollowUp, onMarkLost, onReengage, onSaveNote, converting,
 }: {
   contact: any;
   reservations: any[];
   applications: any[];
   tenantId: string;
   onClose: () => void;
+  onConvert?: (person: any) => void;
+  onSetPipeline?: (person: any, stage: string) => void;
+  onFollowUp?: (person: any, date: string | null) => void;
+  onMarkLost?: (person: any, reason: string) => void;
+  onReengage?: (person: any) => void;
+  onSaveNote?: (person: any, note: string) => void;
+  converting?: boolean;
 }) {
   const norm = (v: any) => (v || '').trim().toLowerCase();
   const key = contact.key;
   const mine = (p: any, e: any) => norm(p) === key || norm(e) === key;
+  const [noteDraft, setNoteDraft] = useState<string>(contact.ownerNotes || '');
+  const [lostReasonDraft, setLostReasonDraft] = useState<string>('');
+  const [followDraft, setFollowDraft] = useState<string>(contact.nextFollowUpAt || '');
+  const isRenter = !!contact.isRenter || !!contact.convertedRenterId;
+  const stage = contact.pipelineStage || (isRenter ? 'won' : null);
+  const converted = isRenter || stage === 'won';
 
   const myRes = reservations
     .filter(r => mine(r.phone, r.email) && ['confirmed', 'checked_in', 'completed', 'cancel_requested'].includes(r.status))
@@ -1373,6 +1392,80 @@ function ContactProfileDrawer({
             {contact.phone && <p className="text-xs font-bold">{contact.phone}</p>}
             {contact.email && <p className="text-xs font-bold">{contact.email}</p>}
             {contact.firstDate && contact.firstDate !== '9999' && <p className="text-[10px] font-bold text-muted-foreground">First seen {contact.firstDate}</p>}
+          </div>
+
+          {/* ── Journey: where this lead is + what to do next ── */}
+          <div className="rounded-2xl border-2 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Journey</p>
+              {stage && <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${stageTone(stage)}`}>{stageLabel(stage)}</span>}
+            </div>
+
+            {converted ? (
+              <div className="rounded-xl bg-emerald-50 border-2 border-emerald-200 px-3 py-2.5">
+                <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">✓ {isRenter ? 'Renter' : 'Converted'}</p>
+                <p className="text-[10px] font-bold text-emerald-700/80">{isRenter ? 'Manage them from their renter profile.' : 'A renter record was created — assign their booth with a lease.'}</p>
+              </div>
+            ) : (
+              <>
+                {/* Convert */}
+                <button
+                  onClick={() => onConvert?.(contact)}
+                  disabled={converting}
+                  className="w-full h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <UserPlus className="h-4 w-4" /> {converting ? 'Converting…' : 'Convert to renter'}
+                </button>
+
+                {/* Pipeline stage */}
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Stage</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PIPELINE_STAGES.filter(s => s.value !== 'won').map(s => (
+                      <button
+                        key={s.value}
+                        onClick={() => s.value === 'lost' ? undefined : onSetPipeline?.(contact, s.value)}
+                        disabled={s.value === 'lost'}
+                        className={`h-7 px-2.5 rounded-full border-2 text-[9px] font-black uppercase tracking-wide ${stage === s.value ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600'} ${s.value === 'lost' ? 'opacity-40 cursor-default' : ''}`}
+                      >{s.label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Follow-up */}
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Follow up on</p>
+                  <div className="flex gap-2">
+                    <input type="date" value={followDraft} onChange={e => setFollowDraft(e.target.value)} className="flex-1 h-9 rounded-xl border-2 px-3 text-sm font-medium" />
+                    <button onClick={() => onFollowUp?.(contact, followDraft || null)} className="h-9 px-3 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Set</button>
+                    {contact.nextFollowUpAt && <button onClick={() => { setFollowDraft(''); onFollowUp?.(contact, null); }} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Clear</button>}
+                  </div>
+                  {contact.nextFollowUpAt && <p className="text-[10px] font-bold text-amber-600 mt-1">Reminder set for {contact.nextFollowUpAt}</p>}
+                </div>
+
+                {/* Lost / re-engage */}
+                {stage === 'lost' ? (
+                  <div className="rounded-xl bg-slate-50 border-2 px-3 py-2.5 space-y-2">
+                    <p className="text-[10px] font-bold text-slate-600">Lost{contact.lostReason ? ` · ${contact.lostReason}` : ''} — kept on file.</p>
+                    <button onClick={() => onReengage?.(contact)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-indigo-600">Re-engage</button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Not moving forward?</p>
+                    <div className="flex gap-2">
+                      <input value={lostReasonDraft} onChange={e => setLostReasonDraft(e.target.value)} placeholder="Reason (optional)" className="flex-1 h-9 rounded-xl border-2 px-3 text-sm font-medium" />
+                      <button onClick={() => onMarkLost?.(contact, lostReasonDraft.trim())} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 hover:text-red-600 hover:border-red-200">Mark lost</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Notes */}
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">Notes</p>
+              <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} onBlur={() => { if ((noteDraft || '') !== (contact.ownerNotes || '')) onSaveNote?.(contact, noteDraft); }} rows={2} placeholder="Private notes about this contact…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
+            </div>
           </div>
 
           {myRes.length > 0 && (
@@ -1923,6 +2016,23 @@ export default function BoothsPage() {
     }, () => {});
     return () => unsub();
   }, [firestore, tenantId]);
+
+  // Persisted contact records — the durable journey layer (pipeline stage,
+  // follow-ups, lost reason, notes, renter link). Overlaid onto the live-derived
+  // guestBook by key, so identity/value stays derived while management is stored.
+  const [contactDocs, setContactDocs] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'contacts')), (snap) => {
+      setContactDocs(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const contactByKey = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const c of contactDocs) if (c.key) m.set(c.key, c);
+    return m;
+  }, [contactDocs]);
   const pendingApps = useMemo(() =>
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
@@ -2556,6 +2666,72 @@ export default function BoothsPage() {
     } finally { setDecidingAppId(null); }
   };
 
+  // ── Contact journey: convert to renter + pipeline management ────────────────
+  // The missing link. A tour or contact can now become a renter in one tap —
+  // carrying name/phone/email/specialty across — and the source lead is retired
+  // from the pipeline and linked to the new renter. Non-converts get managed
+  // (stage, follow-up date, lost reason, notes) instead of just sitting closed.
+  const [convertingKey, setConvertingKey] = useState<string | null>(null);
+  const convertToRenter = async (person: any, sourceApp?: any) => {
+    if (!tenantId || convertingKey) return;
+    const name = String(person?.name || sourceApp?.name || '').trim();
+    const phone = person?.phone || sourceApp?.phone || '';
+    const email = person?.email || sourceApp?.email || '';
+    const key = person?.key || boothContactKey(phone, email);
+    if (!name && !phone && !email) {
+      toast({ variant: 'destructive', title: 'Not enough detail', description: 'This contact needs at least a name, phone, or email to convert.' });
+      return;
+    }
+    setConvertingKey(key || 'x');
+    try {
+      const parts = name.split(' ');
+      const specialty = person?.specialty || sourceApp?.specialty || undefined;
+      const boothName = sourceApp?.boothName;
+      const res: any = await createRenter(firestore, {
+        tenantId,
+        locationId: sourceApp?.locationId || selectedLocationId,
+        firstName: parts[0] || 'New',
+        lastName: parts.slice(1).join(' ') || 'Renter',
+        email: email || '',
+        phone: phone || undefined,
+        specialty,
+        notes: sourceApp
+          ? `Converted from ${sourceApp.kind === 'tour' ? 'a tour' : 'an application'}${boothName ? ` for ${boothName}` : ''}${sourceApp.timing ? ` · ${sourceApp.timing}` : ''}${sourceApp.message ? ` · "${sourceApp.message}"` : ''}`
+          : 'Converted from a contact',
+        sourceApplicationId: sourceApp?.id || null,
+        appliedAt: sourceApp?.createdAt || null,
+      } as any);
+      const rid: string | null = res?.id || res?.renterId || (typeof res === 'string' ? res : null);
+      if (rid) await linkContactRenter(firestore, tenantId, { name, phone, email }, rid);
+      else await setContactPipeline(firestore, tenantId, { name, phone, email }, 'won');
+      if (sourceApp?.id) {
+        await updateDoc(doc(firestore, 'tenants', tenantId, 'boothApplications', sourceApp.id), {
+          status: 'converted', convertedAt: new Date().toISOString(), ...(rid ? { convertedRenterId: rid } : {}),
+        }).catch(() => {});
+      }
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.contact_converted', targetType: 'renter', targetId: rid || key,
+        summary: `Converted ${name || 'contact'} to a renter${boothName ? ` · ${boothName}` : ''}`,
+        actor: { type: 'user' },
+      });
+      toast({ title: 'Converted to renter', description: `${name || 'They'} are now a renter — assign their booth with a lease, then run onboarding.` });
+      setManagingTour(null);
+      setProfileContact(null);
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not convert', description: 'Try again, or add them via Add Renter.' });
+    } finally { setConvertingKey(null); }
+  };
+
+  const runContactAction = async (p: Promise<any>, okTitle: string) => {
+    try { await p; toast({ title: okTitle }); }
+    catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Network error — try again.' }); }
+  };
+  const handleSetPipeline = (person: any, stage: any) => runContactAction(setContactPipeline(firestore, tenantId, person, stage), 'Stage updated');
+  const handleFollowUp = (person: any, date: string | null) => runContactAction(scheduleContactFollowUp(firestore, tenantId, person, date), date ? 'Follow-up scheduled' : 'Follow-up cleared');
+  const handleMarkLost = (person: any, reason: string) => runContactAction(markContactLost(firestore, tenantId, person, reason), 'Marked as lost — kept on file');
+  const handleReengage = (person: any) => runContactAction(reengageContact(firestore, tenantId, person), 'Back in nurturing');
+  const handleSaveNote = (person: any, note: string) => runContactAction(setContactNote(firestore, tenantId, person, note), 'Note saved');
+
   // Employee → renter conversion (one identity, two financial relationships)
   const [convertibleStaff, setConvertibleStaff] = useState<any[]>([]);
   const loadConvertibleStaff = async () => {
@@ -2697,9 +2873,21 @@ export default function BoothsPage() {
       g.isRenter = true; g.renterId = rt.id;
       g.monthlyRentCents = (l.rentAmountCents || 0) * (FREQ_TO_MONTHLY[l.frequency] ?? 1);
     }
-    const arr = Array.from(byContact.values()).map(g => ({ ...g, tags: Array.from(g.tags) }));
+    const arr = Array.from(byContact.values()).map(g => {
+      const c = contactByKey.get(g.key);
+      return {
+        ...g,
+        tags: Array.from(g.tags),
+        // Persisted journey overlay (undefined until the owner acts on them).
+        pipelineStage: c?.pipelineStage || null,
+        nextFollowUpAt: c?.nextFollowUpAt || null,
+        lostReason: c?.lostReason || null,
+        ownerNotes: c?.ownerNotes || null,
+        convertedRenterId: c?.convertedRenterId || (g.isRenter ? g.renterId : null),
+      };
+    });
     return arr.sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
-  }, [reservations, applications, leases.data, renterById]);
+  }, [reservations, applications, leases.data, renterById, contactByKey]);
 
   // Deep-link from the planner: /booths?contact=<phone|email> opens that exact
   // person's history & details on load — renter profile if they're a renter,
@@ -5641,6 +5829,13 @@ export default function BoothsPage() {
           applications={applications}
           tenantId={tenantId}
           onClose={() => setProfileContact(null)}
+          onConvert={(person) => convertToRenter(person)}
+          onSetPipeline={handleSetPipeline}
+          onFollowUp={handleFollowUp}
+          onMarkLost={handleMarkLost}
+          onReengage={handleReengage}
+          onSaveNote={handleSaveNote}
+          converting={!!convertingKey}
         />
       )}
 
@@ -5672,6 +5867,7 @@ export default function BoothsPage() {
           studioEmail={(selectedTenant as any)?.email || null}
           studioAddress={(selectedTenant as any)?.address || null}
           printConfig={(selectedTenant as any)?.tourPrintoutConfig || null}
+          onConvert={(t) => convertToRenter({ name: t.name, phone: t.phone, email: t.email, specialty: t.specialty, key: boothContactKey(t.phone, t.email) }, t)}
         />
       )}
 
