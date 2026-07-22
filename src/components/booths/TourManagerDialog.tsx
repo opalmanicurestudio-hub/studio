@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from '@/components/ui/button';
 import { doc, setDoc, collection } from 'firebase/firestore';
 import { Calendar, Clock, CheckCircle2, XCircle, LogIn, RotateCcw, Printer, FileText } from 'lucide-react';
-import { visitorConfirmationHtml, staffPrepSheetHtml, openPrintable } from '@/lib/tour-printouts';
+import { visitorConfirmationHtml, staffPrepSheetHtml, openPrintable, TourPrintoutConfig } from '@/lib/tour-printouts';
 
 interface TourManagerDialogProps {
   open: boolean;
@@ -25,6 +25,7 @@ interface TourManagerDialogProps {
   studioPhone?: string | null;
   studioEmail?: string | null;
   studioAddress?: string | null;
+  printConfig?: TourPrintoutConfig | null;   // owner-customized sheet copy
   onDone?: () => void;
 }
 
@@ -41,7 +42,7 @@ const fmtWhen = (iso?: string | null): string => {
   try { return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return iso; }
 };
 
-export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, studioName, studioPhone, studioEmail, studioAddress, onDone }: TourManagerDialogProps) {
+export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, studioName, studioPhone, studioEmail, studioAddress, printConfig, onDone }: TourManagerDialogProps) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(tour?.tourNotes || '');
   const [rescheduling, setRescheduling] = useState(false);
@@ -93,8 +94,8 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
     email: studioEmail || undefined,
     address: studioAddress || undefined,
   };
-  const printVisitor = () => openPrintable(visitorConfirmationHtml(tour || {}, studio));
-  const printPrep = () => openPrintable(staffPrepSheetHtml({ ...(tour || {}), tourNotes: notes || tour?.tourNotes }, studio));
+  const printVisitor = () => openPrintable(visitorConfirmationHtml(tour || {}, studio, printConfig));
+  const printPrep = () => openPrintable(staffPrepSheetHtml({ ...(tour || {}), tourNotes: notes || tour?.tourNotes }, studio, printConfig));
 
   const completeTour = async () => {
     await patch({
