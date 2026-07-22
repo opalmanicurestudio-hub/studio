@@ -30,12 +30,13 @@ export interface ReminderCounts {
   balanceDue: number;
   licenseExpiry: number;
   leaseRenewal: number;
+  contactFollowUps: number;
 }
 
 // Resolved (non-actionable) tour statuses — these never get a reminder.
 const RESOLVED_TOUR_STATUSES = new Set([
   'declined', 'cancelled', 'canceled', 'closed', 'completed',
-  'no_show', 'checked_in', 'archived', 'done',
+  'no_show', 'checked_in', 'archived', 'done', 'converted',
 ]);
 
 const DAY_MS = 86400000;
@@ -105,7 +106,7 @@ const sanitizeKey = (s: string) => s.replace(/[^\w-]/g, '_').slice(0, 80);
  * reminders actually sent this run (0s when everything is already handled).
  */
 export async function runReminderSweep(db: Db, tenantId: string, now: Date = new Date()): Promise<ReminderCounts> {
-  const counts: ReminderCounts = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0 };
+  const counts: ReminderCounts = { tourReminders: 0, balanceDue: 0, licenseExpiry: 0, leaseRenewal: 0, contactFollowUps: 0 };
   const nowMs = now.getTime();
   const todayStr = iso(now).slice(0, 10);
 
@@ -254,12 +255,39 @@ export async function runReminderSweep(db: Db, tenantId: string, now: Date = new
     } catch { /* skip this lease */ }
   }
 
-  const total = counts.tourReminders + counts.balanceDue + counts.licenseExpiry + counts.leaseRenewal;
+  // ── 5) CONTACT FOLLOW-UPS ──────────────────────────────────────────────────
+  // A lead the owner chose to nurture: when the follow-up date they set arrives
+  // (or has passed), surface it once. Won/lost contacts are never nudged. Deduped
+  // by followUpNotifiedFor === the exact date, so re-scheduling re-arms it.
+  try {
+    const snap = await db.collection(`tenants/${tenantId}/contacts`).get();
+    for (const doc of snap.docs) {
+      try {
+        const c = doc.data() as any;
+        const due = dateOnly(c.nextFollowUpAt);
+        if (!due) continue;
+        if (c.pipelineStage === 'won' || c.pipelineStage === 'lost') continue;
+        const d = daysUntil(due, todayStr);
+        if (d === null || d > 0) continue;            // only due today or overdue
+        if (c.followUpNotifiedFor === c.nextFollowUpAt) continue;
+        const contactRef = c.phone || c.email || '';
+        await pushNotification(db, tenantId, {
+          type: 'contact_followup',
+          link: contactRef ? `/booths?contact=${encodeURIComponent(contactRef)}` : '/booths',
+          message: `Follow up with ${c.name || 'a contact'}${c.phone ? ` (${c.phone})` : ''} — you set a reminder for ${fmtDate(due)}.`,
+        });
+        await doc.ref.set({ followUpNotifiedFor: c.nextFollowUpAt }, { merge: true });
+        counts.contactFollowUps++;
+      } catch { /* skip this contact */ }
+    }
+  } catch { /* no contacts / query failed */ }
+
+  const total = counts.tourReminders + counts.balanceDue + counts.licenseExpiry + counts.leaseRenewal + counts.contactFollowUps;
   if (total > 0) {
     try {
       await logAuditAdmin(db, tenantId, {
         action: 'reminders.swept', targetType: 'tenant', targetId: tenantId,
-        summary: `Sent ${total} reminder${total === 1 ? '' : 's'} — ${counts.tourReminders} tour, ${counts.balanceDue} balance-due, ${counts.licenseExpiry} license, ${counts.leaseRenewal} lease-renewal`,
+        summary: `Sent ${total} reminder${total === 1 ? '' : 's'} — ${counts.tourReminders} tour, ${counts.balanceDue} balance-due, ${counts.licenseExpiry} license, ${counts.leaseRenewal} lease-renewal, ${counts.contactFollowUps} follow-up`,
         actor: { type: 'system', name: 'reminders' },
       });
     } catch { /* audit is best-effort */ }
