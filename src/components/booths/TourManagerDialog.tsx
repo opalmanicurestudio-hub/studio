@@ -12,7 +12,8 @@ import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { doc, setDoc, collection } from 'firebase/firestore';
-import { Calendar, Clock, CheckCircle2, XCircle, LogIn, RotateCcw } from 'lucide-react';
+import { Calendar, Clock, CheckCircle2, XCircle, LogIn, RotateCcw, Printer, FileText } from 'lucide-react';
+import { visitorConfirmationHtml, staffPrepSheetHtml, openPrintable } from '@/lib/tour-printouts';
 
 interface TourManagerDialogProps {
   open: boolean;
@@ -20,6 +21,10 @@ interface TourManagerDialogProps {
   firestore: any;
   tenantId: string;
   tour: any;              // boothApplications doc, kind:'tour'
+  studioName?: string | null;
+  studioPhone?: string | null;
+  studioEmail?: string | null;
+  studioAddress?: string | null;
   onDone?: () => void;
 }
 
@@ -36,7 +41,7 @@ const fmtWhen = (iso?: string | null): string => {
   try { return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return iso; }
 };
 
-export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, onDone }: TourManagerDialogProps) {
+export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tour, studioName, studioPhone, studioEmail, studioAddress, onDone }: TourManagerDialogProps) {
   const [busy, setBusy] = useState(false);
   const [notes, setNotes] = useState(tour?.tourNotes || '');
   const [rescheduling, setRescheduling] = useState(false);
@@ -79,6 +84,17 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
   };
 
   const saveNotes = () => patch({ tourNotes: notes });
+
+  // Printouts — build from the live tour (include any unsaved notes so the prep
+  // sheet reflects what's on screen) and open a print-ready page in a new tab.
+  const studio = {
+    name: studioName || undefined,
+    phone: studioPhone || undefined,
+    email: studioEmail || undefined,
+    address: studioAddress || undefined,
+  };
+  const printVisitor = () => openPrintable(visitorConfirmationHtml(tour || {}, studio));
+  const printPrep = () => openPrintable(staffPrepSheetHtml({ ...(tour || {}), tourNotes: notes || tour?.tourNotes }, studio));
 
   const completeTour = async () => {
     await patch({
@@ -132,6 +148,12 @@ export function TourManagerDialog({ open, onOpenChange, firestore, tenantId, tou
             {tour?.phone && <a href={`tel:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Call</a>}
             {tour?.phone && <a href={`sms:${tour.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Text</a>}
             {tour?.email && <a href={`mailto:${tour.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Email</a>}
+          </div>
+
+          {/* Printouts */}
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={printVisitor} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center gap-1.5 hover:bg-slate-50"><Printer className="w-3.5 h-3.5" /> Visitor confirmation</button>
+            <button onClick={printPrep} className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center gap-1.5 hover:bg-slate-50"><FileText className="w-3.5 h-3.5" /> Prep sheet</button>
           </div>
 
           {/* Reschedule */}
