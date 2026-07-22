@@ -141,6 +141,7 @@ import {
   Clock,
   Pause,
   Shield,
+  XCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -1943,7 +1944,11 @@ export default function BoothsPage() {
     const tourApps = applications.filter((a: any) => a.kind === 'tour');
     const closed = tourApps.filter((a: any) => a.status === 'closed').length;
     const noShow = tourApps.filter((a: any) => a.status === 'no_show').length;
-    const hot = tourApps.filter((a: any) => a.tourOutcome?.interest === 'Hot').length;
+    // "Hot leads" counts the TOP interest tier the owner defined (default 'Hot'),
+    // so the KPI follows customized interest labels instead of a fixed word.
+    const levels = (selectedTenant as any)?.tourPrintoutConfig?.interestLevels;
+    const topInterest = (Array.isArray(levels) && levels.length && String(levels[0] || '').trim()) ? String(levels[0]).trim() : 'Hot';
+    const hot = tourApps.filter((a: any) => a.tourOutcome?.interest === topInterest).length;
     const resolvedCount = closed + noShow;
     const showRate = resolvedCount > 0 ? Math.round((closed / resolvedCount) * 100) : 0;
     const norm = (x: any) => String(x || '').replace(/[^\da-z@.]/gi, '').toLowerCase();
@@ -1952,7 +1957,7 @@ export default function BoothsPage() {
     let converted = 0; tourKeys.forEach(k => { if (convertedKeys.has(k)) converted++; });
     const convRate = tourKeys.size > 0 ? Math.round((converted / tourKeys.size) * 100) : 0;
     return { total: tourApps.length, closed, noShow, hot, showRate, convRate, converted };
-  }, [applications]);
+  }, [applications, selectedTenant]);
 
   // v53 — owner's view of paid day rentals
   const [reservations, setReservations] = useState<any[]>([]);
@@ -2317,6 +2322,10 @@ export default function BoothsPage() {
       prepIntro: saved.prepIntro ?? d.prepIntro,
       checklistTitle: saved.checklistTitle ?? d.checklistTitle,
       checklist: Array.isArray(saved.checklist) && saved.checklist.length ? [...saved.checklist] : [...d.checklist],
+      captureTitle: saved.captureTitle ?? d.captureTitle,
+      interestLevels: Array.isArray(saved.interestLevels) && saved.interestLevels.length ? [...saved.interestLevels] : [...d.interestLevels],
+      nextSteps: Array.isArray(saved.nextSteps) && saved.nextSteps.length ? [...saved.nextSteps] : [...d.nextSteps],
+      notesTitle: saved.notesTitle ?? d.notesTitle,
       footerNote: saved.footerNote ?? '',
       hideBranding: !!saved.hideBranding,
     });
@@ -2337,6 +2346,10 @@ export default function BoothsPage() {
         prepIntro: String(sheetDraft.prepIntro || '').trim(),
         checklistTitle: String(sheetDraft.checklistTitle || '').trim(),
         checklist: (sheetDraft.checklist || []).map((s: string) => String(s || '').trim()).filter(Boolean),
+        captureTitle: String(sheetDraft.captureTitle || '').trim(),
+        interestLevels: (sheetDraft.interestLevels || []).map((s: string) => String(s || '').trim()).filter(Boolean),
+        nextSteps: (sheetDraft.nextSteps || []).map((s: string) => String(s || '').trim()).filter(Boolean),
+        notesTitle: String(sheetDraft.notesTitle || '').trim(),
         footerNote: String(sheetDraft.footerNote || '').trim(),
         hideBranding: !!sheetDraft.hideBranding,
       };
@@ -2351,6 +2364,42 @@ export default function BoothsPage() {
     } catch {
       toast({ variant: 'destructive', title: 'Could not save', description: 'Network error — try again.' });
     } finally { setSheetSaving(false); }
+  };
+
+  // ── No-show policy ─────────────────────────────────────────────────────────
+  // Default OFF (flag only). When the owner turns it on and sets a fee, the
+  // nightly sweep charges the card on file for confirmed reservations that fully
+  // elapsed without a check-in. A declined card is flagged, never punitive.
+  const [noShowOpen, setNoShowOpen] = useState(false);
+  const [noShowSaving, setNoShowSaving] = useState(false);
+  const [noShowEnabled, setNoShowEnabled] = useState(false);
+  const [noShowFee, setNoShowFee] = useState('');
+  const openNoShow = () => {
+    const p = (selectedTenant as any)?.noShowPolicy || {};
+    setNoShowEnabled(!!p.enabled);
+    setNoShowFee(p.feeCents ? (p.feeCents / 100).toFixed(0) : '');
+    setNoShowOpen(true);
+  };
+  const saveNoShow = async () => {
+    if (!tenantId) return;
+    const feeCents = Math.max(0, Math.round((parseFloat(noShowFee) || 0) * 100));
+    if (noShowEnabled && !(feeCents > 0)) {
+      toast({ variant: 'destructive', title: 'Set a fee amount', description: 'Turn off no-show fees, or enter an amount to charge.' });
+      return;
+    }
+    setNoShowSaving(true);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { noShowPolicy: { enabled: noShowEnabled, feeCents } });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'booth.no_show_policy_updated', targetType: 'tenant', targetId: tenantId,
+        summary: noShowEnabled ? `No-show fee turned ON — $${(feeCents / 100).toFixed(0)} charged to card on file` : 'No-show fees turned OFF (flag only)',
+        actor: { type: 'user' },
+      });
+      toast({ title: 'No-show policy saved', description: noShowEnabled ? `No-shows will be charged $${(feeCents / 100).toFixed(0)} when a card is on file.` : 'No-shows will be flagged for review — no automatic charge.' });
+      setNoShowOpen(false);
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save', description: 'Network error — try again.' });
+    } finally { setNoShowSaving(false); }
   };
 
   const savePolicy = async () => {
@@ -4152,6 +4201,13 @@ export default function BoothsPage() {
                 >
                   <Shield className="h-3.5 w-3.5" /> Charge policy
                 </button>
+                <button
+                  onClick={openNoShow}
+                  className="h-8 px-3 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 hover:bg-slate-50 flex items-center gap-1.5"
+                  title="Set what happens when a reservation is a no-show"
+                >
+                  <XCircle className="h-3.5 w-3.5" /> No-shows
+                </button>
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -5750,6 +5806,36 @@ export default function BoothsPage() {
                   ))}
                   <button onClick={() => setSheetDraft((s: any) => ({ ...s, checklist: [...s.checklist, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add step</button>
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">"Capture" section heading</Label>
+                  <Input value={sheetDraft.captureTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, captureTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Interest levels</Label>
+                  <p className="text-[10px] font-medium text-muted-foreground -mt-0.5">These are the exact chips you tap when closing a tour. The first one is your "hot lead" tier and drives the Hot leads KPI.</p>
+                  {sheetDraft.interestLevels.map((it: string, i: number) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <Input value={it} onChange={(e) => setSheetDraft((s: any) => ({ ...s, interestLevels: s.interestLevels.map((x: string, j: number) => j === i ? e.target.value : x) }))} className="h-9 text-sm flex-1" />
+                      {i === 0 && <span className="text-[8px] font-black uppercase tracking-widest text-red-600 shrink-0">Top tier</span>}
+                      <button onClick={() => setSheetDraft((s: any) => ({ ...s, interestLevels: s.interestLevels.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, interestLevels: [...s.interestLevels, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add level</button>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Next-step options</Label>
+                  {sheetDraft.nextSteps.map((it: string, i: number) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <Input value={it} onChange={(e) => setSheetDraft((s: any) => ({ ...s, nextSteps: s.nextSteps.map((x: string, j: number) => j === i ? e.target.value : x) }))} className="h-9 text-sm flex-1" />
+                      <button onClick={() => setSheetDraft((s: any) => ({ ...s, nextSteps: s.nextSteps.filter((_: string, j: number) => j !== i) }))} className="h-9 w-8 rounded-lg border-2 flex items-center justify-center text-muted-foreground hover:text-red-600 hover:border-red-200" title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                  <button onClick={() => setSheetDraft((s: any) => ({ ...s, nextSteps: [...s.nextSteps, ''] }))} className="w-full h-9 rounded-lg border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 flex items-center justify-center gap-1.5"><Plus className="h-3.5 w-3.5" /> Add option</button>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Notes section heading</Label>
+                  <Input value={sheetDraft.notesTitle} onChange={(e) => setSheetDraft((s: any) => ({ ...s, notesTitle: e.target.value }))} className="h-9 text-sm font-bold" />
+                </div>
               </div>
 
               {/* Footer / branding */}
@@ -5768,6 +5854,41 @@ export default function BoothsPage() {
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setTourSheetsOpen(false)} disabled={sheetSaving}>Cancel</Button>
             <Button onClick={saveTourSheets} disabled={sheetSaving}>{sheetSaving ? 'Saving…' : 'Save sheets'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── No-show policy ── */}
+      <Dialog open={noShowOpen} onOpenChange={(o) => { if (!o) setNoShowOpen(false); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><XCircle className="h-4 w-4" /> No-show policy</DialogTitle>
+            <DialogDescription>
+              Each night, a paid reservation whose booked day has fully passed with no check-in is marked a no-show and surfaced for you. Whether that carries a fee is up to you.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <label className="flex items-start gap-3 cursor-pointer rounded-xl border-2 p-3">
+              <input type="checkbox" checked={noShowEnabled} onChange={(e) => setNoShowEnabled(e.target.checked)} className="h-4 w-4 mt-0.5" />
+              <span>
+                <span className="text-sm font-black block">Charge a no-show fee automatically</span>
+                <span className="text-[11px] font-medium text-muted-foreground">When a card is on file, charge the fee below and record it in your ledger. Off = flag only, you decide.</span>
+              </span>
+            </label>
+            {noShowEnabled && (
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">No-show fee</Label>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-black">$</span>
+                  <Input value={noShowFee} inputMode="decimal" placeholder="0" onChange={(e) => setNoShowFee(e.target.value)} className="h-11 w-28 rounded-xl border-2 font-black text-lg" />
+                </div>
+                <p className="text-[10px] font-medium text-muted-foreground">Charged off-session to the card saved at booking. If the card declines, the no-show is still flagged and you're told to collect another way — the renter is never banned or suspended. No card on file means it's flagged only.</p>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setNoShowOpen(false)} disabled={noShowSaving}>Cancel</Button>
+            <Button onClick={saveNoShow} disabled={noShowSaving}>{noShowSaving ? 'Saving…' : 'Save policy'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
