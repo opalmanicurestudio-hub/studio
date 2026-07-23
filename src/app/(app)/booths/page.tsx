@@ -67,6 +67,7 @@ import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { DEFAULT_TOUR_PRINTOUT_CONFIG } from '@/lib/tour-printouts';
+import { AGREEMENT_TEMPLATES, fillTemplate } from '@/lib/esign';
 import {
   PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
   ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
@@ -405,6 +406,22 @@ function StationTimer({ startIso, overtime }: { startIso?: string | null; overti
   const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
   const label = hh > 0 ? `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${mm}:${String(ss).padStart(2, '0')}`;
   return <span className={`font-mono tabular-nums ${overtime ? 'text-red-600' : 'text-indigo-700'}`}>{label}</span>;
+}
+
+// Firestore rejects any `undefined` value. This recursively drops undefined
+// keys (and array holes) so a half-filled form can never crash a write with
+// "Unsupported field value: undefined". Nulls are kept (they're valid).
+function stripUndefinedDeep<T>(input: T): T {
+  if (Array.isArray(input)) return input.map(stripUndefinedDeep) as any;
+  if (input && typeof input === 'object') {
+    const out: any = {};
+    for (const [k, v] of Object.entries(input as any)) {
+      if (v === undefined) continue;
+      out[k] = stripUndefinedDeep(v as any);
+    }
+    return out;
+  }
+  return input;
 }
 
 // v73 — booth money actions now follow the app's audit-trail convention
@@ -4067,6 +4084,30 @@ export default function BoothsPage() {
   })();
   const wizardCanAdvance = leaseStep === 0 ? step0Valid : leaseStep === 1 ? step1Valid : true;
 
+  // One-tap "use the built-in lease" — fills the terms box with the app's
+  // lawyer-style template, auto-populated from the booth, rent, deposit, dates,
+  // and the studio's incidentals policy. The owner never has to write legal text.
+  const useBuiltInLeaseTemplate = () => {
+    const rt = leaseRenterId ? renterById.get(leaseRenterId) : null;
+    const booth = boothById.get(leaseForm.boothId);
+    const PERIOD: Record<string, string> = { monthly: 'month', weekly: 'week', biweekly: 'two weeks', daily: 'day', hourly: 'hour' };
+    let dateStr = '';
+    try { dateStr = new Date().toLocaleDateString('en-US', { dateStyle: 'long' } as any); } catch { dateStr = ''; }
+    const vars = {
+      date: dateStr,
+      studioName: (selectedTenant as any)?.name || 'the Studio',
+      signerName: rt ? `${rt.firstName || ''} ${rt.lastName || ''}`.trim() : 'the Renter',
+      boothName: booth?.name || 'the space',
+      startDate: leaseForm.startDate || 'the agreed date',
+      rentAmount: `$${toNumber(leaseForm.rentDollars).toFixed(2)}`,
+      rentPeriod: PERIOD[leaseForm.frequency] || 'period',
+      deposit: `$${toNumber(leaseForm.depositDollars).toFixed(2)}`,
+      incidentalsSchedule: resolveBoothIncidentalPolicy(selectedTenant)
+        .map((c: any) => `• ${c.label}${c.capCents ? ` — up to $${(c.capCents / 100).toFixed(0)}` : ''}`).join('\n'),
+    };
+    setLeaseForm(prev => ({ ...prev, leaseTerms: fillTemplate(AGREEMENT_TEMPLATES.lease.body, vars) }));
+  };
+
   const handleCreateLease = async () => {
     if (!leaseRenterId || !leaseForm.boothId || !selectedLocationId || !tenantId) return;
     setSavingLease(true); setLeaseError(null);
@@ -4081,25 +4122,29 @@ export default function BoothsPage() {
       const booth = boothById.get(leaseForm.boothId);
       const depositCents = Math.round(toNumber(leaseForm.depositDollars) * 100);
       const scheduleSlot = leaseForm.isShared && leaseForm.scheduleDays.length > 0
-        ? { days: leaseForm.scheduleDays,
-            startTime: leaseForm.scheduleStartTime || undefined,
-            endTime: leaseForm.scheduleEndTime || undefined,
-            label: leaseForm.scheduleLabel || undefined }
+        ? {
+            days: leaseForm.scheduleDays,
+            ...(leaseForm.scheduleStartTime ? { startTime: leaseForm.scheduleStartTime } : {}),
+            ...(leaseForm.scheduleEndTime ? { endTime: leaseForm.scheduleEndTime } : {}),
+            ...(leaseForm.scheduleLabel ? { label: leaseForm.scheduleLabel } : {}),
+          }
         : null;
 
-      await createLease(firestore, {
+      // Every value is concrete (never undefined) and the whole payload is
+      // deep-stripped as a final guard, so Firestore can't reject the write.
+      await createLease(firestore, stripUndefinedDeep({
         tenantId,
         locationId: booth?.locationId ?? selectedLocationId,
         leaseTerms: leaseForm.leaseTerms.trim() || null,
         requireSignature: leaseForm.requireSignature,
-        status: leaseForm.requireSignature ? 'pending_signature' : undefined,
+        status: leaseForm.requireSignature ? 'pending_signature' : 'active',
         boothId: leaseForm.boothId,
         renterId: leaseRenterId,
         rentAmountCents: Math.round(toNumber(leaseForm.rentDollars) * 100),
         frequency: leaseForm.frequency,
         dueDay: parseInt(leaseForm.dueDay, 10) || 1,
-        firstChargeDate: leaseForm.firstChargeDate,
-        startDate: leaseForm.startDate,
+        firstChargeDate: leaseForm.firstChargeDate || leaseForm.startDate || null,
+        startDate: leaseForm.startDate || null,
         endDate: leaseForm.endDate || null,
         autoRenew: leaseForm.autoRenew,
         earlyTerminationNoticeDays: parseInt(leaseForm.noticeDays, 10) || 30,
@@ -4119,12 +4164,12 @@ export default function BoothsPage() {
             : { percent: toNumber(leaseForm.lateFeePercent) }),
         },
         scheduleSlot,
-        perks: leaseForm.perks,
+        perks: leaseForm.perks || null,
         includedAmenities: booth?.amenities ?? [],
-        houseRules: leaseForm.houseRules.trim(),
+        houseRules: leaseForm.houseRules.trim() || null,
         signedDocumentUrl,
         isShared: leaseForm.isShared,
-      });
+      }));
 
       setLeaseDialogOpen(false);
     } catch (err) {
@@ -5845,10 +5890,16 @@ export default function BoothsPage() {
             <div className="space-y-3">
               {/* v79 — e-signature */}
               <div className="space-y-1.5">
-                <Label>Lease terms (shown to the renter)</Label>
-                <Textarea rows={4} placeholder="Paste your lease / independent contractor agreement terms here…"
+                <div className="flex items-center justify-between gap-2">
+                  <Label>Lease terms (shown to the renter)</Label>
+                  <button type="button" onClick={useBuiltInLeaseTemplate} className="h-7 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-indigo-600 hover:bg-indigo-50 flex items-center gap-1 shrink-0">
+                    <FileText className="h-3 w-3" /> Use built-in lease
+                  </button>
+                </div>
+                <Textarea rows={4} placeholder="Tap “Use built-in lease” to auto-fill a ready template — or paste your own terms here…"
                   value={leaseForm.leaseTerms}
                   onChange={(e) => setLeaseForm(prev => ({ ...prev, leaseTerms: e.target.value }))} />
+                <p className="text-[10px] font-medium text-muted-foreground">With e-signature on, no PDF upload is needed — the renter reads these terms and types to sign in their portal.</p>
               </div>
               <button type="button" onClick={() => setLeaseForm(prev => ({ ...prev, requireSignature: !prev.requireSignature }))}
                 className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${leaseForm.requireSignature ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
