@@ -8,22 +8,22 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { 
-    Coffee, 
-    Sparkles, 
-    ArrowRight, 
-    ArrowLeft, 
-    CheckCircle2, 
-    Loader, 
-    Search, 
-    Star, 
-    Zap, 
-    Smartphone, 
-    Headphones, 
-    Moon, 
-    VolumeX, 
-    Ear, 
-    SunDim, 
+import {
+    Coffee,
+    Sparkles,
+    ArrowRight,
+    ArrowLeft,
+    CheckCircle2,
+    Loader,
+    Search,
+    Star,
+    Zap,
+    Smartphone,
+    Headphones,
+    Moon,
+    VolumeX,
+    Ear,
+    SunDim,
     Gamepad2,
     Users,
     Award,
@@ -75,9 +75,9 @@ const safeDate = (val: any): Date => {
 };
 
 const FloatingContainer = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-    <motion.div 
-        initial={{ opacity: 0, y: 30 }} 
-        animate={{ opacity: 1, y: 0 }} 
+    <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95 }}
         className={cn("w-full max-w-4xl mx-auto px-6 z-10", className)}
     >
@@ -87,7 +87,7 @@ const FloatingContainer = ({ children, className }: { children: React.ReactNode,
 
 const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying }: any) => {
     const digits = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'delete'];
-    
+
     const formattedDisplay = useMemo(() => {
         const cleaned = value.replace(/\D/g, '');
         if (!cleaned) return '';
@@ -108,7 +108,7 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
 
             <div className="p-8 rounded-[2.5rem] bg-white/60 backdrop-blur-xl border-2 border-white/50 shadow-inner text-center">
                 <p className="text-2xl md:text-4xl font-black font-mono tracking-widest text-primary leading-none min-h-[1.2em]">
-                    {formattedDisplay || '\u00A0'}
+                    {formattedDisplay || ' '}
                 </p>
             </div>
 
@@ -117,8 +117,8 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                     if (d === '') return <div key={i} />;
                     if (d === 'delete') {
                         return (
-                            <motion.button 
-                                key={i} 
+                            <motion.button
+                                key={i}
                                 whileTap={{ scale: 0.9 }}
                                 onClick={onDelete}
                                 className="h-16 w-16 md:h-20 md:w-20 rounded-full flex items-center justify-center text-slate-400 hover:text-destructive transition-all"
@@ -128,8 +128,8 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
                         );
                     }
                     return (
-                        <motion.button 
-                            key={i} 
+                        <motion.button
+                            key={i}
                             whileTap={{ scale: 0.95 }}
                             onClick={() => onDigit(d)}
                             className="h-16 w-16 md:h-20 md:w-20 rounded-2xl bg-white/40 backdrop-blur-3xl border-2 border-white/20 text-2xl md:text-3xl font-light text-slate-800 shadow-sm hover:border-primary/40 hover:text-primary transition-all flex items-center justify-center"
@@ -141,9 +141,9 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
             </div>
 
             <div className="space-y-4 pt-4 text-center">
-                <Button 
-                    size="lg" 
-                    onClick={onConfirm} 
+                <Button
+                    size="lg"
+                    onClick={onConfirm}
                     disabled={value.length < 10 || isVerifying}
                     className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                 >
@@ -155,15 +155,15 @@ const PhonePadView = ({ value, onDigit, onDelete, onConfirm, onBack, isVerifying
     );
 };
 
-const FloatingMenuCard = ({ 
-    item, 
-    onSelect, 
-    isMember, 
+const FloatingMenuCard = ({
+    item,
+    onSelect,
+    isMember,
     activeMembership,
     remainingPerks
-}: { 
-    item: any, 
-    onSelect: (qty: number) => void, 
+}: {
+    item: any,
+    onSelect: (qty: number) => void,
     isMember: boolean,
     activeMembership: any,
     remainingPerks: number
@@ -184,7 +184,7 @@ const FloatingMenuCard = ({
     const Icon = getIcon(item.name);
 
     return (
-        <motion.div 
+        <motion.div
             whileTap={{ scale: 0.98 }}
             className="group relative shrink-0 w-[200px] md:w-72"
         >
@@ -200,7 +200,7 @@ const FloatingMenuCard = ({
                     ) : (
                         <Icon className="w-10 h-10 md:w-16 md:h-16 text-primary opacity-20" />
                     )}
-                    
+
                     <div className="absolute top-3 left-3 flex flex-col gap-1.5">
                         {item.isMembersOnly && <Badge className="bg-indigo-600 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">Club Only</Badge>}
                         {isPerk && <Badge className="bg-primary text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl animate-pulse"><Star className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1 fill-current"/> Perk</Badge>}
@@ -227,7 +227,7 @@ const FloatingMenuCard = ({
                             <span className="font-black font-mono text-xs md:text-base w-4 md:w-6 text-center">{qty}</span>
                             <button onClick={() => setQty(qty + 1)} className="p-1 hover:text-primary transition-all active:scale-75"><Plus className="w-3 h-3 md:w-4 md:h-4" /></button>
                         </div>
-                        <Button 
+                        <Button
                             onClick={() => onSelect(qty)}
                             className="h-8 md:h-12 px-4 md:px-8 rounded-lg md:rounded-2xl font-black uppercase text-[8px] md:text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 active:scale-95 transition-all"
                         >
@@ -244,6 +244,10 @@ function ConciergeKioskContent() {
     const { tenantId } = useParams() as { tenantId: string };
     const searchParams = useSearchParams();
     const seatParam = searchParams.get('seat');
+    // v90 — renter station link: /concierge/{tenant}?booth={boothId} scopes the
+    // menu to a specific booth so a renter (or their client sitting there) can
+    // order to that station.
+    const boothParam = searchParams.get('booth');
 
     const { firestore } = useFirebase();
     const { toast } = useToast();
@@ -255,12 +259,23 @@ function ConciergeKioskContent() {
     const [identifiedClient, setIdentifiedClient] = useState<Client | null>(null);
     // v75 — booth-stay integration: a checked-in renter with a card on
     // file can charge concierge orders to their station, hotel-style.
-    const [activeStay, setActiveStay] = useState<{ reservationId: string; boothName: string; cardOnFile: boolean } | null>(null);
+    // v90 — payer can also be a booth's resident RENTER (their clients order to
+    // the station); amenityPayer + compAllowance come from the renter's settings.
+    const [activeStay, setActiveStay] = useState<{
+        payerType: 'reservation' | 'renter';
+        reservationId?: string;
+        renterId?: string;
+        boothName: string;
+        cardOnFile: boolean;
+        amenityPayer: 'renter' | 'client';
+        compAllowance: number;
+    } | null>(null);
+    const [sessionCompUsed, setSessionCompUsed] = useState(0);   // renter comp allowance used this session
     const [stationCharging, setStationCharging] = useState(false);
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
     const isSubmittingRef = useRef(false);
-    
+
     // Delivery Details
     const [seatNumber, setSeatNumber] = useState(seatParam || '');
     const [guestDescription, setGuestDescription] = useState('');
@@ -275,11 +290,11 @@ function ConciergeKioskContent() {
     const membershipsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
     const { data: memberships } = useCollection<Membership>(membershipsQuery);
 
-    const refreshments = useMemo(() => 
-        (inventory || []).filter(i => 
-            i.type === 'refreshment' && 
-            i.showInConcierge !== false && 
-            i.totalStock > 0 && 
+    const refreshments = useMemo(() =>
+        (inventory || []).filter(i =>
+            i.type === 'refreshment' &&
+            i.showInConcierge !== false &&
+            i.totalStock > 0 &&
             (!i.isMembersOnly || !!identifiedClient?.activeMembershipId)
         )
     , [inventory, identifiedClient]);
@@ -305,6 +320,30 @@ function ConciergeKioskContent() {
             setStep('identity');
         }
     }, []);
+
+    // v90 — station lookup for a renter's booth link. Resolves who pays for this
+    // station (the resident renter's card, or a checked-in day guest) and the
+    // renter's amenity settings (who-pays + complimentary allowance). Non-blocking:
+    // the menu still works even if this finds nothing.
+    useEffect(() => {
+        if (!boothParam || !firestore || !tenantId) return;
+        fetch('/api/booths/kiosk', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'active-stay', tenantId, boothId: boothParam }),
+        }).then(r => r.json()).then(d => {
+            if (d.ok && d.found) {
+                setActiveStay({
+                    payerType: d.payerType || 'renter',
+                    reservationId: d.reservationId,
+                    renterId: d.renterId,
+                    boothName: d.boothName || 'the station',
+                    cardOnFile: !!d.cardOnFile,
+                    amenityPayer: d.amenityPayer === 'client' ? 'client' : 'renter',
+                    compAllowance: Math.max(0, Number(d.amenityCompAllowance) || 0),
+                });
+            }
+        }).catch(() => {});
+    }, [boothParam, firestore, tenantId]);
 
     const handleOnboardingComplete = () => {
         localStorage.setItem('clarity_concierge_onboarded', 'true');
@@ -338,24 +377,27 @@ function ConciergeKioskContent() {
                 setGuestName(c.name);
                 toast({ title: `Identity Verified`, description: `Welcome, ${c.name.split(' ')[0]}. perks unlocked.` });
                 setStep('menu');
-                // Booth-stay check (non-blocking — concierge works fine without it)
-                fetch('/api/booths/kiosk', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'active-stay', tenantId, phone: `+1${phonePadValue}` }),
-                }).then(res => res.json()).then(d => {
-                    if (d.ok && d.found) {
-                        setActiveStay({ reservationId: d.reservationId, boothName: d.boothName, cardOnFile: d.cardOnFile });
-                        if (d.cardOnFile) toast({ title: `Checked in at ${d.boothName}`, description: 'Orders can be charged to your card on file.' });
-                    }
-                }).catch(() => {});
+                // Booth-stay check (non-blocking — concierge works fine without it).
+                // Skipped when opened from a booth link (station is already known).
+                if (!boothParam) {
+                    fetch('/api/booths/kiosk', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'active-stay', tenantId, phone: `+1${phonePadValue}` }),
+                    }).then(res => res.json()).then(d => {
+                        if (d.ok && d.found) {
+                            setActiveStay({ payerType: 'reservation', reservationId: d.reservationId, boothName: d.boothName, cardOnFile: d.cardOnFile, amenityPayer: 'renter', compAllowance: 0 });
+                            if (d.cardOnFile) toast({ title: `Checked in at ${d.boothName}`, description: 'Orders can be charged to your card on file.' });
+                        }
+                    }).catch(() => {});
+                }
             } else {
                 toast({ variant: 'destructive', title: 'Profile Not Found', description: "No record found with that mobile signature." });
             }
-        } catch (err) { 
-            console.error(err); 
+        } catch (err) {
+            console.error(err);
             toast({ variant: 'destructive', title: 'Connection Error' });
-        } finally { 
-            setIsVerifying(false); 
+        } finally {
+            setIsVerifying(false);
         }
     };
 
@@ -366,11 +408,20 @@ function ConciergeKioskContent() {
 
     const handleDeliveryDetailSubmit = () => {
         if (!pendingItem) return;
-        
+
         const isPerk = activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id);
         const price = safeNumber(pendingItem.item.price);
 
-        if (price > 0 && !isPerk) {
+        // v90 — a paid item only routes to the client pay screen when nothing
+        // else covers it: not a perk, not within the renter's comp allowance,
+        // and not charged to a station card (renter card, or a day-guest's).
+        const withinRenterComp = !!activeStay && activeStay.payerType === 'renter'
+            && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
+        const coveredByStation =
+            (activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile)
+            || (stationCharging && activeStay?.payerType === 'reservation' && activeStay?.cardOnFile);
+
+        if (price > 0 && !isPerk && !withinRenterComp && !coveredByStation) {
             setStep('payment');
             return;
         }
@@ -383,13 +434,41 @@ function ConciergeKioskContent() {
         isSubmittingRef.current = true;
         setIsVerifying(true);
         try {
-            // v75 — "charge to my station": run the card first; only
-            // dispatch the order if the charge succeeds. The server
-            // writes the ledger entry, so the local txn is skipped.
+            // v75/v90 — "charge to station": run the card first; only dispatch
+            // the order if the charge succeeds. The server writes the ledger
+            // entry, so the local txn is skipped for station charges.
             let chargedToStation = false;
             const orderTotal = safeNumber(item.price) * qty;
             const isComped = activeMembership?.includedProducts?.some((p: any) => p.id === item.id);
-            if (stationCharging && activeStay?.cardOnFile && orderTotal > 0 && !isComped) {
+            // Renter comp allowance: the first N paid items on a renter's station
+            // are complimentary (the host covers them — no charge at all).
+            const withinRenterComp = !!activeStay && activeStay.payerType === 'renter'
+                && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
+
+            // (1) Renter station → charge the RENTER's card for paid items past the allowance.
+            if (activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile
+                && orderTotal > 0 && !isComped && !withinRenterComp) {
+                const chargeRes = await fetch('/api/booths/kiosk', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'charge', tenantId,
+                        renterId: activeStay.renterId,
+                        boothName: activeStay.boothName,
+                        amountCents: Math.round(orderTotal * 100),
+                        description: `Concierge: ${item.name} (x${qty})`,
+                    }),
+                });
+                const chargeData = await chargeRes.json();
+                if (!chargeData.ok) {
+                    toast({ variant: 'destructive', title: 'Card charge failed', description: chargeData.error || 'Please ask your host.' });
+                    isSubmittingRef.current = false;
+                    setIsVerifying(false);
+                    return;
+                }
+                chargedToStation = true;
+            }
+            // (2) Day-guest station → charge the checked-in guest's own card (existing).
+            else if (stationCharging && activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && orderTotal > 0 && !isComped) {
                 const chargeRes = await fetch('/api/booths/kiosk', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -409,29 +488,40 @@ function ConciergeKioskContent() {
                 }
                 chargedToStation = true;
             }
+
+            const compedByRenter = withinRenterComp && orderTotal > 0 && !isComped;
+            const stationName = boothParam
+                ? (activeStay?.boothName || 'Station')
+                : (seatNumber ? `Seat/Table #${seatNumber}` : (activeStay ? activeStay.boothName : 'Lounge / Waiting Area'));
+
             const requestId = nanoid();
             const batch = writeBatch(firestore);
-            
+
             const reqRef = doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId);
             batch.set(reqRef, {
                 id: requestId,
                 tenantId: tenantId,
                 clientId: identifiedClient?.id || 'guest-walkin',
-                clientName: guestName,
+                clientName: guestName || 'Guest',
                 itemId: item.id,
                 itemName: item.name,
                 quantity: qty,
                 status: 'pending',
                 requestedAt: new Date().toISOString(),
-                stationName: seatNumber ? `Seat/Table #${seatNumber}` : (activeStay ? activeStay.boothName : 'Lounge / Waiting Area'),
+                stationName,
+                boothId: boothParam || null,
+                renterId: (activeStay?.payerType === 'renter' ? activeStay.renterId : null) || null,
                 chargedToStation,
+                compedByRenter,
                 guestDescription: guestDescription,
                 notes: orderNotes,
-                priceAtRequest: safeNumber(item.price),
+                // Zero when already covered (station charge or renter comp) so the
+                // Command Hub delivery step never bills it a second time.
+                priceAtRequest: (chargedToStation || compedByRenter) ? 0 : safeNumber(item.price),
                 isGuestKiosk: true
             });
 
-            if (!chargedToStation && safeNumber(item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === item.id)) {
+            if (!chargedToStation && !compedByRenter && safeNumber(item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === item.id)) {
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
                     id: txnRef.id,
@@ -456,8 +546,9 @@ function ConciergeKioskContent() {
                 action: 'sale.lounge',
                 targetType: 'refreshmentRequest',
                 targetId: requestId,
-                summary: `Lounge order: ${item.name} (x${qty}) for ${guestName || 'guest'}${
+                summary: `Concierge order: ${item.name} (x${qty}) for ${guestName || 'guest'} @ ${stationName}${
                     chargedToStation ? ' — charged to station card'
+                    : compedByRenter ? ' — comped (host allowance)'
                     : isComped ? ' — comped (membership)'
                     : orderTotal > 0 ? ` — $${orderTotal.toFixed(2)} at kiosk` : ''}`,
                 amount: orderTotal,
@@ -466,6 +557,7 @@ function ConciergeKioskContent() {
             });
 
             await batch.commit();
+            if (compedByRenter) setSessionCompUsed(n => n + 1);
             toast({ title: "Order Dispatched", description: "Our concierge will be with you shortly." });
             setStep('success');
             // Reset delivery fields for next potential order, but keep seatNumber if pre-filled
@@ -481,12 +573,18 @@ function ConciergeKioskContent() {
     };
 
     const customPrimaryColor = tenant?.kioskSettings?.primaryColor;
-    const primaryColorHSL = customPrimaryColor && customPrimaryColor.startsWith('#') 
-      ? hexToHSLComponents(customPrimaryColor) 
+    const primaryColorHSL = customPrimaryColor && customPrimaryColor.startsWith('#')
+      ? hexToHSLComponents(customPrimaryColor)
       : customPrimaryColor;
 
+    // v90 — helper flags for the delivery screen's station banners.
+    const pendingPrice = pendingItem ? safeNumber(pendingItem.item.price) : 0;
+    const pendingIsPerk = !!(pendingItem && activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id));
+    const renterWithinComp = !!activeStay && activeStay.payerType === 'renter'
+        && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
+
     return (
-        <div 
+        <div
             className="min-h-screen bg-[radial-gradient(circle_at_top_left,_var(--tw-gradient-stops))] from-blue-50 via-white to-purple-50 text-foreground flex flex-col items-center justify-center p-4 overflow-x-hidden font-body relative"
             style={primaryColorHSL ? { '--primary': primaryColorHSL } as React.CSSProperties : {}}
         >
@@ -497,12 +595,12 @@ function ConciergeKioskContent() {
 
             <AnimatePresence mode="wait">
                 {!entered ? (
-                    <motion.div 
-                        key="entry" 
-                        initial={{ opacity: 0 }} 
-                        animate={{ opacity: 1 }} 
+                    <motion.div
+                        key="entry"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
                         exit={{ opacity: 0, scale: 1.1 }}
-                        className="text-center cursor-pointer p-4 group z-10" 
+                        className="text-center cursor-pointer p-4 group z-10"
                         onClick={() => setEntered(true)}
                     >
                         <div className="relative w-48 h-48 md:w-64 md:h-64 rounded-[3rem] md:rounded-[4rem] overflow-hidden mb-12 transition-all duration-1000 mx-auto shadow-2xl border-4 border-white bg-white/40 backdrop-blur-3xl p-8 flex items-center justify-center group-hover:shadow-primary/20 group-hover:border-primary/20">
@@ -514,7 +612,7 @@ function ConciergeKioskContent() {
                         </div>
                         <div className="space-y-4">
                             <h1 className="text-4xl md:text-7xl font-black tracking-tighter uppercase text-slate-900 leading-none text-center">{tenant?.name || 'Studio'}</h1>
-                            <p className="text-primary text-xs md:text-xl font-bold tracking-[0.5em] uppercase animate-pulse opacity-60 text-center">Concierge Active</p>
+                            <p className="text-primary text-xs md:text-xl font-bold tracking-[0.5em] uppercase animate-pulse opacity-60 text-center">{boothParam && activeStay ? `${activeStay.boothName} · Concierge` : 'Concierge Active'}</p>
                         </div>
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }} className="mt-16 flex flex-col items-center gap-4 text-center">
                             <span className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Tap to Browse Menu</span>
@@ -550,8 +648,8 @@ function ConciergeKioskContent() {
                                         ))}
                                     </div>
 
-                                    <Button 
-                                        size="lg" 
+                                    <Button
+                                        size="lg"
                                         onClick={handleOnboardingComplete}
                                         className="h-16 md:h-20 px-8 md:px-20 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                     >
@@ -567,13 +665,13 @@ function ConciergeKioskContent() {
                                             <HandHeart className="w-8 h-8 md:w-10 md:h-10 text-primary" />
                                         </div>
                                         <h2 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 text-center leading-none">Welcome</h2>
-                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Please identify yourself to begin.</p>
+                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">{boothParam && activeStay ? `Ordering to ${activeStay.boothName}. Please identify yourself.` : 'Please identify yourself to begin.'}</p>
                                     </div>
 
                                     <form onSubmit={handleIdentitySubmit} className="max-w-md mx-auto space-y-8 text-center">
                                         <div className="space-y-2 text-left">
                                             <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary ml-1">Your Full Name</Label>
-                                            <Input 
+                                            <Input
                                                 autoFocus
                                                 value={guestName}
                                                 onChange={e => setGuestName(e.target.value)}
@@ -582,14 +680,14 @@ function ConciergeKioskContent() {
                                             />
                                         </div>
                                         <div className="flex flex-col gap-4">
-                                            <Button 
-                                                type="submit" 
+                                            <Button
+                                                type="submit"
                                                 disabled={!guestName.trim() || isVerifying}
                                                 className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                             >
                                                 Explore Menu <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
                                             </Button>
-                                            <Button 
+                                            <Button
                                                 type="button"
                                                 variant="ghost"
                                                 onClick={() => setStep('phone_pad')}
@@ -603,7 +701,7 @@ function ConciergeKioskContent() {
                             )}
 
                             {step === 'phone_pad' && (
-                                <PhonePadView 
+                                <PhonePadView
                                     key="phone_pad"
                                     value={phonePadValue}
                                     onDigit={handlePhonePadDigit}
@@ -615,10 +713,10 @@ function ConciergeKioskContent() {
                             )}
 
                             {step === 'menu' && (
-                                <motion.div 
-                                    key="menu" 
-                                    initial={{ opacity: 0 }} 
-                                    animate={{ opacity: 1 }} 
+                                <motion.div
+                                    key="menu"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
                                     className="w-full max-w-6xl mx-auto flex flex-col gap-8 md:gap-12"
                                 >
                                     <div className="flex flex-row items-center justify-between gap-4 px-6 md:px-12">
@@ -631,7 +729,7 @@ function ConciergeKioskContent() {
                                             </div>
                                             <div className="space-y-0.5">
                                                 <h3 className="text-xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Boutique Menu</h3>
-                                                <p className="text-[8px] md:text-xs font-bold text-muted-foreground uppercase tracking-[0.25em] opacity-60 text-left">Curated for {guestName.split(' ')[0]}</p>
+                                                <p className="text-[8px] md:text-xs font-bold text-muted-foreground uppercase tracking-[0.25em] opacity-60 text-left">{boothParam && activeStay ? `Delivered to ${activeStay.boothName}` : `Curated for ${guestName.split(' ')[0]}`}</p>
                                             </div>
                                         </div>
                                         <Button variant="ghost" onClick={() => setStep('identity')} className="h-10 md:h-12 rounded-xl font-black uppercase text-[8px] md:text-[10px] tracking-widest text-slate-400 hover:text-primary">Change Guest</Button>
@@ -646,13 +744,13 @@ function ConciergeKioskContent() {
                                                 <ScrollArea className="w-full">
                                                     <div className="flex gap-4 md:gap-8 px-6 md:px-12 pb-6">
                                                         {items.map(item => (
-                                                            <FloatingMenuCard 
-                                                                key={item.id} 
-                                                                item={item} 
+                                                            <FloatingMenuCard
+                                                                key={item.id}
+                                                                item={item}
                                                                 onSelect={(qty) => handleRequest(item, qty)}
                                                                 isMember={!!identifiedClient}
                                                                 activeMembership={activeMembership}
-                                                                remainingPerks={identifiedClient ? 10 : 0} 
+                                                                remainingPerks={identifiedClient ? 10 : 0}
                                                             />
                                                         ))}
                                                     </div>
@@ -677,30 +775,30 @@ function ConciergeKioskContent() {
                                             <MapPin className="w-8 h-8 md:w-10 md:h-10 text-primary" />
                                         </div>
                                         <h2 className="text-3xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 text-center leading-none">Delivery Protocol</h2>
-                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Help us find you in the lounge.</p>
+                                        <p className="text-[10px] md:text-lg font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">{boothParam && activeStay ? `We'll bring it to ${activeStay.boothName}.` : 'Help us find you in the lounge.'}</p>
                                     </div>
 
                                     <div className="space-y-6 text-left">
                                         <div className="space-y-2">
                                             <Label htmlFor="seat-number" className="text-[10px] font-black uppercase tracking-widest text-primary ml-1 flex items-center gap-2">
-                                                Table or Seat #
-                                                {seatParam && <Lock className="w-3 h-3" />}
+                                                {boothParam ? 'Station' : 'Table or Seat #'}
+                                                {(seatParam || boothParam) && <Lock className="w-3 h-3" />}
                                             </Label>
-                                            <Input 
+                                            <Input
                                                 id="seat-number"
-                                                value={seatNumber}
+                                                value={boothParam && activeStay ? activeStay.boothName : seatNumber}
                                                 onChange={e => setSeatNumber(e.target.value)}
                                                 placeholder="e.g., 4"
-                                                disabled={!!seatParam}
+                                                disabled={!!seatParam || !!boothParam}
                                                 className={cn(
                                                     "h-14 rounded-2xl border-2 font-black text-xl shadow-inner text-center",
-                                                    seatParam ? "bg-muted/50 border-primary/20" : "bg-white/80"
+                                                    (seatParam || boothParam) ? "bg-muted/50 border-primary/20" : "bg-white/80"
                                                 )}
                                             />
                                         </div>
                                         <div className="space-y-2">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">Visual Identifier</Label>
-                                            <Input 
+                                            <Input
                                                 value={guestDescription}
                                                 onChange={e => setGuestDescription(e.target.value)}
                                                 placeholder="e.g., Wearing a green hoodie"
@@ -709,7 +807,7 @@ function ConciergeKioskContent() {
                                         </div>
                                         <div className="space-y-2">
                                             <Label className="text-[10px] font-black uppercase tracking-widest text-primary ml-1">General Notes</Label>
-                                            <Textarea 
+                                            <Textarea
                                                 value={orderNotes}
                                                 onChange={e => setOrderNotes(e.target.value)}
                                                 placeholder="Any special requests? (e.g., Extra ice)"
@@ -718,7 +816,8 @@ function ConciergeKioskContent() {
                                         </div>
                                     </div>
 
-                                    {activeStay?.cardOnFile && safeNumber(pendingItem.item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id) && (
+                                    {/* Day-guest stay: opt-in "charge to my station" toggle (existing). */}
+                                    {activeStay?.payerType === 'reservation' && activeStay?.cardOnFile && pendingPrice > 0 && !pendingIsPerk && (
                                         <button
                                             type="button"
                                             onClick={() => setStationCharging(v => !v)}
@@ -734,19 +833,41 @@ function ConciergeKioskContent() {
                                             <span className="min-w-0">
                                                 <span className="block text-sm font-black uppercase tracking-tight">Charge to my station</span>
                                                 <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                                                    {activeStay.boothName} · card on file · ${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}
+                                                    {activeStay.boothName} · card on file · ${(pendingPrice * pendingItem.qty).toFixed(2)}
                                                 </span>
                                             </span>
                                         </button>
                                     )}
 
+                                    {/* Renter station: complimentary within the host's allowance. */}
+                                    {activeStay?.payerType === 'renter' && renterWithinComp && pendingPrice > 0 && !pendingIsPerk && (
+                                        <div className="w-full rounded-[2rem] border-2 border-green-200 bg-green-50 p-4 flex items-center gap-4 text-left">
+                                            <HandHeart className="w-6 h-6 text-green-600 shrink-0" />
+                                            <span className="min-w-0">
+                                                <span className="block text-sm font-black uppercase tracking-tight text-green-700">Complimentary</span>
+                                                <span className="block text-[10px] font-bold text-green-700/70 uppercase tracking-widest">Courtesy of {activeStay.boothName} · {activeStay.compAllowance - sessionCompUsed} left</span>
+                                            </span>
+                                        </div>
+                                    )}
+
+                                    {/* Renter station: paid item billed to the host's card. */}
+                                    {activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile && pendingPrice > 0 && !pendingIsPerk && !renterWithinComp && (
+                                        <div className="w-full rounded-[2rem] border-2 border-primary/30 bg-primary/5 p-4 flex items-center gap-4 text-left">
+                                            <CreditCard className="w-6 h-6 text-primary shrink-0" />
+                                            <span className="min-w-0">
+                                                <span className="block text-sm font-black uppercase tracking-tight">Charged to {activeStay.boothName}</span>
+                                                <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Billed to the host · ${(pendingPrice * pendingItem.qty).toFixed(2)}</span>
+                                            </span>
+                                        </div>
+                                    )}
+
                                     <div className="flex flex-col gap-4">
-                                        <Button 
-                                            size="lg" 
+                                        <Button
+                                            size="lg"
                                             onClick={handleDeliveryDetailSubmit}
                                             className="w-full h-16 md:h-20 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group mx-auto"
                                         >
-                                            {stationCharging && activeStay ? 'Charge & Dispatch' : 'Confirm Details'} <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
+                                            {(stationCharging && activeStay) || (activeStay?.payerType === 'renter' && activeStay.amenityPayer === 'renter' && activeStay.cardOnFile && pendingPrice > 0 && !renterWithinComp) ? 'Charge & Dispatch' : 'Confirm Details'} <ArrowRight className="ml-3 w-5 h-5 md:w-6 md:h-6 transition-transform group-hover:translate-x-2"/>
                                         </Button>
                                         <Button variant="ghost" onClick={() => setStep('menu')} className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Change Item</Button>
                                     </div>
@@ -775,7 +896,7 @@ function ConciergeKioskContent() {
                                                 <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
                                                 <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
                                             </div>
-                                            
+
                                             <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
                                                 <Lock className="w-4 h-4"/><span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest">Encrypted Secure Tunnel</span>
                                             </div>
@@ -801,8 +922,8 @@ function ConciergeKioskContent() {
                                             Preparing your selection now. Please relax, we will be with you shortly.
                                         </p>
                                     </div>
-                                    <Button 
-                                        size="lg" 
+                                    <Button
+                                        size="lg"
                                         onClick={() => setStep('menu')}
                                         className="h-16 md:h-20 px-8 md:px-24 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all mx-auto"
                                     >
@@ -823,7 +944,7 @@ function ConciergeKioskContent() {
                             <span className="text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-900">{tenant?.name}</span>
                         </div>
                         <Separator orientation="vertical" className="h-4 md:h-5 bg-slate-900/10" />
-                        <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">Boutique Terminal</p>
+                        <p className="text-[8px] md:text-[10px] font-black text-slate-400 uppercase tracking-[0.4em]">{boothParam && activeStay ? activeStay.boothName : 'Boutique Terminal'}</p>
                     </div>
                 </footer>
             )}
