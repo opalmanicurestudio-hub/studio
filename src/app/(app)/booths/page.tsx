@@ -147,6 +147,7 @@ import {
   Pause,
   Shield,
   XCircle,
+  MoreHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -309,11 +310,13 @@ interface RenterFormState {
   firstName: string; lastName: string; email: string; phone: string;
   businessName: string; specialty: string; notes: string;
   linkedStaffId: string;
-  credentials: { label: string; number: string; expiry: string }[];
+  avatarUrl: string;
+  credentials: { label: string; number: string; expiry: string; fileUrl?: string; fileName?: string }[];
 }
 const EMPTY_RENTER_FORM: RenterFormState = {
   firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
   linkedStaffId: '',
+  avatarUrl: '',
   credentials: [],
 };
 
@@ -339,6 +342,44 @@ const resolveBoothIncidentalPolicy = (tenant: any): { label: string; capCents: n
   const saved = tenant?.incidentalCategories;
   return (Array.isArray(saved) && saved.length) ? saved : BOOTH_DEFAULT_INCIDENTALS;
 };
+
+// Reusable rounded overflow menu — one visual language for "more actions" on
+// dense cards and toolbars. Closes on outside click or selection; matches the
+// app's rounded-2xl, uppercase-label styling. Mobile-friendly tap targets.
+type OverflowItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
+function OverflowMenu({ items, align = 'right', label = 'More' }: { items: OverflowItem[]; align?: 'left' | 'right'; label?: string }) {
+  const [open, setOpen] = useState(false);
+  const usable = items.filter(Boolean);
+  if (usable.length === 0) return null;
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        aria-label={label}
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        className="h-8 w-8 rounded-lg border-2 flex items-center justify-center text-slate-500 hover:bg-slate-50 active:scale-95 transition"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setOpen(false); }} />
+          <div className={`absolute z-50 mt-1 min-w-[11rem] rounded-2xl border-2 bg-white shadow-xl p-1.5 ${align === 'right' ? 'right-0' : 'left-0'}`}>
+            {usable.map((it, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={it.disabled}
+                onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition disabled:opacity-40 ${it.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'}`}
+              >{it.label}</button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // v73 — booth money actions now follow the app's audit-trail convention
 // (tenants/{id}/auditLogs). Logging never breaks the action it describes.
@@ -480,7 +521,7 @@ function PricingAdvisor(props: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
             <Calculator className="h-5 w-5 text-slate-500" />
@@ -879,7 +920,7 @@ function CommandCenterPanel({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
             <ActivityIcon className="h-5 w-5 text-slate-500" />
@@ -1514,11 +1555,11 @@ function complianceOf(r: any): { items: { label: string; number: string; expiry:
     if (days <= 30) return 'expiring';
     return 'ok';
   };
-  const items: { label: string; number: string; expiry: string; state: string }[] = [];
+  const items: { label: string; number: string; expiry: string; state: string; fileUrl?: string; fileName?: string }[] = [];
   if (Array.isArray(r.credentials)) {
     for (const cr of r.credentials) {
       if (!cr?.label) continue;
-      items.push({ label: cr.label, number: cr.number || '', expiry: cr.expiry || '', state: judge(cr.expiry) });
+      items.push({ label: cr.label, number: cr.number || '', expiry: cr.expiry || '', state: judge(cr.expiry), fileUrl: cr.fileUrl || '', fileName: cr.fileName || '' });
     }
   }
   // Legacy fields from the first compliance version — still honored
@@ -1667,9 +1708,13 @@ function RenterProfileDrawer({
         <div className="px-5 pt-5 pb-4 border-b space-y-3">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
-                {(renter.firstName || '?').charAt(0).toUpperCase()}
-              </div>
+              {(renter as any).avatarUrl ? (
+                <img src={(renter as any).avatarUrl} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0 border-2" />
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+                  {(renter.firstName || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
               <div className="min-w-0">
                 <p className="font-black text-base truncate">{fullName}</p>
                 {renter.businessName && <p className="text-[10px] font-bold text-muted-foreground truncate">{renter.businessName}</p>}
@@ -1721,8 +1766,9 @@ function RenterProfileDrawer({
                     {comp.items.length === 0 ? (
                       <p className="text-xs font-bold text-slate-400">Nothing tracked yet — add credentials via Edit.</p>
                     ) : comp.items.map((it, i) => (
-                      <p key={i} className="text-xs font-bold">
-                        {it.label}{it.number ? ` #${it.number}` : ''}: <span className={STYLE[it.state]}>{WORD[it.state](it.expiry)}</span>
+                      <p key={i} className="text-xs font-bold flex items-center gap-1.5 flex-wrap">
+                        <span>{it.label}{it.number ? ` #${it.number}` : ''}: <span className={STYLE[it.state]}>{WORD[it.state](it.expiry)}</span></span>
+                        {(it as any).fileUrl && <a href={(it as any).fileUrl} target="_blank" rel="noreferrer" className="text-[10px] font-black uppercase tracking-widest text-indigo-600 inline-flex items-center gap-0.5"><FileText className="h-3 w-3" /> File</a>}
                       </p>
                     ))}
                   </div>
@@ -1991,7 +2037,7 @@ export default function BoothsPage() {
   const [plannerDay, setPlannerDay] = useState<string>(localISO());
 
   const [kioskCopied, setKioskCopied] = useState(false);
-  const [spaceView, setSpaceView] = useState<'floor' | 'list' | 'planner'>('floor');
+  const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -2766,6 +2812,7 @@ export default function BoothsPage() {
 
   // ── Floor plan layout state ─────────────────────────────────────────────────
   const [locked, setLocked] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
 
@@ -3096,6 +3143,32 @@ export default function BoothsPage() {
     return list;
   }, [booths.data]);
 
+  // ── TRUE FLOOR STATUS ───────────────────────────────────────────────────────
+  // A booth's displayed status is DERIVED from reality — an active lease, a
+  // shared lease, or a live check-in — not the manually-set field, which could
+  // drift (leased booths showing "vacant", empty ones showing "occupied").
+  // Only 'maintenance' and 'inactive' remain explicit owner overrides. Every
+  // floor/list/legend/metric now reads this map, so the floor can't lie.
+  const boothOccupancy = useMemo(() => {
+    const m = new Map<string, Booth['status']>();
+    for (const b of (booths.data ?? [])) {
+      if (b.status === 'inactive') { m.set(b.id, 'inactive'); continue; }
+      if (b.status === 'maintenance') { m.set(b.id, 'maintenance'); continue; }
+      const lease = activeLeaseByBooth.get(b.id);
+      const live = liveResByBooth.get(b.id);
+      if (lease) {
+        const shared = !!(lease.isShared || (Array.isArray((lease as any).scheduleDays) && (lease as any).scheduleDays.length > 0 && (lease as any).scheduleDays.length < 7));
+        m.set(b.id, shared ? 'partial' : 'occupied');
+      } else if (live && live.status === 'checked_in') {
+        m.set(b.id, 'occupied');
+      } else {
+        m.set(b.id, 'vacant');
+      }
+    }
+    return m;
+  }, [booths.data, activeLeaseByBooth, liveResByBooth]);
+  const displayStatus = (b: any): Booth['status'] => boothOccupancy.get(b?.id) || b?.status || 'vacant';
+
   const availableBooths = useMemo(
     () => (booths.data ?? []).filter((b) => b.status === 'vacant' || b.status === 'partial'),
     [booths.data]
@@ -3131,12 +3204,12 @@ export default function BoothsPage() {
   }, [leaseForm.isShared, leaseForm.scheduleDays, conflictingSlots]);
 
   const metrics = useMemo(() => {
-    const allBooths = (booths.data ?? []).filter((b) => b.status !== 'inactive');
+    const allBooths = (booths.data ?? []).filter((b) => displayStatus(b) !== 'inactive');
     const total = allBooths.length;
     const occupied = allBooths.filter(
-      (b) => b.status === 'occupied' || b.status === 'partial'
+      (b) => displayStatus(b) === 'occupied' || displayStatus(b) === 'partial'
     ).length;
-    const vacant = allBooths.filter((b) => b.status === 'vacant').length;
+    const vacant = allBooths.filter((b) => displayStatus(b) === 'vacant').length;
 
     let monthlyRevenue = 0;
     let vacancyCost = 0;
@@ -3152,7 +3225,7 @@ export default function BoothsPage() {
         monthlyRevenue += Math.round(
           lease.rentAmountCents * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)
         );
-      } else if (b.status === 'vacant') {
+      } else if (displayStatus(b) === 'vacant') {
         vacancyCost += baseMonthly;
       }
     });
@@ -3169,7 +3242,60 @@ export default function BoothsPage() {
       occupancyPct,
       activeRenters,
     };
-  }, [booths.data, activeLeaseByBooth, renters.data]);
+  }, [booths.data, activeLeaseByBooth, renters.data, boothOccupancy]);
+
+  // ── LIVE FLOOR STATE — the real-time "what's happening right now" roll-up ────
+  // Consolidates the day's activity across every space so the owner sees, at a
+  // glance: who's in, who's arriving, who's running past their time (with the
+  // running $ owed), what overage is unpaid, and what's open. Re-ticks with
+  // nowTick (30s) so the running-over totals stay honest. Overage math mirrors
+  // checkOutRes exactly (10-min grace, 15-min increments) so the preview equals
+  // what will actually be charged.
+  const floorNow = useMemo(() => {
+    const today = localISO();
+    const nowMs = new Date().getTime();
+    const GRACE_MS = 10 * 60 * 1000;
+    const locOk = (r: any) => (!r.locationId || r.locationId === selectedLocationId);
+    let checkedIn = 0, arriving = 0, overdue = 0, overdueCents = 0, overageDue = 0, overageDueCents = 0;
+    const attention: any[] = [];
+    for (const r of reservations) {
+      if (!locOk(r)) continue;
+      const inRange = (r.startDate || '') <= today && (r.endDate || '') >= today;
+      if (r.status === 'checked_in' && inRange) {
+        checkedIn++;
+        if (r.bookingType === 'hourly' && r.startTime && r.endTime && r.actualCheckIn) {
+          const bookedEndMs = new Date(`${r.startDate}T${r.endTime}:00`).getTime();
+          const diffMs = nowMs - bookedEndMs;
+          if (!isNaN(bookedEndMs) && diffMs > GRACE_MS) {
+            const rate = (r.settleHourlyCents > 0 ? r.settleHourlyCents : hourlyCentsOf(r.boothId));
+            const overQuarters = Math.ceil((diffMs - GRACE_MS) / (15 * 60 * 1000));
+            const cents = rate > 0 ? Math.round(rate * (overQuarters * 15) / 60) : 0;
+            overdue++; overdueCents += cents;
+            attention.push({ kind: 'overdue', r, cents });
+          }
+        }
+      } else if (r.status === 'confirmed' && inRange) {
+        arriving++;
+        attention.push({ kind: 'arriving', r });
+      }
+      if (r.overageStatus === 'due' && locOk(r)) {
+        overageDue++; overageDueCents += (r.overageDueCents || 0);
+        attention.push({ kind: 'overage', r, cents: r.overageDueCents || 0 });
+      }
+    }
+    let vacant = 0, residents = 0;
+    for (const b of sortedBooths) {
+      if (b.status === 'maintenance' || b.status === 'inactive') continue;
+      const leased = activeLeaseByBooth.has(b.id);
+      const live = liveResByBooth.has(b.id);
+      if (leased) residents++;
+      if (!leased && !live) vacant++;
+    }
+    const rank: Record<string, number> = { overdue: 0, overage: 1, arriving: 2 };
+    attention.sort((a, b) => (rank[a.kind] - rank[b.kind]) || String(a.r.startTime || a.r.startDate || '').localeCompare(String(b.r.startTime || b.r.startDate || '')));
+    return { checkedIn, arriving, overdue, overdueCents, overageDue, overageDueCents, vacant, residents, attention };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reservations, sortedBooths, activeLeaseByBooth, liveResByBooth, selectedLocationId, nowTick]);
 
   // ── Alerts (computed live from current data) ────────────────────────────────
 
@@ -3696,8 +3822,9 @@ export default function BoothsPage() {
       phone: renter.phone ?? '', businessName: renter.businessName ?? '',
       specialty: renter.specialty ?? '', notes: renter.notes ?? '',
       linkedStaffId: (renter as any).linkedStaffId ?? '',
+      avatarUrl: (renter as any).avatarUrl || '',
       credentials: Array.isArray((renter as any).credentials)
-        ? (renter as any).credentials.map((cr: any) => ({ label: cr.label || '', number: cr.number || '', expiry: cr.expiry || '' }))
+        ? (renter as any).credentials.map((cr: any) => ({ label: cr.label || '', number: cr.number || '', expiry: cr.expiry || '', fileUrl: cr.fileUrl || '', fileName: cr.fileName || '' }))
         : [
             ...((renter as any).licenseExpiry || (renter as any).licenseNumber ? [{ label: 'Professional license', number: (renter as any).licenseNumber || '', expiry: (renter as any).licenseExpiry || '' }] : []),
             ...((renter as any).insuranceExpiry || (renter as any).insuranceCarrier ? [{ label: `Liability insurance${(renter as any).insuranceCarrier ? ` (${(renter as any).insuranceCarrier})` : ''}`, number: '', expiry: (renter as any).insuranceExpiry || '' }] : []),
@@ -3707,6 +3834,24 @@ export default function BoothsPage() {
   const handleRenterDialogOpenChange = (open: boolean) => {
     if (!open) { setEditingRenterId(null); setRenterError(null); }
     setRenterDialogOpen(open);
+  };
+
+  // Attach a license/permit file (PDF or image) to a specific credential row —
+  // stored under the tenant's Storage and linked on the credential.
+  const [credUploadingIdx, setCredUploadingIdx] = useState<number | null>(null);
+  const uploadCredentialFile = async (file: File, i: number) => {
+    if (!file || !tenantId) return;
+    setCredUploadingIdx(i);
+    try {
+      const safe = file.name.replace(/[^\w.-]/g, '_').slice(-60);
+      const path = `tenants/${tenantId}/renters/credentials/${Date.now()}-${safe}`;
+      const fileRef = storageRef(storage, path);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, fileUrl: url, fileName: file.name } : x) }));
+    } catch {
+      toast({ variant: 'destructive', title: 'Upload failed', description: 'Could not save that file — try again.' });
+    } finally { setCredUploadingIdx(null); }
   };
 
   const handleSaveRenter = async () => {
@@ -3725,7 +3870,8 @@ export default function BoothsPage() {
             businessName: renterForm.businessName.trim(),
             specialty: renterForm.specialty.trim(),
             notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
-            credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null })),
+            avatarUrl: renterForm.avatarUrl || null,
+            credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null, fileUrl: cr.fileUrl || null, fileName: cr.fileName || null })),
             linkedStaffId: renterForm.linkedStaffId || undefined,
             updatedAt: now,
           }
@@ -3741,8 +3887,9 @@ export default function BoothsPage() {
           businessName: renterForm.businessName.trim() || undefined,
           specialty: renterForm.specialty.trim() || undefined,
           notes: renterForm.notes.trim() || undefined,
-          credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null })),
-        });
+          avatarUrl: renterForm.avatarUrl || undefined,
+          credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null, fileUrl: cr.fileUrl || null, fileName: cr.fileName || null })),
+        } as any);
       }
       setRenterDialogOpen(false); setEditingRenterId(null);
     } catch (err) {
@@ -4038,32 +4185,71 @@ export default function BoothsPage() {
               <button onClick={() => setSpaceView('list')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'list' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
                 <List className="h-3 w-3 inline mr-1" />List
               </button>
-              <button onClick={() => setSpaceView('planner')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${spaceView === 'planner' ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
-                <CalendarDays className="h-3 w-3 inline mr-1" />Planner
-              </button>
             </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => setPricingOpen(true)}>
-                <Calculator className="h-3.5 w-3.5 mr-1" />Pricing
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setKioskOpen(true)}>
-                <MonitorSmartphone className="h-3.5 w-3.5 mr-1" />Kiosk
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setAutoSettingsOpen(true)}>
-                <Settings className="h-3.5 w-3.5 mr-1" />Automations
-              </Button>
+            <div className="flex gap-2 items-center">
               {spaceView === 'floor' && !isMobile && (
-                <>
-                  <Button size="sm" variant="outline" onClick={autoArrangeBooths} disabled={layoutSaving}>
-                    <RefreshCw className="h-3.5 w-3.5 mr-1" />Arrange
-                  </Button>
-                  <Button size="sm" variant={locked ? 'default' : 'secondary'} onClick={() => setLocked(l => !l)}>
-                    {locked ? <><Lock className="h-3.5 w-3.5 mr-1" />Locked</> : <><Unlock className="h-3.5 w-3.5 mr-1" />Editing</>}
-                  </Button>
-                </>
+                <Button size="sm" variant={locked ? 'outline' : 'default'} onClick={() => setLocked(l => !l)}>
+                  {locked ? <><Unlock className="h-3.5 w-3.5 mr-1" />Edit layout</> : <><Lock className="h-3.5 w-3.5 mr-1" />Done</>}
+                </Button>
               )}
+              <OverflowMenu
+                align="right"
+                items={[
+                  { label: 'Pricing advisor', onClick: () => setPricingOpen(true) },
+                  { label: 'Walk-in kiosk', onClick: () => setKioskOpen(true) },
+                  { label: 'Automations', onClick: () => setAutoSettingsOpen(true) },
+                  ...(spaceView === 'floor' && !isMobile ? [{ label: 'Auto-arrange layout', onClick: autoArrangeBooths, disabled: layoutSaving }] : []),
+                ]}
+              />
             </div>
           </div>
+
+          {/* ── LIVE FLOOR COMMAND BAR — real-time day state across every space ── */}
+          <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
+            {[
+              { key: 'in', label: 'Checked in', value: floorNow.checkedIn, sub: 'now', cls: 'border-emerald-200 bg-emerald-50', val: 'text-emerald-700', live: floorNow.checkedIn > 0 },
+              { key: 'arr', label: 'Arriving', value: floorNow.arriving, sub: 'today', cls: 'border-indigo-200 bg-indigo-50', val: 'text-indigo-700' },
+              { key: 'over', label: 'Running over', value: floorNow.overdue, sub: floorNow.overdueCents > 0 ? `~$${(floorNow.overdueCents / 100).toFixed(0)} owed` : 'on time', cls: floorNow.overdue > 0 ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white', val: floorNow.overdue > 0 ? 'text-red-600' : 'text-slate-300' },
+              { key: 'odue', label: 'Overage due', value: floorNow.overageDue, sub: floorNow.overageDueCents > 0 ? `$${(floorNow.overageDueCents / 100).toFixed(0)} unpaid` : 'none', cls: floorNow.overageDue > 0 ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white', val: floorNow.overageDue > 0 ? 'text-amber-600' : 'text-slate-300' },
+              { key: 'res', label: 'Residents', value: floorNow.residents, sub: 'leased', cls: 'border-slate-200 bg-white', val: 'text-slate-900' },
+              { key: 'vac', label: 'Vacant', value: floorNow.vacant, sub: 'open now', cls: 'border-slate-200 bg-white', val: 'text-slate-900' },
+            ].map((t) => (
+              <div key={t.key} className={`rounded-2xl border-2 px-3 py-2.5 ${t.cls}`}>
+                <div className="flex items-center gap-1.5">
+                  {t.live && <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span>}
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{t.label}</p>
+                </div>
+                <p className={`text-2xl font-black tracking-tighter ${t.val}`}>{t.value}</p>
+                <p className="text-[9px] font-bold text-muted-foreground">{t.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {floorNow.attention.length > 0 && (
+            <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/40 p-3 space-y-1.5">
+              <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" /> Needs attention now · {floorNow.attention.length}
+              </p>
+              {floorNow.attention.slice(0, 6).map((a: any) => (
+                <div key={`${a.r.id}-${a.kind}`} className="rounded-xl border-2 bg-white px-3 py-2 flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full shrink-0 ${a.kind === 'overdue' ? 'bg-red-500' : a.kind === 'overage' ? 'bg-amber-500' : 'bg-indigo-500'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-black truncate">{a.r.name || 'Guest'} · {a.r.boothName || 'Space'}</p>
+                    <p className="text-[10px] font-bold text-muted-foreground truncate">
+                      {a.kind === 'overdue' ? `Running over${a.r.endTime ? ` since ${t12tour(a.r.endTime)}` : ''} · ~$${((a.cents || 0) / 100).toFixed(0)} owed`
+                        : a.kind === 'overage' ? `Checked out · $${((a.cents || 0) / 100).toFixed(2)} overage due`
+                        : `Arriving${a.r.startTime ? ` ${t12tour(a.r.startTime)}` : ' today'} · not checked in`}
+                    </p>
+                  </div>
+                  {a.kind === 'overdue' && <button onClick={() => checkOutRes(a.r)} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Check out</button>}
+                  {a.kind === 'arriving' && <button onClick={() => checkInRes(a.r)} className="h-8 px-3 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Check in</button>}
+                  {a.kind === 'overage' && (a.r.cardOnFile
+                    ? <button onClick={() => chargeOverageToCard(a.r)} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Charge card</button>
+                    : <button onClick={() => markOverageCollected(a.r)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0">Collected</button>)}
+                </div>
+              ))}
+            </div>
+          )}
 
           {spaceView === 'floor' && (
             <div className="flex flex-wrap gap-3">
@@ -4087,7 +4273,8 @@ export default function BoothsPage() {
           ) : spaceView === 'list' ? (
             <div className="space-y-3">
               {sortedBooths.map((booth: Booth) => {
-                const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+                const ds = displayStatus(booth);
+                const sc = BOOTH_STATUS_COLORS[ds] ?? BOOTH_STATUS_COLORS.vacant;
                 const lease = activeLeaseByBooth.get(booth.id);
                 const renter = lease ? renterById.get(lease.renterId) : undefined;
                 return (
@@ -4097,7 +4284,7 @@ export default function BoothsPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-black text-sm uppercase">{booth.name}</p>
-                          <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 text-white" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[booth.status]}</span>
+                          <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 text-white" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[ds]}</span>
                           {booth.type && <span className="text-[9px] font-bold text-muted-foreground uppercase">{booth.type}</span>}
                         </div>
                         {renter && <p className="text-xs font-bold text-muted-foreground truncate">{renter.firstName} {renter.lastName}{renter.businessName ? ` · ${renter.businessName}` : ''}</p>}
@@ -4112,181 +4299,18 @@ export default function BoothsPage() {
                 );
               })}
             </div>
-          ) : spaceView === 'planner' ? (
-            /* ── BOOKING PLANNER: rows = spaces, columns = next 14 days.
-                One glance answers "who is where, when, and what's open."
-                Lease occupancy fills the row; day rentals overlay their
-                exact dates; vacant days are tappable inventory. ── */
-            (() => {
-              const days: string[] = Array.from({ length: 14 }, (_, i) => {
-                const d = new Date(); d.setDate(d.getDate() + i);
-                return localISO(d);
-              });
-              const dayLabel = (iso: string) => {
-                const d = new Date(iso + 'T00:00:00');
-                return { dow: d.toLocaleDateString('en-US', { weekday: 'short' }), num: d.getDate() };
-              };
-              const cellFor = (booth: Booth, iso: string): { kind: 'lease' | 'rental' | 'in' | 'issue' | 'open' | 'closed'; label?: string } => {
-                if (booth.status === 'maintenance' || booth.status === 'inactive') return { kind: 'closed' };
-                const lease = activeLeaseByBooth.get(booth.id);
-                if (lease) {
-                  const started = !lease.startDate || lease.startDate <= iso;
-                  const notEnded = !lease.endDate || lease.endDate >= iso;
-                  if (started && notEnded) {
-                    const renter = renterById.get(lease.renterId);
-                    return { kind: 'lease', label: renter ? renter.firstName : 'Leased' };
-                  }
-                }
-                const dayRes = reservations.filter(r =>
-                  r.boothId === booth.id && r.startDate <= iso && r.endDate >= iso &&
-                  ['confirmed', 'checked_in', 'payment_received_conflict'].includes(r.status));
-                if (dayRes.length > 0) {
-                  const issue = dayRes.find(r => r.status === 'payment_received_conflict');
-                  if (issue) return { kind: 'issue', label: issue.name };
-                  const checkedIn = dayRes.find(r => r.status === 'checked_in');
-                  if (checkedIn) return { kind: 'in', label: checkedIn.name };
-                  const hourlies = dayRes.filter(r => r.bookingType === 'hourly');
-                  if (hourlies.length > 1) return { kind: 'rental', label: `${hourlies.length}× hrly` };
-                  const r0 = dayRes[0];
-                  return { kind: 'rental', label: r0.bookingType === 'hourly' ? `${r0.startTime}` : r0.name };
-                }
-                // Availability engine: owner-declared schedule closes cells
-                const schedDays = (booth as any).dayRentalDays;
-                const blackouts = (booth as any).blackoutDates;
-                const dow = new Date(iso + 'T00:00:00').getDay();
-                if (Array.isArray(schedDays) && !schedDays.includes(dow)) return { kind: 'closed' };
-                if (Array.isArray(blackouts) && blackouts.includes(iso)) return { kind: 'closed' };
-                return { kind: 'open' };
-              };
-              const CELL_STYLE: Record<string, string> = {
-                lease:  'bg-slate-800 text-white',
-                rental: 'bg-emerald-500 text-white',
-                in:     'bg-indigo-500 text-white',
-                issue:  'bg-red-500 text-white',
-                open:   'bg-white border border-slate-200 text-slate-300',
-                closed: 'bg-slate-100 text-slate-300',
-              };
-              const monthLabel = new Date(days[0] + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-              return (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <p className="text-sm font-black tracking-tight">{monthLabel} · next 14 days</p>
-                      <p className="text-[10px] font-bold text-muted-foreground">Each row is a space, each column a day. Colors say who's in; white dots are open to book.</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3 text-[10px] font-bold text-muted-foreground">
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-800" />Lease</span>
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" />Day rental</span>
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-indigo-500" />Checked in</span>
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" />Conflict</span>
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-white border border-slate-300" />Open to book</span>
-                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-slate-100" />Not offered (— )</span>
-                  </div>
-                  {isMobile ? (
-                    /* ── MOBILE PLANNER: pick a day, see every space ── */
-                    <div className="space-y-3">
-                      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-                        {days.map(iso => {
-                          const l = dayLabel(iso);
-                          const isSel = iso === plannerDay;
-                          const isToday = iso === days[0];
-                          return (
-                            <button key={iso} onClick={() => setPlannerDay(iso)}
-                              className={`shrink-0 w-12 py-2 rounded-xl border-2 text-center transition-colors ${isSel ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200'}`}>
-                              <p className={`text-[8px] font-black uppercase ${isSel ? 'text-white/60' : isToday ? 'text-amber-600' : 'text-muted-foreground'}`}>{isToday ? 'Today' : l.dow}</p>
-                              <p className="text-sm font-black">{l.num}</p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      <div className="space-y-2">
-                        {sortedBooths.map((booth: Booth) => {
-                          const cell = cellFor(booth, plannerDay);
-                          return (
-                            <div key={booth.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
-                              <span className={`h-3 w-3 rounded-full shrink-0 ${
-                                cell.kind === 'lease' ? 'bg-slate-800' : cell.kind === 'rental' ? 'bg-emerald-500'
-                                : cell.kind === 'in' ? 'bg-indigo-500' : cell.kind === 'issue' ? 'bg-red-500'
-                                : cell.kind === 'closed' ? 'bg-slate-200' : 'bg-white border-2 border-emerald-400'}`} />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-black uppercase truncate">{booth.name}</p>
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase">{booth.type}</p>
-                              </div>
-                              <p className={`text-[10px] font-black uppercase shrink-0 ${
-                                cell.kind === 'lease' ? 'text-slate-700' : cell.kind === 'rental' ? 'text-emerald-600'
-                                : cell.kind === 'in' ? 'text-indigo-600' : cell.kind === 'issue' ? 'text-red-600'
-                                : cell.kind === 'closed' ? 'text-slate-300' : 'text-emerald-600'}`}>
-                                {cell.kind === 'open' ? 'Open' : cell.kind === 'closed' ? 'Not offered' : cell.kind === 'issue' ? `⚠ ${cell.label}` : cell.label || cell.kind}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                  <div className="overflow-x-auto rounded-2xl border-2 bg-white">
-                    <table className="w-full border-collapse min-w-[720px]">
-                      <thead>
-                        <tr>
-                          <th className="sticky left-0 bg-white text-left px-3 py-2 text-[9px] font-black uppercase tracking-widest text-muted-foreground border-b-2 min-w-[110px]">Space</th>
-                          {days.map(iso => {
-                            const l = dayLabel(iso);
-                            const isToday = iso === days[0];
-                            return (
-                              <th key={iso} className={`px-1 py-2 text-center border-b-2 min-w-[48px] ${isToday ? 'bg-amber-50' : ''}`}>
-                                {isToday ? (
-                                  <p className="text-[7px] font-black uppercase tracking-widest text-amber-600">Today</p>
-                                ) : (
-                                  <p className="text-[8px] font-black uppercase text-muted-foreground">{l.dow}</p>
-                                )}
-                                <p className={`text-sm font-black ${isToday ? 'text-amber-600' : 'text-slate-700'}`}>{l.num}</p>
-                              </th>
-                            );
-                          })}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedBooths.map((booth: Booth) => (
-                          <tr key={booth.id} className="border-b last:border-0">
-                            <td className="sticky left-0 bg-white px-3 py-1.5 border-r">
-                              <p className="text-[10px] font-black uppercase truncate max-w-[100px]">{booth.name}</p>
-                              <p className="text-[8px] font-bold text-muted-foreground uppercase">{booth.type}</p>
-                            </td>
-                            {days.map(iso => {
-                              const cell = cellFor(booth, iso);
-                              return (
-                                <td key={iso} className="p-0.5">
-                                  <div
-                                    className={`h-11 rounded-md flex flex-col items-center justify-center text-[8px] font-black uppercase overflow-hidden px-0.5 leading-tight ${CELL_STYLE[cell.kind]}`}
-                                    title={cell.label ? `${cell.label} · ${iso}` : cell.kind === 'open' ? `Open · ${iso}` : cell.kind === 'closed' ? `Not offered · ${iso}` : iso}
-                                  >
-                                    <span className="truncate max-w-full">{cell.label ? cell.label.split(' ')[0].slice(0, 8) : cell.kind === 'open' ? '·' : cell.kind === 'closed' ? '—' : ''}</span>
-                                  </div>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  )}
-                  <p className="text-[10px] font-bold text-muted-foreground">Open cells are bookable inventory — they're what the public pay-and-book flow offers. Conflicts always show red until refunded or rebooked.</p>
-                </div>
-              );
-            })()
           ) : isMobile ? (
             <div className="grid grid-cols-2 gap-3">
               {sortedBooths.map((booth: Booth) => {
                 const lease = activeLeaseByBooth.get(booth.id);
                 const renter = lease ? renterById.get(lease.renterId) : undefined;
-                const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+                const ds = displayStatus(booth);
+                const sc = BOOTH_STATUS_COLORS[ds] ?? BOOTH_STATUS_COLORS.vacant;
                 return (
                   <button key={booth.id} onClick={() => setSelectedId(booth.id)} className="rounded-2xl border-2 p-3 text-left space-y-1 active:scale-[0.98] transition-transform" style={{ borderColor: sc.border, background: sc.bg }}>
                     <div className="flex items-center justify-between gap-1">
                       <p className="font-black text-xs uppercase truncate">{booth.name}</p>
-                      <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[booth.status] ?? booth.status}</span>
+                      <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 text-white shrink-0" style={{ background: sc.border }}>{BOOTH_STATUS_LABELS[ds] ?? ds}</span>
                     </div>
                     {renter && <p className="text-[10px] font-bold truncate opacity-70">{renter.firstName} {renter.lastName}</p>}
                     {booth.baseRentCents > 0 && <p className="text-[10px] font-black">{formatCents(booth.baseRentCents)}<span className="font-normal opacity-50">/{booth.baseRentFrequency || 'mo'}</span></p>}
@@ -4301,27 +4325,32 @@ export default function BoothsPage() {
                   <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize. Click a booth to select it.
                 </div>
               )}
+              {floorEvents.length > 0 && (
+                <div className="mb-2">
+                  <button onClick={() => setHistoryOpen(o => !o)} className="w-full flex items-center gap-2 rounded-xl border-2 bg-white px-3 py-2 text-left hover:bg-slate-50">
+                    <span className="relative flex h-2 w-2 shrink-0"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-600 flex-1">Today's activity · {floorEvents.length}</span>
+                    <ChevronRight className={`h-3.5 w-3.5 text-slate-400 transition-transform ${historyOpen ? 'rotate-90' : ''}`} />
+                  </button>
+                  {historyOpen && (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {floorEvents.map((e, i) => (
+                        <span key={i} className={`text-[10px] font-bold rounded-full px-2.5 py-1 border ${e.tone === 'in' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : e.tone === 'money' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                          {new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · {e.text}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
-                {floorEvents.length > 0 && (
-                  <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0 flex items-center gap-1.5">
-                      <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" /><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" /></span>
-                      Live
-                    </span>
-                    {floorEvents.map((e, i) => (
-                      <span key={i} className={`shrink-0 text-[10px] font-bold rounded-full px-2.5 py-1 border ${e.tone === 'in' ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : e.tone === 'money' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                        {new Date(e.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · {e.text}
-                      </span>
-                    ))}
-                  </div>
-                )}
                 <div
                   className="relative"
                   style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: locked ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
                   onClick={e => { if (e.target === e.currentTarget) setSelectedId(null); }}
                 >
                   {sortedBooths.map((b: Booth) => {
-                    const eb = effectiveBooth(b);
+                    const eb = { ...effectiveBooth(b), status: displayStatus(b) };
                     const lease = activeLeaseByBooth.get(b.id);
                     const renter = lease ? renterById.get(lease.renterId) : undefined;
                     return (
@@ -4344,7 +4373,7 @@ export default function BoothsPage() {
               </div>
               {selectedBooth && (
                 <DetailPanel
-                  booth={effectiveBooth(selectedBooth)}
+                  booth={{ ...effectiveBooth(selectedBooth), status: displayStatus(selectedBooth) }}
                   renter={selectedRenter}
                   lease={selectedLease}
                   onClose={() => setSelectedId(null)}
@@ -4357,7 +4386,7 @@ export default function BoothsPage() {
           {/* Mobile: selected booth detail */}
           {isMobile && selectedBooth && (
             <DetailPanel
-              booth={effectiveBooth(selectedBooth)}
+              booth={{ ...effectiveBooth(selectedBooth), status: displayStatus(selectedBooth) }}
               renter={selectedRenter}
               lease={selectedLease}
               onClose={() => setSelectedId(null)}
@@ -4599,24 +4628,38 @@ export default function BoothsPage() {
                     {r.rescheduleRequestedAt && r.status === 'confirmed' && (
                       <p className="text-[10px] font-black uppercase text-indigo-600">⏱ Renter asked to reschedule{r.rescheduleRequestNote ? ` — “${r.rescheduleRequestNote}”` : ''}</p>
                     )}
-                    <div className="flex gap-2 flex-wrap">
-                      {r.status === 'confirmed' && <button onClick={() => checkInRes(r)} className="flex-1 h-8 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>}
-                      {r.status === 'checked_in' && <button onClick={() => checkOutRes(r)} className="flex-1 h-8 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Check Out</button>}
-                      {r.overageStatus === 'due' && r.cardOnFile && (
-                        <button onClick={() => chargeOverageToCard(r)} disabled={chargingId === r.id} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                          {chargingId === r.id ? 'Charging…' : `Charge Card $${((r.overageDueCents || 0) / 100).toFixed(2)}`}
-                        </button>
+                    <div className="flex gap-2 items-center">
+                      {/* PRIMARY action — one clear next step for this reservation's state */}
+                      {r.status === 'confirmed' ? (
+                        <button onClick={() => checkInRes(r)} className="flex-1 h-9 rounded-lg bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Check In</button>
+                      ) : r.status === 'checked_in' ? (
+                        <button onClick={() => checkOutRes(r)} className="flex-1 h-9 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">Check Out</button>
+                      ) : (r.overageStatus === 'due' && r.cardOnFile) ? (
+                        <button onClick={() => chargeOverageToCard(r)} disabled={chargingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">{chargingId === r.id ? 'Charging…' : `Charge Card $${((r.overageDueCents || 0) / 100).toFixed(2)}`}</button>
+                      ) : (r.overageStatus === 'due') ? (
+                        <button onClick={() => markOverageCollected(r)} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest">{`Collect $${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger`}</button>
+                      ) : r.status === 'cancel_requested' ? (
+                        <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Approve → Refund'}</button>
+                      ) : (r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') ? (
+                        <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>
+                      ) : (
+                        <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center gap-1">📄 Receipt</a>
                       )}
-                      {r.overageStatus === 'due' && <button onClick={() => markOverageCollected(r)} className={`${r.cardOnFile ? 'h-8 px-3 border-2 text-red-600 border-red-300' : 'flex-1 h-8 bg-red-600 text-white'} rounded-lg font-black uppercase text-[9px] tracking-widest`}>{r.cardOnFile ? 'Paid in person' : `Collect $${((r.overageDueCents || 0) / 100).toFixed(2)} → Ledger`}</button>}
-                      {r.status === 'confirmed' && <button onClick={() => openReschedule(r)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-indigo-600 border-indigo-300">Reschedule</button>}
-                      {r.status === 'confirmed' && <button onClick={() => setResStatus(r, 'cancelled_refund_pending')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300">Cancel</button>}
-                      {r.status === 'cancel_requested' && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Approve → Refund Card'}</button>}
-                      {r.status === 'cancel_requested' && <button onClick={() => setResStatus(r, 'confirmed')} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600">Decline</button>}
-                      <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">📄 Receipt</a>
-                      {r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) && (
-                        <button onClick={() => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); }} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 border-slate-300">＋ Incidental</button>
-                      )}
-                      {(r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') && <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-8 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-red-600 border-red-300 disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>}
+                      {/* Secondary actions tucked into one tidy menu */}
+                      <OverflowMenu
+                        align="right"
+                        items={[
+                          ...(r.status === 'confirmed' ? [
+                            { label: 'Reschedule', onClick: () => openReschedule(r) },
+                            { label: 'Cancel booking', danger: true, onClick: () => setResStatus(r, 'cancelled_refund_pending') },
+                          ] : []),
+                          ...(r.status === 'cancel_requested' ? [{ label: 'Decline request', onClick: () => setResStatus(r, 'confirmed') }] : []),
+                          ...(r.overageStatus === 'due' && r.cardOnFile ? [{ label: 'Mark paid in person', onClick: () => markOverageCollected(r) }] : []),
+                          ...(r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) ? [{ label: incidentalForId === r.id ? 'Close incidental' : 'Add incidental charge', onClick: () => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); } }] : []),
+                          ...(['confirmed', 'checked_in', 'cancel_requested', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status) || r.overageStatus === 'due'
+                            ? [{ label: 'Open receipt', onClick: () => window.open(`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`, '_blank') }] : []),
+                        ]}
+                      />
                     </div>
                     {incidentalForId === r.id && (() => {
                       const sel = incidentalPolicy.find((c: any) => c.label === incidentalCat) || null;
@@ -4913,7 +4956,7 @@ export default function BoothsPage() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
               <Armchair className="h-5 w-5 text-slate-500" />
@@ -5304,7 +5347,7 @@ export default function BoothsPage() {
 
       {/* Renter dialog */}
       <Dialog open={renterDialogOpen} onOpenChange={handleRenterDialogOpenChange}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
               <UserPlus className="h-5 w-5 text-slate-500" />
@@ -5329,6 +5372,23 @@ export default function BoothsPage() {
                 {renterForm.linkedStaffId && <p className="text-[9px] font-black uppercase tracking-widest text-violet-600">✓ Details pre-filled from their staff record</p>}
               </div>
             )}
+            {/* Photo */}
+            <div className="flex items-center gap-3">
+              {renterForm.avatarUrl ? (
+                <img src={renterForm.avatarUrl} alt="" className="h-16 w-16 rounded-2xl object-cover border-2 shrink-0" />
+              ) : (
+                <div className="h-16 w-16 rounded-2xl bg-slate-100 border-2 flex items-center justify-center text-slate-400 font-black text-lg shrink-0">
+                  {(renterForm.firstName || '?').charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Photo</Label>
+                <div className="flex items-center gap-2 mt-1">
+                  <ImageUpload enableMarkup={false} clearOnUpload storageFolder="renters" onImageUploaded={(url) => { if (url) setRenterForm(p => ({ ...p, avatarUrl: url })); }} />
+                  {renterForm.avatarUrl && <button type="button" onClick={() => setRenterForm(p => ({ ...p, avatarUrl: '' }))} className="text-[10px] font-black uppercase tracking-widest text-red-500">Remove</button>}
+                </div>
+              </div>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1"><Label htmlFor="r-first">First name</Label>
                 <Input id="r-first" value={renterForm.firstName} onChange={(e) => setRenterForm((p) => ({ ...p, firstName: e.target.value }))} /></div>
@@ -5358,14 +5418,29 @@ export default function BoothsPage() {
                 ))}
               </div>
               {renterForm.credentials.map((cr, i) => (
-                <div key={i} className="grid grid-cols-[1fr_100px_120px_32px] gap-1.5 items-center">
-                  <Input placeholder="Credential (e.g. LMT license, Tattoo permit)" value={cr.label}
-                    onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, label: e.target.value } : x) }))} />
-                  <Input placeholder="#" value={cr.number}
-                    onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, number: e.target.value } : x) }))} />
-                  <Input type="date" value={cr.expiry}
-                    onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, expiry: e.target.value } : x) }))} />
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setRenterForm(p => ({ ...p, credentials: p.credentials.filter((_, j) => j !== i) }))}>×</Button>
+                <div key={i} className="space-y-1.5">
+                  <div className="grid grid-cols-[1fr_100px_120px_32px] gap-1.5 items-center">
+                    <Input placeholder="Credential (e.g. LMT license, Tattoo permit)" value={cr.label}
+                      onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, label: e.target.value } : x) }))} />
+                    <Input placeholder="#" value={cr.number}
+                      onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, number: e.target.value } : x) }))} />
+                    <Input type="date" value={cr.expiry}
+                      onChange={(e) => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, expiry: e.target.value } : x) }))} />
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setRenterForm(p => ({ ...p, credentials: p.credentials.filter((_, j) => j !== i) }))}>×</Button>
+                  </div>
+                  <div className="flex items-center gap-2 pl-0.5">
+                    {cr.fileUrl ? (
+                      <>
+                        <a href={cr.fileUrl} target="_blank" rel="noreferrer" className="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1"><FileText className="h-3 w-3" /> {cr.fileName || 'View file'}</a>
+                        <button type="button" onClick={() => setRenterForm(p => ({ ...p, credentials: p.credentials.map((x, j) => j === i ? { ...x, fileUrl: '', fileName: '' } : x) }))} className="text-[10px] font-black uppercase tracking-widest text-red-500">Remove</button>
+                      </>
+                    ) : (
+                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-700 cursor-pointer flex items-center gap-1">
+                        <Upload className="h-3 w-3" /> {credUploadingIdx === i ? 'Uploading…' : 'Attach file'}
+                        <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCredentialFile(f, i); e.currentTarget.value = ''; }} />
+                      </label>
+                    )}
+                  </div>
                 </div>
               ))}
               <Button type="button" variant="outline" size="sm"
@@ -5393,7 +5468,7 @@ export default function BoothsPage() {
 
       {/* Lease wizard */}
       <Dialog open={leaseDialogOpen} onOpenChange={handleLeaseDialogOpenChange}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
               <FileSignature className="h-5 w-5 text-slate-500" />
@@ -5666,7 +5741,7 @@ export default function BoothsPage() {
 
       {/* Renter status change */}
       <Dialog open={Boolean(statusTarget)} onOpenChange={(open) => { if (!open) setStatusTarget(null); }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>Change renter status</DialogTitle>
             <DialogDescription>Leave and maternity leave pause billing while keeping the lease active.</DialogDescription>
@@ -5712,7 +5787,7 @@ export default function BoothsPage() {
 
       {/* ── Automation settings (v85) ── */}
       <Dialog open={autoSettingsOpen} onOpenChange={setAutoSettingsOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
           <BoothAutomationSettings
             tenantId={tenantId}
             firestore={firestore}
@@ -5723,7 +5798,7 @@ export default function BoothsPage() {
 
       {/* ── Full application dialog (v81) ── */}
       <Dialog open={!!viewingApp} onOpenChange={(o) => { if (!o) setViewingApp(null); }}>
-        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
           {viewingApp && (
             <>
               <DialogHeader>
@@ -5776,7 +5851,7 @@ export default function BoothsPage() {
 
       {/* ── Kiosk link dialog (v74) ── */}
       <Dialog open={kioskOpen} onOpenChange={setKioskOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-black tracking-tight flex items-center gap-2">
               <MonitorSmartphone className="h-5 w-5 text-slate-500" />
@@ -5873,7 +5948,7 @@ export default function BoothsPage() {
 
       {/* ── Incidentals charge-policy editor ── */}
       <Dialog open={chargePolicyOpen} onOpenChange={(o) => { if (!o) setChargePolicyOpen(false); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Shield className="h-4 w-4" /> Incidental charge policy</DialogTitle>
             <DialogDescription>
@@ -5929,7 +6004,7 @@ export default function BoothsPage() {
 
       {/* ── Tour-sheet copy editor ── */}
       <Dialog open={tourSheetsOpen} onOpenChange={(o) => { if (!o) setTourSheetsOpen(false); }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><FileText className="h-4 w-4" /> Tour sheets</DialogTitle>
             <DialogDescription>
@@ -6056,7 +6131,7 @@ export default function BoothsPage() {
 
       {/* ── No-show policy ── */}
       <Dialog open={noShowOpen} onOpenChange={(o) => { if (!o) setNoShowOpen(false); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><XCircle className="h-4 w-4" /> No-show policy</DialogTitle>
             <DialogDescription>
@@ -6103,7 +6178,7 @@ export default function BoothsPage() {
 
       {/* ── Reschedule booking (v85) ── */}
       <Dialog open={!!reschedRes} onOpenChange={(o) => { if (!o) setReschedRes(null); }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>Reschedule booking</DialogTitle>
             <DialogDescription>
@@ -6141,7 +6216,7 @@ export default function BoothsPage() {
 
       {/* ── Record rent / deposit payment (v84) ── */}
       <Dialog open={!!recordPay} onOpenChange={(o) => { if (!o) setRecordPay(null); }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm max-h-[85vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>{recordPay?.mode === 'deposit' ? 'Record security deposit' : 'Record rent payment'}</DialogTitle>
             <DialogDescription>
