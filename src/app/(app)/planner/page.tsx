@@ -1,4 +1,4 @@
-qq'use client';
+'use client';
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
