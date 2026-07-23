@@ -4747,8 +4747,12 @@ export default function BoothsPage() {
                       <button onClick={() => {
                         if (g.isRenter && g.renterId) { const rt = renterById.get(g.renterId); if (rt) { setProfileRenter(rt); return; } }
                         setProfileContact(g);
-                      }} className="w-8 h-8 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-xs shrink-0 active:scale-95 transition-transform">
-                        {g.name.charAt(0).toUpperCase()}
+                      }} className="w-8 h-8 rounded-lg overflow-hidden shrink-0 active:scale-95 transition-transform">
+                        {(g.renterId && (renterById.get(g.renterId) as any)?.avatarUrl) ? (
+                          <img src={(renterById.get(g.renterId) as any).avatarUrl} alt="" className="w-8 h-8 object-cover" />
+                        ) : (
+                          <span className="w-8 h-8 bg-slate-900 text-white flex items-center justify-center font-black text-xs">{g.name.charAt(0).toUpperCase()}</span>
+                        )}
                       </button>
                       <button onClick={() => {
                         if (g.isRenter && g.renterId) { const rt = renterById.get(g.renterId); if (rt) { setProfileRenter(rt); return; } }
@@ -4801,8 +4805,12 @@ export default function BoothsPage() {
                   return (
                     <div key={renter.id} className="rounded-2xl border-2 bg-white p-4 space-y-2">
                       <div className="flex items-start gap-3">
-                        <button onClick={() => setProfileRenter(renter)} className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shrink-0 active:scale-95 transition-transform">
-                          {(renter.firstName || '?').charAt(0).toUpperCase()}
+                        <button onClick={() => setProfileRenter(renter)} className="w-9 h-9 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
+                          {(renter as any).avatarUrl ? (
+                            <img src={(renter as any).avatarUrl} alt="" className="w-9 h-9 object-cover" />
+                          ) : (
+                            <span className="w-9 h-9 bg-slate-900 text-white flex items-center justify-center font-black text-sm">{(renter.firstName || '?').charAt(0).toUpperCase()}</span>
+                          )}
                         </button>
                         <button onClick={() => setProfileRenter(renter)} className="flex-1 min-w-0 text-left">
                           <p className="font-black text-sm underline-offset-2 hover:underline">{renter.firstName} {renter.lastName}</p>
