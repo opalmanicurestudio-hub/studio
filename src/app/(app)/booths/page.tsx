@@ -381,6 +381,25 @@ function OverflowMenu({ items, align = 'right', label = 'More' }: { items: Overf
   );
 }
 
+// Self-ticking station timer — its OWN 1s interval so only this element
+// re-renders each second (the card stays still). Shows live elapsed since
+// check-in; flips red once the booked window is exceeded. The command-center
+// heartbeat on every occupied station.
+function StationTimer({ startIso, overtime }: { startIso?: string | null; overtime?: boolean }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!startIso) return null;
+  const start = new Date(startIso).getTime();
+  if (Number.isNaN(start)) return null;
+  const s = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  const hh = Math.floor(s / 3600), mm = Math.floor((s % 3600) / 60), ss = s % 60;
+  const label = hh > 0 ? `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}` : `${mm}:${String(ss).padStart(2, '0')}`;
+  return <span className={`font-mono tabular-nums ${overtime ? 'text-red-600' : 'text-indigo-700'}`}>{label}</span>;
+}
+
 // v73 — booth money actions now follow the app's audit-trail convention
 // (tenants/{id}/auditLogs). Logging never breaks the action it describes.
 const writeBoothAudit = (firestore: any, tenantId: string, e: any) => {
@@ -1156,8 +1175,11 @@ function BoothCanvasCard({
           </span>
         )}
         {liveRes && (
-          <span className={`text-[10px] font-black leading-none mb-1 truncate ${overtime ? 'text-red-600' : isLive ? 'text-indigo-700' : 'text-emerald-700'}`}>
-            {isLive ? '● ' : '◷ '}{guestFirst}{timeLabel ? ` · ${timeLabel}` : isExpected && liveRes.startTime ? ` · ${liveRes.startTime}` : ''}
+          <span className={`text-[10px] font-black leading-none mb-1 truncate flex items-center gap-1 ${overtime ? 'text-red-600' : isLive ? 'text-indigo-700' : 'text-emerald-700'}`}>
+            {isLive ? '● ' : '◷ '}{guestFirst}
+            {isLive && (liveRes.checked_inAt || liveRes.actualCheckIn)
+              ? <><span className="opacity-40">·</span> <StationTimer startIso={liveRes.checked_inAt || liveRes.actualCheckIn} overtime={overtime} />{timeLabel ? <span className="opacity-60"> · {timeLabel}</span> : null}</>
+              : (timeLabel ? ` · ${timeLabel}` : isExpected && liveRes.startTime ? ` · ${liveRes.startTime}` : '')}
           </span>
         )}
         {timePct !== null && (
@@ -2080,47 +2102,6 @@ export default function BoothsPage() {
     return m;
   }, [contactDocs]);
 
-  // Concierge amenity requests (the lounge/kiosk/check-in menu writes these).
-  // The owner needs a live queue to actually deliver them — this is that feed.
-  const [conciergeRequests, setConciergeRequests] = useState<any[]>([]);
-  useEffect(() => {
-    if (!firestore || !tenantId) return;
-    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'refreshmentRequests')), (snap) => {
-      setConciergeRequests(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
-    }, () => {});
-    return () => unsub();
-  }, [firestore, tenantId]);
-  const pendingConcierge = useMemo(() =>
-    conciergeRequests
-      .filter(r => (r.status || 'pending') === 'pending')
-      .sort((a, b) => String(a.requestedAt || '').localeCompare(String(b.requestedAt || ''))),
-    [conciergeRequests]);
-  const fulfillConciergeOrder = async (r: any) => {
-    if (!tenantId) return;
-    try {
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'refreshmentRequests', r.id), { status: 'fulfilled', fulfilledAt: new Date().toISOString() });
-      writeBoothAudit(firestore, tenantId, {
-        action: 'concierge.fulfilled', targetType: 'refreshmentRequest', targetId: r.id,
-        summary: `Delivered ${r.quantity || 1}× ${r.itemName || 'item'} to ${r.stationName || r.clientName || 'guest'}`,
-        actor: { type: 'user' },
-      });
-    } catch {
-      toast({ variant: 'destructive', title: 'Could not update', description: 'Try again.' });
-    }
-  };
-  const cancelConciergeOrder = async (r: any) => {
-    if (!tenantId) return;
-    try {
-      await updateDoc(doc(firestore, 'tenants', tenantId, 'refreshmentRequests', r.id), { status: 'cancelled', cancelledAt: new Date().toISOString() });
-      writeBoothAudit(firestore, tenantId, {
-        action: 'concierge.cancelled', targetType: 'refreshmentRequest', targetId: r.id,
-        summary: `Cancelled ${r.itemName || 'item'} for ${r.stationName || r.clientName || 'guest'}`,
-        actor: { type: 'user' },
-      });
-    } catch {
-      toast({ variant: 'destructive', title: 'Could not update', description: 'Try again.' });
-    }
-  };
   const pendingApps = useMemo(() =>
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
@@ -2855,6 +2836,18 @@ export default function BoothsPage() {
   // ── Floor plan layout state ─────────────────────────────────────────────────
   const [locked, setLocked] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Optional real floor image / blueprint behind the canvas, per location — the
+  // command-center backdrop you position stations onto. Stored on the tenant,
+  // keyed by location.
+  const floorBgKey = selectedLocationId || 'default';
+  const floorBgUrl: string = (selectedTenant as any)?.floorBackgrounds?.[floorBgKey]?.url || '';
+  const saveFloorBg = async (url: string | null) => {
+    if (!tenantId) return;
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { [`floorBackgrounds.${floorBgKey}`]: url ? { url, at: new Date().toISOString() } : null });
+      toast({ title: url ? 'Floor image set' : 'Floor image removed', description: url ? 'Drag your stations onto it in edit mode.' : undefined });
+    } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
+  };
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
 
@@ -4141,7 +4134,7 @@ export default function BoothsPage() {
   const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
 
-  const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length + pendingConcierge.length;
+  const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50">
@@ -4363,8 +4356,13 @@ export default function BoothsPage() {
           ) : (
             <div className="relative">
               {!locked && (
-                <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-1.5">
-                  <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize. Click a booth to select it.
+                <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-2 flex-wrap">
+                  <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize.
+                  <span className="ml-auto flex items-center gap-2">
+                    <span className="text-slate-500">Floor image:</span>
+                    <ImageUpload enableMarkup={false} clearOnUpload storageFolder="floorplans" onImageUploaded={(url) => { if (url) saveFloorBg(url); }} />
+                    {floorBgUrl && <button onClick={() => saveFloorBg(null)} className="text-red-500 font-black uppercase tracking-widest">Remove</button>}
+                  </span>
                 </div>
               )}
               {floorEvents.length > 0 && (
@@ -4388,9 +4386,12 @@ export default function BoothsPage() {
               <div className="h-[380px] sm:h-[500px] lg:h-[600px] overflow-auto rounded-xl border border-border bg-muted/30 touch-pan-x touch-pan-y">
                 <div
                   className="relative"
-                  style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: locked ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
+                  style={{ width: CANVAS_W, height: CANVAS_H, backgroundImage: (locked || floorBgUrl) ? undefined : 'radial-gradient(circle, var(--border) 1px, transparent 1px)', backgroundSize: `${GRID}px ${GRID}px` }}
                   onClick={e => { if (e.target === e.currentTarget) setSelectedId(null); }}
                 >
+                  {floorBgUrl && (
+                    <img src={floorBgUrl} alt="" draggable={false} className="absolute inset-0 pointer-events-none select-none" style={{ width: CANVAS_W, height: CANVAS_H, objectFit: 'cover', opacity: 0.55 }} />
+                  )}
                   {sortedBooths.map((b: Booth) => {
                     const eb = { ...effectiveBooth(b), status: displayStatus(b) };
                     const lease = activeLeaseByBooth.get(b.id);
@@ -4441,38 +4442,6 @@ export default function BoothsPage() {
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
-          {/* ── Concierge orders — live amenity requests to deliver ── */}
-          {pendingConcierge.length > 0 && (
-            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/50 p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-70" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" /></span>
-                <h2 className="text-xs font-black uppercase tracking-widest text-amber-800">Concierge orders</h2>
-                <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{pendingConcierge.length}</span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                {pendingConcierge.map((r: any) => {
-                  const paid = Number(r.priceAtRequest) > 0 && !r.chargedToStation;
-                  const when = (() => { try { return new Date(r.requestedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } })();
-                  return (
-                    <div key={r.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black truncate">{r.quantity > 1 ? `${r.quantity}× ` : ''}{r.itemName || 'Item'}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground truncate">
-                          {r.stationName || 'Lounge'}{r.clientName ? ` · ${r.clientName}` : ''} · {when}
-                        </p>
-                        <span className={`inline-block mt-0.5 text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${r.chargedToStation ? 'bg-slate-900 text-white' : paid ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'}`}>
-                          {r.chargedToStation ? 'Charged to station' : paid ? `Paid $${(Number(r.priceAtRequest)).toFixed(2)}` : 'Complimentary'}
-                        </span>
-                      </div>
-                      <button onClick={() => fulfillConciergeOrder(r)} className="h-8 px-3 rounded-lg bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Delivered</button>
-                      <OverflowMenu align="right" items={[{ label: 'Cancel order', danger: true, onClick: () => cancelConciergeOrder(r) }]} />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Tour scorecard */}
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
