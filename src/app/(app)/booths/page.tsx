@@ -148,6 +148,7 @@ import {
   Shield,
   XCircle,
   MoreHorizontal,
+  Coffee,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -311,12 +312,18 @@ interface RenterFormState {
   businessName: string; specialty: string; notes: string;
   linkedStaffId: string;
   avatarUrl: string;
+  amenitiesEnabled: boolean;
+  amenityCompAllowance: string;
+  amenityPayer: 'renter' | 'client';
   credentials: { label: string; number: string; expiry: string; fileUrl?: string; fileName?: string }[];
 }
 const EMPTY_RENTER_FORM: RenterFormState = {
   firstName: '', lastName: '', email: '', phone: '', businessName: '', specialty: '', notes: '',
   linkedStaffId: '',
   avatarUrl: '',
+  amenitiesEnabled: false,
+  amenityCompAllowance: '',
+  amenityPayer: 'renter',
   credentials: [],
 };
 
@@ -1600,7 +1607,7 @@ function complianceOf(r: any): { items: { label: string; number: string; expiry:
 
 function RenterProfileDrawer({
   renter, lease, booth, reservations, w9, tenantId, firestore,
-  onClose, onEdit, onLease, onEndLease,
+  onClose, onEdit, onLease, onEndLease, contactNote, onSaveNote,
 }: {
   renter: Renter;
   lease?: Lease;
@@ -1613,8 +1620,11 @@ function RenterProfileDrawer({
   onEdit: () => void;
   onLease: () => void;
   onEndLease: () => void;
+  contactNote?: string;
+  onSaveNote?: (note: string) => void;
 }) {
   const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'activity'>('overview');
+  const [noteDraft, setNoteDraft] = useState<string>(contactNote || '');
   const [chargeAmt, setChargeAmt] = useState('');
   const [chargeCat, setChargeCat] = useState('');
   const [chargeNote, setChargeNote] = useState('');
@@ -1808,9 +1818,31 @@ function RenterProfileDrawer({
                   + Assign a space
                 </button>
               )}
+              {(renter as any).amenitiesEnabled && lease?.boothId && (() => {
+                const link = `${typeof window !== 'undefined' ? window.location.origin : ''}/concierge/${tenantId}?booth=${lease.boothId}`;
+                return (
+                  <div className="rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-4 space-y-2">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1.5"><Coffee className="h-3 w-3" /> Client concierge</p>
+                    <p className="text-[10px] font-medium text-muted-foreground">Their clients scan or open this to order amenities to {booth?.name || 'their booth'}. {(renter as any).amenityPayer === 'client' ? 'Client pays for anything over the free allowance.' : 'Extras charge this renter’s card.'}</p>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={link} className="flex-1 h-8 rounded-lg border-2 px-2 text-[10px] font-mono bg-white truncate" onFocus={(e) => e.currentTarget.select()} />
+                      <button onClick={() => { navigator.clipboard?.writeText(link).catch(() => {}); }} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Copy</button>
+                    </div>
+                  </div>
+                );
+              })()}
               {(renter as any).portalEnabled && (
                 <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Portal active · PIN {(renter as any).portalPin}</p>
+                </div>
+              )}
+
+              {/* Shared owner notes — the same journey note a lead carries, so a
+                  contact's notes follow them from lead to renter. */}
+              {onSaveNote && (
+                <div className="rounded-2xl border-2 p-4 space-y-1.5">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Notes</p>
+                  <textarea value={noteDraft} onChange={e => setNoteDraft(e.target.value)} onBlur={() => { if ((noteDraft || '') !== (contactNote || '')) onSaveNote(noteDraft); }} rows={2} placeholder="Private notes about this person — carried across their whole journey…" className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium resize-none" />
                 </div>
               )}
 
@@ -3858,6 +3890,9 @@ export default function BoothsPage() {
       specialty: renter.specialty ?? '', notes: renter.notes ?? '',
       linkedStaffId: (renter as any).linkedStaffId ?? '',
       avatarUrl: (renter as any).avatarUrl || '',
+      amenitiesEnabled: !!(renter as any).amenitiesEnabled,
+      amenityCompAllowance: (renter as any).amenityCompAllowance != null ? String((renter as any).amenityCompAllowance) : '',
+      amenityPayer: (renter as any).amenityPayer === 'client' ? 'client' : 'renter',
       credentials: Array.isArray((renter as any).credentials)
         ? (renter as any).credentials.map((cr: any) => ({ label: cr.label || '', number: cr.number || '', expiry: cr.expiry || '', fileUrl: cr.fileUrl || '', fileName: cr.fileName || '' }))
         : [
@@ -3906,6 +3941,9 @@ export default function BoothsPage() {
             specialty: renterForm.specialty.trim(),
             notes: [renterForm.notes.trim(), renterForm.linkedStaffId ? 'Hybrid — also a team member.' : ''].filter(Boolean).join(' '),
             avatarUrl: renterForm.avatarUrl || null,
+            amenitiesEnabled: renterForm.amenitiesEnabled,
+            amenityCompAllowance: renterForm.amenitiesEnabled ? Math.max(0, Math.round(parseFloat(renterForm.amenityCompAllowance) || 0)) : 0,
+            amenityPayer: renterForm.amenityPayer,
             credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null, fileUrl: cr.fileUrl || null, fileName: cr.fileName || null })),
             linkedStaffId: renterForm.linkedStaffId || undefined,
             updatedAt: now,
@@ -3923,6 +3961,9 @@ export default function BoothsPage() {
           specialty: renterForm.specialty.trim() || undefined,
           notes: renterForm.notes.trim() || undefined,
           avatarUrl: renterForm.avatarUrl || undefined,
+          amenitiesEnabled: renterForm.amenitiesEnabled,
+          amenityCompAllowance: renterForm.amenitiesEnabled ? Math.max(0, Math.round(parseFloat(renterForm.amenityCompAllowance) || 0)) : 0,
+          amenityPayer: renterForm.amenityPayer,
           credentials: renterForm.credentials.filter(cr => cr.label.trim()).map(cr => ({ label: cr.label.trim(), number: cr.number.trim(), expiry: cr.expiry || null, fileUrl: cr.fileUrl || null, fileName: cr.fileName || null })),
         } as any);
       }
@@ -5500,6 +5541,41 @@ export default function BoothsPage() {
               </Button>
             </div>
 
+            {/* Client amenities / concierge */}
+            <div className="space-y-2 rounded-2xl border-2 border-slate-100 p-3.5">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" checked={renterForm.amenitiesEnabled} onChange={(e) => setRenterForm(p => ({ ...p, amenitiesEnabled: e.target.checked }))} className="h-4 w-4 mt-0.5" />
+                <span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-600 block">Let their clients use the concierge</span>
+                  <span className="text-[10px] font-medium text-muted-foreground">A client sitting at their booth can order amenities from your menu. Orders land in your Command Hub queue like any other.</span>
+                </span>
+              </label>
+              {renterForm.amenitiesEnabled && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Complimentary allowance</Label>
+                    <div className="flex items-center gap-2">
+                      <Input value={renterForm.amenityCompAllowance} inputMode="numeric" placeholder="0" onChange={(e) => setRenterForm(p => ({ ...p, amenityCompAllowance: e.target.value }))} className="h-10 w-20" />
+                      <span className="text-[10px] font-bold text-muted-foreground">free items per visit</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Beyond the allowance</Label>
+                    <div className="flex gap-1.5">
+                      {([['renter', 'Charge renter'], ['client', 'Client pays']] as const).map(([v, lbl]) => (
+                        <button key={v} type="button" onClick={() => setRenterForm(p => ({ ...p, amenityPayer: v }))} className={`flex-1 h-10 rounded-xl border-2 text-[9px] font-black uppercase tracking-wide ${renterForm.amenityPayer === v ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-500'}`}>{lbl}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-medium text-muted-foreground sm:col-span-2">
+                    {renterForm.amenityPayer === 'renter'
+                      ? 'Paid items beyond the free allowance charge this renter’s card on file (they settle with their client). Requires a card on file.'
+                      : 'Paid items beyond the free allowance are charged to the client’s own card at the point of order.'}
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-1"><Label htmlFor="r-notes">Notes (private)</Label>
               <Textarea id="r-notes" value={renterForm.notes} onChange={(e) => setRenterForm((p) => ({ ...p, notes: e.target.value }))} /></div>
             {renterError && (
@@ -5978,6 +6054,8 @@ export default function BoothsPage() {
           onEdit={() => { const r = profileRenter; setProfileRenter(null); openEditRenter(r); }}
           onLease={() => { const r = profileRenter; setProfileRenter(null); openLeaseWizard(r.id); }}
           onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEndLeaseTarget(r); }}
+          contactNote={contactByKey.get(boothContactKey(profileRenter.phone, profileRenter.email))?.ownerNotes || ''}
+          onSaveNote={(note: string) => handleSaveNote({ name: `${profileRenter.firstName || ''} ${profileRenter.lastName || ''}`.trim(), phone: profileRenter.phone, email: profileRenter.email }, note)}
         />
       )}
 
