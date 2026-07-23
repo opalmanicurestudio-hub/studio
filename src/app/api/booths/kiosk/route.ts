@@ -153,11 +153,64 @@ export async function POST(req: NextRequest) {
     }
 
     // ── v75 CONCIERGE INTEGRATION ─────────────────────────────────────
-    // 'active-stay': does this phone have a checked-in booth stay today,
-    // and is there a card on file? Powers the concierge kiosk's
-    // "charge to my station" option. Full phone number (the concierge
-    // identity step collects it) — matched on last 10 digits.
+    // 'active-stay': who can this concierge order be charged to?
+    //
+    //   • boothId (a renter's station link /concierge?booth=…): resolve the
+    //     station's payer — a checked-in day guest at that booth, else the
+    //     booth's resident RENTER. Returns the renter's amenity settings
+    //     (who-pays + comp allowance) so the kiosk knows how to bill.
+    //   • phone (the walk-in lounge kiosk): the checked-in day guest whose
+    //     card is on file, matched on the last 10 digits.
     if (action === 'active-stay') {
+      const boothId = String(body.boothId || '').trim();
+
+      // ── Station-scoped: a renter's booth link. ──
+      if (boothId) {
+        // 1) A checked-in day guest occupying that booth today (bill their card).
+        const resSnap = await db.collection(`tenants/${tenantId}/boothReservations`)
+          .where('boothId', '==', boothId).get();
+        const dayStay = resSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+          .find(r => r.status === 'checked_in' && r.startDate <= today && r.endDate >= today);
+        if (dayStay) {
+          return NextResponse.json({
+            ok: true, found: true, payerType: 'reservation',
+            reservationId: dayStay.id,
+            boothName: dayStay.boothName || 'your station',
+            cardOnFile: !!(dayStay.cardOnFile && dayStay.stripeCustomerId && dayStay.stripePaymentMethodId),
+            amenityPayer: 'renter', amenityCompAllowance: 0,
+          });
+        }
+        // 2) Otherwise the resident renter of that booth.
+        let boothName = 'your station';
+        try {
+          const bSnap = await db.doc(`tenants/${tenantId}/booths/${boothId}`).get();
+          if (bSnap.exists) boothName = (bSnap.data() as any)?.name || boothName;
+        } catch { /* cosmetic */ }
+        const leaseSnap = await db.collection(`tenants/${tenantId}/leases`)
+          .where('boothId', '==', boothId).get();
+        const lease = leaseSnap.docs.map(d => d.data() as any)
+          .find(l => ['active', 'on_leave'].includes(l.status));
+        if (lease?.renterId) {
+          const rSnap = await db.doc(`tenants/${tenantId}/renters/${lease.renterId}`).get();
+          const rt = rSnap.exists ? (rSnap.data() as any) : null;
+          if (rt && rt.amenitiesEnabled) {
+            return NextResponse.json({
+              ok: true, found: true, payerType: 'renter',
+              renterId: lease.renterId,
+              boothName,
+              renterName: `${rt.firstName || ''} ${rt.lastName || ''}`.trim() || 'Renter',
+              cardOnFile: !!(rt.cardOnFile && rt.stripeCustomerId && rt.stripePaymentMethodId),
+              amenityPayer: rt.amenityPayer === 'client' ? 'client' : 'renter',
+              amenityCompAllowance: Math.max(0, Math.round(Number(rt.amenityCompAllowance) || 0)),
+            });
+          }
+        }
+        // Booth exists, but no active stay/renter or amenities not enabled:
+        // the menu still works, just no station charging.
+        return NextResponse.json({ ok: true, found: false, boothName });
+      }
+
+      // ── Phone-scoped: the walk-in lounge kiosk (unchanged). ──
       const ph = digits(body.phone).slice(-10);
       if (ph.length !== 10) return NextResponse.json({ ok: true, found: false });
       const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
@@ -166,24 +219,87 @@ export async function POST(req: NextRequest) {
         .find(r => r.status === 'checked_in' && r.endDate >= today && digits(r.phone).slice(-10) === ph);
       if (!stay) return NextResponse.json({ ok: true, found: false });
       return NextResponse.json({
-        ok: true, found: true,
+        ok: true, found: true, payerType: 'reservation',
         reservationId: stay.id,
         boothName: stay.boothName || 'your station',
         cardOnFile: !!(stay.cardOnFile && stay.stripeCustomerId && stay.stripePaymentMethodId),
       });
     }
 
-    // 'charge': room-service model — charge a concierge order to the
-    // checked-in guest's card on file. Verifies phone + active stay
-    // server-side; price cap keeps a kiosk bug from becoming a disaster.
+    // 'charge': room-service model — charge a concierge order to a card on
+    // file. Two payers:
+    //   • reservationId (+ phone): a checked-in day guest's card (unchanged).
+    //   • renterId: a booth's resident renter's card, for a renter whose
+    //     clients are allowed to charge to their station (amenitiesEnabled).
+    // A price cap keeps a kiosk bug from becoming a disaster.
     if (action === 'charge') {
-      const { reservationId, amountCents, description } = body;
-      const ph = digits(body.phone).slice(-10);
-      if (!reservationId || !(amountCents > 0) || !description?.trim() || ph.length !== 10) {
+      const { reservationId, renterId, amountCents, description } = body;
+      if (!(amountCents > 0) || !description?.trim()) {
         return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
       }
       if (amountCents > 50000) {
         return NextResponse.json({ ok: false, error: 'Order too large for station charging — please pay at the desk.' }, { status: 400 });
+      }
+
+      // ── Renter-station charge: a renter's client billing the renter's card ──
+      if (renterId && !reservationId) {
+        const rSnap = await db.doc(`tenants/${tenantId}/renters/${renterId}`).get();
+        if (!rSnap.exists) return NextResponse.json({ ok: false, error: 'Station not found — please pay the host.' }, { status: 404 });
+        const rt = rSnap.data() as any;
+        if (!rt.amenitiesEnabled) {
+          return NextResponse.json({ ok: false, error: 'Station charging isn’t enabled here — please pay the host.' }, { status: 400 });
+        }
+        if (!rt.cardOnFile || !rt.stripeCustomerId || !rt.stripePaymentMethodId) {
+          return NextResponse.json({ ok: false, error: 'No card on file for this station — please pay the host.' }, { status: 400 });
+        }
+        const renterName = `${rt.firstName || ''} ${rt.lastName || ''}`.trim() || 'Renter';
+        const boothName = String(body.boothName || 'their station');
+        const Stripe = (await import('stripe')).default;
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+        let intent;
+        try {
+          intent = await stripe.paymentIntents.create({
+            amount: amountCents, currency: 'usd',
+            customer: rt.stripeCustomerId, payment_method: rt.stripePaymentMethodId,
+            off_session: true, confirm: true,
+            description: `${description.trim()} — ${boothName} (${renterName})`,
+            metadata: { tenantId, renterId, kind: 'concierge_renter_charge' },
+          });
+        } catch (err: any) {
+          const msg = err?.raw?.message || err?.message || 'Card charge failed.';
+          // Non-punitive: a decline just means collect another way.
+          return NextResponse.json({ ok: false, error: `Card declined: ${msg} — please pay the host.` }, { status: 402 });
+        }
+        const nowIso = new Date().toISOString();
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await txnRef.set({
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          amount: amountCents / 100, category: 'Hospitality Revenue',
+          description: `${description.trim()} — charged to ${boothName} (${renterName})`,
+          clientOrVendor: renterName, date: nowIso, paymentMethod: 'Card on file (Stripe)',
+          hasReceipt: false, stripePaymentIntentId: intent.id, sourceId: renterId, renterId, tenantId, createdAt: nowIso,
+        });
+        try {
+          const { feeCents: __fee, chargeId: __chg } = await stripeFeeFor(intent.id);
+          if (__fee > 0) {
+            const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+            await feeRef.set({
+              id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+              amount: __fee / 100, category: 'Processing Fees',
+              description: `Stripe fee — concierge charge — ${boothName} (${renterName})`,
+              clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+              hasReceipt: false, stripePaymentIntentId: intent.id, stripeChargeId: __chg,
+              sourceId: renterId, renterId, tenantId, createdAt: nowIso,
+            });
+          }
+        } catch { /* fee recording never blocks the charge */ }
+        return NextResponse.json({ ok: true, chargedCents: amountCents, boothName });
+      }
+
+      // ── Reservation charge: a checked-in day guest's card (unchanged) ──
+      const ph = digits(body.phone).slice(-10);
+      if (!reservationId || ph.length !== 10) {
+        return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
       }
       const ref = db.doc(`tenants/${tenantId}/boothReservations/${reservationId}`);
       const snap = await ref.get();
