@@ -2079,6 +2079,48 @@ export default function BoothsPage() {
     for (const c of contactDocs) if (c.key) m.set(c.key, c);
     return m;
   }, [contactDocs]);
+
+  // Concierge amenity requests (the lounge/kiosk/check-in menu writes these).
+  // The owner needs a live queue to actually deliver them — this is that feed.
+  const [conciergeRequests, setConciergeRequests] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'refreshmentRequests')), (snap) => {
+      setConciergeRequests(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const pendingConcierge = useMemo(() =>
+    conciergeRequests
+      .filter(r => (r.status || 'pending') === 'pending')
+      .sort((a, b) => String(a.requestedAt || '').localeCompare(String(b.requestedAt || ''))),
+    [conciergeRequests]);
+  const fulfillConciergeOrder = async (r: any) => {
+    if (!tenantId) return;
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'refreshmentRequests', r.id), { status: 'fulfilled', fulfilledAt: new Date().toISOString() });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'concierge.fulfilled', targetType: 'refreshmentRequest', targetId: r.id,
+        summary: `Delivered ${r.quantity || 1}× ${r.itemName || 'item'} to ${r.stationName || r.clientName || 'guest'}`,
+        actor: { type: 'user' },
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not update', description: 'Try again.' });
+    }
+  };
+  const cancelConciergeOrder = async (r: any) => {
+    if (!tenantId) return;
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'refreshmentRequests', r.id), { status: 'cancelled', cancelledAt: new Date().toISOString() });
+      writeBoothAudit(firestore, tenantId, {
+        action: 'concierge.cancelled', targetType: 'refreshmentRequest', targetId: r.id,
+        summary: `Cancelled ${r.itemName || 'item'} for ${r.stationName || r.clientName || 'guest'}`,
+        actor: { type: 'user' },
+      });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not update', description: 'Try again.' });
+    }
+  };
   const pendingApps = useMemo(() =>
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
@@ -4099,7 +4141,7 @@ export default function BoothsPage() {
   const selectedLeaseBooth = boothById.get(leaseForm.boothId);
 
 
-  const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length;
+  const opsBadge = pendingApps.length + upcomingReservations.filter(r => r.status === 'confirmed' || r.status === 'checked_in').length + pendingConcierge.length;
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50">
@@ -4399,6 +4441,38 @@ export default function BoothsPage() {
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
+          {/* ── Concierge orders — live amenity requests to deliver ── */}
+          {pendingConcierge.length > 0 && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50/50 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-70" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" /></span>
+                <h2 className="text-xs font-black uppercase tracking-widest text-amber-800">Concierge orders</h2>
+                <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{pendingConcierge.length}</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {pendingConcierge.map((r: any) => {
+                  const paid = Number(r.priceAtRequest) > 0 && !r.chargedToStation;
+                  const when = (() => { try { return new Date(r.requestedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } })();
+                  return (
+                    <div key={r.id} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-black truncate">{r.quantity > 1 ? `${r.quantity}× ` : ''}{r.itemName || 'Item'}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground truncate">
+                          {r.stationName || 'Lounge'}{r.clientName ? ` · ${r.clientName}` : ''} · {when}
+                        </p>
+                        <span className={`inline-block mt-0.5 text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${r.chargedToStation ? 'bg-slate-900 text-white' : paid ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700'}`}>
+                          {r.chargedToStation ? 'Charged to station' : paid ? `Paid $${(Number(r.priceAtRequest)).toFixed(2)}` : 'Complimentary'}
+                        </span>
+                      </div>
+                      <button onClick={() => fulfillConciergeOrder(r)} className="h-8 px-3 rounded-lg bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Delivered</button>
+                      <OverflowMenu align="right" items={[{ label: 'Cancel order', danger: true, onClick: () => cancelConciergeOrder(r) }]} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Tour scorecard */}
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
