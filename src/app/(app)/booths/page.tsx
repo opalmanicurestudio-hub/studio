@@ -1606,13 +1606,14 @@ function complianceOf(r: any): { items: { label: string; number: string; expiry:
 // activity. Self-contained: fetches this renter's ledger entries on open.
 
 function RenterProfileDrawer({
-  renter, lease, booth, reservations, w9, tenantId, firestore,
+  renter, lease, booth, reservations, amenityRequests, w9, tenantId, firestore,
   onClose, onEdit, onLease, onEndLease, contactNote, onSaveNote,
 }: {
   renter: Renter;
   lease?: Lease;
   booth?: Booth;
   reservations: any[];
+  amenityRequests?: any[];
   w9: any;
   tenantId: string;
   firestore: any;
@@ -1676,6 +1677,14 @@ function RenterProfileDrawer({
       (renter.email && r.email === renter.email)
     ).sort((a, b) => (b.startDate || '').localeCompare(a.startDate || '')),
     [reservations, renter.phone, renter.email]);
+
+  // This renter's concierge amenity orders (their clients order to their booth,
+  // stamped with renterId). Newest first.
+  const myAmenity = useMemo(() =>
+    (amenityRequests || [])
+      .filter(a => a.renterId && a.renterId === renter.id)
+      .sort((a, b) => String(b.requestedAt || '').localeCompare(String(a.requestedAt || ''))),
+    [amenityRequests, renter.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1920,6 +1929,28 @@ function RenterProfileDrawer({
                   ))}
                 </>
               )}
+
+              {myAmenity.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground px-1 flex items-center gap-1.5">Amenity orders · {myAmenity.length}</p>
+                  {myAmenity.slice(0, 20).map((a: any) => {
+                    const when = (() => { try { return new Date(a.requestedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } })();
+                    const tag = a.compedByRenter ? { t: 'Comped', c: 'bg-green-100 text-green-700' }
+                      : a.chargedToStation ? { t: 'Charged to card', c: 'bg-slate-900 text-white' }
+                      : (Number(a.priceAtRequest) > 0 ? { t: 'Client paid', c: 'bg-emerald-100 text-emerald-700' } : { t: 'Complimentary', c: 'bg-sky-100 text-sky-700' });
+                    const statusTag = a.status === 'delivered' ? 'Delivered' : a.status === 'cancelled' ? 'Cancelled' : 'Pending';
+                    return (
+                      <div key={a.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-black truncate">{a.quantity > 1 ? `${a.quantity}× ` : ''}{a.itemName || 'Amenity'}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground truncate">{when}{a.clientName ? ` · ${a.clientName}` : ''} · {statusTag}</p>
+                        </div>
+                        <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${tag.c}`}>{tag.t}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
 
@@ -2133,6 +2164,18 @@ export default function BoothsPage() {
     for (const c of contactDocs) if (c.key) m.set(c.key, c);
     return m;
   }, [contactDocs]);
+
+  // Concierge amenity requests — read-only, used to surface each renter's
+  // amenity history in their profile (orders now carry renterId). Fulfillment
+  // itself lives in the Command Hub, untouched.
+  const [amenityRequests, setAmenityRequests] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(query(collection(firestore, 'tenants', tenantId, 'refreshmentRequests')), (snap) => {
+      setAmenityRequests(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
+    }, () => {});
+    return () => unsub();
+  }, [firestore, tenantId]);
 
   const pendingApps = useMemo(() =>
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
@@ -4264,9 +4307,21 @@ export default function BoothsPage() {
             </div>
             <div className="flex gap-2 items-center">
               {spaceView === 'floor' && !isMobile && (
-                <Button size="sm" variant={locked ? 'outline' : 'default'} onClick={() => setLocked(l => !l)}>
-                  {locked ? <><Unlock className="h-3.5 w-3.5 mr-1" />Edit layout</> : <><Lock className="h-3.5 w-3.5 mr-1" />Done</>}
-                </Button>
+                <div className="flex gap-1 p-1 bg-white rounded-xl border" title="Live = watch the floor · Design = arrange it">
+                  <button
+                    onClick={() => setLocked(true)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${locked ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}
+                  >
+                    <span className={`relative flex h-1.5 w-1.5 ${locked ? '' : 'opacity-40'}`}><span className={`${locked ? 'animate-ping' : ''} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70`} /><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" /></span>
+                    Live
+                  </button>
+                  <button
+                    onClick={() => setLocked(false)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-1.5 ${!locked ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}
+                  >
+                    <Pencil className="h-3 w-3" /> Design
+                  </button>
+                </div>
               )}
               <OverflowMenu
                 align="right"
@@ -6047,6 +6102,7 @@ export default function BoothsPage() {
           lease={occupyingLeaseByRenter.get(profileRenter.id)}
           booth={(() => { const l = occupyingLeaseByRenter.get(profileRenter.id); return l ? boothById.get(l.boothId) : undefined; })()}
           reservations={reservations}
+          amenityRequests={amenityRequests}
           w9={w9Map[profileRenter.id]}
           tenantId={tenantId}
           firestore={firestore}
