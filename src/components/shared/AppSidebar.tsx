@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import {
   Sidebar, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
@@ -124,12 +124,11 @@ const PUBLIC_PORTALS = [
 
 // ─── NAV ITEM ──────────────────────────────────────────────────────────────────
 function NavItem({
-  href, icon: Icon, label, isPortal = false, tenantId, badge,
+  href, icon: Icon, label, isPortal = false, tenantId, badge, currentTab,
 }: {
-  href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string; badge?: number;
+  href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string; badge?: number; currentTab?: string | null;
 }) {
   const pathname     = usePathname();
-  const searchParams = useSearchParams();
   const { state }    = useSidebar();
   const isCollapsed  = state === 'collapsed';
 
@@ -139,11 +138,14 @@ function NavItem({
   // only when we're on that path AND that tab is showing. Bare /booths defaults
   // to the 'ops' tab (matches BoothsPage's initial tab), so the Booth Hub link
   // still highlights on a plain visit. Everything else uses path matching.
+  // (currentTab is read once, higher up, inside a Suspense boundary — never via
+  // useSearchParams() here, which would break static prerender of every page
+  // that renders this global sidebar.)
   const [hrefPath, hrefQuery] = href.split('?');
   const wantTab = hrefQuery ? new URLSearchParams(hrefQuery).get('tab') : null;
   const isActive = !isPortal && (
     wantTab !== null
-      ? (pathname === hrefPath && (searchParams.get('tab') || 'ops') === wantTab)
+      ? (pathname === hrefPath && ((currentTab ?? null) || 'ops') === wantTab)
       : (pathname === href || pathname.startsWith(`${href}/`))
   );
 
@@ -198,13 +200,14 @@ function NavItem({
 }
 
 function NavSection({
-  label, items, isPortal, tenantId, badges,
+  label, items, isPortal, tenantId, badges, currentTab,
 }: {
   label:    string;
   items:    { href: string; icon: any; label: string }[];
   isPortal?: boolean;
   tenantId?: string;
   badges?:  Record<string, number>;
+  currentTab?: string | null;
 }) {
   const { state }   = useSidebar();
   const isCollapsed = state === 'collapsed';
@@ -224,11 +227,23 @@ function NavSection({
             isPortal={isPortal}
             tenantId={tenantId}
             badge={badges?.[item.href]}
+            currentTab={currentTab}
           />
         ))}
       </SidebarMenu>
     </SidebarGroup>
   );
+}
+
+// Reads the active ?tab= once, in isolation. Rendered inside a <Suspense>
+// boundary so useSearchParams() can't force the whole (global) sidebar — and
+// therefore every page that renders it — into a client-only bailout during
+// static prerendering.
+function TabParamReader({ onChange }: { onChange: (tab: string | null) => void }) {
+  const searchParams = useSearchParams();
+  const tab = searchParams.get('tab');
+  useEffect(() => { onChange(tab); }, [tab, onChange]);
+  return null;
 }
 
 function CollapseToggle() {
@@ -258,6 +273,11 @@ export function AppSidebar() {
   const isOwner = role === 'owner';
   const isAdmin = role === 'admin';
   const isOwnerOrAdmin = isOwner || isAdmin;
+
+  // Active hub tab (from ?tab=), read via a Suspense-wrapped reader below so it
+  // never breaks static prerendering. Powers per-tab highlight on the Booth Hub
+  // deep-links.
+  const [activeTab, setActiveTab] = useState<string | null>(null);
 
   // v27 — FIX: /messages was completely absent from the sidebar — every
   // client conversation, staff DM, and team broadcast built this
@@ -311,6 +331,9 @@ export function AppSidebar() {
 
   return (
     <TooltipProvider delayDuration={0}>
+      <Suspense fallback={null}>
+        <TabParamReader onChange={setActiveTab} />
+      </Suspense>
       <Sidebar
         collapsible="icon"
         className="border-r-2 border-border/40 bg-white"
@@ -388,7 +411,7 @@ export function AppSidebar() {
           {isOwner && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
-              <NavSection label="Booth Rental" items={BOOTH_RENTAL} />
+              <NavSection label="Booth Rental" items={BOOTH_RENTAL} currentTab={activeTab} />
             </>
           )}
 
