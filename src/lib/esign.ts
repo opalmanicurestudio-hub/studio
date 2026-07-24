@@ -21,6 +21,7 @@ export type SignedDocumentKind =
   | 'contractor_agreement'
   | 'consent_form'
   | 'lease'
+  | 'day_use'
   | 'house_rules'
   | 'policy';
 
@@ -169,6 +170,45 @@ Acknowledged and agreed on {{date}}.`,
 
 By signing below, the Renter confirms they have read, understood, and agree to the terms of this Agreement.`,
   },
+  day_use: {
+    title: 'Short-Term Rental Agreement',
+    body:
+`This Short-Term Rental Agreement is made on {{date}} between {{studioName}} ("the Studio") and {{signerName}} ("the Renter") for use of {{boothName}} during {{bookingWindow}}.
+
+1. USE OF SPACE. The Renter rents the space for their own licensed professional services only, for the booked time window above. The space may not be shared, sublet, or used for any other purpose. Access ends at the end of the booked window unless the Studio agrees in writing to extend it.
+
+2. INDEPENDENT PROFESSIONAL. The Renter is an independent professional, not an employee or agent of the Studio. The Renter is solely responsible for their own clients, services, tools, products, taxes, and business decisions.
+
+3. LICENSING & INSURANCE. The Renter affirms they hold, and will keep in force, every license, certification, and insurance required by law to perform their services, and will provide proof on request.
+
+4. LIABILITY. The Renter performs all services at their own risk and is responsible for their own work and clients. To the fullest extent allowed by law, the Renter releases the Studio from, and will not hold the Studio liable for, any claim, injury, loss, or damage arising from the Renter's services, conduct, tools, products, or clients during the rental.
+
+5. SANITATION & CONDUCT. The Renter will keep the station clean and sanitized, follow all health, safety, and sanitation rules, respect other renters and Studio staff, and leave the space in the condition they found it.
+
+6. PAYMENT. The booking fee of {{amount}} is due as booked. A card is kept on file to secure the reservation and to cover any authorized incidental charges below.
+
+7. INCIDENTAL CHARGES. The Renter authorizes the Studio to charge the card on file for the following, each only up to the stated cap:
+{{incidentalsSchedule}}
+
+8. CANCELLATION. Cancellations and refunds follow the Studio's posted cancellation policy. No-shows and late cancellations may forfeit the fee.
+
+By typing their name below, the Renter confirms they have read, understood, and agree to this Agreement, and that their typed name is their legal electronic signature.`,
+  },
   consent_form: { title: 'Consent Form', body: `{{body}}` },
   policy: { title: 'Policy Acknowledgement', body: `{{body}}` },
 };
+
+// Resolve the exact day-use agreement to show a short-term guest. If the
+// owner has written their own booking-terms text, that is used verbatim
+// (their words, their lawyer's review); otherwise the built-in default
+// above is used so a guest ALWAYS signs real, protective terms — even
+// before the owner customizes anything. Pure (no I/O) so both the public
+// booking route and the check-in kiosk can call it and get identical text.
+export function resolveDayUseAgreement(
+  customBody: string | null | undefined,
+  vars: Record<string, string | number | null | undefined>,
+): { title: string; text: string } {
+  const tpl = AGREEMENT_TEMPLATES.day_use;
+  const body = (typeof customBody === 'string' && customBody.trim()) ? customBody : tpl.body;
+  return { title: tpl.title, text: fillTemplate(body, vars) };
+}
