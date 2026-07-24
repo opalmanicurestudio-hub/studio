@@ -2523,6 +2523,56 @@ export default function BoothsPage() {
       toast({ variant: 'destructive', title: 'Network error', description: 'The refund may not have completed — check Stripe before retrying.' });
     } finally { setRefundingId(null); }
   };
+  // Open a clean, printable copy of a guest's signed day-use agreement — the
+  // exact terms they saw, their typed signature, and when. No dependency:
+  // opens a print-ready window the owner can save as PDF or print for their
+  // records / a dispute. Pulls from the snapshot stored on the reservation.
+  const openSignedAgreement = (r: any) => {
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as any)[c]);
+    const title = r.agreementTitle || 'Short-Term Rental Agreement';
+    const signedAt = r.agreementSignedAt ? new Date(r.agreementSignedAt).toLocaleString() : '';
+    const window_ = r.bookingType === 'hourly'
+      ? `${r.startDate || ''} · ${r.startTime || ''}–${r.endTime || ''}`
+      : (r.startDate === r.endDate ? (r.startDate || '') : `${r.startDate || ''} → ${r.endDate || ''}`);
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} — ${esc(r.name || 'Guest')}</title>
+<style>
+  @media print { .noprint { display:none } }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color:#0f172a; max-width:720px; margin:40px auto; padding:0 24px; line-height:1.6; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .muted { color:#64748b; font-size:12px; text-transform:uppercase; letter-spacing:.08em; font-weight:800; }
+  .meta { margin:16px 0 24px; padding:14px 16px; border:2px solid #e2e8f0; border-radius:14px; font-size:13px; }
+  .meta div { margin:2px 0; }
+  .terms { white-space:pre-wrap; font-size:13px; border-top:2px solid #e2e8f0; padding-top:18px; }
+  .sig { margin-top:28px; padding-top:18px; border-top:2px solid #e2e8f0; }
+  .sig .name { font-family:'Dancing Script', cursive; font-size:30px; }
+  .btn { display:inline-block; margin:0 0 20px; padding:10px 16px; background:#4f46e5; color:#fff; border:0; border-radius:10px; font-weight:800; text-transform:uppercase; letter-spacing:.08em; font-size:11px; cursor:pointer; }
+</style></head><body>
+  <button class="btn noprint" onclick="window.print()">Print / Save as PDF</button>
+  <h1>${esc(title)}</h1>
+  <div class="muted">Signed electronically</div>
+  <div class="meta">
+    <div><b>Guest:</b> ${esc(r.name || 'Guest')}</div>
+    <div><b>Space:</b> ${esc(r.boothName || 'Space')}</div>
+    <div><b>When:</b> ${esc(window_)}</div>
+    ${r.amountCents ? `<div><b>Amount:</b> $${((r.amountCents || 0) / 100).toFixed(2)}</div>` : ''}
+  </div>
+  <div class="terms">${esc(r.agreementText || 'No agreement text was captured for this booking.')}</div>
+  <div class="sig">
+    <div class="muted">Signature</div>
+    <div class="name">${esc(r.agreementSignedName || '—')}</div>
+    <div class="muted" style="margin-top:6px">Signed ${esc(signedAt)}${r.agreementSignedName ? ' · typed name = legal electronic signature' : ''}</div>
+  </div>
+</body></html>`;
+    try {
+      const w = window.open('', '_blank');
+      if (!w) { toast({ variant: 'destructive', title: 'Popup blocked', description: 'Allow popups to open the signed agreement.' }); return; }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    } catch {
+      toast({ variant: 'destructive', title: "Couldn't open", description: 'Try again.' });
+    }
+  };
   const [chargingId, setChargingId] = useState<string | null>(null);
   const chargeOverageToCard = async (r: any) => {
     if (chargingId) return;
@@ -4064,7 +4114,7 @@ export default function BoothsPage() {
     setLeaseForm((prev) => ({
       ...prev,
       perks: [...prev.perks, { id: crypto.randomUUID(), type: 'free_week', label: 'Free week',
-        trigger: 'on_signup', valueCents: undefined, valuePercent: undefined }],
+        trigger: 'on_signup' }],
     }));
   };
   const updatePerk = (id: string, updated: Omit<LeasePerk, 'appliedAt' | 'ledgerEntryId'>) =>
@@ -4783,6 +4833,14 @@ export default function BoothsPage() {
                         {r.idDocUrl ? <a href={r.idDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">· 📄 ID</a> : r.idAcknowledged && <span>· ✓ ID</span>}
                       </div>
                     )}
+                    {r.agreementSignedAt ? (
+                      <div className="text-[10px] font-black uppercase text-emerald-700 flex flex-wrap items-center gap-x-1.5">
+                        <span>✍ Signed agreement · {r.agreementSignedName || 'guest'} · {new Date(r.agreementSignedAt).toLocaleDateString()}</span>
+                        <button onClick={() => openSignedAgreement(r)} className="text-indigo-600 underline">View / print</button>
+                      </div>
+                    ) : (r.status === 'confirmed' || r.status === 'checked_in') && (
+                      <p className="text-[10px] font-black uppercase text-amber-600">⚠ No signed agreement on file — capture one at check-in</p>
+                    )}
                     {r.balanceDueCents > 0 && !r.balancePaid && (
                       <p className="text-[10px] font-black uppercase text-amber-600">
                         💰 Deposit ${((r.depositCents || 0) / 100).toFixed(0)} paid · balance ${((r.balanceDueCents || 0) / 100).toFixed(2)} {r.balanceMode === 'at_checkin' ? 'at check-in' : 'due in person'}
@@ -4842,6 +4900,7 @@ export default function BoothsPage() {
                           ...(r.cardOnFile && !['cancel_requested', 'cancelled_refund_pending', 'payment_received_conflict'].includes(r.status) ? [{ label: incidentalForId === r.id ? 'Close incidental' : 'Add incidental charge', onClick: () => { setIncidentalForId(incidentalForId === r.id ? null : r.id); setIncidentalAmt(''); setIncidentalDesc(''); setIncidentalCat(''); } }] : []),
                           ...(['confirmed', 'checked_in', 'cancel_requested', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status) || r.overageStatus === 'due'
                             ? [{ label: 'Open receipt', onClick: () => window.open(`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`, '_blank') }] : []),
+                          ...(r.agreementSignedAt ? [{ label: 'Open signed agreement', onClick: () => openSignedAgreement(r) }] : []),
                         ]}
                       />
                     </div>
