@@ -31,6 +31,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getFirestore, collection, query, where, getDocs, doc, setDoc, type Firestore } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { AGREEMENT_TEMPLATES } from '@/lib/esign';
 
 const FREQ_LABEL: Record<string, string> = { monthly: '/mo', weekly: '/wk', daily: '/day', hourly: '/hr' };
 const DEFAULT_NICHES = ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'];
@@ -199,6 +200,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   }, [config.tourSchedule, config.tourSlots]);
   const tourSlots: string[] = useMemo(() => tourSlotObjs.map(o => o.label), [tourSlotObjs]);
   const agreementText: string = typeof config.applicationAgreement === 'string' ? config.applicationAgreement.trim() : '';
+  // A paid day/hourly guest ALWAYS signs real terms: the owner's custom
+  // booking terms if written, else the built-in protective default. (The
+  // authoritative, filled-in copy is snapshotted server-side on booking —
+  // this is what the guest reads and signs here.)
+  const dayUseTermsPreview: string = agreementText || AGREEMENT_TEMPLATES.day_use.body;
   const [tourSlot, setTourSlot] = useState('');
   const [tourStartIso, setTourStartIso] = useState('');
   const [tourEndIso, setTourEndIso] = useState('');
@@ -208,6 +214,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   };
   const [agreed, setAgreed] = useState(false);
   const [agreementOpen, setAgreementOpen] = useState(false);
+  // Typed legal-name e-signature for paid day/hourly bookings.
+  const [signName, setSignName] = useState('');
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
   // Owner toggle: when true, license/insurance/ID/documents are collected
   // AFTER approval instead of gating the first application.
@@ -321,14 +329,14 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       if (d.ok && Array.isArray(d.bookedDates)) setBookedDates(new Set(d.bookedDates));
     }).catch(() => {});
     setGranularity(slotsOf(b).length > 0 ? 'hourly' : dailyRateOf(b) ? 'daily' : hourlyRateOf(b) ? 'hourly' : 'daily');
-    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
+    setInquiryKind('application'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setSignName(''); setShowVideo(false); setReserveStep('type'); setHourlyMode('slots'); setPickedStart(''); setPickedHours(0); setComp({ doingServices: false, licenseNumber: '', insuranceCarrier: '', insuranceConfirmed: false, idAck: false }); setCompDocs({});
   };
   const openInquiry = (b: any | null, kind: 'tour' | 'question' | 'waitlist') => {
     setApplyFor(b || { id: null, name: null, pricingOptions: [], photoUrls: [] });
     // Tour/question/waitlist aren't day reservations — force a non-'day' mode so
     // the contact fields (gated on applyMode !== 'day') always show, even for a
     // space that only offers day rentals.
-    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setShowVideo(false);
+    setInquiryKind(kind); setApplyMode('lease'); setPhotoIdx(0); setSubmitted(false); setDocs({}); setTourSlot(''); setTourStartIso(''); setTourEndIso(''); setAgreed(false); setSignName(''); setShowVideo(false);
   };
   // Open a space into the guided chooser (capability-aware: only shows the
   // actions this space actually offers).
@@ -350,7 +358,15 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
   const allDocsAttached = deferPaperwork || inquiryKind !== 'application' || requiredDocs.every(rd => docs[rd] && docs[rd] !== 'uploading');
   const nicheValue = form.niche === 'Other' ? (form.nicheOther || 'Other') : form.niche;
-  const agreementSatisfied = inquiryKind !== 'application' || !agreementText || agreed;
+  // A paid day/hourly reservation requires a typed e-signature; every other
+  // inquiry (lease, waitlist, tour) keeps the lighter agree-checkbox behavior.
+  // Matches the reserve/checkout trigger exactly (application + day mode) so
+  // the signed agreement is captured for precisely the bookings that pay.
+  const isPaidDayBooking = inquiryKind === 'application' && applyMode === 'day';
+  const signOk = signName.trim().length >= 2;
+  const agreementSatisfied = isPaidDayBooking
+    ? signOk
+    : (inquiryKind !== 'application' || !agreementText || agreed);
   // v66 — AVAILABILITY: mirror the server's schedule check so visitors
   // learn a date is closed before paying, not after. The route enforces
   // the same rules authoritatively.
@@ -469,7 +485,8 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             slotLabel: granularity === 'hourly' && pickedSlot ? pickedSlot.label : undefined,
             name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
             returnUrl: window.location.href,
-            consentAccepted: !!agreementText && agreed,
+            agreementSignedName: signName.trim(),
+            consentAccepted: isPaidDayBooking ? signOk : (!!agreementText && agreed),
             doingServices: comp.doingServices,
             licenseNumber: comp.licenseNumber.trim() || null,
             insuranceCarrier: comp.insuranceCarrier.trim() || null,
@@ -1361,7 +1378,28 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
                   <textarea value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="Anything else we should know?" rows={2} className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
 
-                  {inquiryKind === 'application' && agreementText && (
+                  {isPaidDayBooking ? (
+                    <div className="rounded-xl border-2 p-3 space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Rental agreement</span>
+                        <button type="button" onClick={(e) => { e.preventDefault(); setAgreementOpen(o => !o); }} className="ml-auto text-indigo-600 underline underline-offset-2 font-black text-[10px] uppercase">{agreementOpen ? 'Hide terms' : 'Read terms'}</button>
+                      </div>
+                      {agreementOpen && (
+                        <p className="text-[11px] leading-relaxed text-slate-600 whitespace-pre-wrap max-h-48 overflow-y-auto border-2 rounded-lg p-2.5 bg-slate-50">{dayUseTermsPreview}</p>
+                      )}
+                      <div className="space-y-1">
+                        <label className="block text-[10px] font-black uppercase tracking-widest text-slate-500">Type your full legal name to sign</label>
+                        <input
+                          value={signName}
+                          onChange={e => setSignName(e.target.value)}
+                          placeholder="e.g., Alexander Smith"
+                          className="w-full rounded-xl border-2 px-4 py-3 font-semibold"
+                          style={{ fontFamily: "'Dancing Script', cursive", fontSize: '20px' }}
+                        />
+                        <p className="text-[10px] font-medium text-slate-400">By typing your name you agree to the rental agreement above. This is your legal electronic signature.</p>
+                      </div>
+                    </div>
+                  ) : inquiryKind === 'application' && agreementText ? (
                     <div className="rounded-xl border-2 p-3 space-y-2">
                       <label className="flex items-start gap-2.5 cursor-pointer">
                         <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} className="mt-0.5 h-4 w-4" />
@@ -1374,12 +1412,12 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                         <p className="text-[11px] leading-relaxed text-slate-600 whitespace-pre-wrap max-h-40 overflow-y-auto border-t pt-2">{agreementText}</p>
                       )}
                     </div>
-                  )}
+                  ) : null}
                   {/* Sticky action bar — the primary action is always reachable,
                       pinned to the bottom of the modal regardless of scroll. */}
                   <div className="sticky bottom-0 -mx-6 mt-1 px-6 pt-3 bg-white border-t" style={{ paddingBottom: 'max(16px, env(safe-area-inset-bottom))' }}>
                     <button onClick={submitApplication} disabled={!canSubmit} className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40 active:scale-[0.99] transition-transform">
-                      {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? 'Agree to the terms to continue' : (applyMode === 'day' ? (isLease(applyFor) ? 'Submit' : 'Pay & Reserve') : 'Submit')}
+                      {submitting ? 'Sending...' : !allDocsAttached ? 'Attach required documents' : scheduleIssue ? 'Pick available dates' : !agreementSatisfied ? (isPaidDayBooking ? 'Sign the agreement to continue' : 'Agree to the terms to continue') : (applyMode === 'day' ? (isLease(applyFor) ? 'Submit' : 'Pay & Reserve') : 'Submit')}
                     </button>
                   </div>
                   </div>
