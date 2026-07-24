@@ -52,8 +52,20 @@
  */
 export const dynamic = 'force-dynamic';
 
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+
+// Reads the ?tab= query in isolation and lifts it to the page. Rendered inside a
+// <Suspense> boundary so useSearchParams() doesn't force /booths into a
+// client-only bailout during static prerender.
+function TabQuerySync({ onTab }: { onTab: (t: 'spaces' | 'ops' | 'money') => void }) {
+  const searchParams = useSearchParams();
+  const tab = searchParams.get('tab');
+  useEffect(() => {
+    if (tab === 'spaces' || tab === 'ops' || tab === 'money') onTab(tab);
+  }, [tab, onTab]);
+  return null;
+}
 import {
   doc,
   updateDoc,
@@ -2135,19 +2147,17 @@ export default function BoothsPage() {
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
   // Tab is URL-addressable (?tab=spaces|ops|money) so the sidebar can deep-link
   // straight into the hub's sections, and each tab is bookmarkable / shareable
-  // with a working back button. Read from the URL on load & on nav…
-  const searchParams = useSearchParams();
+  // with a working back button. The URL is READ via <TabQuerySync/> below, which
+  // is wrapped in a <Suspense> boundary — calling useSearchParams() directly in
+  // this page component would break its static prerender. router/usePathname are
+  // safe to use here (only useSearchParams triggers the prerender bailout).
   const router = useRouter();
   const pathname = usePathname();
-  useEffect(() => {
-    const t = searchParams.get('tab');
-    if (t === 'spaces' || t === 'ops' || t === 'money') setTab(t);
-  }, [searchParams]);
-  // …and write it back when the user switches tabs in-page.
+  // Write the tab back to the URL when the user switches tabs in-page.
   const selectTab = (id: 'spaces' | 'ops' | 'money') => {
     setTab(id);
     try {
-      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
       params.set('tab', id);
       router.replace(`${pathname}?${params.toString()}`, { scroll: false });
     } catch { /* navigation sync is best-effort */ }
@@ -4385,6 +4395,11 @@ export default function BoothsPage() {
             </div>
           ))}
         </div>
+
+        {/* Sync the active tab from the URL (?tab=), isolated in Suspense. */}
+        <Suspense fallback={null}>
+          <TabQuerySync onTab={setTab} />
+        </Suspense>
 
         {/* Tab strip */}
         <div className="flex gap-0 border-b -mb-4">
