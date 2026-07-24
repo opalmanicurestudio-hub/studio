@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import {
@@ -90,12 +90,19 @@ const FINANCIAL_SUITE = [
   { href: '/reports',    icon: BarChart,      label: 'Analytics'         },
 ];
 
+// v49 — CONSOLIDATION: /booths is now THE booth-rental hub. The standalone
+// Renters, Rent, and Receipts pages are decommissioned — their work lives in
+// the hub's tabs. These entries deep-link straight into those tabs
+// (?tab=ops|spaces|money) so the sidebar mirrors the hub's own sections:
+//   • Booth Hub      → Operations tab (day guests, check-ins, reservations)
+//   • Floor & Spaces → Spaces tab (the live floor + booth layout)
+//   • Renters & Rent → Money tab (leases, renters, rent collection, receipts)
+// Expenses stays a distinct bookkeeping view.
 const BOOTH_RENTAL = [
-  { href: '/booths',   icon: Armchair,  label: 'Booths'   },
-  { href: '/renters',  icon: KeyRound,  label: 'Renters'  },
-  { href: '/rent',     icon: HandCoins, label: 'Rent'     },
-  { href: '/receipts', icon: Receipt,   label: 'Receipts' },
-  { href: '/expenses', icon: Wallet,    label: 'Expenses' },
+  { href: '/booths?tab=ops',    icon: Armchair,  label: 'Booth Hub'      },
+  { href: '/booths?tab=spaces', icon: Layers,    label: 'Floor & Spaces' },
+  { href: '/booths?tab=money',  icon: KeyRound,  label: 'Renters & Rent' },
+  { href: '/expenses',          icon: Wallet,    label: 'Expenses'       },
 ];
 
 const EVENTS = [
@@ -121,13 +128,23 @@ function NavItem({
 }: {
   href: string; icon: any; label: string; isPortal?: boolean; tenantId?: string; badge?: number;
 }) {
-  const pathname    = usePathname();
-  const { state }   = useSidebar();
-  const isCollapsed = state === 'collapsed';
+  const pathname     = usePathname();
+  const searchParams = useSearchParams();
+  const { state }    = useSidebar();
+  const isCollapsed  = state === 'collapsed';
 
   const finalHref = isPortal && tenantId ? `${href}/${tenantId}` : href;
-  const isActive  = !isPortal && (
-    pathname === href || pathname.startsWith(`${href}/`)
+
+  // Hub tab links carry a ?tab= query (e.g. /booths?tab=money). They're active
+  // only when we're on that path AND that tab is showing. Bare /booths defaults
+  // to the 'ops' tab (matches BoothsPage's initial tab), so the Booth Hub link
+  // still highlights on a plain visit. Everything else uses path matching.
+  const [hrefPath, hrefQuery] = href.split('?');
+  const wantTab = hrefQuery ? new URLSearchParams(hrefQuery).get('tab') : null;
+  const isActive = !isPortal && (
+    wantTab !== null
+      ? (pathname === hrefPath && (searchParams.get('tab') || 'ops') === wantTab)
+      : (pathname === href || pathname.startsWith(`${href}/`))
   );
 
   const btn = (
