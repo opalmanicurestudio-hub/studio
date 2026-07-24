@@ -17,8 +17,67 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
+import { resolveIncidentalPolicy } from '@/lib/incidentals';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
+
+// Build the exact day-use agreement text for a reservation, using the owner's
+// custom booking terms if set (else the built-in protective default) and the
+// studio's incidentals caps. Same resolver the online booking route uses, so
+// the guest sees identical terms whether they booked online or walked in.
+async function buildDayUseAgreement(db: FirebaseFirestore.Firestore, tenantId: string, r: any): Promise<{ title: string; text: string }> {
+  let tenantData: any = {};
+  try { tenantData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}; } catch { /* defaults below */ }
+  const custom = await findAgreement(db, tenantId);
+  const isHourly = r.bookingType === 'hourly';
+  const bookingWindow = isHourly
+    ? `${r.startDate} · ${r.startTime}–${r.endTime}`
+    : (r.startDate === r.endDate ? r.startDate : `${r.startDate} → ${r.endDate}`);
+  const cats = resolveIncidentalPolicy(tenantData);
+  const incidentalsSchedule = (Array.isArray(cats) && cats.length)
+    ? cats.map((c: any) => c.capCents > 0 ? `• ${c.label} — up to $${(c.capCents / 100).toFixed(0)}` : `• ${c.label}`).join('\n')
+    : '(No incidental charges configured.)';
+  return resolveDayUseAgreement(custom, {
+    date: new Date().toISOString().slice(0, 10),
+    studioName: tenantData?.name || tenantData?.businessName || 'The Studio',
+    signerName: r.name || 'Guest',
+    boothName: r.boothName || 'the space',
+    bookingWindow,
+    amount: `$${((r.amountCents || 0) / 100).toFixed(2)}`,
+    incidentalsSchedule,
+  });
+}
+
+// Persist a check-in signature to the append-only, write-once legal store —
+// the same collection leases and online bookings use. Idempotent per booking.
+async function persistKioskSignature(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any, agreement: { title: string; text: string }, signedName: string): Promise<void> {
+  try {
+    const col = db.collection(`tenants/${tenantId}/signedDocuments`);
+    const existing = await col.where('meta.reservationId', '==', reservationId).limit(1).get();
+    if (!existing.empty) return;
+    const ref = col.doc();
+    const record = buildSignedRecord(ref.id, {
+      subjectType: 'client',
+      subjectId: reservationId,
+      subjectName: r.name || 'Guest',
+      kind: 'day_use',
+      title: agreement.title,
+      agreementText: agreement.text,
+      meta: {
+        reservationId, source: 'kiosk_checkin',
+        boothId: r.boothId || null, boothName: r.boothName || null,
+        startDate: r.startDate || null, endDate: r.endDate || null,
+        bookingType: r.bookingType || null,
+      },
+    }, signedName);
+    await ref.set(record);
+  } catch (err) {
+    // Never let the legal-record write block check-in; the snapshot also
+    // lands on the reservation as a backstop.
+    console.error('[booth-kiosk] persistKioskSignature failed', err);
+  }
+}
 
 
 // Exact Stripe fee via the charge's balance transaction. Fail-open.
@@ -377,10 +436,15 @@ export async function POST(req: NextRequest) {
         const t = await db.doc(`tenants/${tenantId}`).get();
         studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
       } catch { /* cosmetic */ }
+      // The full day-use agreement to type-sign at check-in (owner's custom
+      // terms or the built-in protective default), plus whether it's already
+      // signed so the stay page can show a receipt instead of re-prompting.
+      const dayUseAgreement = await buildDayUseAgreement(db, tenantId, r);
       return NextResponse.json({
         ok: true,
         studioName,
         agreement,
+        dayUseAgreement,
         booking: {
           id: snap.id,
           firstName: (r.name || 'Guest').split(' ')[0],
@@ -392,14 +456,19 @@ export async function POST(req: NextRequest) {
           amountCents: r.amountCents || 0,
           status: r.status,
           rulesAcknowledgedAt: r.rulesAcknowledgedAt || null,
+          agreementSignedName: r.agreementSignedName || null,
+          agreementSignedAt: r.agreementSignedAt || null,
           emergencyContact: r.emergencyContact || null,
           rating: r.rating || null,
         },
       });
     }
 
-    // 'stay-onboard': acknowledge house rules + save emergency contact.
-    // Timestamped — this is the day-guest equivalent of the signed lease.
+    // 'stay-onboard': type-sign the day-use agreement + save emergency
+    // contact. This is the day-guest equivalent of the signed lease — a
+    // walk-in signs here for the first time; an online guest re-confirms.
+    // When a typed name is provided, the exact terms are snapshotted to the
+    // write-once legal store, just like the online booking path.
     if (action === 'stay-onboard') {
       const { reservationId, emergencyName, emergencyPhone } = body;
       const last4 = digits(body.phoneLast4).slice(-4);
@@ -415,6 +484,17 @@ export async function POST(req: NextRequest) {
       }
       const nowIso = new Date().toISOString();
       const updates: any = { rulesAcknowledgedAt: nowIso };
+      const signedName = String(body.signedName || '').trim().slice(0, 120);
+      // Capture the signature only if this booking hasn't already got one on
+      // file (an online guest already signed; don't overwrite that record).
+      if (signedName.length >= 2 && !r.agreementSignedAt) {
+        const agreement = await buildDayUseAgreement(db, tenantId, r);
+        updates.agreementTitle = agreement.title;
+        updates.agreementText = agreement.text;
+        updates.agreementSignedName = signedName;
+        updates.agreementSignedAt = nowIso;
+        await persistKioskSignature(db, tenantId, reservationId, r, agreement, signedName);
+      }
       if (emergencyName?.trim() || emergencyPhone?.trim()) {
         updates.emergencyContact = {
           name: String(emergencyName || '').slice(0, 100),
@@ -423,7 +503,7 @@ export async function POST(req: NextRequest) {
         };
       }
       await ref.set(updates, { merge: true });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, signed: !!updates.agreementSignedAt });
     }
 
     // ── v82 AVAILABILITY: dates only, zero PII — powers the public
