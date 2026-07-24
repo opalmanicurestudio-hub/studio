@@ -27,6 +27,66 @@ import Stripe from 'stripe';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
+import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
+
+// The owner's custom booking terms, if they wrote any, from the booking-page
+// config. A miss is fine — resolveDayUseAgreement falls back to the built-in
+// protective default, so a guest always signs real terms.
+function findBookingTerms(tenantData: any): string {
+  try {
+    const roots = [tenantData?.cfPageConfig, tenantData?.bookingPageSettings, tenantData];
+    for (const cfg of roots) {
+      if (!cfg) continue;
+      if (typeof cfg.applicationAgreement === 'string' && cfg.applicationAgreement.trim()) return cfg.applicationAgreement.trim();
+      const sections: any[] = Array.isArray(cfg.sections) ? cfg.sections : [];
+      for (const s of sections) {
+        const txt = s?.config?.applicationAgreement;
+        if (typeof txt === 'string' && txt.trim()) return txt.trim();
+      }
+    }
+  } catch { /* fall back to default template */ }
+  return '';
+}
+
+// The incidentals caps the guest is authorizing, rendered for the agreement.
+function incidentalScheduleText(cats: { label: string; capCents: number }[]): string {
+  if (!Array.isArray(cats) || cats.length === 0) return '(No incidental charges configured.)';
+  return cats.map((c) => c.capCents > 0 ? `• ${c.label} — up to $${(c.capCents / 100).toFixed(0)}` : `• ${c.label}`).join('\n');
+}
+
+// Persist the signed day-use agreement to the append-only, write-once legal
+// store — the SAME collection leases and staff agreements use. Idempotent:
+// one signed record per reservation, keyed by meta.reservationId.
+async function persistDayUseSignature(db: FirebaseFirestore.Firestore, tenantId: string, reservationId: string, r: any): Promise<void> {
+  try {
+    if (!r?.agreementSignedName || !r?.agreementText) return;
+    const col = db.collection(`tenants/${tenantId}/signedDocuments`);
+    const existing = await col.where('meta.reservationId', '==', reservationId).limit(1).get();
+    if (!existing.empty) return;
+    const ref = col.doc();
+    const record = buildSignedRecord(ref.id, {
+      subjectType: 'client',
+      subjectId: reservationId,
+      subjectName: r.name || 'Guest',
+      kind: 'day_use',
+      title: r.agreementTitle || 'Short-Term Rental Agreement',
+      agreementText: r.agreementText,
+      meta: {
+        reservationId, source: 'online_booking',
+        boothId: r.boothId || null, boothName: r.boothName || null,
+        startDate: r.startDate || null, endDate: r.endDate || null,
+        bookingType: r.bookingType || null,
+      },
+    }, r.agreementSignedName);
+    // The guest actually signed at booking time — keep that timestamp on the
+    // legal record rather than the (later) confirmation time.
+    await ref.set({ ...record, signedAt: r.agreementSignedAt || record.signedAt });
+  } catch (err) {
+    // A signed-doc write must never break payment confirmation; the snapshot
+    // also lives on the reservation itself as a backstop.
+    console.error('[booth-reserve] persistDayUseSignature failed', err);
+  }
+}
 
 const LEASE_FREQS = ['monthly', 'weekly', 'biweekly'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -100,7 +160,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime, slotLabel,
       doingServices, licenseNumber, insuranceCarrier, insuranceConfirmed, idAcknowledged,
-      licenseDocUrl, insuranceDocUrl, idDocUrl } = body || {};
+      licenseDocUrl, insuranceDocUrl, idDocUrl, agreementSignedName } = body || {};
     if (!tenantId || !boothId || !startDate || !endDate || !name || (!phone && !email) || !returnUrl) {
       return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
     }
@@ -293,6 +353,30 @@ export async function POST(req: NextRequest) {
       depositCents = 0;   // full payment (deposit ≥ total or zero)
     }
 
+    // ── DAY-USE AGREEMENT (protect the business) ─────────────────────────
+    // Every short-term guest type-signs real, protective terms before their
+    // card is charged. The owner can disable the hard requirement, but it is
+    // ON by default so no one uses the space without an agreement on file.
+    // The text is resolved and SNAPSHOTTED server-side (never trusting the
+    // client), then persisted to the write-once legal store on confirm.
+    const requireSignature = tenantData?.bookingPageSettings?.requireBookingSignature !== false;
+    const signedName = String(agreementSignedName || '').trim().slice(0, 120);
+    if (requireSignature && signedName.length < 2) {
+      return NextResponse.json({ ok: false, error: 'Please type your name to sign the rental agreement before booking.' }, { status: 400 });
+    }
+    const bookingWindow = isHourly
+      ? `${startDate} · ${startTime}–${endTime}`
+      : (startDate === endDate ? startDate : `${startDate} → ${endDate}`);
+    const agreement = resolveDayUseAgreement(findBookingTerms(tenantData), {
+      date: new Date().toISOString().slice(0, 10),
+      studioName: tenantData?.name || tenantData?.businessName || 'The Studio',
+      signerName: String(name),
+      boothName: booth.name || 'the space',
+      bookingWindow,
+      amount: `$${(amountCents / 100).toFixed(2)}`,
+      incidentalsSchedule: incidentalScheduleText(resolveIncidentalPolicy(tenantData)),
+    });
+
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
     const nowIso = new Date().toISOString();
     await resRef.set({
@@ -316,6 +400,12 @@ export async function POST(req: NextRequest) {
       endTime: isHourly ? endTime : null,
       status: 'pending_payment', createdAt: nowIso,
       consentAccepted: !!consentAccepted, consentAcceptedAt: consentAccepted ? nowIso : null,
+      // Signed day-use agreement — snapshot of the EXACT terms shown, plus the
+      // typed signature. Persisted to the write-once legal store on confirm.
+      agreementTitle: agreement.title,
+      agreementText: agreement.text,
+      agreementSignedName: signedName || null,
+      agreementSignedAt: signedName ? nowIso : null,
       // Tranche 1 — compliance captured at booking
       doingServices: !!doingServices,
       licenseNumber: licenseNumber || null,
@@ -500,6 +590,7 @@ export async function GET(req: NextRequest) {
       // confirmation call instead of never.
       const existing = await db.collection(`tenants/${tenantId}/transactions`).where('sourceId', '==', reservationId).limit(1).get();
       if (existing.empty) await writeLedgerTxn(db, tenantId, reservationId, r, r.stripePaymentIntentId || null);
+      await persistDayUseSignature(db, tenantId, reservationId, r);
       return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
     }
     if (r.stripeSessionId !== sessionId) {
@@ -542,6 +633,7 @@ export async function GET(req: NextRequest) {
     // buildLedgerEntry (tenants/{tid}/transactions), so day-rental income
     // sits beside booth rent in every financial view.
     await writeLedgerTxn(db, tenantId, reservationId, r, (typeof session.payment_intent === 'string' ? session.payment_intent : pi?.id) || null);
+    await persistDayUseSignature(db, tenantId, reservationId, r);
     const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
     await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
       message: `💰 Day rental booked & paid: ${r.name} — ${r.boothName}, ${r.startDate} → ${r.endDate} ($${(r.amountCents / 100).toFixed(2)})` });
