@@ -1,271 +1,265 @@
 'use client';
 
-/**
- * Booking confirmation & onboarding — /stay/[tenantId]/[reservationId]
- * (src/app/(booking)/stay/[tenantId]/[reservationId]/page.tsx)
- *
- * The appointments-style confirmation link, for renters. Sent in the
- * booking-confirmation SMS. The guest verifies with their phone's last
- * 4 digits (same gate as the kiosk), then gets:
- *   · full booking details + payment summary
- *   · house rules → "I acknowledge" (timestamped on the reservation —
- *     the day-guest equivalent of a signed lease)
- *   · emergency contact capture (owner protection requirement)
- *   · add-to-calendar (.ics) + arrival/check-in instructions
- *
- * Zero client Firebase — everything via /api/booths/kiosk. All info
- * lands on the reservation doc: retained forever, visible to the owner.
- */
+// src/app/stay/[tenantId]/[reservationId]/page.tsx  (or wrap <StayPage/> there)
+//
+// Public "your stay" page for a day/hourly booth guest. Phone-gated (last 4
+// digits of the number on the booking), then:
+//   1) shows the booking details,
+//   2) has the guest TYPE-SIGN the Short-Term Rental Agreement (the same
+//      terms + incidentals caps the online booking flow uses), and
+//   3) optionally captures an emergency contact.
+//
+// The signature is snapshotted server-side to the write-once signedDocuments
+// legal store (see /api/booths/kiosk → stay-onboard). A guest who already
+// signed online just sees a receipt instead of re-signing.
+//
+// No app chrome / auth — anonymous guests reach this from their confirmation
+// link. All reads/writes go through the Admin-SDK kiosk route, which never
+// leaks another guest's data.
 
-import React, { useState } from 'react';
-import { useParams } from 'next/navigation';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ESignAgreement } from '@/components/shared/ESignAgreement';
 
-const t12 = (t?: string | null): string => {
-  if (!t || !/^\d{2}:\d{2}$/.test(t)) return t || '';
-  const [h, m] = t.split(':').map(Number);
-  const ap = h >= 12 ? 'PM' : 'AM';
-  const hr = h % 12 === 0 ? 12 : h % 12;
-  return m === 0 ? `${hr} ${ap}` : `${hr}:${String(m).padStart(2, '0')} ${ap}`;
-};
+interface Booking {
+  id: string;
+  firstName: string;
+  name: string;
+  boothName: string;
+  startDate: string;
+  endDate: string;
+  bookingType: string;
+  startTime: string | null;
+  endTime: string | null;
+  slotLabel: string | null;
+  amountCents: number;
+  status: string;
+  rulesAcknowledgedAt: string | null;
+  agreementSignedName: string | null;
+  agreementSignedAt: string | null;
+  emergencyContact: { name?: string; phone?: string } | null;
+  rating: number | null;
+}
 
-export default function StayPage() {
-  const params = useParams<{ tenantId: string; reservationId: string }>();
-  const tenantId = params?.tenantId ?? '';
-  const reservationId = params?.reservationId ?? '';
+interface StayPageProps {
+  tenantId?: string;
+  reservationId?: string;
+}
 
+// Resolve ids from props first, else the URL. Supports either a path
+// (/stay/{tenantId}/{reservationId}) or query (?tenantId=&reservationId=).
+function useStayIds(props: StayPageProps): { tenantId: string; reservationId: string } {
+  return useMemo(() => {
+    let tenantId = props.tenantId || '';
+    let reservationId = props.reservationId || '';
+    if ((!tenantId || !reservationId) && typeof window !== 'undefined') {
+      try {
+        const q = new URLSearchParams(window.location.search);
+        tenantId = tenantId || q.get('tenantId') || '';
+        reservationId = reservationId || q.get('reservationId') || q.get('r') || '';
+        if (!tenantId || !reservationId) {
+          const parts = window.location.pathname.split('/').filter(Boolean);
+          const i = parts.indexOf('stay');
+          if (i >= 0) {
+            tenantId = tenantId || parts[i + 1] || '';
+            reservationId = reservationId || parts[i + 2] || '';
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    return { tenantId, reservationId };
+  }, [props.tenantId, props.reservationId]);
+}
+
+function fmtWindow(b: Booking): string {
+  if (b.bookingType === 'hourly') {
+    return `${b.startDate} · ${b.startTime || ''}–${b.endTime || ''}`;
+  }
+  return b.startDate === b.endDate ? b.startDate : `${b.startDate} → ${b.endDate}`;
+}
+
+export function StayPage(props: StayPageProps = {}) {
+  const { tenantId, reservationId } = useStayIds(props);
+
+  const [phase, setPhase] = useState<'gate' | 'view'>('gate');
   const [last4, setLast4] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [data, setData] = useState<any>(null);
-  const [ack, setAck] = useState(false);
+
+  const [studioName, setStudioName] = useState('The studio');
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [agreement, setAgreement] = useState<{ title: string; text: string } | null>(null);
+
   const [emName, setEmName] = useState('');
   const [emPhone, setEmPhone] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [stars, setStars] = useState(0);
-  const [reviewText, setReviewText] = useState('');
-  const [reviewed, setReviewed] = useState(false);
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-  const [cancelled, setCancelled] = useState(false);
+  const [signing, setSigning] = useState(false);
+  const [done, setDone] = useState(false);
 
-  const load = async () => {
-    if (busy || last4.length !== 4) return;
-    setBusy(true); setError('');
+  const digitsOnly = (s: string) => s.replace(/\D/g, '');
+
+  const lookUp = async () => {
+    const l4 = digitsOnly(last4).slice(-4);
+    if (l4.length !== 4) { setError('Enter the last 4 digits of the phone number on your booking.'); return; }
+    if (!tenantId || !reservationId) { setError('This link is missing its booking reference.'); return; }
+    setLoading(true); setError('');
     try {
       const res = await fetch('/api/booths/kiosk', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'stay-view', tenantId, reservationId, phoneLast4: last4 }),
+        body: JSON.stringify({ action: 'stay-view', tenantId, reservationId, phoneLast4: l4 }),
       });
       const d = await res.json();
-      if (!d.ok) { setError(d.error || 'Booking not found.'); return; }
-      setData(d);
-      if (d.booking.rulesAcknowledgedAt) setSaved(true);
-      if (d.booking.emergencyContact) { setEmName(d.booking.emergencyContact.name || ''); setEmPhone(d.booking.emergencyContact.phone || ''); }
-      if (d.booking.rating) { setReviewed(true); setStars(d.booking.rating); }
-      if (d.booking.status === 'cancel_requested' || d.booking.cancelRequestedAt) setCancelled(true);
-    } catch { setError('Connection problem — try again.'); }
-    finally { setBusy(false); }
+      if (!d.ok) { setError(d.error || 'We couldn\'t find that booking.'); setLoading(false); return; }
+      setStudioName(d.studioName || 'The studio');
+      setBooking(d.booking);
+      setAgreement(d.dayUseAgreement || null);
+      if (d.booking?.emergencyContact) {
+        setEmName(d.booking.emergencyContact.name || '');
+        setEmPhone(d.booking.emergencyContact.phone || '');
+      }
+      setPhase('view');
+    } catch {
+      setError('Network error — please try again.');
+    } finally { setLoading(false); }
   };
 
-  const submit = async () => {
-    if (busy || !ack) return;
-    setBusy(true); setError('');
+  const submitSignature = async (signedName: string) => {
+    if (!booking) return;
+    setSigning(true); setError('');
     try {
       const res = await fetch('/api/booths/kiosk', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'stay-onboard', tenantId, reservationId, phoneLast4: last4, emergencyName: emName, emergencyPhone: emPhone }),
+        body: JSON.stringify({
+          action: 'stay-onboard',
+          tenantId, reservationId,
+          phoneLast4: digitsOnly(last4).slice(-4),
+          signedName,
+          emergencyName: emName.trim() || undefined,
+          emergencyPhone: emPhone.trim() || undefined,
+        }),
       });
       const d = await res.json();
-      if (!d.ok) { setError(d.error || 'Could not save.'); return; }
-      setSaved(true);
-    } catch { setError('Connection problem — try again.'); }
-    finally { setBusy(false); }
+      if (!d.ok) { setError(d.error || 'We couldn\'t save your signature — please try again.'); setSigning(false); return; }
+      setBooking(b => b ? { ...b, agreementSignedName: signedName, agreementSignedAt: new Date().toISOString(), rulesAcknowledgedAt: new Date().toISOString() } : b);
+      setDone(true);
+    } catch {
+      setError('Network error — please try again.');
+    } finally { setSigning(false); }
   };
 
-  const submitReview = async () => {
-    if (busy || stars < 1) return;
-    setBusy(true); setError('');
-    try {
-      const res = await fetch('/api/booths/kiosk', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'stay-review', tenantId, reservationId, phoneLast4: last4, rating: stars, reviewText }),
-      });
-      const d = await res.json();
-      if (!d.ok) { setError(d.error || 'Could not save review.'); return; }
-      setReviewed(true);
-    } catch { setError('Connection problem — try again.'); }
-    finally { setBusy(false); }
-  };
+  // ── Gate: phone last-4 ──────────────────────────────────────────────
+  if (phase === 'gate') {
+    return (
+      <Shell studioName={studioName}>
+        <div className="space-y-4">
+          <div>
+            <h1 className="text-xl font-black uppercase tracking-tight text-slate-900">Your booking</h1>
+            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground mt-1">Confirm it's you to continue</p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-black uppercase tracking-widest text-muted-foreground">Last 4 digits of your phone</label>
+            <input
+              value={last4}
+              onChange={e => setLast4(digitsOnly(e.target.value).slice(0, 4))}
+              inputMode="numeric"
+              placeholder="1234"
+              className="w-full h-14 rounded-2xl border-2 px-4 text-2xl font-black tracking-[0.4em] text-center"
+              onKeyDown={e => { if (e.key === 'Enter') lookUp(); }}
+            />
+          </div>
+          {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
+          <button
+            onClick={lookUp}
+            disabled={loading || digitsOnly(last4).length !== 4}
+            className="w-full h-14 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[11px] disabled:opacity-40"
+          >
+            {loading ? 'Checking…' : 'Continue'}
+          </button>
+        </div>
+      </Shell>
+    );
+  }
 
-  const requestCancel = async () => {
-    if (busy) return;
-    setBusy(true); setError('');
-    try {
-      const res = await fetch('/api/booths/kiosk', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'stay-cancel', tenantId, reservationId, phoneLast4: last4, reason: cancelReason }),
-      });
-      const d = await res.json();
-      if (!d.ok) { setError(d.error || 'Could not send request.'); return; }
-      setCancelled(true); setCancelOpen(false);
-    } catch { setError('Connection problem — try again.'); }
-    finally { setBusy(false); }
-  };
-
-  const b = data?.booking;
-  const whenLine = b
-    ? (b.bookingType === 'hourly' && b.startTime
-        ? `${b.startDate} · ${t12(b.startTime)} – ${t12(b.endTime)}${b.slotLabel ? ` (${b.slotLabel})` : ''}`
-        : b.startDate === b.endDate ? b.startDate : `${b.startDate} → ${b.endDate}`)
-    : '';
-
-  const icsHref = b ? (() => {
-    const dt = (dateStr: string, timeStr: string | null, fallbackHour: string) =>
-      `${dateStr.replace(/-/g, '')}T${(timeStr || fallbackHour).replace(':', '')}00`;
-    const ics = [
-      'BEGIN:VCALENDAR', 'VERSION:2.0', 'BEGIN:VEVENT',
-      `SUMMARY:${b.boothName} — ${data.studioName}`,
-      `DTSTART:${dt(b.startDate, b.startTime, '09:00')}`,
-      `DTEND:${dt(b.endDate, b.endTime, '18:00')}`,
-      `DESCRIPTION:Your rental at ${data.studioName}. Check in at the front tablet with the last 4 of your phone number.`,
-      'END:VEVENT', 'END:VCALENDAR',
-    ].join('\\r\\n');
-    return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(ics);
-  })() : '';
+  // ── View: details + sign ────────────────────────────────────────────
+  const b = booking!;
+  const alreadySigned = !!b.agreementSignedAt || done;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center p-5">
-      <div className="w-full max-w-md space-y-4 py-6">
+    <Shell studioName={studioName}>
+      <div className="space-y-5">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Hi {b.firstName} 👋</p>
+          <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 mt-0.5">You're booked</h1>
+        </div>
 
-        {!data ? (
-          <div className="rounded-3xl border-2 bg-white p-6 space-y-4">
-            <div>
-              <p className="text-xl font-black tracking-tight">Your booking ✨</p>
-              <p className="text-xs font-bold text-slate-500 mt-0.5">Verify it's you to view details and complete check-in prep.</p>
+        {/* Booking summary */}
+        <div className="rounded-2xl border-2 bg-muted/20 p-4 space-y-1.5 text-sm">
+          <Row label="Space" value={b.boothName} />
+          <Row label="When" value={fmtWindow(b)} />
+          {b.amountCents ? <Row label="Paid" value={`$${(b.amountCents / 100).toFixed(2)}`} /> : null}
+        </div>
+
+        {alreadySigned ? (
+          <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-2">
+            <div className="flex items-center gap-2 text-emerald-700">
+              <span className="text-lg">✓</span>
+              <p className="text-sm font-black uppercase tracking-tight">You're all set</p>
             </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Last 4 digits of your phone number</p>
-              <input
-                inputMode="numeric" maxLength={4} value={last4}
-                onChange={e => { setError(''); setLast4(e.target.value.replace(/\D/g, '').slice(0, 4)); }}
-                className="w-full h-14 rounded-2xl border-2 px-5 text-2xl font-black tracking-[0.5em] text-center"
-                placeholder="••••"
-              />
-            </div>
-            {error && <p className="text-xs font-bold text-amber-600">{error}</p>}
-            <button onClick={load} disabled={last4.length !== 4 || busy}
-              className="w-full h-13 py-3.5 rounded-2xl bg-slate-900 text-white font-black uppercase text-[11px] tracking-widest disabled:opacity-30">
-              {busy ? 'Loading…' : 'View my booking'}
-            </button>
+            <p className="text-[12px] font-semibold text-emerald-800 leading-snug">
+              Your rental agreement is signed{b.agreementSignedName ? ` as ${b.agreementSignedName}` : ''}. Please arrive a few minutes early — see you soon!
+            </p>
           </div>
         ) : (
           <>
-            {/* ── Booking card ── */}
-            <div className="rounded-3xl border-2 bg-white overflow-hidden">
-              <div className="bg-slate-900 text-white px-5 py-4">
-                <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{data.studioName}</p>
-                <p className="text-xl font-black tracking-tight">You're booked, {b.firstName}! 🎉</p>
-              </div>
-              <div className="px-5 py-4 space-y-2">
-                <p className="text-sm font-black">{b.boothName}</p>
-                <p className="text-xs font-bold text-slate-600">{whenLine}</p>
-                <p className="text-xs font-bold text-emerald-700">${(b.amountCents / 100).toFixed(2)} paid ✓</p>
-                <div className="flex gap-2 pt-2">
-                  <a href={icsHref} download={`booking-${b.startDate}.ics`}
-                    className="flex-1 h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center">
-                    📅 Add to calendar
-                  </a>
-                </div>
-                {cancelled ? (
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-600 pt-1">Cancellation requested — the studio will follow up about any refund.</p>
-                ) : ['confirmed'].includes(b.status) ? (
-                  cancelOpen ? (
-                    <div className="pt-2 space-y-2">
-                      <textarea rows={2} placeholder="Reason (optional) — helps the studio decide on a refund" value={cancelReason}
-                        onChange={e => setCancelReason(e.target.value)} className="w-full rounded-xl border-2 px-3 py-2 text-xs font-medium" />
-                      <p className="text-[10px] font-bold text-slate-500">Refunds follow the studio's cancellation policy — requesting here notifies them; it doesn't auto-refund.</p>
-                      <div className="flex gap-2">
-                        <button onClick={() => setCancelOpen(false)} className="h-9 px-4 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Keep booking</button>
-                        <button onClick={requestCancel} disabled={busy} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
-                          {busy ? 'Sending…' : 'Request cancellation'}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={() => setCancelOpen(true)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2 pt-1">
-                      Need to cancel?
-                    </button>
-                  )
-                ) : null}
-              </div>
+            {/* Emergency contact (optional) */}
+            <div className="rounded-2xl border-2 p-4 space-y-2.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Emergency contact <span className="text-slate-400">(optional)</span></p>
+              <input value={emName} onChange={e => setEmName(e.target.value)} placeholder="Name" className="w-full h-11 rounded-xl border-2 px-3.5 text-sm font-semibold" />
+              <input value={emPhone} onChange={e => setEmPhone(e.target.value)} inputMode="tel" placeholder="Phone" className="w-full h-11 rounded-xl border-2 px-3.5 text-sm font-semibold" />
             </div>
 
-            {/* ── Arrival instructions ── */}
-            <div className="rounded-2xl border-2 bg-white px-5 py-4 space-y-1">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">When you arrive</p>
-              <p className="text-xs font-bold text-slate-600 leading-relaxed">
-                Check in at the front tablet — just tap in the last 4 digits of your phone number. Your space will be ready.
-              </p>
-            </div>
-
-            {/* ── House rules + emergency contact ── */}
-            <div className={`rounded-2xl border-2 bg-white px-5 py-4 space-y-3 ${saved ? 'border-emerald-200' : ''}`}>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Before your visit</p>
-              <div className="rounded-xl border bg-slate-50 p-3.5 max-h-48 overflow-y-auto">
-                <p className="text-xs leading-relaxed text-slate-700 whitespace-pre-wrap">
-                  {data.agreement || `House rules: treat the space and equipment with care, keep your station clean, respect other professionals and their clients, and report any issues to the front desk. Time runs per your booking — overages may be charged per studio policy.`}
-                </p>
+            {/* Type-to-sign */}
+            {agreement ? (
+              <div className="rounded-2xl border-2 p-4">
+                <ESignAgreement
+                  title={agreement.title}
+                  agreementText={agreement.text}
+                  signerName={b.name || ''}
+                  busy={signing}
+                  submitLabel="Sign & Confirm"
+                  onSign={submitSignature}
+                />
               </div>
-              {saved ? (
-                <p className="text-[11px] font-black uppercase tracking-widest text-emerald-600">✓ Rules acknowledged — you're all set</p>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 gap-2">
-                    <input placeholder="Emergency contact name (optional)" value={emName} onChange={e => setEmName(e.target.value)}
-                      className="h-11 rounded-xl border-2 px-4 text-sm font-medium" />
-                    <input placeholder="Emergency contact phone (optional)" inputMode="tel" value={emPhone} onChange={e => setEmPhone(e.target.value)}
-                      className="h-11 rounded-xl border-2 px-4 text-sm font-medium" />
-                  </div>
-                  <button onClick={() => setAck(a => !a)}
-                    className={`w-full rounded-xl border-2 p-3 flex items-center gap-3 text-left transition-colors ${ack ? 'border-emerald-400 bg-emerald-50' : 'border-slate-200'}`}>
-                    <span className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 ${ack ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300'}`}>{ack ? '✓' : ''}</span>
-                    <span className="text-xs font-bold">I've read and agree to the studio's rules</span>
-                  </button>
-                  {error && <p className="text-xs font-bold text-amber-600">{error}</p>}
-                  <button onClick={submit} disabled={!ack || busy}
-                    className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-30">
-                    {busy ? 'Saving…' : 'Confirm & complete'}
-                  </button>
-                </>
-              )}
-            </div>
-            {/* ── How was your stay? (after completion) ── */}
-            {b.status === 'completed' && (
-              <div className="rounded-2xl border-2 bg-white px-5 py-4 space-y-3">
-                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">How was your stay?</p>
-                {reviewed ? (
-                  <p className="text-sm font-black text-emerald-700">{'⭐'.repeat(stars)} Thanks for the feedback — it means a lot! 💚</p>
-                ) : (
-                  <>
-                    <div className="flex gap-2 justify-center py-1">
-                      {[1, 2, 3, 4, 5].map(n => (
-                        <button key={n} onClick={() => setStars(n)} className={`text-3xl transition-transform active:scale-90 ${n <= stars ? '' : 'grayscale opacity-30'}`}>⭐</button>
-                      ))}
-                    </div>
-                    <textarea rows={2} placeholder="Anything you'd tell us? (optional)" value={reviewText}
-                      onChange={e => setReviewText(e.target.value)}
-                      className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
-                    <button onClick={submitReview} disabled={stars < 1 || busy}
-                      className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-30">
-                      {busy ? 'Sending…' : 'Send feedback'}
-                    </button>
-                  </>
-                )}
-              </div>
+            ) : (
+              <p className="text-[12px] font-semibold text-muted-foreground">No agreement is required for this booking.</p>
             )}
+            {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
           </>
         )}
+      </div>
+    </Shell>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0">{label}</span>
+      <span className="text-sm font-bold text-slate-900 text-right">{value}</span>
+    </div>
+  );
+}
+
+function Shell({ studioName, children }: { studioName: string; children: React.ReactNode }) {
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center px-4 py-8" style={{ paddingBottom: 'max(32px, env(safe-area-inset-bottom))' }}>
+      <div className="w-full max-w-md">
+        <p className="text-center text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground mb-4">{studioName}</p>
+        <div className="rounded-3xl bg-white border-2 shadow-sm p-5 sm:p-6">
+          {children}
+        </div>
+        <p className="text-center text-[10px] font-medium text-slate-400 mt-4">Secured booking · your details are only used for this reservation.</p>
       </div>
     </div>
   );
 }
+
+export default StayPage;
