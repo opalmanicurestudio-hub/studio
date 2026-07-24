@@ -53,6 +53,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import {
   doc,
   updateDoc,
@@ -2132,6 +2133,25 @@ export default function BoothsPage() {
   // v61 — three-tab command center (declared here, with the other hooks,
   // never after an early return)
   const [tab, setTab] = useState<'spaces' | 'ops' | 'money'>('ops');
+  // Tab is URL-addressable (?tab=spaces|ops|money) so the sidebar can deep-link
+  // straight into the hub's sections, and each tab is bookmarkable / shareable
+  // with a working back button. Read from the URL on load & on nav…
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t === 'spaces' || t === 'ops' || t === 'money') setTab(t);
+  }, [searchParams]);
+  // …and write it back when the user switches tabs in-page.
+  const selectTab = (id: 'spaces' | 'ops' | 'money') => {
+    setTab(id);
+    try {
+      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      params.set('tab', id);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    } catch { /* navigation sync is best-effort */ }
+  };
   const [profileRenter, setProfileRenter] = useState<Renter | null>(null);
   const [kioskOpen, setKioskOpen] = useState(false);
   const [viewingApp, setViewingApp] = useState<any | null>(null);
@@ -4375,7 +4395,7 @@ export default function BoothsPage() {
           ] as const).map(t => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => selectTab(t.id)}
               className={`relative px-4 py-2 text-xs font-black uppercase tracking-widest transition-colors flex items-center gap-1.5
                 ${tab === t.id ? 'text-slate-900 border-b-2 border-slate-900 -mb-px' : 'text-muted-foreground hover:text-slate-700'}`}
             >
@@ -4901,6 +4921,7 @@ export default function BoothsPage() {
                           ...(['confirmed', 'checked_in', 'cancel_requested', 'payment_received_conflict', 'cancelled_refund_pending'].includes(r.status) || r.overageStatus === 'due'
                             ? [{ label: 'Open receipt', onClick: () => window.open(`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`, '_blank') }] : []),
                           ...(r.agreementSignedAt ? [{ label: 'Open signed agreement', onClick: () => openSignedAgreement(r) }] : []),
+                          ...(['confirmed', 'checked_in'].includes(r.status) ? [{ label: 'Open guest check-in link', onClick: () => window.open(`/stay/${encodeURIComponent(tenantId)}/${encodeURIComponent(r.id)}`, '_blank') }] : []),
                         ]}
                       />
                     </div>
