@@ -3792,7 +3792,9 @@ export default function BoothsPage() {
     try {
       const res = await fetch('/api/booths/setup-card', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, renterId: rt.id, returnUrl: window.location.href }),
+        // Return to the PUBLIC confirmation page — the renter completes this
+        // on their own phone and must never land on the admin dashboard.
+        body: JSON.stringify({ tenantId, renterId: rt.id, returnUrl: `${window.location.origin}/card-setup/${tenantId}` }),
       });
       const d = await res.json();
       if (d.ok && d.url) setCardLink({ url: d.url, renter: rt });
