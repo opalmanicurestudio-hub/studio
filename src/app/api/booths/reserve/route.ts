@@ -402,6 +402,89 @@ export async function POST(req: NextRequest) {
       incidentalsSchedule: incidentalScheduleText(resolveIncidentalPolicy(tenantData)),
     });
 
+    // ── DAY-PASS REDEMPTION ──────────────────────────────────────────
+    // A guest with an active prepaid pack books WITHOUT paying again: the
+    // reservation confirms immediately and pass days are consumed inside a
+    // transaction (no double-spend). Revenue was recognized at pack sale, so
+    // no new ledger income here. The signed agreement above is still
+    // enforced. Any hiccup falls through to normal paid checkout.
+    const passKeyPhone = String(phone || '').replace(/\D/g, '');
+    const passKeyMail = String(email || '').trim().toLowerCase();
+    const passDaysNeeded = isHourly ? 1 : numDays;
+    try {
+      const passSnap = await db.collection(`tenants/${tenantId}/boothPasses`).where('status', '==', 'active').get();
+      const passDoc = passSnap.docs.find((d) => {
+        const p = d.data() as any;
+        const match = (passKeyPhone && p.contactKey === passKeyPhone) || (passKeyMail && p.contactKey === passKeyMail);
+        return match && ((Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0)) >= passDaysNeeded;
+      });
+      if (passDoc) {
+        const passRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
+        const nowPass = new Date().toISOString();
+        const resData: any = {
+          id: passRef.id, tenantId, boothId,
+          boothName: booth.name || 'Space',
+          locationId: booth.locationId || null,
+          name: String(name).slice(0, 120), phone: String(phone || '').slice(0, 40), email: String(email || '').slice(0, 160),
+          startDate, endDate, numDays,
+          amountCents: 0, originalAmountCents: amountCents, netDueCents: 0,
+          depositCents: 0, balanceDueCents: 0, balanceMode: null, balancePaid: true,
+          creditAppliedCents: 0, appliedCreditIds: [],
+          stripeCustomerId: null, cardOnFile: false,
+          bookingType: isHourly ? 'hourly' : 'daily',
+          slotLabel: slotLabel || null,
+          startTime: isHourly ? startTime : null,
+          endTime: isHourly ? endTime : null,
+          status: 'confirmed', createdAt: nowPass, confirmedAt: nowPass,
+          paidWithPassId: passDoc.id, passDaysUsed: passDaysNeeded,
+          consentAccepted: !!consentAccepted, consentAcceptedAt: consentAccepted ? nowPass : null,
+          doingServices: !!doingServices,
+          licenseNumber: licenseNumber || null,
+          insuranceCarrier: insuranceCarrier || null,
+          insuranceConfirmed: !!insuranceConfirmed,
+          idAcknowledged: !!idAcknowledged,
+          licenseDocUrl: licenseDocUrl || null,
+          insuranceDocUrl: insuranceDocUrl || null,
+          idDocUrl: idDocUrl || null,
+          agreementTitle: agreement.title,
+          agreementText: agreement.text,
+          agreementSignedName: signedName || null,
+          agreementSignedAt: signedName ? nowPass : null,
+          agreementWaived: signatureWaived,
+          renterId: recognition?.renterId || null,
+          guestTier: recognition?.tier || 'new',
+          renterDiscountCents: 0,
+        };
+        await db.runTransaction(async (tx: any) => {
+          const fresh = await tx.get(passDoc.ref);
+          const p = (fresh.data() as any) || {};
+          const left = (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0);
+          if (p.status !== 'active' || left < passDaysNeeded) throw new Error('pass-consumed');
+          const newUsed = (Number(p.daysUsed) || 0) + passDaysNeeded;
+          tx.update(passDoc.ref, {
+            daysUsed: newUsed,
+            status: newUsed >= (Number(p.daysTotal) || 0) ? 'used_up' : 'active',
+            lastUsedAt: nowPass,
+          });
+          tx.set(passRef, resData);
+        });
+        await persistDayUseSignature(db, tenantId, passRef.id, resData);
+        const pd = passDoc.data() as any;
+        const daysLeft = Math.max(0, (Number(pd.daysTotal) || 0) - (Number(pd.daysUsed) || 0) - passDaysNeeded);
+        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowPass, link: '/booths',
+          message: `🎟 Pass booking: ${resData.name} — ${resData.boothName}, ${startDate}${endDate !== startDate ? ` → ${endDate}` : ''} (${passDaysNeeded} pass day${passDaysNeeded === 1 ? '' : 's'} · ${daysLeft} left)` });
+        await logAuditAdmin(db, tenantId, {
+          action: 'booth.pass_redeemed', targetType: 'boothReservation', targetId: passRef.id,
+          summary: `${resData.name} booked ${resData.boothName} with a day pass (${passDaysNeeded} day${passDaysNeeded === 1 ? '' : 's'} used, ${daysLeft} left)`,
+          actor: { type: 'system', name: 'booth-pass' },
+        });
+        return NextResponse.json({ ok: true, passUsed: true, reservationId: passRef.id, boothName: resData.boothName, startDate, endDate, passDaysLeft: daysLeft });
+      }
+    } catch (err) {
+      console.error('[booth-reserve] pass redemption failed — falling back to paid checkout', err);
+    }
+
     const resRef = db.collection(`tenants/${tenantId}/boothReservations`).doc();
     const nowIso = new Date().toISOString();
     await resRef.set({
