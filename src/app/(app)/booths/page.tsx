@@ -85,7 +85,7 @@ import {
   PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
   ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
   markContactLost, reengageContact, setContactNote, linkContactRenter,
-  setContactPhoto,
+  setContactPhoto, logContactTouch,
 } from '@/lib/booth-contacts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -164,6 +164,9 @@ import {
   XCircle,
   MoreHorizontal,
   Coffee,
+  Phone,
+  Mail,
+  MessageCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -1459,7 +1462,7 @@ function DetailPanel({
 // from reservations, tours, applications, and reviews.
 function ContactProfileDrawer({
   contact, reservations, applications, tenantId, onClose,
-  onConvert, onSetPipeline, onFollowUp, onMarkLost, onReengage, onSaveNote, onSavePhoto, converting,
+  onConvert, onSetPipeline, onFollowUp, onMarkLost, onReengage, onSaveNote, onSavePhoto, onTouch, converting,
 }: {
   contact: any;
   reservations: any[];
@@ -1473,6 +1476,7 @@ function ContactProfileDrawer({
   onReengage?: (person: any) => void;
   onSaveNote?: (person: any, note: string) => void;
   onSavePhoto?: (person: any, file: File) => void;
+  onTouch?: (person: any, kind: 'call' | 'text' | 'email') => void;
   converting?: boolean;
 }) {
   const norm = (v: any) => (v || '').trim().toLowerCase();
@@ -1577,9 +1581,9 @@ function ContactProfileDrawer({
           </div>
 
           <div className="flex gap-2 mt-3">
-            {contact.phone && <a href={`tel:${contact.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
-            {contact.phone && <a href={`sms:${contact.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
-            {contact.email && <a href={`mailto:${contact.email}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
+            {contact.phone && <a href={`tel:${contact.phone}`} onClick={() => onTouch?.(contact, 'call')} title="Call" className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 flex items-center justify-center transition-colors"><Phone className="h-4 w-4" /></a>}
+            {contact.phone && <a href={`sms:${contact.phone}`} onClick={() => onTouch?.(contact, 'text')} title="Text" className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 flex items-center justify-center transition-colors"><MessageCircle className="h-4 w-4" /></a>}
+            {contact.email && <a href={`mailto:${contact.email}`} onClick={() => onTouch?.(contact, 'email')} title="Email" className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/90 flex items-center justify-center transition-colors"><Mail className="h-4 w-4" /></a>}
           </div>
         </div>
 
@@ -3143,6 +3147,12 @@ export default function BoothsPage() {
   const handleMarkLost = (person: any, reason: string) => runContactAction(markContactLost(firestore, tenantId, person, reason), 'Marked as lost — kept on file');
   const handleReengage = (person: any) => runContactAction(reengageContact(firestore, tenantId, person), 'Back in nurturing');
   const handleSaveNote = (person: any, note: string) => runContactAction(setContactNote(firestore, tenantId, person, note), 'Note saved');
+  // Tap-to-contact logs itself — 📞/💬/✉️ taps write a history entry so the
+  // timeline shows every touch with zero extra work. Silent on failure; the
+  // call/text still opens either way.
+  const handleTouch = (person: any, kind: 'call' | 'text' | 'email') => {
+    try { logContactTouch(firestore, tenantId, person, kind).catch(() => {}); } catch { /* never block the tap */ }
+  };
   // Profile photo for ANY contact — uploaded to Storage, persisted on their
   // contact record, shown in the People directory and profile banner.
   const handleSavePhoto = async (person: any, file: File) => {
@@ -3389,7 +3399,7 @@ export default function BoothsPage() {
   // bookings/lease yet (prospective) so nobody is missing, then search +
   // filter chips slice the single list instead of stacking separate sections.
   const [peopleQuery, setPeopleQuery] = useState('');
-  const [peopleFilter, setPeopleFilter] = useState<'all' | 'renters' | 'regulars' | 'guests' | 'leads'>('all');
+  const [peopleFilter, setPeopleFilter] = useState<'all' | 'monthly' | 'day' | 'prospects' | 'attention'>('all');
   const peopleList = useMemo(() => {
     const norm = (v: any) => (v || '').trim().toLowerCase();
     const out: any[] = guestBook.map(g => ({ ...g }));
@@ -3411,27 +3421,59 @@ export default function BoothsPage() {
         isRenter: true, renterId: rt.id, tags: [],
       });
     }
+    // ── ONE STATUS LANGUAGE. Everyone here is a renter (or about to be) —
+    // the only real distinctions are HOW they rent and HOW the relationship
+    // is doing. Everything else (pipeline, tiers, stages) is detail inside
+    // the profile, not the list.
+    //   mode:     monthly 🏠 (has a renter record) · day ⚡ (books by the
+    //             day/hour) · prospect ✨ (hasn't rented yet)
+    //   standing: attention 🔴 (owes rent / expired docs) · active 🟢 ·
+    //             quiet 🌙 (60+ days silent — worth a win-back text) ·
+    //             new ⚪ (no revenue yet) · past ⚫ (marked lost)
+    const openLeaseIds = new Set(rentInvoices.filter((i: any) => ['due', 'late'].includes(i.status)).map((i: any) => i.leaseId));
+    const owingRenterIds = new Set((leases.data || []).filter((l: any) => openLeaseIds.has(l.id)).map((l: any) => l.renterId));
+    const todayIso = localISO();
+    const expiredRenterIds = new Set((renters.data || []).filter((rt: any) => {
+      const creds: any[] = [
+        ...(Array.isArray(rt.credentials) ? rt.credentials : []),
+        ...((rt.licenseExpiry) ? [{ expiry: rt.licenseExpiry }] : []),
+      ];
+      return creds.some((c: any) => c?.expiry && c.expiry < todayIso);
+    }).map((rt: any) => rt.id));
+    for (const p of out) {
+      p.mode = p.isRenter ? 'monthly' : p.visits > 0 ? 'day' : 'prospect';
+      const daysSince = p.lastDate ? Math.floor((Date.now() - new Date(p.lastDate + 'T00:00:00').getTime()) / 86400000) : Infinity;
+      p.standing =
+        (p.isRenter && p.renterId && (owingRenterIds.has(p.renterId) || expiredRenterIds.has(p.renterId))) ? 'attention'
+        : p.pipelineStage === 'lost' ? 'past'
+        : p.isRenter ? (() => { const rt: any = renterById.get(p.renterId); return rt && ['active', 'on_leave'].includes(String(rt.status)) ? 'active' : 'new'; })()
+        : p.visits > 0 ? (daysSince <= 60 ? 'active' : 'quiet')
+        : 'new';
+    }
     return out;
-  }, [guestBook, renters.data]);
+  }, [guestBook, renters.data, rentInvoices, leases.data, renterById]);
   const peopleShown = useMemo(() => {
     const q = peopleQuery.trim().toLowerCase();
+    const STANDING_RANK: Record<string, number> = { attention: 0, active: 1, quiet: 2, new: 3, past: 4 };
     return peopleList
       .filter(p => {
-        if (peopleFilter === 'renters' && !p.isRenter) return false;
-        if (peopleFilter === 'regulars' && p.tier !== 'regular') return false;
-        if (peopleFilter === 'guests' && (p.isRenter || !(p.visits > 0))) return false;
-        if (peopleFilter === 'leads' && (p.isRenter || p.visits > 0)) return false;
+        if (peopleFilter === 'monthly' && p.mode !== 'monthly') return false;
+        if (peopleFilter === 'day' && p.mode !== 'day') return false;
+        if (peopleFilter === 'prospects' && p.mode !== 'prospect') return false;
+        if (peopleFilter === 'attention' && p.standing !== 'attention') return false;
         if (q && !(`${p.name} ${p.phone} ${p.email}`.toLowerCase().includes(q))) return false;
         return true;
       })
-      .sort((a, b) => (b.isRenter ? 1 : 0) - (a.isRenter ? 1 : 0) || (b.lastDate || '').localeCompare(a.lastDate || ''));
+      .sort((a, b) => (STANDING_RANK[a.standing] ?? 9) - (STANDING_RANK[b.standing] ?? 9)
+        || (b.isRenter ? 1 : 0) - (a.isRenter ? 1 : 0)
+        || (b.lastDate || '').localeCompare(a.lastDate || ''));
   }, [peopleList, peopleFilter, peopleQuery]);
   const peopleCounts = useMemo(() => ({
     all: peopleList.length,
-    renters: peopleList.filter(p => p.isRenter).length,
-    regulars: peopleList.filter(p => p.tier === 'regular').length,
-    guests: peopleList.filter(p => !p.isRenter && p.visits > 0).length,
-    leads: peopleList.filter(p => !p.isRenter && !(p.visits > 0)).length,
+    monthly: peopleList.filter(p => p.mode === 'monthly').length,
+    day: peopleList.filter(p => p.mode === 'day').length,
+    prospects: peopleList.filter(p => p.mode === 'prospect').length,
+    attention: peopleList.filter(p => p.standing === 'attention').length,
   }), [peopleList]);
 
   // Deep-link from the planner: /booths?contact=<phone|email> opens that exact
@@ -5694,7 +5736,7 @@ export default function BoothsPage() {
                 className="h-9 w-full sm:w-60 rounded-xl border-2 px-3 text-sm font-medium"
               />
               <div className="flex gap-1 p-1 bg-white rounded-xl border overflow-x-auto max-w-full">
-                {([['all', 'All'], ['renters', 'Renters'], ['regulars', 'Regulars'], ['guests', 'Guests'], ['leads', 'Leads']] as const).map(([id, label]) => (
+                {([['all', 'All'], ['monthly', '🏠 Monthly'], ['day', '⚡ Day & hourly'], ['prospects', '✨ Prospects'], ['attention', '🔴 Attention']] as const).map(([id, label]) => (
                   <button
                     key={id}
                     onClick={() => setPeopleFilter(id)}
@@ -5705,6 +5747,10 @@ export default function BoothsPage() {
                 ))}
               </div>
             </div>
+            {/* One status language, explained once */}
+            <p className="text-[9px] font-bold text-muted-foreground">
+              🟢 active · 🌙 quiet 60+ days · 🔴 needs attention · ⚪ new — everyone's a renter, just monthly 🏠, day/hourly ⚡, or not yet ✨
+            </p>
             {renters.isLoading && peopleShown.length === 0 ? (
               <p className="text-xs text-muted-foreground py-3">Loading people…</p>
             ) : peopleShown.length === 0 ? (
@@ -5713,98 +5759,73 @@ export default function BoothsPage() {
               <div className="grid gap-2.5 md:grid-cols-2">
                 {peopleShown.map((g: any) => {
                   const rtLinked = g.isRenter && g.renterId ? renterById.get(g.renterId) : undefined;
-                  if (!rtLinked) {
-                    return (
-                      <div key={g.key} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
-                        <button onClick={() => setProfileContact(g)} className="w-9 h-9 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
-                          {g.photoUrl ? (
-                            <img src={g.photoUrl} alt="" className="w-9 h-9 object-cover" />
-                          ) : (
-                            <span className="w-9 h-9 bg-slate-100 text-slate-600 flex items-center justify-center font-black text-sm">{g.name.charAt(0).toUpperCase()}</span>
-                          )}
-                        </button>
-                        <button onClick={() => setProfileContact(g)} className="flex-1 min-w-0 text-left">
-                          <p className="text-xs font-black truncate">{g.name}</p>
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {(() => {
-                              const S: Record<string, string> = { inquiry: 'bg-slate-100 text-slate-500', tour: 'bg-sky-100 text-sky-700', applicant: 'bg-violet-100 text-violet-700', guest: 'bg-emerald-100 text-emerald-700', repeat: 'bg-amber-100 text-amber-700' };
-                              const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', repeat: 'Regular' };
-                              return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${S[g.stage] || S.inquiry}`}>{L[g.stage] || 'Contact'}</span>;
-                            })()}
-                            {g.tier === 'regular' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">🔥 Lease-ready</span>}
-                            {g.lastRating && <span className="text-amber-500 text-[9px]">{'★'.repeat(g.lastRating)}</span>}
-                          </div>
-                          <p className="text-[10px] font-bold text-muted-foreground truncate">
-                            {g.stage === 'inquiry' || g.stage === 'tour' || g.stage === 'applicant'
-                              ? `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''} · not yet booked`
-                              : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}`}
-                          </p>
-                        </button>
-                        <div className="flex gap-1.5 shrink-0">
-                          {g.phone && <a href={`tel:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Call</a>}
-                          {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
-                          {!g.phone && g.email && <a href={`mailto:${g.email}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Email</a>}
-                        </div>
-                      </div>
-                    );
-                  }
-                  const renter = rtLinked as Renter;
-                  const lease = occupyingLeaseByRenter.get(renter.id);
+                  const lease = rtLinked ? occupyingLeaseByRenter.get(rtLinked.id) : undefined;
                   const booth = lease ? boothById.get(lease.boothId) : undefined;
+                  const openProfile = () => { if (rtLinked) setProfileRenter(rtLinked); else setProfileContact(g); };
+                  const photo = g.photoUrl || (rtLinked as any)?.avatarUrl || null;
+                  const DOT: Record<string, string> = { attention: 'bg-red-500', active: 'bg-emerald-500', quiet: 'bg-slate-400', new: 'bg-sky-400', past: 'bg-slate-300' };
+                  const MODE: Record<string, string> = { monthly: '🏠', day: '⚡', prospect: '✨' };
+                  // ONE info line — the single most useful fact for this person.
+                  const infoLine = rtLinked
+                    ? (lease && booth
+                        ? `${booth.name} · ${formatCents(lease.rentAmountCents)}/${lease.frequency}${g.standing === 'attention' ? ' · owes / expired docs' : ''}`
+                        : 'No space assigned yet')
+                    : g.visits > 0
+                      ? `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}${g.standing === 'quiet' ? ' · worth a hello 👋' : ''}`
+                      : `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''}${g.nextFollowUpAt ? ` · follow up ${g.nextFollowUpAt}` : ''}`;
                   return (
-                    <div key={renter.id} className="rounded-2xl border-2 bg-white p-4 space-y-2">
-                      <div className="flex items-start gap-3">
-                        <button onClick={() => setProfileRenter(renter)} className="w-9 h-9 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
-                          {(renter as any).avatarUrl ? (
-                            <img src={(renter as any).avatarUrl} alt="" className="w-9 h-9 object-cover" />
-                          ) : (
-                            <span className="w-9 h-9 bg-slate-900 text-white flex items-center justify-center font-black text-sm">{(renter.firstName || '?').charAt(0).toUpperCase()}</span>
-                          )}
-                        </button>
-                        <button onClick={() => setProfileRenter(renter)} className="flex-1 min-w-0 text-left">
-                          <p className="font-black text-sm underline-offset-2 hover:underline">{renter.firstName} {renter.lastName}</p>
-                          {renter.businessName && <p className="text-[10px] font-bold text-muted-foreground truncate">{renter.businessName}</p>}
-                          <div className="flex gap-1.5 flex-wrap mt-1">
-                            <Badge className="text-[9px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
-                            {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
-                            {(() => { const w = complianceOf(renter as any).worst; return w === 'expired' ? <span className="text-[9px] font-black uppercase tracking-widest text-red-600">🔴 Compliance</span> : w === 'expiring' ? <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ Compliance</span> : null; })()}
-                          </div>
-                        </button>
-                        <div className="flex gap-2 shrink-0 items-center">
-                          {renter.email && <a href={`mailto:${renter.email}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Email</a>}
-                          {renter.phone && <a href={`tel:${renter.phone}`} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Call</a>}
-                          <button onClick={() => openEditRenter(renter)} className="h-8 w-8 rounded-lg border flex items-center justify-center text-slate-500 hover:text-slate-900"><Pencil className="h-3.5 w-3.5" /></button>
-                        </div>
-                      </div>
-                      {lease && booth && (
-                        <div className="rounded-xl bg-slate-50 border px-3 py-2 flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-[10px] font-black uppercase">{booth.name}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground">{formatCents(lease.rentAmountCents)}/{lease.frequency} · ends {lease.endDate || '—'}</p>
-                          </div>
-                          <button onClick={() => setEndLeaseTarget(renter)} className="text-[9px] font-black uppercase tracking-widest text-red-500 underline underline-offset-2 shrink-0">End lease</button>
-                        </div>
-                      )}
-                      {!lease && (renter.status === 'active' || renter.status === 'prospective') && (
-                        <button onClick={() => openLeaseWizard(renter.id)} className="w-full h-8 rounded-xl border-2 border-dashed text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-slate-400 hover:text-slate-700 transition-colors">
-                          + Assign booth
-                        </button>
-                      )}
-                      <div className="flex items-center gap-3 pt-0.5 flex-wrap">
-                        <button onClick={() => { setStatusTarget(renter); setNewStatus(renter.status === 'active' ? 'on_leave' : 'active'); }} className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2">
-                          Status
-                        </button>
-                        {[new Date().getFullYear(), new Date().getFullYear()-1].map(yr => (
-                          <a key={yr} href={`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(renter.id)}&year=${yr}`} target="_blank" rel="noreferrer"
-                            className="text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-700 underline underline-offset-2">
-                            {yr} statement
+                    <div key={g.key} className="rounded-2xl border-2 bg-white px-3.5 py-3 flex items-center gap-3">
+                      {/* Avatar + standing dot — the ONE status signal */}
+                      <button onClick={openProfile} className="relative shrink-0 active:scale-95 transition-transform">
+                        <span className="w-11 h-11 rounded-xl overflow-hidden flex items-center justify-center font-black text-sm bg-slate-100 text-slate-600 block">
+                          {photo ? <img src={photo} alt="" className="w-11 h-11 object-cover" /> : g.name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${DOT[g.standing] || DOT.new}`} />
+                      </button>
+                      <button onClick={openProfile} className="flex-1 min-w-0 text-left">
+                        <p className="text-sm font-black truncate">
+                          {g.name} <span className="text-xs">{MODE[g.mode] || ''}</span>
+                          {g.tier === 'regular' && !g.isRenter && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">🔥</span>}
+                          {g.lastRating && <span className="ml-1 text-amber-500 text-[10px]">{'★'.repeat(g.lastRating)}</span>}
+                        </p>
+                        <p className="text-[10px] font-bold text-muted-foreground truncate">{infoLine}</p>
+                      </button>
+                      {/* Icon actions — tap logs itself to their timeline */}
+                      <div className="flex gap-1 shrink-0">
+                        {g.phone && (
+                          <a href={`tel:${g.phone}`} onClick={() => handleTouch(g, 'call')} title="Call"
+                            className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors">
+                            <Phone className="h-4 w-4" />
                           </a>
-                        ))}
-                        {w9Map[renter.id] ? (
-                          <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">✓ W-9 on file</span>
-                        ) : w9Map[renter.id] === null ? (
-                          <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ W-9 missing</span>
-                        ) : null}
+                        )}
+                        {g.phone && (
+                          <a href={`sms:${g.phone}`} onClick={() => handleTouch(g, 'text')} title="Text"
+                            className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors">
+                            <MessageCircle className="h-4 w-4" />
+                          </a>
+                        )}
+                        {g.email && (
+                          <a href={`mailto:${g.email}`} onClick={() => handleTouch(g, 'email')} title="Email"
+                            className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:border-slate-300 transition-colors">
+                            <Mail className="h-4 w-4" />
+                          </a>
+                        )}
+                        {rtLinked && (
+                          <OverflowMenu
+                            align="right"
+                            items={[
+                              { label: 'Edit renter', onClick: () => openEditRenter(rtLinked) },
+                              ...(lease
+                                ? [{ label: 'End lease', danger: true, onClick: () => setEndLeaseTarget(rtLinked) }]
+                                : [{ label: '+ Assign a space', onClick: () => openLeaseWizard(rtLinked.id) }]),
+                              { label: 'Change status', onClick: () => { setStatusTarget(rtLinked); setNewStatus(rtLinked.status === 'active' ? 'on_leave' : 'active'); } },
+                              ...[new Date().getFullYear(), new Date().getFullYear() - 1].map(yr => ({
+                                label: `${yr} statement`,
+                                onClick: () => window.open(`/api/booths/statement?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(rtLinked.id)}&year=${yr}`, '_blank'),
+                              })),
+                            ]}
+                          />
+                        )}
                       </div>
                     </div>
                   );
@@ -7011,6 +7032,7 @@ export default function BoothsPage() {
           onReengage={handleReengage}
           onSaveNote={handleSaveNote}
           onSavePhoto={handleSavePhoto}
+          onTouch={handleTouch}
           converting={!!convertingKey}
         />
       )}
