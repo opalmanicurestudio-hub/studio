@@ -1095,6 +1095,8 @@ interface BoothCanvasCardProps {
   lease?: Lease;
   selected: boolean;
   locked: boolean;
+  lens?: 'now' | 'money' | 'schedule';
+  lensInfo?: { bg: string; border: string; line: string; sub: string };
   onDragStart: (e: React.PointerEvent, id: string) => void;
   onResizeStart: (e: React.PointerEvent, id: string) => void;
   onClick: (id: string) => void;
@@ -1108,11 +1110,17 @@ function BoothCanvasCard({
   nowTick,
   selected,
   locked,
+  lens = 'now',
+  lensInfo,
   onDragStart,
   onResizeStart,
   onClick,
 }: BoothCanvasCardProps) {
   const colors = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+  // Lens mode: the card answers the active lens's ONE question, cleanly —
+  // decorative shapes (walls, doors, plants) always render as themselves.
+  const lensMode = lens !== 'now' && !!lensInfo
+    && !['wall', 'door', 'plant'].includes((booth as any).shape);
 
   const monthlyRent = useMemo(() => {
     if (!lease) return 0;
@@ -1167,18 +1175,21 @@ function BoothCanvasCard({
           background: (booth as any).shape === 'wall' ? '#cbd5e1'
             : (booth as any).shape === 'door' ? 'repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 4px,#f8fafc 4px,#f8fafc 8px)'
             : (booth as any).shape === 'plant' ? '#ecfdf5'
+            : lensMode ? lensInfo!.bg
             : colors.bg,
           border: (booth as any).shape === 'wall' ? '2px solid #94a3b8'
             : (booth as any).shape === 'door' ? '2px dashed #94a3b8'
             : (booth as any).shape === 'plant' ? '2px solid #a7f3d0'
+            : lensMode ? `2px solid ${selected ? lensInfo!.border : lensInfo!.border + '99'}`
             : `2px solid ${selected ? colors.border : colors.border + '99'}`,
-          boxShadow: overtime ? '0 0 0 3px #ef444455, 0 0 18px 2px #ef444466'
+          boxShadow: lensMode ? (selected ? `0 0 0 2px ${lensInfo!.border}44` : undefined)
+            : overtime ? '0 0 0 3px #ef444455, 0 0 18px 2px #ef444466'
             : isLive ? '0 0 0 3px #6366f155, 0 0 16px 2px #6366f144'
             : selected ? `0 0 0 2px ${colors.border}44` : undefined,
           cursor: locked ? 'pointer' : 'grab',
         }}
       >
-        {(isLive || isExpected) && (
+        {!lensMode && (isLive || isExpected) && (
           <span className="absolute -top-1.5 -right-1.5 flex h-3.5 w-3.5">
             {isLive && <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${overtime ? 'bg-red-500' : 'bg-indigo-500'}`} />}
             <span className={`relative inline-flex rounded-full h-3.5 w-3.5 border-2 border-white ${overtime ? 'bg-red-500' : isLive ? 'bg-indigo-500' : 'bg-emerald-400'}`} />
@@ -1203,7 +1214,17 @@ function BoothCanvasCard({
           />
         </div>
 
-        {renter && (
+        {lensMode && (
+          <>
+            <span className="text-[11px] font-black leading-none mb-0.5 truncate" style={{ color: lensInfo!.border }}>
+              {lensInfo!.line}
+            </span>
+            <span className="text-[9px] font-bold leading-tight truncate opacity-70" style={{ color: colors.text }}>
+              {lensInfo!.sub}
+            </span>
+          </>
+        )}
+        {!lensMode && renter && (
           <span
             className="text-[11px] truncate leading-none mb-1"
             style={{ color: colors.text + 'cc' }}
@@ -1211,7 +1232,7 @@ function BoothCanvasCard({
             {renter.firstName} {renter.lastName}
           </span>
         )}
-        {liveRes && (
+        {!lensMode && liveRes && (
           <span className={`text-[10px] font-black leading-none mb-1 truncate flex items-center gap-1 ${overtime ? 'text-red-600' : isLive ? 'text-indigo-700' : 'text-emerald-700'}`}>
             {isLive ? '● ' : '◷ '}{guestFirst}
             {isLive && (liveRes.checked_inAt || liveRes.actualCheckIn)
@@ -1219,13 +1240,13 @@ function BoothCanvasCard({
               : (timeLabel ? ` · ${timeLabel}` : isExpected && liveRes.startTime ? ` · ${liveRes.startTime}` : '')}
           </span>
         )}
-        {timePct !== null && (
+        {!lensMode && timePct !== null && (
           <div className="h-1 w-full rounded-full bg-black/10 overflow-hidden mb-1">
             <div className={`h-full rounded-full transition-all ${overtime ? 'bg-red-500' : timePct > 85 ? 'bg-amber-500' : 'bg-indigo-500'}`}
               style={{ width: `${overtime ? 100 : timePct}%` }} />
           </div>
         )}
-        {!renter && !liveRes && booth.status === 'vacant' && (
+        {!lensMode && !renter && !liveRes && booth.status === 'vacant' && (
           <span
             className="text-[11px] italic leading-none mb-1"
             style={{ color: colors.text + '88' }}
@@ -1234,7 +1255,7 @@ function BoothCanvasCard({
           </span>
         )}
 
-        {lease && monthlyRent > 0 && (
+        {!lensMode && lease && monthlyRent > 0 && (
           <span
             className="text-[11px] font-medium leading-none mt-auto"
             style={{ color: colors.text }}
@@ -1243,7 +1264,7 @@ function BoothCanvasCard({
           </span>
         )}
 
-        {renter?.specialty && booth.canvasH >= 90 && (
+        {!lensMode && renter?.specialty && booth.canvasH >= 90 && (
           <span
             className="text-[10px] truncate leading-none mt-0.5"
             style={{ color: colors.text + '99' }}
@@ -2205,6 +2226,10 @@ export default function BoothsPage() {
 
   const [kioskCopied, setKioskCopied] = useState(false);
   const [spaceView, setSpaceView] = useState<'floor' | 'list'>('floor');
+  // ── Floor lenses: the map answers ONE question at a time ────────────
+  // now = who's here (live status, timers) · money = what each space earns
+  // this month + what vacancies cost · schedule = who's due in next.
+  const [lens, setLens] = useState<'now' | 'money' | 'schedule'>('now');
 
   // ── Booth dialog state ──────────────────────────────────────────────────────
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -3243,6 +3268,73 @@ export default function BoothsPage() {
       return { lease: l, renter, booth, open, owedCents, lastPaid: myInv.find(i => i.status === 'paid') };
     }).sort((a, b) => (b.owedCents - a.owedCents));
   }, [leases.data, rentInvoices, renterById, boothById]);
+
+  // ── NEEDS ATTENTION THIS WEEK — the owner's one digest ──────────────
+  // Everything that quietly needs a decision, pulled from data that already
+  // exists: late/due rent, leases ending soon, expiring credentials,
+  // unsigned agreements on upcoming stays, regulars worth a lease offer.
+  // Ranked by urgency; each row carries its own jump action.
+  const weeklyDigest = useMemo(() => {
+    const items: { kind: string; text: string; actionLabel?: string; run?: () => void }[] = [];
+    const today = localISO();
+    const in30 = localISO(new Date(Date.now() + 30 * 86400000));
+    for (const row of rentRoll) {
+      if (row.owedCents > 0 && row.open) {
+        const who = row.renter ? `${row.renter.firstName} ${row.renter.lastName}` : 'A renter';
+        items.push({
+          kind: row.open.status === 'late' ? 'late' : 'due',
+          text: `${who} owes $${(row.owedCents / 100).toFixed(0)}${row.open.status === 'late' ? ' — LATE' : ` · due ${row.open.dueDate}`}`,
+          actionLabel: 'Collect', run: () => selectTab('money'),
+        });
+      }
+    }
+    for (const l of (leases.data || [])) {
+      if (!['active', 'ending_soon'].includes(l.status)) continue;
+      if (l.endDate && l.endDate >= today && l.endDate <= in30) {
+        const rt = renterById.get(l.renterId);
+        items.push({
+          kind: 'renewal',
+          text: `${rt ? `${rt.firstName} ${rt.lastName}` : 'A renter'}'s lease ends ${l.endDate}${(l as any).autoRenew ? ' · auto-renews' : ' — no renewal on file'}`,
+          actionLabel: rt ? 'Open' : undefined, run: rt ? () => setProfileRenter(rt) : undefined,
+        });
+      }
+    }
+    for (const rt of (renters.data || [])) {
+      if (!['active', 'on_leave'].includes(String((rt as any).status || ''))) continue;
+      const creds: any[] = [
+        ...(Array.isArray((rt as any).credentials) ? (rt as any).credentials : []),
+        ...(((rt as any).licenseExpiry) ? [{ label: 'Professional license', expiry: (rt as any).licenseExpiry }] : []),
+      ];
+      for (const cr of creds) {
+        if (!cr?.expiry) continue;
+        if (cr.expiry < today) {
+          items.push({ kind: 'expired', text: `${rt.firstName} ${rt.lastName}'s ${cr.label || 'credential'} EXPIRED ${cr.expiry}`, actionLabel: 'Open', run: () => setProfileRenter(rt as any) });
+        } else if (cr.expiry <= in30) {
+          items.push({ kind: 'expiring', text: `${rt.firstName} ${rt.lastName}'s ${cr.label || 'credential'} expires ${cr.expiry}`, actionLabel: 'Open', run: () => setProfileRenter(rt as any) });
+        }
+      }
+    }
+    for (const r of reservations) {
+      if (!['confirmed', 'checked_in'].includes(r.status)) continue;
+      if ((r.endDate || '') < today) continue;
+      if (!r.agreementSignedAt && !r.agreementWaived) {
+        items.push({
+          kind: 'unsigned',
+          text: `${r.name || 'Guest'} (${r.boothName || 'space'}, ${r.startDate}) — no signed agreement yet`,
+          actionLabel: 'Sign link', run: () => window.open(`/stay/${encodeURIComponent(tenantId)}/${encodeURIComponent(r.id)}`, '_blank'),
+        });
+      }
+    }
+    for (const g of conversionCandidates) {
+      items.push({
+        kind: 'convert',
+        text: `${g.name} is a regular (${g.visits90 || 0} visits / 90d, $${((g.totalCents || 0) / 100).toFixed(0)} lifetime) — worth a lease offer`,
+        actionLabel: 'Open', run: () => setProfileContact(g),
+      });
+    }
+    const RANK: Record<string, number> = { late: 0, expired: 1, due: 2, unsigned: 3, renewal: 4, expiring: 5, convert: 6 };
+    return items.sort((a, b) => (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9)).slice(0, 8);
+  }, [rentRoll, leases.data, renters.data, reservations, conversionCandidates, renterById, tenantId]);
   const toggleAutoCollect = async (l: any) => {
     const dueDay = Math.min(28, new Date((l.startDate || localISO()) + 'T00:00:00Z').getUTCDate());
     try {
@@ -3419,6 +3511,71 @@ export default function BoothsPage() {
     );
     return list;
   }, [booths.data]);
+
+  // ── LENS DATA — one clean answer per booth for the active lens ──────
+  // money: this month's earnings (lease rent + day bookings) per booth;
+  //        vacant booths show their estimated weekly cost instead.
+  // schedule: the next confirmed arrival per booth (or resident days).
+  const lensByBooth = useMemo(() => {
+    const m = new Map<string, { bg: string; border: string; line: string; sub: string }>();
+    if (lens === 'money') {
+      const monthKey = localISO().slice(0, 7);
+      const revByBooth = new Map<string, number>();
+      for (const r of reservations) {
+        if (!['confirmed', 'checked_in', 'completed'].includes(r.status)) continue;
+        if (String(r.startDate || '').slice(0, 7) !== monthKey || !r.boothId) continue;
+        revByBooth.set(r.boothId, (revByBooth.get(r.boothId) || 0)
+          + (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0));
+      }
+      for (const b of sortedBooths) {
+        const lease = activeLeaseByBooth.get(b.id);
+        const rent = lease ? Math.round((lease.rentAmountCents || 0) * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)) : 0;
+        const day = revByBooth.get(b.id) || 0;
+        const total = rent + day;
+        if (total > 0) {
+          m.set(b.id, {
+            bg: '#ecfdf5', border: '#10b981',
+            line: `$${(total / 100).toFixed(0)} this month`,
+            sub: rent && day ? `$${(rent / 100).toFixed(0)} rent + $${(day / 100).toFixed(0)} bookings` : rent ? 'lease rent' : 'day bookings',
+          });
+        } else {
+          const opts: any[] = Array.isArray((b as any).pricingOptions) && (b as any).pricingOptions.length
+            ? (b as any).pricingOptions
+            : [{ frequency: b.baseRentFrequency || 'monthly', amountCents: b.baseRentCents || 0 }];
+          const mo = opts.find(o => o.frequency === 'monthly' && o.amountCents > 0);
+          const dy = opts.find(o => o.frequency === 'daily' && o.amountCents > 0);
+          const hr = opts.find(o => o.frequency === 'hourly' && o.amountCents > 0);
+          const wkCents = mo ? mo.amountCents / 4.33 : dy ? dy.amountCents * 5 : hr ? hr.amountCents * 8 * 5 : 0;
+          m.set(b.id, wkCents > 0
+            ? { bg: '#fef2f2', border: '#ef4444', line: '$0 this month', sub: `empty · ~$${(wkCents / 100).toFixed(0)}/wk lost` }
+            : { bg: '#f8fafc', border: '#cbd5e1', line: '$0 this month', sub: 'no rate set' });
+        }
+      }
+    } else if (lens === 'schedule') {
+      const today = localISO();
+      const tomorrow = localISO(new Date(Date.now() + 86400000));
+      const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+      for (const b of sortedBooths) {
+        const lease = activeLeaseByBooth.get(b.id);
+        const next = reservations
+          .filter(r => r.boothId === b.id && r.status === 'confirmed' && (r.startDate || '') >= today)
+          .sort((a, b2) => ((a.startDate || '') + (a.startTime || '')).localeCompare((b2.startDate || '') + (b2.startTime || '')))[0];
+        if (next) {
+          const when = next.startDate === today ? `Today${next.startTime ? ` ${next.startTime}` : ''}`
+            : next.startDate === tomorrow ? `Tmrw${next.startTime ? ` ${next.startTime}` : ''}`
+            : next.startDate;
+          m.set(b.id, { bg: '#eef2ff', border: '#6366f1', line: when, sub: String(next.name || 'guest').split(' ')[0] });
+        } else if (lease) {
+          const days: number[] | undefined = (lease as any).scheduleSlot?.days;
+          m.set(b.id, { bg: '#f8fafc', border: '#94a3b8', line: 'Resident',
+            sub: Array.isArray(days) && days.length ? days.map(d => DOW[d] || '').join(' ') : 'full-time' });
+        } else {
+          m.set(b.id, { bg: '#f0fdf4', border: '#22c55e', line: 'Open', sub: 'no upcoming booking' });
+        }
+      }
+    }
+    return m;
+  }, [lens, reservations, sortedBooths, activeLeaseByBooth]);
 
   // ── TRUE FLOOR STATUS ───────────────────────────────────────────────────────
   // A booth's displayed status is DERIVED from reality — an active lease, a
@@ -4506,6 +4663,16 @@ export default function BoothsPage() {
               </button>
             </div>
             <div className="flex gap-2 items-center">
+              {spaceView === 'floor' && !isMobile && locked && (
+                <div className="flex gap-1 p-1 bg-white rounded-xl border" title="What should the floor show? Now = live status · Money = earnings & vacancy cost · Next = upcoming arrivals">
+                  {([['now', 'Now'], ['money', 'Money'], ['schedule', 'Next']] as const).map(([id, label]) => (
+                    <button key={id} onClick={() => setLens(id)}
+                      className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${lens === id ? 'bg-indigo-600 text-white' : 'text-muted-foreground hover:text-slate-700'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {spaceView === 'floor' && !isMobile && (
                 <div className="flex gap-1 p-1 bg-white rounded-xl border" title="Live = watch the floor · Design = arrange it">
                   <button
@@ -4582,7 +4749,7 @@ export default function BoothsPage() {
             </div>
           )}
 
-          {spaceView === 'floor' && (
+          {spaceView === 'floor' && (!locked || lens === 'now') && (
             <div className="flex flex-wrap gap-3">
               {(Object.entries(BOOTH_STATUS_COLORS) as [Booth['status'], (typeof BOOTH_STATUS_COLORS)[Booth['status']]][]).map(([status, sc]) => (
                 <span key={status} className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground">
@@ -4591,6 +4758,13 @@ export default function BoothsPage() {
                 </span>
               ))}
             </div>
+          )}
+          {spaceView === 'floor' && locked && lens !== 'now' && (
+            <p className="text-[10px] font-bold text-muted-foreground">
+              {lens === 'money'
+                ? 'Money lens — green earns this month, red sits empty (with its estimated weekly cost). Tap a space for details.'
+                : 'Next lens — each space shows its next confirmed arrival, resident days, or "Open". Tap a space for details.'}
+            </p>
           )}
 
           {booths.isLoading ? (
@@ -4702,6 +4876,8 @@ export default function BoothsPage() {
                         nowTick={nowTick}
                         selected={selectedId === b.id}
                         locked={locked}
+                        lens={locked ? lens : 'now'}
+                        lensInfo={lensByBooth.get(b.id)}
                         onDragStart={handleDragStart}
                         onResizeStart={handleResizeStart}
                         onClick={setSelectedId}
@@ -4738,6 +4914,30 @@ export default function BoothsPage() {
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
+          {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
+          {weeklyDigest.length > 0 && (
+            <div className="rounded-2xl border-2 border-slate-300 bg-white p-4 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Needs attention this week · {weeklyDigest.length}
+              </p>
+              {weeklyDigest.map((it, i) => (
+                <div key={`${it.kind}-${i}`} className="flex items-center gap-2.5">
+                  <span className={`h-2 w-2 rounded-full shrink-0 ${
+                    it.kind === 'late' || it.kind === 'expired' ? 'bg-red-500'
+                    : it.kind === 'due' || it.kind === 'unsigned' || it.kind === 'expiring' ? 'bg-amber-500'
+                    : it.kind === 'renewal' ? 'bg-indigo-500'
+                    : 'bg-emerald-500'}`} />
+                  <p className="flex-1 min-w-0 text-xs font-bold text-slate-800 truncate">{it.text}</p>
+                  {it.run && (
+                    <button onClick={it.run} className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 hover:bg-slate-50 shrink-0">
+                      {it.actionLabel || 'Open'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Tour scorecard */}
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -5043,23 +5243,6 @@ export default function BoothsPage() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* ── Conversion nudges: regulars worth offering a lease ── */}
-          {conversionCandidates.length > 0 && (
-            <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">💡 Regulars worth a lease offer</p>
-              {conversionCandidates.map((g: any) => (
-                <div key={g.key} className="flex items-center gap-3">
-                  <p className="flex-1 min-w-0 text-xs font-bold text-slate-800 truncate">
-                    {g.name} — {g.visits90 || 0} visits in 90 days · ${((g.totalCents || 0) / 100).toFixed(0)} lifetime.
-                    <span className="text-slate-500 font-semibold"> A recurring lease locks in that revenue.</span>
-                  </p>
-                  <button onClick={() => setProfileContact(g)} className="h-8 px-3 rounded-lg bg-amber-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Open</button>
-                  {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-3 rounded-lg border-2 border-amber-300 text-amber-700 font-black uppercase text-[9px] tracking-widest flex items-center shrink-0">Text</a>}
-                </div>
-              ))}
             </div>
           )}
 
