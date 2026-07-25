@@ -523,7 +523,7 @@ export async function POST(req: NextRequest) {
         const daysLeft = Math.max(0, (Number(pd.daysTotal) || 0) - (Number(pd.daysUsed) || 0) - passDaysNeeded);
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowPass, link: '/booths',
-          message: `🎟 Pass booking: ${resData.name} — ${resData.boothName}, ${startDate}${endDate !== startDate ? ` → ${endDate}` : ''} (${passDaysNeeded} pass day${passDaysNeeded === 1 ? '' : 's'} · ${daysLeft} left)` });
+          message: `Pass booking: ${resData.name} — ${resData.boothName}, ${startDate}${endDate !== startDate ? ` → ${endDate}` : ''} (${passDaysNeeded} pass day${passDaysNeeded === 1 ? '' : 's'} used · ${daysLeft} left)` });
         await logAuditAdmin(db, tenantId, {
           action: 'booth.pass_redeemed', targetType: 'boothReservation', targetId: passRef.id,
           summary: `${resData.name} booked ${resData.boothName} with a day pass (${passDaysNeeded} day${passDaysNeeded === 1 ? '' : 's'} used, ${daysLeft} left)`,
@@ -797,7 +797,7 @@ export async function GET(req: NextRequest) {
       await purRef.set({ status: 'completed', completedAt: nowIso, passId: passRef.id, stripePaymentIntentId: piId }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
-        message: `🎟 Day pass sold online: ${pur.name} bought ${pur.packLabel} ($${((pur.amountCents || 0) / 100).toFixed(2)})` });
+        message: `Day pass sold online: ${pur.name} bought ${pur.packLabel} ($${((pur.amountCents || 0) / 100).toFixed(2)})` });
       await logAuditAdmin(db, tenantId, {
         action: 'booth.pass_sold', targetType: 'boothPass', targetId: passRef.id,
         summary: `${pur.name || 'Guest'} bought ${pur.packLabel} online — $${((pur.amountCents || 0) / 100).toFixed(2)}`,
