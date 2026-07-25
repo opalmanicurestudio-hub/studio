@@ -41,6 +41,7 @@ import Stripe from 'stripe';
 import { createHash, randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
+import { smsConfigured, sendTenantSms } from '@/lib/sms';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -93,12 +94,25 @@ async function recordStamp(db: any, tenantId: string, field: string, clear = fal
 
 // ── Code delivery — swap this for SMS/email when a provider is wired ─────
 async function deliverCode(db: any, tenantId: string, contact: string, code: string, name?: string) {
-  const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
-  // The owner's inbox is private, so the FULL contact is included — the
-  // owner can text the code back in seconds instead of decoding a mask.
-  // (When an SMS provider is connected, this same function is where the
-  // code goes straight to the renter instead.)
+  // SMS-FIRST: when Twilio is configured and the contact is a phone
+  // number, the code goes straight to the renter — the owner is out of
+  // the loop entirely. Anything else (email contact, SMS down, not yet
+  // configured) falls back to the owner's inbox for manual relay.
   const isPhone = /^\+?[\d\s().-]{7,}$/.test(contact.trim());
+  if (isPhone && smsConfigured()) {
+    const sent = await sendTenantSms(db, tenantId, contact,
+      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`);
+    if (sent.ok) {
+      const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await ref.set({
+        id: ref.id, userId: null, read: false, createdAt: new Date().toISOString(),
+        type: 'renter_code', link: 'inbox',
+        message: `${name || 'A renter'} signed in to the renter portal — code texted to them automatically.`,
+      });
+      return;
+    }
+  }
+  const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
   await ref.set({
     id: ref.id,
     userId: null, // owners/admins inbox
