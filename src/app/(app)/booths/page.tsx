@@ -169,6 +169,9 @@ import {
   MessageCircle,
   CreditCard,
   Ticket,
+  Camera,
+  Paperclip,
+  Scissors,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -205,7 +208,7 @@ import {
 import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
 import { MaintenanceSection } from '@/components/booths/MaintenanceSection';
-import { dueAtFor as ticketDueAtFor, isTicketOverdue } from '@/lib/maintenance';
+import { dueAtFor as ticketDueAtFor, isTicketOverdue, pickRotationWorker } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
@@ -1558,7 +1561,7 @@ function ContactProfileDrawer({
                 )}
                 {onSavePhoto && (
                   <>
-                    <span className="absolute inset-x-0 bottom-0 bg-black/50 text-white text-[8px] font-black uppercase tracking-widest text-center py-0.5 opacity-80 group-hover/av:opacity-100">📷</span>
+                    <span className="absolute inset-x-0 bottom-0 bg-black/50 text-white py-0.5 opacity-80 group-hover/av:opacity-100 flex items-center justify-center"><Camera className="h-3 w-3" /></span>
                     <input type="file" accept="image/*" className="hidden"
                       onChange={(e) => { const f = e.target.files?.[0]; if (f) onSavePhoto(contact, f); e.target.value = ''; }} />
                   </>
@@ -1694,7 +1697,7 @@ function ContactProfileDrawer({
                     <p className="text-xs font-black truncate">{r.boothName}</p>
                     <p className="text-[10px] font-bold text-muted-foreground">{r.bookingType === 'hourly' && r.startTime ? `${r.startDate} · ${t12(r.startTime)}–${t12(r.endTime)}` : r.startDate}</p>
                   </div>
-                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">📄</a>
+                  <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" title="Receipt" className="text-indigo-600 shrink-0"><FileText className="h-3.5 w-3.5" /></a>
                 </div>
               ))}
             </div>
@@ -2186,7 +2189,7 @@ function RenterProfileDrawer({
                   {(renter as any).applicationAttachments.map((at: any) => (
                     <a key={at.url} href={at.url} target="_blank" rel="noreferrer"
                       className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
-                      <p className="text-xs font-black truncate">📎 {at.label || at.name || 'Document'}</p>
+                      <p className="text-xs font-black truncate flex items-center gap-1.5"><Paperclip className="h-3 w-3 shrink-0" /> {at.label || at.name || 'Document'}</p>
                       <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">Open →</span>
                     </a>
                   ))}
@@ -2209,7 +2212,7 @@ function RenterProfileDrawer({
                     <a key={r.id} href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer"
                       className="rounded-xl border-2 px-3.5 py-2.5 flex items-center justify-between hover:border-slate-400 transition-colors">
                       <p className="text-xs font-black truncate">{r.boothName} · {r.startDate}</p>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">📄 Receipt</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0 flex items-center gap-1"><FileText className="h-3 w-3" /> Receipt</span>
                     </a>
                   ))}
                 </div>
@@ -4692,8 +4695,13 @@ export default function BoothsPage() {
         updatedAt: nowIso,
       });
       // Floor reports enter the TICKET SYSTEM too — one queue for everything,
-      // assignable to a worker, tracked against its SLA.
+      // assignable to a worker, tracked against its SLA. When auto-rotation
+      // is on, the ticket goes straight to the least-recently-assigned
+      // worker — same rule as renter reports and scheduled plans.
+      let assignedName: string | null = null;
       try {
+        const rotate = (selectedTenant as any)?.maintenanceAutoAssign === 'rotate'
+          ? pickRotationWorker(maintWorkers as any[]) : null;
         const tRef = doc(collection(firestore, 'tenants', tenantId, 'tickets'));
         await setDoc(tRef, {
           id: tRef.id, tenantId, locationId: selectedLocationId || null,
@@ -4701,12 +4709,22 @@ export default function BoothsPage() {
           description: note, category: 'equipment', priority: 'high', status: 'open',
           boothId: maintFor.id, boothName: maintFor.name,
           reporter: { type: 'owner', name: 'Owner' },
-          assigneeId: null, assigneeName: null,
-          updates: [{ at: nowIso, by: 'Owner', byType: 'owner', note: 'Reported from the floor', status: 'open' }],
+          assigneeId: (rotate as any)?.id || null, assigneeName: (rotate as any)?.name || null,
+          updates: [
+            { at: nowIso, by: 'Owner', byType: 'owner', note: 'Reported from the floor', status: 'open' },
+            ...(rotate ? [{ at: nowIso, by: 'Rotation', byType: 'system', note: `Auto-assigned to ${(rotate as any).name}` }] : []),
+          ],
           createdAt: nowIso, updatedAt: nowIso, dueAt: ticketDueAtFor('high'), resolvedAt: null,
         });
+        if (rotate) {
+          assignedName = (rotate as any).name;
+          try { await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', (rotate as any).id), { lastAssignedAt: nowIso }); } catch { /* cursor is best-effort */ }
+          try { fetch('/api/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'notify-assign', tenantId, ticketId: tRef.id }) }).catch(() => {}); } catch { /* text is a bonus */ }
+        }
       } catch { /* the booth is still marked down even if the ticket write fails */ }
-      toast({ title: `${maintFor.name} marked down`, description: 'A high-priority ticket was opened — assign a worker from the Maintenance queue.' });
+      toast({ title: `${maintFor.name} marked down`, description: assignedName
+        ? `A high-priority ticket was opened and auto-assigned to ${assignedName}.`
+        : 'A high-priority ticket was opened — assign a worker from the Maintenance queue.' });
       setMaintFor(null); setMaintNote('');
     } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
     finally { setMaintSaving(false); }
@@ -5822,7 +5840,7 @@ export default function BoothsPage() {
                     {Array.isArray(app.attachments) && app.attachments.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {app.attachments.map((at: any) => (
-                          <a key={at.url} href={at.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 underline underline-offset-2">📎 {at.label || at.name}</a>
+                          <a key={at.url} href={at.url} target="_blank" rel="noreferrer" className="text-[9px] font-black uppercase tracking-wide bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 underline underline-offset-2 inline-flex items-center gap-1"><Paperclip className="h-2.5 w-2.5" /> {at.label || at.name}</a>
                         ))}
                       </div>
                     )}
@@ -5920,17 +5938,17 @@ export default function BoothsPage() {
                     )}
                     {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices || r.licenseDocUrl || r.insuranceDocUrl || r.idDocUrl) && (
                       <div className="text-[10px] font-black uppercase text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                        {r.doingServices && <span>✂ Services</span>}
+                        {r.doingServices && <span className="inline-flex items-center gap-1"><Scissors className="h-3 w-3" /> Services</span>}
                         {r.licenseNumber && <span>· Lic {r.licenseNumber}</span>}
-                        {r.licenseDocUrl && <a href={r.licenseDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">· 📄 License</a>}
+                        {r.licenseDocUrl && <a href={r.licenseDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1">· <FileText className="h-3 w-3" /> License</a>}
                         {(r.insuranceConfirmed || r.insuranceDocUrl) && <span>· ✓ Insured</span>}
-                        {r.insuranceDocUrl && <a href={r.insuranceDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">📄 COI</a>}
-                        {r.idDocUrl ? <a href={r.idDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline">· 📄 ID</a> : r.idAcknowledged && <span>· ✓ ID</span>}
+                        {r.insuranceDocUrl && <a href={r.insuranceDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1"><FileText className="h-3 w-3" /> COI</a>}
+                        {r.idDocUrl ? <a href={r.idDocUrl} target="_blank" rel="noreferrer" className="text-indigo-600 underline inline-flex items-center gap-1">· <FileText className="h-3 w-3" /> ID</a> : r.idAcknowledged && <span>· ✓ ID</span>}
                       </div>
                     )}
                     {r.agreementSignedAt ? (
                       <div className="text-[10px] font-black uppercase text-emerald-700 flex flex-wrap items-center gap-x-1.5">
-                        <span>✍ Signed agreement · {r.agreementSignedName || 'guest'} · {new Date(r.agreementSignedAt).toLocaleDateString()}</span>
+                        <span className="inline-flex items-center gap-1"><FileSignature className="h-3 w-3" /> Signed agreement · {r.agreementSignedName || 'guest'} · {new Date(r.agreementSignedAt).toLocaleDateString()}</span>
                         <button onClick={() => openSignedAgreement(r)} className="text-indigo-600 underline">View / print</button>
                       </div>
                     ) : (r.status === 'confirmed' || r.status === 'checked_in') && (
@@ -5980,7 +5998,7 @@ export default function BoothsPage() {
                       ) : (r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending') ? (
                         <button onClick={() => refundReservation(r)} disabled={refundingId === r.id} className="flex-1 h-9 rounded-lg bg-red-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-50">{refundingId === r.id ? 'Refunding…' : 'Refund via Stripe'}</button>
                       ) : (
-                        <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center gap-1">📄 Receipt</a>
+                        <a href={`/api/booths/receipt?tenantId=${encodeURIComponent(tenantId)}&type=reservation&id=${encodeURIComponent(r.id)}`} target="_blank" rel="noreferrer" className="flex-1 h-9 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center gap-1"><FileText className="h-3 w-3" /> Receipt</a>
                       )}
                       {/* Secondary actions tucked into one tidy menu */}
                       <OverflowMenu
@@ -6045,6 +6063,7 @@ export default function BoothsPage() {
               workers={maintWorkers}
               plans={maintPlans}
               ownerName={(selectedTenant as any)?.name ? `${(selectedTenant as any).name} team` : 'Owner'}
+              autoAssign={(selectedTenant as any)?.maintenanceAutoAssign === 'rotate'}
             />
           </div>
 
@@ -7492,7 +7511,7 @@ export default function BoothsPage() {
                     {viewingApp.attachments.map((at: any) => (
                       <a key={at.url} href={at.url} target="_blank" rel="noreferrer"
                         className="rounded-lg border px-3 py-2 flex items-center justify-between hover:border-slate-400 transition-colors">
-                        <span className="text-xs font-black truncate">📎 {at.label || at.name || 'Document'}</span>
+                        <span className="text-xs font-black truncate inline-flex items-center gap-1.5"><Paperclip className="h-3 w-3 shrink-0" /> {at.label || at.name || 'Document'}</span>
                         <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 shrink-0">Open →</span>
                       </a>
                     ))}
