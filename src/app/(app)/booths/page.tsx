@@ -204,6 +204,8 @@ import {
 } from '@/lib/booth-rental-hooks';
 import { createBooth, createRenter, createLease, endLease } from '@/lib/booth-rental-service';
 import { BoothAutomationSettings } from '@/components/shared/BoothAutomationSettings';
+import { MaintenanceSection } from '@/components/booths/MaintenanceSection';
+import { dueAtFor as ticketDueAtFor, isTicketOverdue } from '@/lib/maintenance';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
 // ─── Canvas constants ─────────────────────────────────────────────────────────
@@ -2534,6 +2536,26 @@ export default function BoothsPage() {
     return (pk && passLeftByKey.get(pk)) || (mk && passLeftByKey.get(mk)) || 0;
   }, [passLeftByKey]);
 
+  // ── Maintenance tickets + worker roster (full system — see
+  // src/lib/maintenance.ts). One queue for renter-reported, floor-reported,
+  // and owner-logged issues.
+  const [tickets, setTickets] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'tickets'),
+      (snap) => setTickets(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setTickets([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
+  const [maintWorkers, setMaintWorkers] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'maintenanceWorkers'),
+      (snap) => setMaintWorkers(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setMaintWorkers([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
+
   // Follow-up tasks (created by the tour manager's outcome capture).
   const [tasks, setTasks] = useState<any[]>([]);
   useEffect(() => {
@@ -3703,14 +3725,24 @@ export default function BoothsPage() {
         actionLabel: 'Send link', run: () => startCardSetup(rt),
       });
     }
-    for (const b of (booths.data || [])) {
-      if ((b as any).status !== 'maintenance') continue;
-      const since = String((b as any).maintenanceReportedAt || '').slice(0, 10);
-      items.push({
-        kind: 'maint',
-        text: `${b.name} is down${(b as any).maintenanceNote ? ` — ${(b as any).maintenanceNote}` : ''}${since ? ` (since ${since})` : ''}`,
-        actionLabel: 'View', run: () => { selectTab('spaces'); setSpaceView('floor'); setSelectedId(b.id); },
-      });
+    // Maintenance: overdue tickets first (SLA blown), then unassigned
+    // urgent/high ones (nobody is on it). The ticket queue is the source
+    // of truth; booth status derives from it.
+    for (const t of tickets) {
+      if (!['open', 'in_progress'].includes(t.status)) continue;
+      if (isTicketOverdue(t)) {
+        items.push({
+          kind: 'maint',
+          text: `OVERDUE ticket: ${t.title}${t.assigneeName ? ` (${t.assigneeName})` : ' — unassigned'}`,
+          actionLabel: 'Open queue', run: () => { try { document.getElementById('ops-maint')?.scrollIntoView({ behavior: 'smooth' }); } catch { /* anchor */ } },
+        });
+      } else if (!t.assigneeId && (t.priority === 'urgent' || t.priority === 'high')) {
+        items.push({
+          kind: 'maint',
+          text: `${t.priority === 'urgent' ? 'Urgent' : 'High'} ticket needs a worker: ${t.title}`,
+          actionLabel: 'Assign', run: () => { try { document.getElementById('ops-maint')?.scrollIntoView({ behavior: 'smooth' }); } catch { /* anchor */ } },
+        });
+      }
     }
     for (const g of conversionCandidates) {
       items.push({
@@ -3721,7 +3753,7 @@ export default function BoothsPage() {
     }
     const RANK: Record<string, number> = { late: 0, expired: 1, maint: 2, due: 3, nocard: 4, unsigned: 5, renewal: 6, expiring: 7, convert: 8 };
     return items.sort((a, b) => (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9)).slice(0, 8);
-  }, [rentRoll, leases.data, renters.data, reservations, conversionCandidates, renterById, tenantId, booths.data]);
+  }, [rentRoll, leases.data, renters.data, reservations, conversionCandidates, renterById, tenantId, tickets]);
   const toggleAutoCollect = async (l: any) => {
     const dueDay = Math.min(28, new Date((l.startDate || localISO()) + 'T00:00:00Z').getUTCDate());
     try {
@@ -4643,13 +4675,30 @@ export default function BoothsPage() {
     if (!tenantId || !maintFor || maintSaving) return;
     setMaintSaving(true);
     try {
+      const nowIso = new Date().toISOString();
+      const note = maintNote.trim() || 'Needs attention';
       await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), maintFor.id), {
         status: 'maintenance',
-        maintenanceNote: maintNote.trim() || 'Needs attention',
-        maintenanceReportedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        maintenanceNote: note,
+        maintenanceReportedAt: nowIso,
+        updatedAt: nowIso,
       });
-      toast({ title: `${maintFor.name} marked down`, description: 'It shows as maintenance on the floor and in your weekly digest.' });
+      // Floor reports enter the TICKET SYSTEM too — one queue for everything,
+      // assignable to a worker, tracked against its SLA.
+      try {
+        const tRef = doc(collection(firestore, 'tenants', tenantId, 'tickets'));
+        await setDoc(tRef, {
+          id: tRef.id, tenantId, locationId: selectedLocationId || null,
+          title: `${maintFor.name}: ${note.slice(0, 100)}`,
+          description: note, category: 'equipment', priority: 'high', status: 'open',
+          boothId: maintFor.id, boothName: maintFor.name,
+          reporter: { type: 'owner', name: 'Owner' },
+          assigneeId: null, assigneeName: null,
+          updates: [{ at: nowIso, by: 'Owner', byType: 'owner', note: 'Reported from the floor', status: 'open' }],
+          createdAt: nowIso, updatedAt: nowIso, dueAt: ticketDueAtFor('high'), resolvedAt: null,
+        });
+      } catch { /* the booth is still marked down even if the ticket write fails */ }
+      toast({ title: `${maintFor.name} marked down`, description: 'A high-priority ticket was opened — assign a worker from the Maintenance queue.' });
       setMaintFor(null); setMaintNote('');
     } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
     finally { setMaintSaving(false); }
@@ -5626,7 +5675,7 @@ export default function BoothsPage() {
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
           {/* ── Mobile jump bar — thumb-reach navigation for a long page ── */}
           <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
-            {([['ops-tours', 'Tours'], ['ops-apps', 'Applications'], ['ops-rentals', 'Rentals'], ['ops-people', 'People']] as const).map(([id, label]) => (
+            {([['ops-tours', 'Tours'], ['ops-apps', 'Applications'], ['ops-rentals', 'Rentals'], ['ops-maint', 'Maintenance'], ['ops-people', 'People']] as const).map(([id, label]) => (
               <button key={id}
                 onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
                 className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
@@ -5975,6 +6024,20 @@ export default function BoothsPage() {
               are the same humans at different stages of one journey, so they
               live in ONE searchable list. Filter chips slice it; renters get
               the full management card, everyone else a contact card. ── */}
+          <ZoneLabel>Facility</ZoneLabel>
+
+          <div id="ops-maint" className="scroll-mt-14">
+            <MaintenanceSection
+              firestore={firestore}
+              tenantId={tenantId}
+              locationId={selectedLocationId}
+              booths={sortedBooths}
+              tickets={tickets}
+              workers={maintWorkers}
+              ownerName={(selectedTenant as any)?.name ? `${(selectedTenant as any).name} team` : 'Owner'}
+            />
+          </div>
+
           <ZoneLabel>Directory</ZoneLabel>
 
           <div id="ops-people" className="space-y-3 scroll-mt-14">
