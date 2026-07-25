@@ -43,7 +43,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
-import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
+import { uploadTicketPhotoFromDataUrl, autoAssignTicket } from '@/lib/maintenance-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -332,7 +332,10 @@ export async function POST(req: NextRequest) {
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
         message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority${photoUrl ? ' · photo attached' : ''}.` });
-      return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
+      // Rotation: with auto-assign on, the ticket already has a worker (and
+      // they already have a text) before the owner even sees the notification.
+      const assigned = await autoAssignTicket(db, tenantId, ref.id, { title, boothName, priority }, req.headers.get('origin') || undefined);
+      return NextResponse.json({ ok: true, ticketId: ref.id, photoError, assignedTo: assigned?.assigneeName || null });
     }
 
     if (action === 'my-tickets') {
