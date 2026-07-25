@@ -42,6 +42,7 @@ import { createHash, randomBytes } from 'crypto';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
+import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -283,6 +284,87 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Session expired — sign in again.' }, { status: 401 });
     }
     const key = session.contactKey;
+
+    // ═══ MAINTENANCE TICKETS — renters report and follow issues ═══════════
+    // The renter portal is a first-class entry to the same ticket queue the
+    // owner and techs work. No phone tag: they file it, they watch it move.
+    if (action === 'create-ticket') {
+      const title = String(body.title || '').trim().slice(0, 140);
+      const description = String(body.description || '').trim().slice(0, 2000);
+      const category = ['equipment', 'plumbing', 'electrical', 'cleaning', 'safety', 'other'].includes(body.category) ? body.category : 'other';
+      // Renters can flag urgency, but 'urgent' (4h SLA + station lockout) is
+      // an owner/tech call — renter submissions cap at 'high'.
+      const priority = ['high', 'normal', 'low'].includes(body.priority) ? body.priority : 'normal';
+      if (!title) return NextResponse.json({ ok: false, error: 'Give the issue a short title.' }, { status: 400 });
+      // Attach their station automatically when they have one.
+      let boothId: string | null = null; let boothName: string | null = null;
+      if (session.renterId) {
+        try {
+          const ls = await db.collection(`tenants/${tenantId}/leases`).where('renterId', '==', session.renterId).get();
+          const l = ls.docs.map((d: any) => d.data() as any).find((x: any) => ['active', 'on_leave'].includes(x.status));
+          if (l?.boothId) {
+            boothId = l.boothId;
+            const b = await db.doc(`tenants/${tenantId}/booths/${l.boothId}`).get();
+            boothName = b.exists ? ((b.data() as any).name || null) : null;
+          }
+        } catch { /* station attach is a bonus */ }
+      }
+      const nowIso = new Date().toISOString();
+      const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
+      await ref.set({
+        id: ref.id, tenantId, locationId: null,
+        title, description, category, priority, status: 'open',
+        boothId, boothName,
+        reporter: { type: 'renter', name: session.name || 'Renter', phone: /\d{7,}/.test(key) ? key : '', renterId: session.renterId || null },
+        assigneeId: null, assigneeName: null,
+        updates: [{ at: nowIso, by: session.name || 'Renter', byType: 'renter', note: 'Ticket created', status: 'open' }],
+        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(priority), resolvedAt: null,
+      });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority.` });
+      return NextResponse.json({ ok: true, ticketId: ref.id });
+    }
+
+    if (action === 'my-tickets') {
+      const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
+      const mine = snap.docs
+        .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+        .filter((t: any) => (session.renterId && t.reporter?.renterId === session.renterId)
+          || (t.reporter?.phone && t.reporter.phone === key))
+        .sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+        .slice(0, 25)
+        .map((t: any) => ({
+          id: t.id, title: t.title, description: t.description,
+          category: t.category, priority: t.priority,
+          status: t.status, statusLabel: TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status,
+          boothName: t.boothName || null, createdAt: t.createdAt, resolvedAt: t.resolvedAt || null,
+          assigneeName: t.assigneeName || null,
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null })),
+        }));
+      return NextResponse.json({ ok: true, tickets: mine });
+    }
+
+    if (action === 'ticket-note') {
+      const { ticketId } = body;
+      const note = String(body.note || '').trim().slice(0, 1000);
+      if (!ticketId || !note) return NextResponse.json({ ok: false, error: 'Write a note first.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      const owns = (session.renterId && t.reporter?.renterId === session.renterId) || (t.reporter?.phone && t.reporter.phone === key);
+      if (!owns) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const nowIso = new Date().toISOString();
+      await ref.set({
+        updates: [...(t.updates || []), { at: nowIso, by: session.name || 'Renter', byType: 'renter', note }],
+        updatedAt: nowIso,
+      }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+        message: `${session.name || 'Renter'} added to ticket "${t.title}": "${note.slice(0, 120)}"` });
+      return NextResponse.json({ ok: true });
+    }
 
     // ═══ me ═══════════════════════════════════════════════════════════════
     if (action === 'me') {
