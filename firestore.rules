@@ -170,10 +170,16 @@ service cloud.firestore {
       allow read, create, update: if isStaff(tenantId);
       allow delete: if false;
     }
-    // Rent invoices are written exclusively by the server rentCollector.
+    // Rent invoices are CREATED exclusively by the server rentCollector,
+    // but managers UPDATE them when recording a manual payment (cash /
+    // check / Zelle marks the open invoice paid from the Money tab).
+    // v93 FIX: `write: if false` was silently DENYING every manual
+    // "Record payment" — the batch (invoice update + ledger txn + audit)
+    // failed as a unit, so cash payments could never be recorded.
     match /tenants/{tenantId}/rentInvoices/{invId} {
       allow read: if isStaff(tenantId);
-      allow write: if false;
+      allow update: if isManager(tenantId);
+      allow create, delete: if false;
     }
     // Payroll drafts: cron-created (server), manager-approved (client).
     match /tenants/{tenantId}/payrollDrafts/{draftId} {
@@ -235,6 +241,27 @@ service cloud.firestore {
       allow write: if isManager(tenantId);
     }
 
+    // ── v93 Day passes — prepaid obligations are MONEY ─────────────────
+    // Sold by managers (in person) or the server (online checkout).
+    // Balances are only ever decremented by the server redemption
+    // transaction — no client may update or delete a pass, so days can't
+    // be forged or wiped.
+    match /tenants/{tenantId}/boothPasses/{passId} {
+      allow read: if isStaff(tenantId);
+      allow create: if isManager(tenantId);
+      allow update, delete: if false;
+    }
+    // Online pass purchases: server-only lifecycle (checkout → confirm).
+    match /tenants/{tenantId}/boothPassPurchases/{purchaseId} {
+      allow read: if isManager(tenantId);
+      allow write: if false;
+    }
+    // ── v93 CRM contacts — the persisted person record (pipeline stage,
+    // notes, photo, history log). Team-managed, never public.
+    match /tenants/{tenantId}/contacts/{contactId} {
+      allow read, write: if isStaff(tenantId);
+    }
+
     // v79 — step 5: the scoped check-ins collection. Written only by
     // /api/checkins (server); the portal and floor views read it.
     match /tenants/{tenantId}/appointmentCheckIns/{token} {
@@ -275,7 +302,9 @@ service cloud.firestore {
           'boothCredits',
           'renters',
           'leases',
-          'appointmentCheckIns'
+          'appointmentCheckIns',
+          'boothPasses',
+          'boothPassPurchases'
         ]);
     }
 
