@@ -113,9 +113,16 @@ export async function GET(req: NextRequest) {
     if (!snap.exists) return NextResponse.json({ ok: false, error: 'Renter not found.' }, { status: 404 });
     const renter = snap.data() as any;
 
+    // Studio name for the public confirmation screen (cosmetic, fail-open).
+    let studioName = 'The studio';
+    try {
+      const t = await db.doc(`tenants/${tenantId}`).get();
+      studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
+    } catch { /* cosmetic */ }
+
     // Idempotent: already stored for this session
     if (renter.cardSetupSessionId === sessionId && renter.cardOnFile) {
-      return NextResponse.json({ ok: true, cardBrand: renter.cardBrand, cardLast4: renter.cardLast4 });
+      return NextResponse.json({ ok: true, cardBrand: renter.cardBrand, cardLast4: renter.cardLast4, studioName, renterFirstName: renter.firstName || '' });
     }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
@@ -142,7 +149,14 @@ export async function GET(req: NextRequest) {
       cardSetupAt: new Date().toISOString(),
     }, { merge: true });
 
-    return NextResponse.json({ ok: true, cardBrand: brand, cardLast4: last4 });
+    // Tell the owner — the renter completed this on their own phone.
+    try {
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: new Date().toISOString(), link: '/booths',
+        message: `Card on file added: ${renter.firstName || ''} ${renter.lastName || ''} (${brand} ····${last4}) — rent auto-collect is ready.` });
+    } catch { /* best-effort */ }
+
+    return NextResponse.json({ ok: true, cardBrand: brand, cardLast4: last4, studioName, renterFirstName: renter.firstName || '' });
   } catch (err) {
     console.error('[setup-card] GET failed', err);
     return NextResponse.json({ ok: false, error: 'Could not confirm card setup.' }, { status: 500 });
