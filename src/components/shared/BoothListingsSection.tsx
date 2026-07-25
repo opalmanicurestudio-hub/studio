@@ -522,6 +522,17 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         });
         const data = await res.json();
         if (data.ok && data.url) { window.location.href = data.url; return; }
+        // 🎟 Pass redemption — booked and confirmed with NO charge. Show the
+        // same celebration modal Stripe returns would, stay on the page.
+        if (data.ok && data.passUsed) {
+          setConfirmedRes({
+            boothName: data.boothName, startDate: data.startDate, endDate: data.endDate,
+            reservationId: data.reservationId, viaPass: true, passDaysLeft: data.passDaysLeft,
+          });
+          setSubmitting(false);
+          setApplyFor(null);
+          return;
+        }
         // This is a real paid reservation — do NOT silently fall through to a
         // free booking. Tell the guest so payment isn't skipped by accident.
         alert(data.error || 'We couldn\'t start checkout for this reservation. Please try again, or contact us to book.');
@@ -647,7 +658,11 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
               <p className="text-6xl">🎉</p>
               <div>
                 <h3 className="font-black text-2xl tracking-tight">You're booked!</h3>
-                <p className="text-sm font-bold text-slate-500 mt-1">Payment received — this space is yours.</p>
+                <p className="text-sm font-bold text-slate-500 mt-1">
+                  {confirmedRes.viaPass
+                    ? `Paid with your day pass — ${confirmedRes.passDaysLeft ?? 0} day${(confirmedRes.passDaysLeft ?? 0) === 1 ? '' : 's'} remaining. No charge today.`
+                    : 'Payment received — this space is yours.'}
+                </p>
               </div>
               <div className="rounded-2xl border-2 bg-slate-50 p-4 text-left space-y-1">
                 <p className="font-black text-sm uppercase">{confirmedRes.boothName}</p>
@@ -963,9 +978,10 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                           : recog.tier === 'regular' ? 'Welcome back — great to see a regular!'
                           : 'Welcome back!'}
                       </p>
-                      {(recog.discountPercent > 0 || recog.signatureWaived) && (
+                      {(recog.discountPercent > 0 || recog.signatureWaived || recog.passDaysLeft > 0) && (
                         <p className="text-[10px] font-bold text-emerald-800 mt-0.5">
                           {[
+                            recog.passDaysLeft > 0 ? `🎟 ${recog.passDaysLeft} pass day${recog.passDaysLeft === 1 ? '' : 's'} on file — this booking uses them, no charge` : '',
                             recog.discountPercent > 0 ? `${recog.discountPercent}% renter pricing applies at checkout` : '',
                             recog.signatureWaived ? 'your signed lease covers the rental agreement — no re-signing' : '',
                           ].filter(Boolean).join(' · ')}
