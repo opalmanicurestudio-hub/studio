@@ -30,6 +30,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { ticketBlocksBooth, TICKET_STATUS_LABELS } from '@/lib/maintenance';
+import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
 
 async function findWorker(db: FirebaseFirestore.Firestore, tenantId: string, token: string) {
   if (!token || String(token).length < 12) return null;
@@ -98,23 +99,29 @@ export async function POST(req: NextRequest) {
         tickets: tickets.map((t) => ({
           id: t.id, title: t.title, description: t.description,
           category: t.category, priority: t.priority, status: t.status,
-          boothName: t.boothName || null, dueAt: t.dueAt, createdAt: t.createdAt,
+          boothName: t.boothName || null, resourceName: t.resourceName || null,
+          dueAt: t.dueAt, createdAt: t.createdAt,
           reporterName: t.reporter?.name || 'Studio',
           assignedToMe: t.assigneeId === worker.id,
-          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null })),
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         })),
       });
     }
 
     // ── Tech portal: progress a ticket ────────────────────────────────
+    // Accepts any combination of: a status move, a note, a photo (base64
+    // data URL, uploaded server-side), and — when resolving — a cost that
+    // flows straight into the ledger as a Maintenance & Repairs expense.
     if (action === 'worker-update') {
       const worker = await findWorker(db, tenantId, body.token);
       if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
       const { ticketId } = body;
       const status = ['in_progress', 'resolved'].includes(body.status) ? body.status : null;
       const note = String(body.note || '').slice(0, 1000).trim();
-      if (!ticketId || (!status && !note)) {
-        return NextResponse.json({ ok: false, error: 'Add a note or a status change.' }, { status: 400 });
+      const hasPhoto = typeof body.photoData === 'string' && body.photoData.startsWith('data:image');
+      if (!ticketId || (!status && !note && !hasPhoto)) {
+        return NextResponse.json({ ok: false, error: 'Add a note, a photo, or a status change.' }, { status: 400 });
       }
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
       const snap = await ref.get();
@@ -124,9 +131,19 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
       }
       const nowIso = new Date().toISOString();
+
+      // Photo first (fail-soft — a bad photo never blocks the update).
+      let photoUrl: string | null = null;
+      let photoError: string | undefined;
+      if (hasPhoto) {
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, ticketId, body.photoData);
+        photoUrl = up.url; photoError = up.error;
+      }
+
       const update: any = { at: nowIso, by: worker.name, byType: 'tech' };
       if (note) update.note = note;
       if (status) update.status = status;
+      if (photoUrl) update.photoUrl = photoUrl;
       const patch: any = {
         updates: [...(t.updates || []), update],
         updatedAt: nowIso,
@@ -134,15 +151,36 @@ export async function POST(req: NextRequest) {
         assigneeId: t.assigneeId || worker.id,
         assigneeName: t.assigneeName || worker.name,
       };
+      if (photoUrl) patch.photoUrls = [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), photoUrl];
+
+      // Cost at resolution → real expense in the books, attributed to the
+      // ticket (and its station) so maintenance spend is analyzable.
+      const costCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.costCents) || 0)) : 0;
       if (status) {
         patch.status = status;
-        if (status === 'resolved') patch.resolvedAt = nowIso;
-        if (status === 'in_progress' && t.status === 'open') { /* claimed */ }
+        if (status === 'resolved') {
+          patch.resolvedAt = nowIso;
+          if (costCents > 0) patch.costCents = costCents;
+        }
       }
       await ref.set(patch, { merge: true });
+
+      if (costCents > 0) {
+        try {
+          const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await txnRef.set({
+            id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+            amount: costCents / 100, category: 'Maintenance & Repairs',
+            description: `Maintenance — ${t.title}${t.boothName ? ` (${t.boothName})` : ''} · resolved by ${worker.name}`,
+            clientOrVendor: worker.name, date: nowIso, paymentMethod: 'See receipt',
+            hasReceipt: false, sourceId: ticketId, tenantId, createdAt: nowIso,
+          });
+        } catch { /* the resolution stands; the owner can log the expense manually */ }
+      }
+
       await syncBoothFromTickets(db, tenantId, t.boothId);
       await notifyOwner(db, tenantId,
-        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}`);
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · cost $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
         await sendTenantSms(db, tenantId, t.reporter.phone,
@@ -150,10 +188,11 @@ export async function POST(req: NextRequest) {
       }
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.ticket_updated', targetType: 'ticket', targetId: ticketId,
-        summary: `${worker.name} (tech) ${status ? `→ ${status}` : 'noted'} on "${t.title}"`,
+        summary: `${worker.name} (tech) ${status ? `→ ${status}` : 'noted'} on "${t.title}"${costCents > 0 ? ` · $${(costCents / 100).toFixed(2)}` : ''}`,
+        ...(costCents > 0 ? { amount: costCents / 100 } : {}),
         actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, photoUrl, photoError });
     }
 
     // ── Automation: text the assigned tech their ticket ───────────────
