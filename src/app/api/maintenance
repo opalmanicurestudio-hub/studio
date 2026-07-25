@@ -173,7 +173,10 @@ export async function POST(req: NextRequest) {
             amount: costCents / 100, category: 'Maintenance & Repairs',
             description: `Maintenance — ${t.title}${t.boothName ? ` (${t.boothName})` : ''} · resolved by ${worker.name}`,
             clientOrVendor: worker.name, date: nowIso, paymentMethod: 'See receipt',
-            hasReceipt: false, sourceId: ticketId, tenantId, createdAt: nowIso,
+            // A photo attached alongside a costed resolution IS the receipt —
+            // it rides the ledger entry, so tax time is a click, not a hunt.
+            hasReceipt: !!photoUrl, receiptUrl: photoUrl || null,
+            sourceId: ticketId, tenantId, createdAt: nowIso,
           });
         } catch { /* the resolution stands; the owner can log the expense manually */ }
       }
