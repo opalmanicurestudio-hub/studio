@@ -20,7 +20,7 @@
 // The stored `key` matches the guestBook memo's key exactly, so the persisted
 // state overlays cleanly onto the live-derived contact.
 
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 
 export type PipelineStage = 'new' | 'contacted' | 'nurturing' | 'won' | 'lost';
 
@@ -38,6 +38,11 @@ export interface BoothContact {
   lostAt?: string | null;
   ownerNotes?: string | null;
   convertedRenterId?: string | null;
+  photoUrl?: string | null;         // profile photo, uploaded by the owner
+  // Timestamped event log — every owner decision (stage change, follow-up,
+  // lost, re-engaged, converted) is recorded HERE at the moment it happens,
+  // so the profile timeline is accurate history, not reconstruction.
+  history?: { at: string; event: string }[];
   firstSeenAt?: string;
   lastActivityAt?: string;
   tags?: string[];
@@ -103,11 +108,17 @@ export async function ensureBoothContact(firestore: any, tenantId: string, input
   return created;
 }
 
-async function patchContact(firestore: any, tenantId: string, input: EnsureInput, patch: any) {
+async function patchContact(firestore: any, tenantId: string, input: EnsureInput, patch: any, event?: string) {
   const c = await ensureBoothContact(firestore, tenantId, input);
   if (!c) return null;
   const ref = doc(firestore, 'tenants', tenantId, 'contacts', c.id);
-  await updateDoc(ref, { ...patch, lastActivityAt: nowIso() });
+  await updateDoc(ref, {
+    ...patch,
+    lastActivityAt: nowIso(),
+    // Every owner decision writes its own timestamped history entry — the
+    // timeline is a real log, never a guess.
+    ...(event ? { history: arrayUnion({ at: nowIso(), event }) } : {}),
+  });
   return { ...c, ...patch };
 }
 
@@ -115,29 +126,32 @@ export const setContactPipeline = (firestore: any, tenantId: string, person: Ens
   patchContact(firestore, tenantId, person, {
     pipelineStage: stage,
     ...(stage === 'lost' ? {} : { lostReason: null, lostAt: null }),
-  });
+  }, `Stage → ${stageLabel(stage)}`);
 
 export const scheduleContactFollowUp = (firestore: any, tenantId: string, person: EnsureInput, dateStr: string | null) =>
   patchContact(firestore, tenantId, person, {
     nextFollowUpAt: dateStr || null,
     followUpNotifiedFor: null, // re-arm the reminder for the new date
     ...(dateStr ? { pipelineStage: 'nurturing' } : {}),
-  });
+  }, dateStr ? `Follow-up scheduled for ${dateStr}` : 'Follow-up cleared');
 
 export const markContactLost = (firestore: any, tenantId: string, person: EnsureInput, reason: string) =>
   patchContact(firestore, tenantId, person, {
     pipelineStage: 'lost', lostReason: reason || 'Not a fit', lostAt: nowIso(), nextFollowUpAt: null,
-  });
+  }, `Marked lost — ${reason || 'Not a fit'}`);
 
 export const reengageContact = (firestore: any, tenantId: string, person: EnsureInput) =>
   patchContact(firestore, tenantId, person, {
     pipelineStage: 'nurturing', lostReason: null, lostAt: null,
-  });
+  }, 'Re-engaged');
 
 export const setContactNote = (firestore: any, tenantId: string, person: EnsureInput, note: string) =>
   patchContact(firestore, tenantId, person, { ownerNotes: note });
 
+export const setContactPhoto = (firestore: any, tenantId: string, person: EnsureInput, photoUrl: string) =>
+  patchContact(firestore, tenantId, person, { photoUrl }, 'Profile photo added');
+
 export const linkContactRenter = (firestore: any, tenantId: string, person: EnsureInput, renterId: string) =>
   patchContact(firestore, tenantId, person, {
     convertedRenterId: renterId, pipelineStage: 'won', lostReason: null, lostAt: null, nextFollowUpAt: null,
-  });
+  }, 'Converted to renter 🎉');
