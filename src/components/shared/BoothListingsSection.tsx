@@ -216,6 +216,29 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [agreementOpen, setAgreementOpen] = useState(false);
   // Typed legal-name e-signature for paid day/hourly bookings.
   const [signName, setSignName] = useState('');
+  // ── Recognition: "welcome back" for renters & regulars ──────────────
+  // Debounced lookup by full phone/email against the server's shared
+  // recognition module. Resident renters see their perks (owner-set day
+  // discount, lease-covers-agreement); regulars get a warm greeting. The
+  // SERVER re-derives all of this at booking time — nothing here is trusted.
+  const [recog, setRecog] = useState<any>(null);
+  useEffect(() => {
+    const phoneDigits = form.phone.replace(/\D/g, '');
+    const email = form.email.trim();
+    if (phoneDigits.length < 7 && !/^\S+@\S+\.\S+$/.test(email)) { setRecog(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch('/api/booths/kiosk', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'recognize', tenantId, phone: form.phone, email }),
+        });
+        const d = await res.json();
+        setRecog(d?.ok ? d : null);
+      } catch { setRecog(null); }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [form.phone, form.email, tenantId]);
+  const signWaived = !!recog?.signatureWaived;
   const requiredDocs: string[] = Array.isArray(config.requiredDocs) ? config.requiredDocs.filter(Boolean) : [];
   // Owner toggle: when true, license/insurance/ID/documents are collected
   // AFTER approval instead of gating the first application.
@@ -365,7 +388,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const isPaidDayBooking = inquiryKind === 'application' && applyMode === 'day';
   const signOk = signName.trim().length >= 2;
   const agreementSatisfied = isPaidDayBooking
-    ? signOk
+    ? (signWaived || signOk)
     : (inquiryKind !== 'application' || !agreementText || agreed);
   // v66 — AVAILABILITY: mirror the server's schedule check so visitors
   // learn a date is closed before paying, not after. The route enforces
@@ -902,6 +925,24 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone *" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                     <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   </div>
+                  {recog && recog.tier !== 'new' && (
+                    <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-2.5 animate-in fade-in duration-200">
+                      <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
+                        {recog.isResident
+                          ? `Welcome back${recog.firstName ? `, ${recog.firstName}` : ''} — resident renter`
+                          : recog.tier === 'regular' ? 'Welcome back — great to see a regular!'
+                          : 'Welcome back!'}
+                      </p>
+                      {(recog.discountPercent > 0 || recog.signatureWaived) && (
+                        <p className="text-[10px] font-bold text-emerald-800 mt-0.5">
+                          {[
+                            recog.discountPercent > 0 ? `${recog.discountPercent}% renter pricing applies at checkout` : '',
+                            recog.signatureWaived ? 'your signed lease covers the rental agreement — no re-signing' : '',
+                          ].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {applyMode !== 'day' && (
                   <>
                   {/* Niche — owner-configured, prefilled options */}
@@ -1378,7 +1419,13 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
 
                   <textarea value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="Anything else we should know?" rows={2} className="w-full rounded-xl border-2 px-4 py-3 text-sm font-medium" />
 
-                  {isPaidDayBooking ? (
+                  {isPaidDayBooking && signWaived ? (
+                    <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3">
+                      <p className="text-[11px] font-bold text-emerald-800">
+                        ✓ Your signed lease already covers these rental terms — no signature needed for this booking.
+                      </p>
+                    </div>
+                  ) : isPaidDayBooking ? (
                     <div className="rounded-xl border-2 p-3 space-y-2.5">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Rental agreement</span>
