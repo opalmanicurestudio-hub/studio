@@ -10,14 +10,14 @@
 // fire-and-forget via /api/maintenance.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { doc, setDoc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, collection, onSnapshot, increment, arrayUnion } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { auditEntry } from '@/lib/audit';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle } from 'lucide-react';
 import {
-  dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS,
+  dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS, pickRotationWorker,
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
   type TicketPriority, type TicketStatus,
 } from '@/lib/maintenance';
@@ -39,7 +39,7 @@ const newToken = () => {
 };
 
 export function MaintenanceSection({
-  firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName,
+  firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign,
 }: {
   firestore: any;
   storage?: any;
@@ -50,6 +50,7 @@ export function MaintenanceSection({
   workers: any[];
   plans: any[];
   ownerName?: string;
+  autoAssign?: boolean;
 }) {
   const { toast } = useToast();
   const me = ownerName || 'Owner';
@@ -60,15 +61,91 @@ export function MaintenanceSection({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
   const [workersOpen, setWorkersOpen] = useState(false);
-  const [wForm, setWForm] = useState({ name: '', phone: '', email: '' });
+  const [wForm, setWForm] = useState({ name: '', phone: '', email: '', payType: 'per_job' });
   const [showResolved, setShowResolved] = useState(false);
   // Photos (owner-side: direct client Storage upload — the owner is authed)
   const [createPhotos, setCreatePhotos] = useState<string[]>([]);
   const [notePhoto, setNotePhoto] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  // Resolve-with-cost inline confirm
+  // Resolve inline confirm: materials → ledger expense (with receipt photo),
+  // labor → per-job worker's payable balance.
   const [resolveForId, setResolveForId] = useState<string | null>(null);
   const [costDraft, setCostDraft] = useState('');
+  const [laborDraft, setLaborDraft] = useState('');
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  // Worker profile expansion + payout
+  const [profileWorkerId, setProfileWorkerId] = useState<string | null>(null);
+  const [payoutMethod, setPayoutMethod] = useState('Cash');
+
+  // ── Per-worker KPIs, computed live from the ticket history ───────────
+  const workerStats = useMemo(() => {
+    const m = new Map<string, any>();
+    const cutoff30 = new Date(Date.now() - 30 * 86400000).toISOString();
+    for (const w of workers) {
+      m.set(w.id, { open: 0, resolved30: 0, resolvedAll: 0, onTime: 0, overdueNow: 0, sumHours: 0, materialsCents: 0, recent: [] as any[] });
+    }
+    for (const t of tickets) {
+      const s = t.assigneeId ? m.get(t.assigneeId) : null;
+      if (!s) continue;
+      if (['open', 'in_progress'].includes(t.status)) {
+        s.open += 1;
+        if (isTicketOverdue(t)) s.overdueNow += 1;
+      }
+      if (t.status === 'resolved' && t.resolvedAt) {
+        s.resolvedAll += 1;
+        if (t.resolvedAt >= cutoff30) s.resolved30 += 1;
+        if (t.dueAt && t.resolvedAt <= t.dueAt) s.onTime += 1;
+        if (t.createdAt) s.sumHours += Math.max(0, (new Date(t.resolvedAt).getTime() - new Date(t.createdAt).getTime()) / 3600000);
+        if (typeof t.costCents === 'number') s.materialsCents += t.costCents;
+      }
+      s.recent.push(t);
+    }
+    for (const s of m.values()) {
+      s.onTimePct = s.resolvedAll > 0 ? Math.round((s.onTime / s.resolvedAll) * 100) : null;
+      s.avgHours = s.resolvedAll > 0 ? s.sumHours / s.resolvedAll : null;
+      s.recent = s.recent.sort((a: any, b: any) => (b.updatedAt || '').localeCompare(a.updatedAt || '')).slice(0, 5);
+    }
+    return m;
+  }, [workers, tickets]);
+
+  // Rotation toggle — one tenant-level switch; every entry point honors it
+  // (renter tickets, floor reports, scheduled plans, and tickets made here).
+  const toggleRotation = async () => {
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { maintenanceAutoAssign: autoAssign ? 'off' : 'rotate' });
+      toast({ title: autoAssign ? 'Auto-rotation off' : 'Auto-rotation on', description: autoAssign ? 'New tickets wait for manual assignment.' : 'New tickets go to the least-recently-assigned worker automatically.' });
+    } catch { toast({ variant: 'destructive', title: 'Could not save' }); }
+  };
+
+  // Pay out a per-job worker's accrued labor: one expense entry ('Contract
+  // Labor'), an audit record, and a payment stamp on the worker — then the
+  // balance resets. Their money trail is as auditable as everything else.
+  const payOutLabor = async (w: any) => {
+    const cents = Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0));
+    if (!(cents > 0)) return;
+    try {
+      const nowIso = new Date().toISOString();
+      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+      await setDoc(txnRef, {
+        id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+        amount: cents / 100, category: 'Contract Labor',
+        description: `Maintenance labor payout — ${w.name}`,
+        clientOrVendor: w.name, date: nowIso, paymentMethod: payoutMethod,
+        hasReceipt: false, sourceId: w.id, tenantId, createdAt: nowIso,
+      });
+      const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+      await setDoc(aRef, { id: aRef.id, ...auditEntry({
+        action: 'maintenance.labor_paid', targetType: 'maintenanceWorker', targetId: w.id,
+        summary: `Paid ${w.name} $${(cents / 100).toFixed(2)} for ticket labor (${payoutMethod})`,
+        amount: cents / 100, actor: { type: 'user', name: me },
+      }) });
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), {
+        unpaidLaborCents: 0,
+        laborPayments: arrayUnion({ at: nowIso, amountCents: cents, method: payoutMethod }),
+      });
+      toast({ title: `Paid ${w.name}`, description: `$${(cents / 100).toFixed(2)} logged under Contract Labor.` });
+    } catch { toast({ variant: 'destructive', title: 'Payout not recorded', description: 'Nothing was saved — try again.' }); }
+  };
   // Preventive plans
   const [plansOpen, setPlansOpen] = useState(false);
   const [pForm, setPForm] = useState({ title: '', description: '', category: 'cleaning', priority: 'normal' as TicketPriority, boothId: '', resourceId: '', assigneeId: '', everyDays: '30', customDays: '', firstRun: todayISO() });
@@ -217,8 +294,21 @@ export function MaintenanceSection({
       };
       await setDoc(ref, ticket);
       await syncBooth(ticket.boothId, [...tickets, ticket]);
-      if (worker) fireAndForget('notify-assign', ref.id);
-      toast({ title: 'Ticket created', description: worker ? `${worker.name} will be texted the details.` : 'Assign a worker to get it moving.' });
+      // Rotation: unassigned + auto-rotate on → hand it to the least-
+      // recently-assigned worker right now, matching the server behavior.
+      let rotated: any = null;
+      if (!worker && autoAssign) {
+        rotated = pickRotationWorker(activeWorkers);
+        if (rotated) {
+          await updateDoc(ref, {
+            assigneeId: rotated.id, assigneeName: rotated.name,
+            updates: [...ticket.updates, { at: new Date().toISOString(), by: 'Rotation', byType: 'system', note: `Auto-assigned to ${rotated.name}` }],
+          });
+          try { await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', rotated.id), { lastAssignedAt: new Date().toISOString() }); } catch { /* cursor is best-effort */ }
+        }
+      }
+      if (worker || rotated) fireAndForget('notify-assign', ref.id);
+      toast({ title: 'Ticket created', description: worker ? `${worker.name} will be texted the details.` : rotated ? `Auto-assigned to ${rotated.name} — they'll be texted.` : 'Assign a worker to get it moving.' });
       setCreateOpen(false);
       setCreatePhotos([]);
       setForm({ title: '', description: '', category: 'equipment', priority: 'normal', boothId: '', resourceId: '', assigneeId: '' });
@@ -240,46 +330,66 @@ export function MaintenanceSection({
     const w = activeWorkers.find((x: any) => x.id === workerId);
     if (!w) return;
     if (await patchTicket(t, { assigneeId: w.id, assigneeName: w.name, assignNotifiedFor: null }, { note: `Assigned to ${w.name}` })) {
+      try { await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { lastAssignedAt: new Date().toISOString() }); } catch { /* rotation cursor is best-effort */ }
       fireAndForget('notify-assign', t.id);
       toast({ title: `Assigned to ${w.name}`, description: w.phone ? 'They\'ll get a text with the details.' : 'No phone on file — share their portal link directly.' });
     }
   };
 
-  const setStatus = async (t: any, status: TicketStatus, costCents = 0) => {
+  const setStatus = async (t: any, status: TicketStatus, costCents = 0, laborCents = 0, receipt: string | null = null) => {
     const patch: any = { status };
     if (status === 'resolved') {
       patch.resolvedAt = new Date().toISOString();
       if (costCents > 0) patch.costCents = costCents;
+      if (laborCents > 0) patch.laborCents = laborCents;
+      if (receipt) patch.photoUrls = [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), receipt];
     }
     const entry: any = { status };
-    if (status === 'resolved' && costCents > 0) entry.note = `Resolved · cost $${(costCents / 100).toFixed(2)}`;
+    if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
+      entry.note = `Resolved${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)}` : ''}${laborCents > 0 ? ` · labor $${(laborCents / 100).toFixed(2)}` : ''}`;
+    }
+    if (receipt) entry.photoUrl = receipt;
     if (await patchTicket(t, patch, entry)) {
-      // Cost → a real ledger expense, attributed to the ticket + station,
-      // plus an audit entry. Maintenance spend becomes analyzable data.
       if (status === 'resolved' && costCents > 0) {
+        // Materials → ledger expense with the receipt photo attached.
         try {
           const nowIso = new Date().toISOString();
           const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
           await setDoc(txnRef, {
             id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
             amount: costCents / 100, category: 'Maintenance & Repairs',
-            description: `Maintenance — ${t.title}${t.boothName ? ` (${t.boothName})` : ''}`,
+            description: `Maintenance — ${t.title}${t.boothName ? ` (${t.boothName})` : ''}${t.resourceName ? ` · ${t.resourceName}` : ''}`,
             clientOrVendor: t.assigneeName || 'Maintenance', date: nowIso, paymentMethod: 'See receipt',
-            hasReceipt: false, sourceId: t.id, tenantId, createdAt: nowIso,
+            hasReceipt: !!receipt, receiptUrl: receipt || null,
+            sourceId: t.id, tenantId, createdAt: nowIso,
           });
           const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
           await setDoc(aRef, { id: aRef.id, ...auditEntry({
             action: 'maintenance.cost_logged', targetType: 'ticket', targetId: t.id,
-            summary: `Maintenance cost $${(costCents / 100).toFixed(2)} logged for "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}`,
+            summary: `Maintenance materials $${(costCents / 100).toFixed(2)} logged for "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}`,
             amount: costCents / 100, actor: { type: 'user', name: me },
           }) });
-          toast({ title: 'Resolved', description: `$${(costCents / 100).toFixed(2)} logged under Maintenance & Repairs.` });
-        } catch { toast({ variant: 'destructive', title: 'Cost not logged', description: 'The ticket is resolved — add the expense in the ledger manually.' }); }
+        } catch { toast({ variant: 'destructive', title: 'Materials not logged', description: 'The ticket is resolved — add the expense manually.' }); }
+      }
+      // Labor → the per-job worker's payable balance (payroll workers are
+      // paid through the Staff page's payroll instead — no double-pay).
+      if (status === 'resolved' && laborCents > 0 && t.assigneeId) {
+        const w = workers.find((x: any) => x.id === t.assigneeId);
+        if (w && w.payType !== 'payroll') {
+          try {
+            await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { unpaidLaborCents: increment(laborCents) });
+            toast({ title: 'Resolved', description: `$${(laborCents / 100).toFixed(2)} labor added to ${w.name}'s balance — pay out from their profile.` });
+          } catch { toast({ variant: 'destructive', title: 'Labor not accrued', description: `Note ${w.name}'s $${(laborCents / 100).toFixed(2)} manually.` }); }
+        } else if (w) {
+          toast({ title: 'Resolved', description: `${w.name} is on payroll — labor is covered by their wages, not accrued here.` });
+        }
+      } else if (status === 'resolved' && costCents > 0) {
+        toast({ title: 'Resolved', description: `$${(costCents / 100).toFixed(2)} logged under Maintenance & Repairs${receipt ? ' with receipt' : ''}.` });
       }
       const updated = tickets.map((x: any) => x.id === t.id ? { ...x, status } : x);
       await syncBooth(t.boothId, updated);
       fireAndForget('notify-reporter', t.id);
-      setResolveForId(null); setCostDraft('');
+      setResolveForId(null); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null);
     }
   };
 
@@ -340,10 +450,14 @@ export function MaintenanceSection({
       const ref = doc(collection(firestore, 'tenants', tenantId, 'maintenanceWorkers'));
       await setDoc(ref, {
         id: ref.id, name: wForm.name.trim(), phone: wForm.phone.trim() || null, email: wForm.email.trim() || null,
+        payType: wForm.payType === 'payroll' ? 'payroll' : 'per_job',
+        unpaidLaborCents: 0, lastAssignedAt: null,
         token: newToken(), active: true, createdAt: new Date().toISOString(),
       });
-      setWForm({ name: '', phone: '', email: '' });
-      toast({ title: 'Worker added', description: 'Send them their portal link below.' });
+      setWForm({ name: '', phone: '', email: '', payType: 'per_job' });
+      toast({ title: 'Worker added', description: wForm.payType === 'payroll'
+        ? 'Send them their portal link below. Add them on the Staff page too so payroll covers their wages.'
+        : 'Send them their portal link below. Labor you log on resolved tickets accrues to their payout balance.' });
     } catch { toast({ variant: 'destructive', title: 'Could not add worker' }); }
   };
   const workerLink = (w: any) => `${typeof window !== 'undefined' ? window.location.origin : ''}/maintain/${tenantId}?t=${w.token}`;
@@ -356,6 +470,18 @@ export function MaintenanceSection({
   const toggleWorker = async (w: any) => {
     try {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { active: w.active === false });
+    } catch { toast({ variant: 'destructive', title: 'Could not update' }); }
+  };
+  const setWorkerPayType = async (w: any, payType: 'payroll' | 'per_job') => {
+    if ((w.payType || 'per_job') === payType) return;
+    if (payType === 'payroll' && (w.unpaidLaborCents || 0) > 0) {
+      toast({ variant: 'destructive', title: 'Pay out their balance first', description: `${w.name} has $${((w.unpaidLaborCents || 0) / 100).toFixed(2)} of unpaid labor — settle it before switching to payroll.` });
+      return;
+    }
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { payType });
+      toast({ title: payType === 'payroll' ? `${w.name} → payroll` : `${w.name} → per-job`,
+        description: payType === 'payroll' ? 'Wages come from the Staff page — ticket labor is no longer accrued here.' : 'Labor on resolved tickets now accrues to a payout balance on this profile.' });
     } catch { toast({ variant: 'destructive', title: 'Could not update' }); }
   };
 
@@ -456,18 +582,38 @@ export function MaintenanceSection({
                           {t.status === 'open' && (
                             <button onClick={() => setStatus(t, 'in_progress')} className="h-9 px-3 rounded-xl bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Start</button>
                           )}
-                          <button onClick={() => { setResolveForId(resolveForId === t.id ? null : t.id); setCostDraft(''); }}
+                          <button onClick={() => { setResolveForId(resolveForId === t.id ? null : t.id); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null); }}
                             className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
                           <button onClick={() => setStatus(t, 'cancelled')} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
                         </div>
                         {resolveForId === t.id && (
-                          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2.5 flex gap-2 items-center flex-wrap">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Cost $</span>
-                            <input type="number" inputMode="decimal" min={0} value={costDraft} onChange={(e) => setCostDraft(e.target.value)}
-                              placeholder="0 if none" autoFocus className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
-                            <button onClick={() => setStatus(t, 'resolved', Math.round(Number(costDraft) * 100) || 0)}
-                              className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">
-                              Confirm resolve{Number(costDraft) > 0 ? ` · $${Number(costDraft).toFixed(0)} to ledger` : ''}
+                          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2.5 space-y-2">
+                            <div className="flex gap-2 items-center flex-wrap">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 w-20">Materials $</span>
+                              <input type="number" inputMode="decimal" min={0} value={costDraft} onChange={(e) => setCostDraft(e.target.value)}
+                                placeholder="0 if none" autoFocus className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
+                              <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-white ${receiptUrl ? 'border-emerald-400 text-emerald-700' : 'text-slate-500'}`}>
+                                {uploading ? '…' : receiptUrl ? 'Receipt ✓' : 'Receipt'}
+                                <input type="file" accept="image/*" className="hidden"
+                                  onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setReceiptUrl(url); } }} />
+                              </label>
+                            </div>
+                            <div className="flex gap-2 items-center flex-wrap">
+                              <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 w-20">Labor $</span>
+                              <input type="number" inputMode="decimal" min={0} value={laborDraft} onChange={(e) => setLaborDraft(e.target.value)}
+                                placeholder="0 if none" className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
+                              <span className="text-[9px] font-bold text-emerald-700/70">
+                                {(() => {
+                                  const w = workers.find((x: any) => x.id === t.assigneeId);
+                                  if (!w) return 'assign a worker to track labor';
+                                  return w.payType === 'payroll' ? `${w.name} is on payroll — wages cover labor` : `adds to ${w.name}'s payout balance`;
+                                })()}
+                              </span>
+                            </div>
+                            <button onClick={() => setStatus(t, 'resolved', Math.round(Number(costDraft) * 100) || 0, Math.round(Number(laborDraft) * 100) || 0, receiptUrl)}
+                              disabled={uploading}
+                              className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                              Confirm resolve{Number(costDraft) > 0 ? ` · $${Number(costDraft).toFixed(0)} materials to ledger` : ''}{Number(laborDraft) > 0 ? ` · $${Number(laborDraft).toFixed(0)} labor` : ''}
                             </button>
                           </div>
                         )}
@@ -566,7 +712,12 @@ export function MaintenanceSection({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {providers.filter((p: any) => !p.archived).map((p: any) => (
+            {providers.filter((p: any) => !p.archived).map((p: any) => {
+              // A provider promoted to the portal is backed by a worker doc —
+              // their job history and spend roll up here automatically.
+              const linked = workers.find((w: any) => w.providerId === p.id);
+              const lst = linked ? workerStats.get(linked.id) : null;
+              return (
               <div key={p.id} className="rounded-2xl border-2 p-3 space-y-1.5">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
@@ -577,6 +728,17 @@ export function MaintenanceSection({
                   </div>
                   <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0">{p.trade}</span>
                 </div>
+                {lst && (lst.resolvedAll > 0 || lst.open > 0) && (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                    {[
+                      lst.open > 0 ? `${lst.open} open` : null,
+                      `${lst.resolvedAll} job${lst.resolvedAll === 1 ? '' : 's'} done`,
+                      lst.onTimePct !== null ? `${lst.onTimePct}% on time` : null,
+                      lst.materialsCents > 0 ? `$${(lst.materialsCents / 100).toFixed(0)} materials` : null,
+                      (linked.unpaidLaborCents || 0) > 0 ? `owed $${((linked.unpaidLaborCents || 0) / 100).toFixed(0)}` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                )}
                 {p.notes && <p className="text-[11px] font-medium text-slate-500 whitespace-pre-wrap">{p.notes}</p>}
                 <div className="flex gap-1.5 items-center">
                   {p.phone && (
@@ -588,14 +750,19 @@ export function MaintenanceSection({
                   {p.email && (
                     <a href={`mailto:${p.email}`} title="Email" className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 hover:text-slate-900"><Mail className="h-4 w-4" /></a>
                   )}
-                  <button onClick={() => giveProviderPortal(p)} title="They get a portal link and can be assigned tickets"
-                    className="ml-auto h-9 px-2.5 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest shrink-0">
-                    Give portal
-                  </button>
+                  {linked ? (
+                    <span className="ml-auto h-9 px-2.5 rounded-xl bg-indigo-50 border-2 border-indigo-200 text-indigo-700 font-black uppercase text-[9px] tracking-widest shrink-0 flex items-center">Has portal</span>
+                  ) : (
+                    <button onClick={() => giveProviderPortal(p)} title="They get a portal link and can be assigned tickets"
+                      className="ml-auto h-9 px-2.5 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest shrink-0">
+                      Give portal
+                    </button>
+                  )}
                   <button onClick={() => removeProvider(p)} className="h-9 px-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2 shrink-0">Archive</button>
                 </div>
               </div>
-            ))}
+              );
+            })}
             <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Add a provider</p>
               <input value={provForm.company} onChange={(e) => setProvForm(f => ({ ...f, company: e.target.value }))} placeholder="Company *" className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
@@ -707,41 +874,154 @@ export function MaintenanceSection({
       </Dialog>
 
       {/* ── Workers roster ── */}
-      <Dialog open={workersOpen} onOpenChange={setWorkersOpen}>
-        <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
+      <Dialog open={workersOpen} onOpenChange={(o) => { setWorkersOpen(o); if (!o) setProfileWorkerId(null); }}>
+        <DialogContent className="max-w-md rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-black tracking-tight">Maintenance workers</DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-              Each gets a personal portal link — rotate it to revoke access
+              Each gets a personal portal link — tap a name for their full profile
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {workers.map((w: any) => (
-              <div key={w.id} className={`rounded-2xl border-2 p-3 space-y-2 ${w.active === false ? 'opacity-50' : ''}`}>
-                <div className="flex items-center gap-2">
-                  <p className="flex-1 min-w-0 text-sm font-black truncate">{w.name}</p>
-                  <button onClick={() => toggleWorker(w)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2 shrink-0">
-                    {w.active === false ? 'Reactivate' : 'Deactivate'}
-                  </button>
-                </div>
-                {w.phone && <p className="text-[10px] font-bold text-muted-foreground">{w.phone}{w.email ? ` · ${w.email}` : ''}</p>}
-                <div className="flex gap-2">
-                  {w.phone && (
-                    <a href={`sms:${w.phone}?&body=${encodeURIComponent(`Your maintenance portal for the studio — open tickets, add notes, mark resolved: ${workerLink(w)}`)}`}
-                      className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center">Text link</a>
-                  )}
-                  <button onClick={() => { try { navigator.clipboard.writeText(workerLink(w)); toast({ title: 'Link copied' }); } catch { /* select manually */ } }}
-                    className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">Copy link</button>
-                  <button onClick={() => rotateToken(w)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-red-500">Rotate</button>
-                </div>
+            {/* Rotation: one switch, honored by every ticket entry point */}
+            <div className={`rounded-2xl border-2 p-3 flex items-center gap-3 ${autoAssign ? 'border-indigo-300 bg-indigo-50' : ''}`}>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest">Auto-rotation</p>
+                <p className="text-[10px] font-bold text-muted-foreground">
+                  {autoAssign
+                    ? 'New tickets go to the least-recently-assigned active worker — renter reports, floor reports, scheduled plans, and tickets made here.'
+                    : 'Off — new tickets wait in the queue until you assign them.'}
+                </p>
               </div>
-            ))}
+              <button onClick={toggleRotation}
+                className={`h-9 px-3 rounded-xl font-black uppercase text-[9px] tracking-widest shrink-0 ${autoAssign ? 'bg-indigo-600 text-white' : 'border-2 text-slate-600'}`}>
+                {autoAssign ? 'On' : 'Turn on'}
+              </button>
+            </div>
+            {workers.map((w: any) => {
+              const st = workerStats.get(w.id) || { open: 0, resolved30: 0, resolvedAll: 0, onTimePct: null, avgHours: null, materialsCents: 0, overdueNow: 0, recent: [] };
+              const balance = Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0));
+              const onPayroll = w.payType === 'payroll';
+              const showProfile = profileWorkerId === w.id;
+              return (
+                <div key={w.id} className={`rounded-2xl border-2 overflow-hidden ${w.active === false ? 'opacity-50' : ''}`}>
+                  <button onClick={() => setProfileWorkerId(showProfile ? null : w.id)} className="w-full text-left p-3">
+                    <div className="flex items-center gap-2">
+                      <p className="flex-1 min-w-0 text-sm font-black truncate">{w.name}</p>
+                      {balance > 0 && <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700 shrink-0">Owed ${(balance / 100).toFixed(0)}</span>}
+                      {st.overdueNow > 0 && <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-red-100 text-red-700 shrink-0">{st.overdueNow} overdue</span>}
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">{onPayroll ? 'Payroll' : 'Per-job'}</span>
+                    </div>
+                    <p className="text-[10px] font-bold text-muted-foreground mt-0.5">
+                      {[w.phone, w.email, `${st.open} open`, `${st.resolved30} done in 30d`].filter(Boolean).join(' · ')}
+                    </p>
+                  </button>
+                  {showProfile && (
+                    <div className="border-t px-3 py-3 space-y-3">
+                      {/* KPIs from the ticket history — nothing entered by hand */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { label: 'Open now', value: String(st.open), tone: st.overdueNow > 0 ? 'text-red-600' : '' },
+                          { label: 'Done · 30d', value: String(st.resolved30) },
+                          { label: 'Done · all', value: String(st.resolvedAll) },
+                          { label: 'On time', value: st.onTimePct === null ? '—' : `${st.onTimePct}%`, tone: st.onTimePct !== null && st.onTimePct < 70 ? 'text-amber-600' : '' },
+                          { label: 'Avg turnaround', value: st.avgHours === null ? '—' : st.avgHours < 48 ? `${Math.round(st.avgHours)}h` : `${(st.avgHours / 24).toFixed(1)}d` },
+                          { label: 'Materials', value: `$${(st.materialsCents / 100).toFixed(0)}` },
+                        ].map((k) => (
+                          <div key={k.label} className="rounded-xl border-2 p-2 text-center">
+                            <p className={`text-base font-black leading-tight ${k.tone || ''}`}>{k.value}</p>
+                            <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Pay setup — payroll lives on the Staff page; per-job accrues here */}
+                      <div className="rounded-xl border-2 p-2.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <p className="flex-1 text-[9px] font-black uppercase tracking-widest text-muted-foreground">How they're paid</p>
+                          <div className="flex rounded-lg border-2 overflow-hidden">
+                            {(['per_job', 'payroll'] as const).map((pt) => (
+                              <button key={pt} onClick={() => setWorkerPayType(w, pt)}
+                                className={`h-7 px-2.5 text-[9px] font-black uppercase tracking-widest ${(w.payType || 'per_job') === pt ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                                {pt === 'per_job' ? 'Per job' : 'Payroll'}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {onPayroll ? (
+                          <p className="text-[10px] font-bold text-muted-foreground">Wages, hours, and payday run through the Staff page — labor on tickets is covered there, so nothing accrues here.</p>
+                        ) : balance > 0 ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-black text-amber-700">Unpaid labor: ${(balance / 100).toFixed(2)}</p>
+                            <div className="flex gap-1.5 flex-wrap">
+                              {['Cash', 'Zelle', 'Venmo', 'Check', 'Card'].map((mth) => (
+                                <button key={mth} onClick={() => setPayoutMethod(mth)}
+                                  className={`h-7 px-2.5 rounded-lg text-[9px] font-black uppercase tracking-widest ${payoutMethod === mth ? 'bg-slate-900 text-white' : 'border-2 text-slate-500'}`}>{mth}</button>
+                              ))}
+                            </div>
+                            <button onClick={() => payOutLabor(w)}
+                              className="w-full h-9 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">
+                              Pay ${(balance / 100).toFixed(2)} · {payoutMethod} → Contract Labor
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] font-bold text-muted-foreground">No unpaid labor. Log a Labor $ when resolving their tickets and it accrues here for one-tap payout.</p>
+                        )}
+                        {Array.isArray(w.laborPayments) && w.laborPayments.length > 0 && (
+                          <div className="space-y-0.5 pt-1 border-t">
+                            {w.laborPayments.slice(-3).reverse().map((p: any, i: number) => (
+                              <p key={i} className="text-[10px] font-bold text-muted-foreground">Paid ${(p.amountCents / 100).toFixed(2)}{p.method ? ` · ${p.method}` : ''} · {fmtWhen(p.at)}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Recent activity */}
+                      {st.recent.length > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Recent jobs</p>
+                          {st.recent.map((t: any) => (
+                            <div key={t.id} className="flex items-center gap-2 text-[11px] font-medium text-slate-600">
+                              <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${t.status === 'resolved' ? 'bg-emerald-500' : t.status === 'cancelled' ? 'bg-slate-300' : isTicketOverdue(t) ? 'bg-red-500' : 'bg-amber-500'}`} />
+                              <span className="flex-1 min-w-0 truncate">{t.title}{t.boothName ? ` · ${t.boothName}` : ''}</span>
+                              <span className="text-[9px] font-bold text-slate-400 shrink-0">{fmtWhen(t.resolvedAt || t.updatedAt || t.createdAt)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {/* Access */}
+                      <div className="flex gap-2">
+                        {w.phone && (
+                          <a href={`sms:${w.phone}?&body=${encodeURIComponent(`Your maintenance portal for the studio — open tickets, add notes, mark resolved: ${workerLink(w)}`)}`}
+                            className="flex-1 h-9 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center">Text link</a>
+                        )}
+                        <button onClick={() => { try { navigator.clipboard.writeText(workerLink(w)); toast({ title: 'Link copied' }); } catch { /* select manually */ } }}
+                          className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">Copy link</button>
+                        <button onClick={() => rotateToken(w)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-red-500">Rotate</button>
+                      </div>
+                      <button onClick={() => toggleWorker(w)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
+                        {w.active === false ? 'Reactivate' : 'Deactivate'} {w.name}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Add a worker</p>
               <input value={wForm.name} onChange={(e) => setWForm(f => ({ ...f, name: e.target.value }))} placeholder="Name *" className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
               <div className="grid grid-cols-2 gap-2">
                 <input value={wForm.phone} onChange={(e) => setWForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone" className="h-10 rounded-xl border-2 px-3 text-sm font-medium" />
                 <input value={wForm.email} onChange={(e) => setWForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+              </div>
+              <div className="flex rounded-xl border-2 overflow-hidden">
+                {([
+                  { v: 'per_job', label: 'Per job — pay per ticket' },
+                  { v: 'payroll', label: 'Payroll — wages via Staff page' },
+                ] as const).map((pt) => (
+                  <button key={pt.v} onClick={() => setWForm(f => ({ ...f, payType: pt.v }))}
+                    className={`flex-1 h-10 text-[9px] font-black uppercase tracking-widest px-2 ${wForm.payType === pt.v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>
+                    {pt.label}
+                  </button>
+                ))}
               </div>
               <button onClick={addWorker} disabled={!wForm.name.trim()} className="w-full h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">Add worker</button>
             </div>
