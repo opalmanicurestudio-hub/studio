@@ -167,6 +167,8 @@ import {
   Phone,
   Mail,
   MessageCircle,
+  CreditCard,
+  Ticket,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -1262,7 +1264,7 @@ function BoothCanvasCard({
         )}
         {!lensMode && booth.status === 'maintenance' && (booth as any).maintenanceNote && (
           <span className="text-[10px] font-bold leading-tight truncate mb-1" style={{ color: colors.text }}>
-            🛠 {(booth as any).maintenanceNote}
+            <Wrench className="h-3 w-3 inline mr-1 -mt-0.5" />{(booth as any).maintenanceNote}
           </span>
         )}
 
@@ -1420,7 +1422,7 @@ function DetailPanel({
 
         {booth.status === 'maintenance' && (booth as any).maintenanceNote && (
           <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3">
-            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">🛠 Down for maintenance</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 flex items-center gap-1"><Wrench className="h-3 w-3" /> Down for maintenance</p>
             <p className="text-xs font-bold text-amber-800 mt-0.5">{(booth as any).maintenanceNote}</p>
             {(booth as any).maintenanceReportedAt && (
               <p className="text-[9px] font-bold text-amber-600 mt-0.5">since {String((booth as any).maintenanceReportedAt).slice(0, 10)}</p>
@@ -1445,7 +1447,7 @@ function DetailPanel({
             ) : (
               onReportIssue && (
                 <button onClick={() => onReportIssue(booth)} className="w-full h-10 rounded-2xl border-2 border-amber-300 text-amber-700 hover:bg-amber-50 font-black uppercase text-[9px] tracking-widest transition-colors">
-                  🛠 Report an issue
+                  <Wrench className="h-3.5 w-3.5 inline mr-1 -mt-0.5" />Report an issue
                 </button>
               )
             )
@@ -1556,7 +1558,7 @@ function ContactProfileDrawer({
                     const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', repeat: 'Regular' };
                     return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${S[contact.stage] || 'bg-white/10 text-white/60'}`}>{L[contact.stage] || 'Contact'}</span>;
                   })()}
-                  {contact.tier === 'regular' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">🔥 Lease-ready</span>}
+                  {contact.tier === 'regular' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">Lease-ready</span>}
                   {contact.lastRating && <span className="text-amber-300 text-[10px]">{'★'.repeat(contact.lastRating)}</span>}
                 </div>
               </div>
@@ -1913,7 +1915,7 @@ function RenterProfileDrawer({
                   <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
                   {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
                   {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">✓ W-9</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">⚠ W-9</span> : null}
-                  {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">💳 Card</span>}
+                  {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">Card on file</span>}
                 </div>
               </div>
             </div>
@@ -1969,7 +1971,7 @@ function RenterProfileDrawer({
                 const comp = complianceOf(renter as any);
                 const STYLE: Record<string, string> = { ok: 'text-emerald-600', expiring: 'text-amber-600', expired: 'text-red-600', missing: 'text-slate-400' };
                 const WORD: Record<string, (d: string) => string> = {
-                  ok: d => `valid · exp ${d}`, expiring: d => `⚠ expires ${d}`, expired: d => `🔴 EXPIRED ${d}`, missing: () => 'no expiry on file',
+                  ok: d => `valid · exp ${d}`, expiring: d => `expires ${d}`, expired: d => `EXPIRED ${d}`, missing: () => 'no expiry on file',
                 };
                 return (
                   <div className={`rounded-2xl border-2 p-4 space-y-1.5 ${comp.worst === 'ok' || comp.worst === 'none' ? '' : comp.worst === 'expiring' ? 'border-amber-200 bg-amber-50/50' : 'border-red-200 bg-red-50/50'}`}>
@@ -2081,16 +2083,16 @@ function RenterProfileDrawer({
               <div className="grid grid-cols-2 gap-2">
                 {onRecordPayment && (
                   <button onClick={onRecordPayment} className="h-11 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest transition-colors">
-                    💵 Record payment
+                    Record payment
                   </button>
                 )}
                 {(renter as any).cardOnFile ? (
-                  <div className="h-11 rounded-2xl border-2 border-emerald-200 bg-emerald-50 flex items-center justify-center text-[9px] font-black uppercase tracking-widest text-emerald-700">
-                    💳 {(renter as any).cardBrand || 'Card'} ····{(renter as any).cardLast4 || ''}
+                  <div className="h-11 rounded-2xl border-2 border-emerald-200 bg-emerald-50 flex items-center justify-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-emerald-700">
+                    <CreditCard className="h-3.5 w-3.5" /> {(renter as any).cardBrand || 'Card'} ····{(renter as any).cardLast4 || ''}
                   </div>
                 ) : onAddCard ? (
-                  <button onClick={onAddCard} className="h-11 rounded-2xl border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-black uppercase text-[9px] tracking-widest transition-colors">
-                    💳 Add card on file
+                  <button onClick={onAddCard} className="h-11 rounded-2xl border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-black uppercase text-[9px] tracking-widest transition-colors flex items-center justify-center gap-1.5">
+                    <CreditCard className="h-3.5 w-3.5" /> Add card on file
                   </button>
                 ) : null}
               </div>
@@ -2282,6 +2284,17 @@ function PerkRow({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// ── Zone label — quiet group headers that give long tabs a visible
+// table of contents (Pipeline / Today / Directory / Collections…). ──
+function ZoneLabel({ children }: { children: any }) {
+  return (
+    <div className="flex items-center gap-3 pt-3">
+      <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 shrink-0">{children}</p>
+      <div className="h-px flex-1 bg-slate-200" />
+    </div>
+  );
+}
+
 // ── Renter booking perks (owner setting) ─────────────────────────────
 // One number: the % off resident renters automatically get on day/hourly
 // bookings made through the public booking page (0 = off). Enforced
@@ -2343,7 +2356,7 @@ function DayPassPacksSetting({ firestore, tenantId, initial }: { firestore: any;
   };
   return (
     <div className="rounded-2xl border-2 p-4 space-y-2 mt-4">
-      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">🎟 Day-pass packs</p>
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Day-pass packs</p>
       <p className="text-xs font-medium text-slate-600">Prepaid bundles you sell in person (Money tab → Sell pass). Bookings redeem days automatically — cash up front, loyalty built in.</p>
       {rows.map((r, i) => (
         <div key={i} className="flex gap-2 items-center">
@@ -3666,7 +3679,7 @@ export default function BoothsPage() {
       items.push({
         kind: 'nocard',
         text: `${rt.firstName} ${rt.lastName} has no card on file — auto-collect can't run`,
-        actionLabel: '💳 Set up', run: () => startCardSetup(rt),
+        actionLabel: 'Send link', run: () => startCardSetup(rt),
       });
     }
     for (const b of (booths.data || [])) {
@@ -3760,33 +3773,36 @@ export default function BoothsPage() {
         amount: cents / 100, actor: auditActor,
       }) });
       await batch.commit();
-      logContactEvent(firestore, tenantId, sellPerson, `🎟 Bought ${days}-day pass — $${(cents / 100).toFixed(2)} (${sellMethod})`).catch(() => {});
-      toast({ title: 'Pass sold 🎟', description: `${days} days on file for ${sellPerson.name || 'guest'} — their bookings redeem automatically, no charge.` });
+      logContactEvent(firestore, tenantId, sellPerson, `Bought ${days}-day pass — $${(cents / 100).toFixed(2)} (${sellMethod})`).catch(() => {});
+      toast({ title: 'Pass sold', description: `${days} days on file for ${sellPerson.name || 'guest'} — their bookings redeem automatically, no charge.` });
       setSellPassOpen(false); setSellPerson(null); setSellQuery('');
     } catch { toast({ variant: 'destructive', title: 'Could not sell pass', description: 'Nothing was saved — try again.' }); }
     finally { setSellSaving(false); }
   };
 
-  // ── 💳 Card on file for every renter ─────────────────────────────────
-  // Opens Stripe's hosted setup page (and copies the link so you can text
-  // it). On return, the ?cfSetupSession params confirm + store the card.
+  // ── Card on file for every renter ────────────────────────────────────
+  // Generates the Stripe hosted setup link, then opens a SEND dialog: text
+  // it, email it, copy it, or open it here (hand them your phone). On
+  // return, the ?cfSetupSession params confirm + store the card.
+  const [cardLink, setCardLink] = useState<{ url: string; renter: any; copied?: boolean } | null>(null);
+  const [cardLinkBusy, setCardLinkBusy] = useState(false);
   const startCardSetup = async (rt: any) => {
-    if (!tenantId || !rt?.id) return;
+    if (!tenantId || !rt?.id || cardLinkBusy) return;
+    setCardLinkBusy(true);
     try {
       const res = await fetch('/api/booths/setup-card', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenantId, renterId: rt.id, returnUrl: window.location.href }),
       });
       const d = await res.json();
-      if (d.ok && d.url) {
-        try { await navigator.clipboard.writeText(d.url); } catch { /* clipboard optional */ }
-        window.open(d.url, '_blank');
-        toast({ title: 'Card setup opened', description: 'Link copied too — text it to the renter, or hand them your phone to enter their card.' });
-      } else {
-        toast({ variant: 'destructive', title: 'Could not start card setup', description: d.error || 'Check the Stripe configuration.' });
-      }
+      if (d.ok && d.url) setCardLink({ url: d.url, renter: rt });
+      else toast({ variant: 'destructive', title: 'Could not create the setup link', description: d.error || 'Check the Stripe configuration.' });
     } catch { toast({ variant: 'destructive', title: 'Network error', description: 'Try again.' }); }
+    finally { setCardLinkBusy(false); }
   };
+  const cardLinkMessage = cardLink
+    ? `Hi ${cardLink.renter.firstName || ''}! Please add a card on file for ${(selectedTenant as any)?.name || 'the studio'} — it takes a minute and covers your rent autopay: ${cardLink.url}`
+    : '';
   // Returning from Stripe card setup — confirm & store, then clean the URL.
   useEffect(() => {
     if (typeof window === 'undefined' || !tenantId) return;
@@ -5587,7 +5603,7 @@ export default function BoothsPage() {
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
           {/* ── Mobile jump bar — thumb-reach navigation for a long page ── */}
           <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
-            {([['ops-tours', '🚶 Tours'], ['ops-apps', '📋 Applications'], ['ops-rentals', '⚡ Rentals'], ['ops-people', '👥 People']] as const).map(([id, label]) => (
+            {([['ops-tours', 'Tours'], ['ops-apps', 'Applications'], ['ops-rentals', 'Rentals'], ['ops-people', 'People']] as const).map(([id, label]) => (
               <button key={id}
                 onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
                 className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
@@ -5619,6 +5635,8 @@ export default function BoothsPage() {
               ))}
             </div>
           )}
+
+          <ZoneLabel>Pipeline — new business</ZoneLabel>
 
           {/* Tour scorecard */}
           <div id="ops-tours" className="space-y-3 scroll-mt-14">
@@ -5708,7 +5726,7 @@ export default function BoothsPage() {
                       <div className="min-w-0">
                         <p className="font-black text-sm uppercase truncate">{app.name}</p>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                          {app.kind === 'tour' ? '🗓 Tour request' : app.kind === 'question' ? '💬 Question' : app.kind === 'waitlist' ? '⏳ Waitlist' : app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'}
+                          {app.kind === 'tour' ? 'Tour request' : app.kind === 'question' ? 'Question' : app.kind === 'waitlist' ? 'Waitlist' : app.rentalType === 'lease' ? 'Monthly lease' : 'Hourly / daily'}
                           {' · '}{app.boothName || 'Any booth'}{app.specialty ? ` · ${app.specialty}` : ''}
                         </p>
                       </div>
@@ -5782,6 +5800,8 @@ export default function BoothsPage() {
             </div>
           )}
 
+          {upcomingReservations.length > 0 && <ZoneLabel>Today on the floor</ZoneLabel>}
+
           {upcomingReservations.length > 0 && (
             <div id="ops-rentals" className="space-y-3 scroll-mt-14">
               <div className="flex items-center gap-2">
@@ -5813,10 +5833,10 @@ export default function BoothsPage() {
                       <p className="text-[10px] font-black uppercase text-red-600">⚠ Refund needed · {r.stripePaymentIntentId || ''}</p>
                     )}
                     {r.status === 'cancel_requested' && (
-                      <p className="text-[10px] font-black uppercase text-amber-700">🚫 Guest requested cancellation{r.cancelReason ? ` · "${r.cancelReason}"` : ''}</p>
+                      <p className="text-[10px] font-black uppercase text-amber-700">Cancellation requested{r.cancelReason ? ` · "${r.cancelReason}"` : ''}</p>
                     )}
                     {r.noShow && (
-                      <p className="text-[10px] font-black uppercase text-red-600">👻 No-show — never checked in</p>
+                      <p className="text-[10px] font-black uppercase text-red-600">No-show — never checked in</p>
                     )}
                     {(r.licenseNumber || r.insuranceConfirmed || r.idAcknowledged || r.doingServices || r.licenseDocUrl || r.insuranceDocUrl || r.idDocUrl) && (
                       <div className="text-[10px] font-black uppercase text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -5838,17 +5858,17 @@ export default function BoothsPage() {
                     )}
                     {r.balanceDueCents > 0 && !r.balancePaid && (
                       <p className="text-[10px] font-black uppercase text-amber-600">
-                        💰 Deposit ${((r.depositCents || 0) / 100).toFixed(0)} paid · balance ${((r.balanceDueCents || 0) / 100).toFixed(2)} {r.balanceMode === 'at_checkin' ? 'at check-in' : 'due in person'}
+                        Deposit ${((r.depositCents || 0) / 100).toFixed(0)} paid · balance ${((r.balanceDueCents || 0) / 100).toFixed(2)} {r.balanceMode === 'at_checkin' ? 'at check-in' : 'due in person'}
                       </p>
                     )}
                     {r.status === 'checked_in' && r.actualCheckIn && (
                       <p className="text-[10px] font-black uppercase text-indigo-700">
-                        ⏱ In since {new Date(r.actualCheckIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                        In since {new Date(r.actualCheckIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                         {r.bookingType === 'hourly' && r.endTime ? ` · booked until ${r.endTime}` : ''}
                       </p>
                     )}
                     {r.overageStatus === 'due' && (
-                      <p className="text-[10px] font-black uppercase text-red-600">⏱ Ran {r.overageMinutes} min over · ${((r.overageDueCents || 0) / 100).toFixed(2)} due</p>
+                      <p className="text-[10px] font-black uppercase text-red-600">Ran {r.overageMinutes} min over · ${((r.overageDueCents || 0) / 100).toFixed(2)} due</p>
                     )}
                     {r.creditDecision === 'pending' && r.potentialCreditCents > 0 && (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 space-y-1.5">
@@ -5863,7 +5883,7 @@ export default function BoothsPage() {
                       <p className="text-[10px] font-black uppercase text-emerald-600">✓ ${(r.creditIssuedCents / 100).toFixed(2)} credit issued — auto-applies to their next booking</p>
                     )}
                     {r.rescheduleRequestedAt && r.status === 'confirmed' && (
-                      <p className="text-[10px] font-black uppercase text-indigo-600">⏱ Renter asked to reschedule{r.rescheduleRequestNote ? ` — “${r.rescheduleRequestNote}”` : ''}</p>
+                      <p className="text-[10px] font-black uppercase text-indigo-600">Reschedule requested{r.rescheduleRequestNote ? ` — “${r.rescheduleRequestNote}”` : ''}</p>
                     )}
                     <div className="flex gap-2 items-center">
                       {/* PRIMARY action — one clear next step for this reservation's state */}
@@ -5932,6 +5952,8 @@ export default function BoothsPage() {
               are the same humans at different stages of one journey, so they
               live in ONE searchable list. Filter chips slice it; renters get
               the full management card, everyone else a contact card. ── */}
+          <ZoneLabel>Directory</ZoneLabel>
+
           <div id="ops-people" className="space-y-3 scroll-mt-14">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xs font-black uppercase tracking-widest">People</h2>
@@ -5947,7 +5969,7 @@ export default function BoothsPage() {
                 className="h-9 w-full sm:w-60 rounded-xl border-2 px-3 text-sm font-medium"
               />
               <div className="flex gap-1 p-1 bg-white rounded-xl border overflow-x-auto max-w-full">
-                {([['all', 'All'], ['monthly', '🏠 Monthly'], ['day', '⚡ Day & hourly'], ['prospects', '✨ Prospects'], ['attention', '🔴 Attention']] as const).map(([id, label]) => (
+                {([['all', 'All'], ['monthly', 'Monthly'], ['day', 'Day & hourly'], ['prospects', 'Prospects'], ['attention', 'Attention']] as const).map(([id, label]) => (
                   <button
                     key={id}
                     onClick={() => setPeopleFilter(id)}
@@ -5958,9 +5980,13 @@ export default function BoothsPage() {
                 ))}
               </div>
             </div>
-            {/* One status language, explained once */}
-            <p className="text-[9px] font-bold text-muted-foreground">
-              🟢 active · 🌙 quiet 60+ days · 🔴 needs attention · ⚪ new — everyone's a renter, just monthly 🏠, day/hourly ⚡, or not yet ✨
+            {/* One status language, explained once — colored dots, no emoji */}
+            <p className="text-[9px] font-bold text-muted-foreground flex items-center gap-x-2 gap-y-1 flex-wrap">
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" /> active</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-slate-400 inline-block" /> quiet 60+ days</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> needs attention</span>
+              <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-sky-400 inline-block" /> new</span>
+              <span className="text-slate-400">— everyone's a renter: monthly, day/hourly, or prospect</span>
             </p>
             {renters.isLoading && peopleShown.length === 0 ? (
               <p className="text-xs text-muted-foreground py-3">Loading people…</p>
@@ -5975,14 +6001,14 @@ export default function BoothsPage() {
                   const openProfile = () => { if (rtLinked) setProfileRenter(rtLinked); else setProfileContact(g); };
                   const photo = g.photoUrl || (rtLinked as any)?.avatarUrl || null;
                   const DOT: Record<string, string> = { attention: 'bg-red-500', active: 'bg-emerald-500', quiet: 'bg-slate-400', new: 'bg-sky-400', past: 'bg-slate-300' };
-                  const MODE: Record<string, string> = { monthly: '🏠', day: '⚡', prospect: '✨' };
+                  const MODE: Record<string, string> = { monthly: 'Monthly', day: 'Day', prospect: 'Prospect' };
                   // ONE info line — the single most useful fact for this person.
                   const infoLine = rtLinked
                     ? (lease && booth
                         ? `${booth.name} · ${formatCents(lease.rentAmountCents)}/${lease.frequency}${g.standing === 'attention' ? ' · owes / expired docs' : ''}`
                         : 'No space assigned yet')
                     : g.visits > 0
-                      ? `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}${g.standing === 'quiet' ? ' · worth a hello 👋' : ''}`
+                      ? `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}${g.standing === 'quiet' ? ' · worth a win-back text' : ''}`
                       : `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''}${g.nextFollowUpAt ? ` · follow up ${g.nextFollowUpAt}` : ''}`;
                   return (
                     <div key={g.key} className="rounded-2xl border-2 bg-white px-3.5 py-3 flex items-center gap-3">
@@ -5995,9 +6021,14 @@ export default function BoothsPage() {
                       </button>
                       <button onClick={openProfile} className="flex-1 min-w-0 text-left">
                         <p className="text-sm font-black truncate">
-                          {g.name} <span className="text-xs">{MODE[g.mode] || ''}</span>
-                          {g.tier === 'regular' && !g.isRenter && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">🔥</span>}
-                          {passLeftFor(g.phone, g.email) > 0 && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-violet-100 text-violet-700">🎟 {passLeftFor(g.phone, g.email)}</span>}
+                          {g.name}
+                          <span className="ml-1.5 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-500">{MODE[g.mode] || ''}</span>
+                          {g.tier === 'regular' && !g.isRenter && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">Lease-ready</span>}
+                          {passLeftFor(g.phone, g.email) > 0 && (
+                            <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-violet-100 text-violet-700 inline-flex items-center gap-0.5">
+                              <Ticket className="h-2.5 w-2.5" /> {passLeftFor(g.phone, g.email)}
+                            </span>
+                          )}
                           {g.lastRating && <span className="ml-1 text-amber-500 text-[10px]">{'★'.repeat(g.lastRating)}</span>}
                         </p>
                         <p className="text-[10px] font-bold text-muted-foreground truncate">{infoLine}</p>
@@ -6075,6 +6106,8 @@ export default function BoothsPage() {
             </div>
           </div>
 
+          <ZoneLabel>Collections</ZoneLabel>
+
           {/* ── RENT ROLL (v78): every active lease, collection status ── */}
           {rentRoll.length > 0 && (
             <div className="space-y-2">
@@ -6097,11 +6130,11 @@ export default function BoothsPage() {
                           {formatCents(l.rentAmountCents)}/{l.frequency}
                           {l.autoCollect ? ` · auto day ${l.dueDay ?? '1'}` : ''}
                           {lastPaid ? ` · last paid ${lastPaid.dueDate}` : ''}
-                          {(rt as any)?.cardOnFile ? ' · 💳' : ' · no card'}
+                          {(rt as any)?.cardOnFile ? ' · card on file' : ' · no card'}
                         </p>
                       </div>
                       {l.status === 'pending_signature' ? (
-                        <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 bg-indigo-100 text-indigo-700 shrink-0">✍️ Signature</span>
+                        <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 bg-indigo-100 text-indigo-700 shrink-0">Awaiting signature</span>
                       ) : open ? (
                         <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 shrink-0 ${open.status === 'late' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                           {open.status === 'late' ? `Late · $${(owedCents / 100).toFixed(0)}` : `Due ${open.dueDate?.slice(5)}`}
@@ -6144,7 +6177,9 @@ export default function BoothsPage() {
             </div>
           )}
 
-          {/* ── 🎟 DAY PASSES — prepaid bundles: cash today, loyalty tomorrow ── */}
+          <ZoneLabel>Products</ZoneLabel>
+
+          {/* ── DAY PASSES — prepaid bundles: cash today, loyalty tomorrow ── */}
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-black uppercase tracking-widest">Day passes</h2>
@@ -6159,7 +6194,7 @@ export default function BoothsPage() {
               </button>
             </div>
             {dayPasses.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Sell prepaid day bundles (e.g. 10 days for the price of 9) — cash up front, and their bookings redeem automatically with no charge. Your regulars 🔥 are the perfect first offer.</p>
+              <p className="text-xs text-muted-foreground">Sell prepaid day bundles (e.g. 10 days for the price of 9) — cash up front, and their bookings redeem automatically with no charge. Your regulars are the perfect first offer.</p>
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {dayPasses
@@ -6172,7 +6207,7 @@ export default function BoothsPage() {
                     return (
                       <div key={p.id} className={`rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-1.5 ${p.status !== 'active' ? 'opacity-60' : ''}`}>
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-black truncate">🎟 {p.name || 'Guest'}</p>
+                          <p className="text-xs font-black truncate flex items-center gap-1"><Ticket className="h-3 w-3 text-violet-500 shrink-0" /> {p.name || 'Guest'}</p>
                           <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${p.status === 'active' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500'}`}>
                             {p.status === 'active' ? `${left} left` : 'Used up'}
                           </span>
@@ -6190,6 +6225,8 @@ export default function BoothsPage() {
             )}
           </div>
 
+
+          {reviewStats && <ZoneLabel>Reputation</ZoneLabel>}
 
           {/* ── Reviews (v83) ── */}
           {reviewStats && (
@@ -7137,7 +7174,7 @@ export default function BoothsPage() {
       <Dialog open={sellPassOpen} onOpenChange={(o) => { if (!o) setSellPassOpen(false); }}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">🎟 Sell a day pass</DialogTitle>
+            <DialogTitle className="text-lg font-black tracking-tight">Sell a day pass</DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               Prepaid days · redeems automatically when they book
             </DialogDescription>
@@ -7207,11 +7244,53 @@ export default function BoothsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Send card-setup link to a renter ── */}
+      <Dialog open={!!cardLink} onOpenChange={(o) => { if (!o) setCardLink(null); }}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black tracking-tight">Card setup link</DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              {cardLink?.renter?.firstName} {cardLink?.renter?.lastName} — Stripe hosted, expires in 24h
+            </DialogDescription>
+          </DialogHeader>
+          {cardLink && (
+            <div className="space-y-2.5">
+              <input readOnly value={cardLink.url} onFocus={(e) => e.currentTarget.select()}
+                className="w-full h-10 rounded-xl border-2 px-3 text-[11px] font-mono bg-slate-50 truncate" />
+              <div className="grid grid-cols-2 gap-2">
+                {cardLink.renter.phone && (
+                  <a href={`sms:${cardLink.renter.phone}?&body=${encodeURIComponent(cardLinkMessage)}`}
+                    className="h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center gap-1.5">
+                    <MessageCircle className="h-3.5 w-3.5" /> Text it
+                  </a>
+                )}
+                {cardLink.renter.email && (
+                  <a href={`mailto:${cardLink.renter.email}?subject=${encodeURIComponent('Add a card on file')}&body=${encodeURIComponent(cardLinkMessage)}`}
+                    className="h-11 rounded-2xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center gap-1.5">
+                    <Mail className="h-3.5 w-3.5" /> Email it
+                  </a>
+                )}
+                <button
+                  onClick={() => { try { navigator.clipboard.writeText(cardLink.url); setCardLink(c => c ? { ...c, copied: true } : c); } catch { /* select the field instead */ } }}
+                  className="h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">
+                  {cardLink.copied ? 'Copied' : 'Copy link'}
+                </button>
+                <button onClick={() => window.open(cardLink.url, '_blank')}
+                  className="h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">
+                  Open here
+                </button>
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">When they finish, the card appears on their profile automatically and rent auto-collect can run.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* ── Report an issue (maintenance) ── */}
       <Dialog open={!!maintFor} onOpenChange={(o) => { if (!o) setMaintFor(null); }}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-lg font-black tracking-tight">🛠 Report an issue</DialogTitle>
+            <DialogTitle className="text-lg font-black tracking-tight">Report an issue</DialogTitle>
             <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
               {maintFor?.name} — marks it down for maintenance
             </DialogDescription>
