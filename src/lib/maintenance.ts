@@ -63,6 +63,29 @@ export interface MaintenanceWorker {
   token: string;                       // portal auth — rotate to revoke
   active: boolean;
   createdAt: string;
+  // ── Pay & payroll integration ──────────────────────────────────────
+  // 'payroll'  — an employee: wages, timesheets, and payday live on the
+  //              Staff page (the existing payroll system). Ticket labor
+  //              is NOT accrued here — it's covered by their wages.
+  // 'per_job'  — a contractor paid per ticket: labor entered at resolve
+  //              accrues to unpaidLaborCents until the owner pays it out
+  //              (one tap → 'Contract Labor' expense in the ledger).
+  payType?: 'payroll' | 'per_job';
+  unpaidLaborCents?: number;
+  laborPayments?: { at: string; amountCents: number; method?: string }[];
+  // Round-robin cursor — auto-rotation assigns the least-recently-assigned
+  // active worker. Bumped on every assignment (manual or automatic).
+  lastAssignedAt?: string | null;
+  providerId?: string | null;          // set when promoted from the directory
+}
+
+// Round-robin pick: least-recently-assigned ACTIVE worker. Pure — both the
+// client (owner-created tickets) and the server (renter/plan tickets) use
+// this same function so rotation order can never diverge.
+export function pickRotationWorker<T extends { active?: boolean; lastAssignedAt?: string | null }>(workers: T[]): T | null {
+  const active = (workers || []).filter(w => w.active !== false);
+  if (active.length === 0) return null;
+  return active.slice().sort((a, b) => String(a.lastAssignedAt || '').localeCompare(String(b.lastAssignedAt || '')))[0];
 }
 
 // ── Preventive maintenance plan — recurring work that opens its own
