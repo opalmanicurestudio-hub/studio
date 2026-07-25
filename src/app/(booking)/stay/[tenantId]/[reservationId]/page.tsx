@@ -1,13 +1,17 @@
 'use client';
 
-// src/app/stay/[tenantId]/[reservationId]/page.tsx  (or wrap <StayPage/> there)
+// src/app/(booking)/stay/[tenantId]/[reservationId]/page.tsx
 //
-// Public "your stay" page for a day/hourly booth guest. Phone-gated (last 4
-// digits of the number on the booking), then:
+// Public "your stay" page for a day/hourly booth guest — their ONE link for
+// the whole visit. Phone-gated (last 4 digits of the number on the booking),
+// then:
 //   1) shows the booking details,
 //   2) has the guest TYPE-SIGN the Short-Term Rental Agreement (the same
-//      terms + incidentals caps the online booking flow uses), and
-//   3) optionally captures an emergency contact.
+//      terms + incidentals caps the online booking flow uses),
+//   3) optionally captures an emergency contact,
+//   4) lets an upcoming guest REQUEST a cancellation (owner decides —
+//      refunds are money, never auto-issued), and
+//   5) lets a checked-in/finished guest rate their stay.
 //
 // The signature is snapshotted server-side to the write-once signedDocuments
 // legal store (see /api/booths/kiosk → stay-onboard). A guest who already
@@ -94,6 +98,18 @@ export function StayPage(props: StayPageProps = {}) {
   const [signing, setSigning] = useState(false);
   const [done, setDone] = useState(false);
 
+  // Rate-your-stay (kiosk action 'stay-review')
+  const [stars, setStars] = useState(0);
+  const [reviewText, setReviewText] = useState('');
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
+
+  // Cancellation request (kiosk action 'stay-cancel' — owner reviews & refunds)
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelRequested, setCancelRequested] = useState(false);
+
   const digitsOnly = (s: string) => s.replace(/\D/g, '');
 
   const lookUp = async () => {
@@ -145,6 +161,47 @@ export function StayPage(props: StayPageProps = {}) {
     } finally { setSigning(false); }
   };
 
+  const submitReview = async () => {
+    if (!booking || !(stars >= 1) || reviewBusy) return;
+    setReviewBusy(true); setError('');
+    try {
+      const res = await fetch('/api/booths/kiosk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'stay-review', tenantId, reservationId,
+          phoneLast4: digitsOnly(last4).slice(-4),
+          rating: stars, reviewText: reviewText.trim(),
+        }),
+      });
+      const d = await res.json();
+      if (!d.ok) { setError(d.error || 'We couldn\'t save your review — please try again.'); setReviewBusy(false); return; }
+      setReviewed(true);
+      setBooking(b => b ? { ...b, rating: stars } : b);
+    } catch {
+      setError('Network error — please try again.');
+    } finally { setReviewBusy(false); }
+  };
+
+  const requestCancel = async () => {
+    if (!booking || cancelBusy) return;
+    setCancelBusy(true); setError('');
+    try {
+      const res = await fetch('/api/booths/kiosk', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'stay-cancel', tenantId, reservationId,
+          phoneLast4: digitsOnly(last4).slice(-4),
+          reason: cancelReason.trim(),
+        }),
+      });
+      const d = await res.json();
+      if (!d.ok) { setError(d.error || 'We couldn\'t send that — please try again.'); setCancelBusy(false); return; }
+      setCancelRequested(true); setCancelOpen(false);
+    } catch {
+      setError('Network error — please try again.');
+    } finally { setCancelBusy(false); }
+  };
+
   // ── Gate: phone last-4 ──────────────────────────────────────────────
   if (phase === 'gate') {
     return (
@@ -178,16 +235,22 @@ export function StayPage(props: StayPageProps = {}) {
     );
   }
 
-  // ── View: details + sign ────────────────────────────────────────────
+  // ── View: details + sign + review + cancel ──────────────────────────
   const b = booking!;
   const alreadySigned = !!b.agreementSignedAt || done;
+  const cancelPending = cancelRequested || b.status === 'cancel_requested';
+  const stayStartedOrDone = ['checked_in', 'completed'].includes(b.status);
+  const canRequestCancel = b.status === 'confirmed' && !cancelPending;
+  const hasReviewed = reviewed || Number(b.rating) >= 1;
 
   return (
     <Shell studioName={studioName}>
       <div className="space-y-5">
         <div>
           <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Hi {b.firstName} 👋</p>
-          <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 mt-0.5">You're booked</h1>
+          <h1 className="text-xl font-black uppercase tracking-tight text-slate-900 mt-0.5">
+            {stayStartedOrDone ? 'Your stay' : "You're booked"}
+          </h1>
         </div>
 
         {/* Booking summary */}
@@ -197,14 +260,23 @@ export function StayPage(props: StayPageProps = {}) {
           {b.amountCents ? <Row label="Paid" value={`$${(b.amountCents / 100).toFixed(2)}`} /> : null}
         </div>
 
-        {alreadySigned ? (
+        {cancelPending && (
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-black uppercase tracking-tight text-amber-700">Cancellation requested</p>
+            <p className="text-[12px] font-semibold text-amber-800 leading-snug mt-1">
+              The studio will review your request and follow up about your refund. Nothing else to do here.
+            </p>
+          </div>
+        )}
+
+        {!cancelPending && (alreadySigned ? (
           <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-2">
             <div className="flex items-center gap-2 text-emerald-700">
               <span className="text-lg">✓</span>
-              <p className="text-sm font-black uppercase tracking-tight">You're all set</p>
+              <p className="text-sm font-black uppercase tracking-tight">{stayStartedOrDone ? 'Agreement on file' : "You're all set"}</p>
             </div>
             <p className="text-[12px] font-semibold text-emerald-800 leading-snug">
-              Your rental agreement is signed{b.agreementSignedName ? ` as ${b.agreementSignedName}` : ''}. Please arrive a few minutes early — see you soon!
+              Your rental agreement is signed{b.agreementSignedName ? ` as ${b.agreementSignedName}` : ''}.{stayStartedOrDone ? '' : ' Please arrive a few minutes early — see you soon!'}
             </p>
           </div>
         ) : (
@@ -231,9 +303,72 @@ export function StayPage(props: StayPageProps = {}) {
             ) : (
               <p className="text-[12px] font-semibold text-muted-foreground">No agreement is required for this booking.</p>
             )}
-            {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
           </>
+        ))}
+
+        {/* ── Rate your stay — once it's underway or done ── */}
+        {stayStartedOrDone && (
+          hasReviewed ? (
+            <div className="rounded-2xl border-2 p-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your rating</p>
+              <p className="text-amber-500 text-xl mt-1">{'★'.repeat(Math.max(1, Number(b.rating) || stars))}</p>
+              <p className="text-[12px] font-semibold text-slate-600 mt-0.5">Thanks — this helps the studio a ton.</p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border-2 p-4 space-y-2.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How was your stay?</p>
+              <div className="flex gap-1.5">
+                {[1, 2, 3, 4, 5].map(n => (
+                  <button key={n} type="button" onClick={() => setStars(n)}
+                    className={`text-2xl leading-none transition-transform active:scale-90 ${n <= stars ? 'grayscale-0' : 'grayscale opacity-40'}`}>
+                    ⭐
+                  </button>
+                ))}
+              </div>
+              <textarea value={reviewText} onChange={e => setReviewText(e.target.value)} rows={2}
+                placeholder="Anything the studio should know? (optional)"
+                className="w-full rounded-xl border-2 px-3.5 py-2.5 text-sm font-medium" />
+              <button onClick={submitReview} disabled={reviewBusy || stars < 1}
+                className="w-full h-11 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[10px] disabled:opacity-40">
+                {reviewBusy ? 'Sending…' : 'Send review'}
+              </button>
+            </div>
+          )
         )}
+
+        {/* ── Need to cancel? Quiet, but findable ── */}
+        {canRequestCancel && (
+          <div className="pt-1">
+            {!cancelOpen ? (
+              <button onClick={() => setCancelOpen(true)}
+                className="w-full text-center text-[11px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-4 hover:text-slate-600">
+                Need to cancel this booking?
+              </button>
+            ) : (
+              <div className="rounded-2xl border-2 border-slate-200 p-4 space-y-2.5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">Request cancellation</p>
+                <p className="text-[11px] font-semibold text-slate-500 leading-snug">
+                  The studio reviews every request and handles your refund per their cancellation policy.
+                </p>
+                <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} rows={2}
+                  placeholder="Reason (optional, but helps)"
+                  className="w-full rounded-xl border-2 px-3.5 py-2.5 text-sm font-medium" />
+                <div className="flex gap-2">
+                  <button onClick={() => setCancelOpen(false)} disabled={cancelBusy}
+                    className="flex-1 h-11 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] text-slate-500">
+                    Keep booking
+                  </button>
+                  <button onClick={requestCancel} disabled={cancelBusy}
+                    className="flex-1 h-11 rounded-2xl bg-red-600 text-white font-black uppercase tracking-widest text-[10px] disabled:opacity-40">
+                    {cancelBusy ? 'Sending…' : 'Request cancel'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
       </div>
     </Shell>
   );
