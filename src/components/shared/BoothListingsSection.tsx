@@ -270,6 +270,41 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   // reservation server-side and celebrate.
   const [confirmedRes, setConfirmedRes] = useState<any | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+  // 🎟 Day-pass sales on the booking site
+  const [passPacks, setPassPacks] = useState<any[]>([]);
+  const [buyIdx, setBuyIdx] = useState(-1);
+  const [buyForm, setBuyForm] = useState({ name: '', phone: '', email: '' });
+  const [buyBusy, setBuyBusy] = useState(false);
+  const [passConfirm, setPassConfirm] = useState<any | null>(null);
+  useEffect(() => {
+    if (!tenantId) return;
+    (async () => {
+      try {
+        const res = await fetch('/api/booths/kiosk', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'pass-packs', tenantId }),
+        });
+        const d = await res.json();
+        if (d?.ok && Array.isArray(d.packs)) setPassPacks(d.packs);
+      } catch { /* strip just won't show */ }
+    })();
+  }, [tenantId]);
+  // Returning from Stripe after a pass purchase — confirm & celebrate.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const pid = params.get('cfPassPurchase');
+    const sid = params.get('cfSession');
+    if (!pid || !sid) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/booths/reserve?tenantId=${encodeURIComponent(tenantId)}&passPurchaseId=${encodeURIComponent(pid)}&sessionId=${encodeURIComponent(sid)}`);
+        const d = await res.json();
+        if (d.ok && d.passPurchased) setPassConfirm({ days: d.days, label: d.label });
+        else if (d.error) setConfirmError(d.error);
+      } catch { /* silent */ }
+    })();
+  }, [tenantId]);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
@@ -718,6 +753,84 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
           <h2 className="text-3xl md:text-5xl font-black tracking-tight">{config.title || 'Space Available'}</h2>
           {config.subtitle && <p className="mt-3 text-sm md:text-base opacity-70 max-w-xl mx-auto font-medium">{config.subtitle}</p>}
         </div>
+
+        {/* ── 🎟 Day passes for sale — prepaid bundles, straight from the site ── */}
+        {passPacks.length > 0 && (
+          <div className="mb-10 md:mb-14 rounded-3xl border-2 border-violet-200 bg-violet-50/50 p-5 md:p-6">
+            <div className="text-center mb-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.25em] text-violet-600">🎟 Day Passes</p>
+              <p className="text-sm font-bold text-slate-600 mt-1">Prepay for studio days and save — future bookings redeem automatically, no checkout.</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-3">
+              {passPacks.map((p: any, i: number) => (
+                <button key={i} onClick={() => { setBuyIdx(i); setBuyForm({ name: form.name || '', phone: form.phone || '', email: form.email || '' }); }}
+                  className="rounded-2xl border-2 bg-white px-5 py-4 text-center hover:border-violet-400 hover:shadow-md active:scale-[0.98] transition-all min-w-[150px]">
+                  <p className="text-2xl font-black tracking-tighter text-violet-700">{p.days}<span className="text-xs font-black uppercase tracking-widest text-slate-400"> days</span></p>
+                  <p className="text-sm font-black text-slate-900">${(p.amountCents / 100).toFixed(0)}</p>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-0.5">${((p.amountCents / p.days) / 100).toFixed(0)}/day · {p.label}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Buy-pass mini checkout */}
+        {buyIdx >= 0 && passPacks[buyIdx] && (
+          <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => !buyBusy && setBuyIdx(-1)}>
+            <div className="bg-white w-full max-w-sm rounded-3xl p-6 space-y-3" onClick={e => e.stopPropagation()}>
+              <div className="text-center">
+                <p className="text-3xl">🎟</p>
+                <h3 className="font-black text-xl tracking-tight">{passPacks[buyIdx].label}</h3>
+                <p className="text-sm font-bold text-slate-500">{passPacks[buyIdx].days} days · ${(passPacks[buyIdx].amountCents / 100).toFixed(0)}</p>
+              </div>
+              <input value={buyForm.name} onChange={e => setBuyForm(f => ({ ...f, name: e.target.value }))} placeholder="Your name *" className="w-full h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="tel" value={buyForm.phone} onChange={e => setBuyForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone *" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+                <input type="email" value={buyForm.email} onChange={e => setBuyForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
+              </div>
+              <p className="text-[10px] font-bold text-slate-400">Your pass is linked to this phone/email — book with the same one and days redeem automatically.</p>
+              <button
+                onClick={async () => {
+                  if (buyBusy || !buyForm.name.trim() || !(buyForm.phone.trim() || buyForm.email.trim())) return;
+                  setBuyBusy(true);
+                  try {
+                    const res = await fetch('/api/booths/reserve', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ action: 'buy-pass', tenantId, packIndex: buyIdx, name: buyForm.name.trim(), phone: buyForm.phone.trim(), email: buyForm.email.trim(), returnUrl: window.location.href }),
+                    });
+                    const d = await res.json();
+                    if (d.ok && d.url) { window.location.href = d.url; return; }
+                    alert(d.error || 'Could not start checkout — try again.');
+                  } catch { alert('Network error — try again.'); }
+                  setBuyBusy(false);
+                }}
+                disabled={buyBusy || !buyForm.name.trim() || !(buyForm.phone.trim() || buyForm.email.trim())}
+                className="w-full h-12 rounded-2xl bg-violet-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40"
+              >
+                {buyBusy ? 'Starting checkout…' : `Pay $${(passPacks[buyIdx].amountCents / 100).toFixed(0)} securely`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Pass purchase confirmed 🎉 */}
+        {passConfirm && (
+          <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="bg-white w-full max-w-md rounded-3xl p-8 text-center space-y-4 animate-in fade-in zoom-in-95 duration-300">
+              <p className="text-6xl">🎟</p>
+              <div>
+                <h3 className="font-black text-2xl tracking-tight">Pass activated!</h3>
+                <p className="text-sm font-bold text-slate-500 mt-1">{passConfirm.days} days are on file. Book any space with the same phone or email — no charge at checkout until they're used up.</p>
+              </div>
+              <button
+                onClick={() => { setPassConfirm(null); try { window.history.replaceState({}, '', window.location.pathname); } catch {} }}
+                className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
 
         {visible.length === 0 ? (
           <div className="text-center space-y-4">
