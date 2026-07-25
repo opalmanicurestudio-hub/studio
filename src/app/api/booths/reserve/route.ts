@@ -159,6 +159,56 @@ async function leaseSlotConflict(db: FirebaseFirestore.Firestore, tenantId: stri
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // ── BUY A DAY PASS (public booking page) ─────────────────────────
+    // Server-side pricing only: the client sends a pack INDEX; days and
+    // price come from the owner's config. Payment via Stripe Checkout;
+    // the pass is created on confirmed payment (GET below), never before.
+    if (body?.action === 'buy-pass') {
+      const { tenantId: tid, packIndex, name: pname, phone: pphone, email: pemail, returnUrl: prurl } = body || {};
+      if (!tid || !pname || (!pphone && !pemail) || !prurl) {
+        return NextResponse.json({ ok: false, error: 'Missing required fields.' }, { status: 400 });
+      }
+      if (!process.env.STRIPE_SECRET_KEY) {
+        return NextResponse.json({ ok: false, error: 'Payments are not configured yet.' }, { status: 500 });
+      }
+      const dbp = getAdminDb();
+      const tSnap = await dbp.doc(`tenants/${tid}`).get();
+      const raw = (tSnap.data() as any)?.bookingPageSettings?.dayPassPacks;
+      const packs = Array.isArray(raw) ? raw.filter((p: any) => Number(p.days) > 0 && Number(p.amountCents) > 0) : [];
+      const pack = packs[Number(packIndex)];
+      if (!pack) return NextResponse.json({ ok: false, error: 'That pack is no longer offered — refresh and try again.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const purRef = dbp.collection(`tenants/${tid}/boothPassPurchases`).doc();
+      await purRef.set({
+        id: purRef.id, tenantId: tid, status: 'pending_payment', createdAt: nowIso,
+        name: String(pname).slice(0, 120), phone: String(pphone || '').slice(0, 40), email: String(pemail || '').slice(0, 160),
+        packLabel: pack.label || `${pack.days}-day pack`, days: Number(pack.days), amountCents: Number(pack.amountCents),
+      });
+      const stripePass = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      const base = String(prurl).split('?')[0];
+      const session = await stripePass.checkout.sessions.create({
+        mode: 'payment',
+        customer_email: pemail || undefined,
+        line_items: [{
+          quantity: 1,
+          price_data: {
+            currency: 'usd',
+            unit_amount: Number(pack.amountCents),
+            product_data: {
+              name: `${pack.label || `${pack.days}-day pack`} — ${pack.days} day pass`,
+              description: 'Prepaid studio days — bookings redeem automatically, no charge at checkout.',
+            },
+          },
+        }],
+        success_url: `${base}?cfPassPurchase=${purRef.id}&cfSession={CHECKOUT_SESSION_ID}`,
+        cancel_url: base,
+        metadata: { tenantId: tid, passPurchaseId: purRef.id, kind: 'day_pass' },
+      });
+      await purRef.set({ stripeSessionId: session.id }, { merge: true });
+      return NextResponse.json({ ok: true, url: session.url });
+    }
+
     const { tenantId, boothId, startDate, endDate, name, phone, email, returnUrl, consentAccepted, bookingType, startTime, endTime, slotLabel,
       doingServices, licenseNumber, insuranceCarrier, insuranceConfirmed, idAcknowledged,
       licenseDocUrl, insuranceDocUrl, idDocUrl, agreementSignedName } = body || {};
@@ -691,6 +741,71 @@ export async function GET(req: NextRequest) {
     const tenantId = searchParams.get('tenantId');
     const reservationId = searchParams.get('reservationId');
     const sessionId = searchParams.get('sessionId');
+
+    // ── Confirm a DAY-PASS purchase (idempotent) ─────────────────────
+    const passPurchaseId = searchParams.get('passPurchaseId');
+    if (tenantId && passPurchaseId && sessionId) {
+      const db = getAdminDb();
+      const purRef = db.doc(`tenants/${tenantId}/boothPassPurchases/${passPurchaseId}`);
+      const purSnap = await purRef.get();
+      if (!purSnap.exists) return NextResponse.json({ ok: false, error: 'Purchase not found.' }, { status: 404 });
+      const pur = purSnap.data() as any;
+      if (pur.status === 'completed') {
+        return NextResponse.json({ ok: true, passPurchased: true, days: pur.days, label: pur.packLabel });
+      }
+      if (pur.stripeSessionId !== sessionId) {
+        return NextResponse.json({ ok: false, error: 'Session mismatch.' }, { status: 400 });
+      }
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string);
+      const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ['payment_intent'] });
+      if (session.payment_status !== 'paid') {
+        return NextResponse.json({ ok: false, error: 'Payment not completed.' });
+      }
+      const nowIso = new Date().toISOString();
+      const piId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent as any)?.id || null;
+      const contactKey = String(pur.phone || '').replace(/\D/g, '') || String(pur.email || '').trim().toLowerCase();
+      const passRef = db.collection(`tenants/${tenantId}/boothPasses`).doc();
+      await passRef.set({
+        id: passRef.id, tenantId, contactKey,
+        name: pur.name || 'Guest', phone: pur.phone || '', email: pur.email || '',
+        packLabel: pur.packLabel, daysTotal: pur.days, daysUsed: 0,
+        amountCents: pur.amountCents, pricePerDayCents: Math.round(pur.amountCents / pur.days),
+        status: 'active', method: 'Card (Stripe)', purchasedAt: nowIso, createdAt: nowIso,
+        stripePaymentIntentId: piId, purchaseId: passPurchaseId,
+      });
+      const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+      const { feeCents, chargeId } = await stripeFeeFor(piId);
+      await txnRef.set({
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue', source: 'booth_rent',
+        amount: (pur.amountCents || 0) / 100, category: 'Day Pass',
+        description: `Day pass (${pur.days} days) — ${pur.name || 'guest'} (online)`,
+        clientOrVendor: pur.name || 'Guest', date: nowIso, paymentMethod: 'Card (Stripe)',
+        stripeFeeCents: feeCents || null, stripePaymentIntentId: piId, stripeChargeId: chargeId,
+        hasReceipt: false, sourceId: passRef.id, tenantId, createdAt: nowIso,
+      });
+      if (feeCents > 0) {
+        const feeRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await feeRef.set({
+          id: feeRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+          amount: feeCents / 100, category: 'Processing Fee',
+          description: `Stripe fee — day pass (${pur.name || 'guest'})`,
+          clientOrVendor: 'Stripe', date: nowIso, paymentMethod: 'Deducted from payout',
+          hasReceipt: false, stripePaymentIntentId: piId, stripeChargeId: chargeId,
+          sourceId: passRef.id, relatedTxnId: txnRef.id, tenantId, createdAt: nowIso,
+        });
+      }
+      await purRef.set({ status: 'completed', completedAt: nowIso, passId: passRef.id, stripePaymentIntentId: piId }, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({ id: nRef.id, type: 'booth_reservation', read: false, createdAt: nowIso, link: '/booths',
+        message: `🎟 Day pass sold online: ${pur.name} bought ${pur.packLabel} ($${((pur.amountCents || 0) / 100).toFixed(2)})` });
+      await logAuditAdmin(db, tenantId, {
+        action: 'booth.pass_sold', targetType: 'boothPass', targetId: passRef.id,
+        summary: `${pur.name || 'Guest'} bought ${pur.packLabel} online — $${((pur.amountCents || 0) / 100).toFixed(2)}`,
+        amount: (pur.amountCents || 0) / 100, actor: { type: 'system', name: 'booking-page' },
+      });
+      return NextResponse.json({ ok: true, passPurchased: true, days: pur.days, label: pur.packLabel });
+    }
+
     if (!tenantId || !reservationId || !sessionId) {
       return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
     }
