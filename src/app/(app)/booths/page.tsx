@@ -2121,6 +2121,41 @@ function PerkRow({
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
+// ── Renter booking perks (owner setting) ─────────────────────────────
+// One number: the % off resident renters automatically get on day/hourly
+// bookings made through the public booking page (0 = off). Enforced
+// server-side in /api/booths/reserve via booth-recognition.ts — this
+// control just writes the tenant setting.
+function RenterPerksSetting({ firestore, tenantId, initial }: { firestore: any; tenantId: string | null; initial: number }) {
+  const { toast } = useToast();
+  const [pct, setPct] = useState(String(initial || ''));
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (!tenantId || saving) return;
+    const n = Math.min(99, Math.max(0, Math.round(Number(pct) || 0)));
+    setSaving(true);
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { 'bookingPageSettings.renterDayDiscountPercent': n });
+      setPct(String(n || ''));
+      toast({ title: 'Saved', description: n > 0 ? `Resident renters now get ${n}% off day & hourly bookings.` : 'Renter booking discount turned off.' });
+    } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="rounded-2xl border-2 p-4 space-y-2 mt-4">
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Renter booking perks</p>
+      <p className="text-xs font-medium text-slate-600">When one of your renters books extra time through your booking page, they're recognized automatically — no re-uploading documents, and their signed lease covers the agreement. Optionally give them member pricing:</p>
+      <div className="flex items-center gap-2">
+        <input type="number" inputMode="numeric" min={0} max={99} value={pct} onChange={e => setPct(e.target.value)} placeholder="0"
+          className="w-20 h-10 rounded-xl border-2 px-3 text-sm font-bold" />
+        <span className="text-xs font-black uppercase tracking-widest text-slate-500">% off day & hourly bookings</span>
+        <button onClick={save} disabled={saving} className="ml-auto h-10 px-4 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">{saving ? 'Saving…' : 'Save'}</button>
+      </div>
+      <p className="text-[10px] font-bold text-muted-foreground">0 = no discount. Recognition still works either way.</p>
+    </div>
+  );
+}
+
 export default function BoothsPage() {
   const { firebaseApp, firestore } = useFirebase();
   const isMobile = useIsMobile();
@@ -3099,6 +3134,9 @@ export default function BoothsPage() {
       if (['confirmed', 'checked_in', 'completed'].includes(r.status)) {
         g.visits += 1;
         g.totalCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
+        // Rolling 90-day visit count — powers the recurring-guest tier.
+        const vt = new Date(r.createdAt || r.startDate || 0).getTime();
+        if (vt >= Date.now() - 90 * 24 * 60 * 60 * 1000) g.visits90 = (g.visits90 || 0) + 1;
         promote(g, g.visits > 1 ? 'repeat' : 'guest');
       }
       if ((r.startDate || '') > g.lastDate) { g.lastDate = r.startDate; }
@@ -3131,6 +3169,13 @@ export default function BoothsPage() {
       const c = contactByKey.get(g.key);
       return {
         ...g,
+        // Recurring-guest tier — same thresholds the server uses at booking
+        // time (booth-recognition.ts): resident renter, regular (4+ visits in
+        // 90 days), returning (2+ ever), new. Computed, never stored.
+        tier: g.isRenter ? 'resident'
+          : (g.visits90 || 0) >= 4 ? 'regular'
+          : g.visits >= 2 ? 'returning'
+          : 'new',
         tags: Array.from(g.tags),
         // Persisted journey overlay (undefined until the owner acts on them).
         pipelineStage: c?.pipelineStage || null,
@@ -3142,6 +3187,31 @@ export default function BoothsPage() {
     });
     return arr.sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
   }, [reservations, applications, leases.data, renterById, contactByKey]);
+
+  // Tier lookup by contact for reservation cards (covers bookings made before
+  // the server started stamping guestTier).
+  const tierByContact = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of guestBook) m.set(g.key, g.tier);
+    return m;
+  }, [guestBook]);
+  const tierFor = useCallback((r: any): string => {
+    if (r.guestTier === 'resident' || r.renterId) return 'resident';
+    const key = String(r.phone || '').trim().toLowerCase() || String(r.email || '').trim().toLowerCase();
+    return (key && tierByContact.get(key)) || r.guestTier || 'new';
+  }, [tierByContact]);
+  const TIER_BADGE: Record<string, { label: string; cls: string }> = {
+    resident: { label: 'Resident', cls: 'bg-indigo-100 text-indigo-700' },
+    regular: { label: 'Regular', cls: 'bg-emerald-100 text-emerald-700' },
+    returning: { label: 'Returning', cls: 'bg-sky-100 text-sky-700' },
+  };
+  // Regulars who aren't renters yet — the most profitable conversion motion
+  // in this business, surfaced instead of buried in the guest book.
+  const conversionCandidates = useMemo(() =>
+    guestBook.filter(g => g.tier === 'regular' && !g.isRenter && !g.convertedRenterId && g.pipelineStage !== 'lost')
+      .sort((a, b) => (b.totalCents || 0) - (a.totalCents || 0))
+      .slice(0, 3),
+    [guestBook]);
 
   // Deep-link from the planner: /booths?contact=<phone|email> opens that exact
   // person's history & details on load — renter profile if they're a renter,
@@ -4841,7 +4911,15 @@ export default function BoothsPage() {
                   <div key={r.id} className={`rounded-2xl border-2 px-4 py-3 space-y-2 ${r.status === 'payment_received_conflict' || r.status === 'cancelled_refund_pending' ? 'border-red-300 bg-red-50' : r.status === 'cancel_requested' ? 'border-amber-300 bg-amber-50' : r.status === 'checked_in' ? 'border-indigo-300 bg-indigo-50/50' : 'border-emerald-200 bg-emerald-50/40'}`}>
                     <div className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
-                        <p className="font-black text-sm truncate">{r.name} <span className="font-bold text-muted-foreground normal-case text-xs">· {r.boothName}</span></p>
+                        <p className="font-black text-sm truncate">
+                          {r.name} <span className="font-bold text-muted-foreground normal-case text-xs">· {r.boothName}</span>
+                          {TIER_BADGE[tierFor(r)] && (
+                            <span className={`ml-1.5 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${TIER_BADGE[tierFor(r)].cls}`}>{TIER_BADGE[tierFor(r)].label}</span>
+                          )}
+                          {r.renterDiscountCents > 0 && (
+                            <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-indigo-50 text-indigo-600">−${(r.renterDiscountCents / 100).toFixed(0)}</span>
+                          )}
+                        </p>
                         <p className="text-[10px] font-bold text-slate-600 uppercase">{r.bookingType === 'hourly' ? `${r.startDate} · ${r.startTime}–${r.endTime}` : `${r.startDate} → ${r.endDate}`} · ${((r.amountCents || 0) / 100).toFixed(2)} paid{r.consentAccepted ? ' · ✓' : ''}</p>
                       </div>
                       <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${r.status === 'checked_in' ? 'bg-indigo-200 text-indigo-800' : r.status === 'confirmed' ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
@@ -4965,6 +5043,23 @@ export default function BoothsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── Conversion nudges: regulars worth offering a lease ── */}
+          {conversionCandidates.length > 0 && (
+            <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">💡 Regulars worth a lease offer</p>
+              {conversionCandidates.map((g: any) => (
+                <div key={g.key} className="flex items-center gap-3">
+                  <p className="flex-1 min-w-0 text-xs font-bold text-slate-800 truncate">
+                    {g.name} — {g.visits90 || 0} visits in 90 days · ${((g.totalCents || 0) / 100).toFixed(0)} lifetime.
+                    <span className="text-slate-500 font-semibold"> A recurring lease locks in that revenue.</span>
+                  </p>
+                  <button onClick={() => setProfileContact(g)} className="h-8 px-3 rounded-lg bg-amber-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Open</button>
+                  {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-3 rounded-lg border-2 border-amber-300 text-amber-700 font-black uppercase text-[9px] tracking-widest flex items-center shrink-0">Text</a>}
+                </div>
+              ))}
             </div>
           )}
 
@@ -6120,6 +6215,11 @@ export default function BoothsPage() {
             tenantId={tenantId}
             firestore={firestore}
             initial={(selectedTenant as any)?.bookingPageSettings?.automationRules}
+          />
+          <RenterPerksSetting
+            firestore={firestore}
+            tenantId={tenantId}
+            initial={Number((selectedTenant as any)?.bookingPageSettings?.renterDayDiscountPercent) || 0}
           />
         </DialogContent>
       </Dialog>
