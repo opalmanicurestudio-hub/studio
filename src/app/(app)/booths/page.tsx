@@ -69,7 +69,7 @@ function TabQuerySync({ onTab }: { onTab: (t: 'spaces' | 'ops' | 'money') => voi
 import {
   doc,
   updateDoc,
-  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch } from 'firebase/firestore';
+  deleteDoc, setDoc, onSnapshot, getDocs, collection, query, where, writeBatch, arrayUnion } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -85,6 +85,7 @@ import {
   PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
   ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
   markContactLost, reengageContact, setContactNote, linkContactRenter,
+  setContactPhoto,
 } from '@/lib/booth-contacts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1458,7 +1459,7 @@ function DetailPanel({
 // from reservations, tours, applications, and reviews.
 function ContactProfileDrawer({
   contact, reservations, applications, tenantId, onClose,
-  onConvert, onSetPipeline, onFollowUp, onMarkLost, onReengage, onSaveNote, converting,
+  onConvert, onSetPipeline, onFollowUp, onMarkLost, onReengage, onSaveNote, onSavePhoto, converting,
 }: {
   contact: any;
   reservations: any[];
@@ -1471,6 +1472,7 @@ function ContactProfileDrawer({
   onMarkLost?: (person: any, reason: string) => void;
   onReengage?: (person: any) => void;
   onSaveNote?: (person: any, note: string) => void;
+  onSavePhoto?: (person: any, file: File) => void;
   converting?: boolean;
 }) {
   const norm = (v: any) => (v || '').trim().toLowerCase();
@@ -1506,6 +1508,12 @@ function ContactProfileDrawer({
   for (const a of myApps) {
     timeline.push({ at: String(a.createdAt || '').slice(0, 10), label: `${a.kind === 'tour' ? 'Requested a tour' : a.kind === 'waitlist' ? 'Joined waitlist' : a.kind === 'question' ? 'Asked a question' : 'Applied'}${a.boothName ? ` · ${a.boothName}` : ''}`, tone: 'inquiry' });
   }
+  // Owner decisions — logged at the moment they happened (booth-contacts.ts
+  // history), so the journey shows stage changes, follow-ups, lost/re-engaged,
+  // and conversion with their real timestamps.
+  for (const h of (Array.isArray(contact.history) ? contact.history : [])) {
+    if (h?.at && h?.event) timeline.push({ at: String(h.at).slice(0, 10), label: h.event, tone: 'ok' });
+  }
   timeline.sort((x, y) => y.at.localeCompare(x.at));
 
   const TONE: Record<string, string> = { money: 'bg-emerald-500', in: 'bg-indigo-500', ok: 'bg-slate-800', warn: 'bg-amber-500', inquiry: 'bg-sky-500' };
@@ -1519,9 +1527,23 @@ function ContactProfileDrawer({
         <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-white px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3.5 min-w-0">
-              <div className="w-14 h-14 rounded-2xl bg-white/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
-                {(contact.name || '?').charAt(0).toUpperCase()}
-              </div>
+              {/* Avatar — tap to add/replace a photo (same capability renters have) */}
+              <label className="relative w-14 h-14 rounded-2xl overflow-hidden ring-2 ring-white/20 shrink-0 cursor-pointer group/av">
+                {contact.photoUrl ? (
+                  <img src={contact.photoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="w-full h-full bg-white/10 text-white flex items-center justify-center font-black text-xl">
+                    {(contact.name || '?').charAt(0).toUpperCase()}
+                  </span>
+                )}
+                {onSavePhoto && (
+                  <>
+                    <span className="absolute inset-x-0 bottom-0 bg-black/50 text-white text-[8px] font-black uppercase tracking-widest text-center py-0.5 opacity-80 group-hover/av:opacity-100">📷</span>
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) onSavePhoto(contact, f); e.target.value = ''; }} />
+                  </>
+                )}
+              </label>
               <div className="min-w-0">
                 <p className="font-black text-lg leading-tight truncate">{contact.name}</p>
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
@@ -1836,8 +1858,21 @@ function RenterProfileDrawer({
       if (r.completedAt) items.push({ at: dateStr(r.completedAt), label: `Completed stay · ${r.boothName}` });
       if (r.cancelled_refund_pendingAt) items.push({ at: dateStr(r.cancelled_refund_pendingAt), label: `Cancelled — refund pending · ${r.boothName}` });
     });
-    return items.filter(i => i.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 30);
-  }, [lease, booth, myReservations]);
+    // Real logged events — signed lease + every status change with its
+    // recorded timestamp (statusHistory is written the moment status changes).
+    if ((lease as any)?.signedAt) items.push({ at: dateStr((lease as any).signedAt), label: `Signed lease · ${booth?.name ?? ''}` });
+    for (const h of (Array.isArray((renter as any).statusHistory) ? (renter as any).statusHistory : [])) {
+      if (h?.at && h?.to) items.push({ at: dateStr(h.at), label: `Status: ${RENTER_STATUS_LABELS[h.from] ?? h.from ?? '—'} → ${RENTER_STATUS_LABELS[h.to] ?? h.to}` });
+    }
+    // Money events from their ledger — payments recorded (cash, card, Zelle…).
+    for (const t of (txns || [])) {
+      const at = dateStr(t.date || t.createdAt);
+      if (at && (t.type === 'income' || typeof t.amount === 'number')) {
+        items.push({ at, label: `${t.category === 'Booth Rent' || /rent/i.test(t.description || '') ? 'Rent' : t.category || 'Payment'} $${(typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100).toFixed(2)}${t.paymentMethod ? ` · ${t.paymentMethod}` : ''}` });
+      }
+    }
+    return items.filter(i => i.at).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
+  }, [lease, booth, myReservations, renter, txns]);
 
   const PTABS = [
     { id: 'overview', label: 'Overview' },
@@ -3108,6 +3143,20 @@ export default function BoothsPage() {
   const handleMarkLost = (person: any, reason: string) => runContactAction(markContactLost(firestore, tenantId, person, reason), 'Marked as lost — kept on file');
   const handleReengage = (person: any) => runContactAction(reengageContact(firestore, tenantId, person), 'Back in nurturing');
   const handleSaveNote = (person: any, note: string) => runContactAction(setContactNote(firestore, tenantId, person, note), 'Note saved');
+  // Profile photo for ANY contact — uploaded to Storage, persisted on their
+  // contact record, shown in the People directory and profile banner.
+  const handleSavePhoto = async (person: any, file: File) => {
+    if (!tenantId || !file) return;
+    try {
+      const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(0, 80);
+      const path = `tenants/${tenantId}/contacts/photos/${Date.now()}-${safe}`;
+      const snap = await uploadBytes(storageRef(storage, path), file);
+      const url = await getDownloadURL(snap.ref);
+      await setContactPhoto(firestore, tenantId, person, url);
+      setProfileContact((c: any) => c && c.key === person.key ? { ...c, photoUrl: url } : c);
+      toast({ title: 'Photo saved' });
+    } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try a smaller image, or check your connection.' }); }
+  };
 
   // Employee → renter conversion (one identity, two financial relationships)
   const [convertibleStaff, setConvertibleStaff] = useState<any[]>([]);
@@ -3302,6 +3351,8 @@ export default function BoothsPage() {
         lostReason: c?.lostReason || null,
         ownerNotes: c?.ownerNotes || null,
         convertedRenterId: c?.convertedRenterId || (g.isRenter ? g.renterId : null),
+        photoUrl: c?.photoUrl || null,
+        history: Array.isArray(c?.history) ? c.history : [],
       };
     });
     return arr.sort((a, b) => (b.lastDate || '').localeCompare(a.lastDate || ''));
@@ -3521,7 +3572,9 @@ export default function BoothsPage() {
     setRecordPay({ mode, lease: row.lease, renter: row.renter, booth: row.booth, invoice: row.open || null });
     setRecordPayAmount(mode === 'deposit'
       ? String(((row.lease as any)?.deposit?.amountCents || 0) / 100)
-      : String((row.owedCents || 0) / 100));
+      // No open invoice (they're current / prepaying)? Default to one
+      // period's rent — the owner is usually holding exactly that in cash.
+      : String(((row.owedCents || (row.lease as any)?.rentAmountCents || 0)) / 100));
     setRecordPayMethod('Cash');
     setRecordPayNote('');
   };
@@ -3615,6 +3668,24 @@ export default function BoothsPage() {
         batch.set(aRef, { id: aRef.id, ...auditEntry({
           action: 'booth.rent_recorded', targetType: 'rentInvoice', targetId: invoice.id,
           summary: `Recorded ${recordPayMethod} rent payment of $${(cents / 100).toFixed(2)} from ${who} (${pbt?.name || 'space'})`,
+          amount: cents / 100, actor: auditActor,
+        }) });
+      } else if (mode === 'rent') {
+        // No open invoice — a current renter handing over cash early (prepay)
+        // or paying outside the invoice cycle. Still lands in the ledger and
+        // audit trail; the nightly biller sees the ledger entry.
+        batch.set(txnRef, {
+          id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+          source: 'booth_rent', category: 'Booth Rent',
+          amount: cents / 100,
+          description: `Booth rent (prepaid) — ${pbt?.name || 'space'}${recordPayNote ? ` · ${recordPayNote}` : ''}`,
+          clientOrVendor: who, date: nowIso, paymentMethod: recordPayMethod,
+          hasReceipt: false, sourceId: pl?.id || null, tenantId, createdAt: nowIso,
+        });
+        const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+        batch.set(aRef, { id: aRef.id, ...auditEntry({
+          action: 'booth.rent_recorded', targetType: 'lease', targetId: pl?.id || 'unknown',
+          summary: `Recorded ${recordPayMethod} rent prepayment of $${(cents / 100).toFixed(2)} from ${who} (${pbt?.name || 'space'})`,
           amount: cents / 100, actor: auditActor,
         }) });
       } else if (mode === 'deposit') {
@@ -4816,7 +4887,16 @@ export default function BoothsPage() {
       // leave" while the lease (and rent billing) stayed active.
       const batch = writeBatch(firestore);
       batch.update(doc(firestore, 'tenants', tenantId, 'renters', statusTarget.id),
-        { status: newStatus, updatedAt: new Date().toISOString() });
+        {
+          status: newStatus, updatedAt: new Date().toISOString(),
+          // Timestamped status log — the profile timeline shows exactly when
+          // and what changed, not just the current value.
+          statusHistory: arrayUnion({
+            at: new Date().toISOString(),
+            from: statusTarget.status || null,
+            to: newStatus,
+          }),
+        });
       const lease = occupyingLeaseByRenter.get(statusTarget.id);
       if (lease && (newStatus === 'on_leave' || newStatus === 'maternity_leave')) {
         batch.update(doc(firestore, 'tenants', tenantId, 'leases', lease.id),
@@ -5637,7 +5717,11 @@ export default function BoothsPage() {
                     return (
                       <div key={g.key} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
                         <button onClick={() => setProfileContact(g)} className="w-9 h-9 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
-                          <span className="w-9 h-9 bg-slate-100 text-slate-600 flex items-center justify-center font-black text-sm">{g.name.charAt(0).toUpperCase()}</span>
+                          {g.photoUrl ? (
+                            <img src={g.photoUrl} alt="" className="w-9 h-9 object-cover" />
+                          ) : (
+                            <span className="w-9 h-9 bg-slate-100 text-slate-600 flex items-center justify-center font-black text-sm">{g.name.charAt(0).toUpperCase()}</span>
+                          )}
                         </button>
                         <button onClick={() => setProfileContact(g)} className="flex-1 min-w-0 text-left">
                           <p className="text-xs font-black truncate">{g.name}</p>
@@ -5771,53 +5855,55 @@ export default function BoothsPage() {
               </div>
               <div className="space-y-2">
                 {rentRoll.map(({ lease: l, renter: rt, booth: bt, open, owedCents, lastPaid }) => (
-                  <div key={l.id} className={`rounded-xl border-2 bg-white px-4 py-3 flex items-center gap-3 flex-wrap ${open?.status === 'late' ? 'border-red-300' : open ? 'border-amber-300' : ''}`}>
-                    <div className="flex-1 min-w-[140px]">
-                      <p className="text-xs font-black truncate">{rt ? `${rt.firstName} ${rt.lastName}` : 'Renter'} · {bt?.name || '—'}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                        {formatCents(l.rentAmountCents)}/{l.frequency}
-                        {l.autoCollect ? ` · auto on day ${l.dueDay ?? '1'}` : ''}
-                        {lastPaid ? ` · last paid ${lastPaid.dueDate}` : ''}
-                      </p>
+                  <div key={l.id} className={`rounded-2xl border-2 bg-white px-4 py-3 space-y-2.5 ${open?.status === 'late' ? 'border-red-300' : open ? 'border-amber-300' : ''}`}>
+                    {/* Row 1 — who + where they stand. Nothing else competes. */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-black truncate">{rt ? `${rt.firstName} ${rt.lastName}` : 'Renter'} <span className="font-bold text-muted-foreground text-xs">· {bt?.name || '—'}</span></p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                          {formatCents(l.rentAmountCents)}/{l.frequency}
+                          {l.autoCollect ? ` · auto day ${l.dueDay ?? '1'}` : ''}
+                          {lastPaid ? ` · last paid ${lastPaid.dueDate}` : ''}
+                          {(rt as any)?.cardOnFile ? ' · 💳' : ' · no card'}
+                        </p>
+                      </div>
+                      {l.status === 'pending_signature' ? (
+                        <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 bg-indigo-100 text-indigo-700 shrink-0">✍️ Signature</span>
+                      ) : open ? (
+                        <span className={`text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 shrink-0 ${open.status === 'late' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {open.status === 'late' ? `Late · $${(owedCents / 100).toFixed(0)}` : `Due ${open.dueDate?.slice(5)}`}
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-black uppercase tracking-widest rounded-full px-2 py-1 bg-emerald-100 text-emerald-700 shrink-0">✓ Current</span>
+                      )}
                     </div>
-                    {l.status === 'pending_signature' ? (
-                      <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600 shrink-0">✍️ Awaiting signature</span>
-                    ) : open ? (
-                      <span className={`text-[10px] font-black uppercase tracking-widest shrink-0 ${open.status === 'late' ? 'text-red-600' : 'text-amber-600'}`}>
-                        {open.status === 'late' ? `🔴 Late · $${(owedCents / 100).toFixed(2)} owed` : `⏳ Due ${open.dueDate}`}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 shrink-0">✓ Current</span>
-                    )}
-                    {open && l.status !== 'pending_signature' && (
-                      <button onClick={() => openRecordPay('rent', { lease: l, renter: rt, booth: bt, open, owedCents })}
-                        className="h-8 px-3 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
-                        Record payment
+                    {/* Row 2 — actions. Full-width tap targets on phones, inline on desktop. */}
+                    <div className="flex flex-wrap gap-2">
+                      {l.status !== 'pending_signature' && (
+                        <button onClick={() => openRecordPay('rent', { lease: l, renter: rt, booth: bt, open, owedCents })}
+                          className={`flex-1 sm:flex-none h-9 px-3 rounded-xl text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all ${open ? 'bg-emerald-600 text-white' : 'border-2 border-emerald-300 text-emerald-700'}`}>
+                          {open ? 'Record payment' : 'Record cash / prepay'}
+                        </button>
+                      )}
+                      {(l as any).deposit?.amountCents > 0 && !(l as any).deposit?.collectedLedgerEntryId && (
+                        <button onClick={() => openRecordPay('deposit', { lease: l, renter: rt, booth: bt })}
+                          title="Security deposit hasn't been collected yet"
+                          className="flex-1 sm:flex-none h-9 px-3 rounded-xl border-2 border-violet-300 text-violet-700 text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                          Deposit · {formatCents((l as any).deposit.amountCents)}
+                        </button>
+                      )}
+                      {l.endDate && Math.ceil((new Date(l.endDate + 'T00:00:00').getTime() - Date.now()) / 86400000) <= 30 && (
+                        <button onClick={() => renewLease(l)}
+                          title={`Lease ends ${l.endDate} — extend by one full term`}
+                          className="flex-1 sm:flex-none h-9 px-3 rounded-xl border-2 border-indigo-300 text-indigo-700 text-[9px] font-black uppercase tracking-widest active:scale-95 transition-all">
+                          Renew
+                        </button>
+                      )}
+                      <button onClick={() => toggleAutoCollect(l)}
+                        className={`flex-1 sm:flex-none h-9 px-3 rounded-xl text-[9px] font-black uppercase tracking-widest transition-colors ${l.autoCollect ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-500'}`}>
+                        {l.autoCollect ? 'Auto ✓' : 'Auto off'}
                       </button>
-                    )}
-                    {(l as any).deposit?.amountCents > 0 && !(l as any).deposit?.collectedLedgerEntryId && (
-                      <button onClick={() => openRecordPay('deposit', { lease: l, renter: rt, booth: bt })}
-                        title="Security deposit hasn't been collected yet"
-                        className="h-8 px-3 rounded-lg border-2 border-violet-300 text-violet-700 text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
-                        Deposit due · {formatCents((l as any).deposit.amountCents)}
-                      </button>
-                    )}
-                    {l.endDate && Math.ceil((new Date(l.endDate + 'T00:00:00').getTime() - Date.now()) / 86400000) <= 30 && (
-                      <button onClick={() => renewLease(l)}
-                        title={`Lease ends ${l.endDate} — extend by one full term`}
-                        className="h-8 px-3 rounded-lg border-2 border-indigo-300 text-indigo-700 text-[9px] font-black uppercase tracking-widest shrink-0 active:scale-95 transition-all">
-                        Renew lease
-                      </button>
-                    )}
-                    <button onClick={() => toggleAutoCollect(l)}
-                      className={`h-8 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest shrink-0 transition-colors ${l.autoCollect ? 'bg-slate-900 text-white' : 'border-2 border-slate-200 text-slate-500'}`}>
-                      {l.autoCollect ? 'Auto-collect ON' : 'Auto-collect OFF'}
-                    </button>
-                    {(rt as any)?.cardOnFile ? (
-                      <span className="text-[9px] font-black uppercase text-emerald-600 shrink-0">💳 Card ✓</span>
-                    ) : (
-                      <span className="text-[9px] font-black uppercase text-amber-600 shrink-0" title="Renter adds a card in their portal Documents tab">No card</span>
-                    )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -6924,6 +7010,7 @@ export default function BoothsPage() {
           onMarkLost={handleMarkLost}
           onReengage={handleReengage}
           onSaveNote={handleSaveNote}
+          onSavePhoto={handleSavePhoto}
           converting={!!convertingKey}
         />
       )}
