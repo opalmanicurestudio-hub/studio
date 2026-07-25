@@ -14,6 +14,54 @@
 // the status change, or the ticket — callers get null and continue.
 
 import { getStorage } from 'firebase-admin/storage';
+import { pickRotationWorker } from './maintenance';
+
+// ── AUTO-ROTATION (server side) ──────────────────────────────────────
+// When the owner enables rotation (tenants/{id}.maintenanceAutoAssign ===
+// 'rotate'), any ticket that arrives WITHOUT an assignee is handed to the
+// least-recently-assigned active worker: the ticket is stamped, the
+// worker's rotation cursor bumps, a system note lands on the thread, and
+// the worker gets a text (when SMS is configured). Fail-soft: any error
+// leaves the ticket unassigned for manual triage — never blocks creation.
+export async function autoAssignTicket(
+  db: any,
+  tenantId: string,
+  ticketId: string,
+  ticket: { title: string; boothName?: string | null; priority?: string },
+  origin?: string,
+): Promise<{ assigneeId: string; assigneeName: string } | null> {
+  try {
+    const t = await db.doc(`tenants/${tenantId}`).get();
+    if ((t.data() as any)?.maintenanceAutoAssign !== 'rotate') return null;
+    const ws = await db.collection(`tenants/${tenantId}/maintenanceWorkers`).get();
+    const pick: any = pickRotationWorker(ws.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
+    if (!pick) return null;
+    const nowIso = new Date().toISOString();
+    const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+    const snap = await ref.get();
+    const cur = (snap.data() as any) || {};
+    if (cur.assigneeId) return null; // someone beat us to it — respect it
+    await ref.set({
+      assigneeId: pick.id, assigneeName: pick.name,
+      assignNotifiedFor: pick.id,
+      updates: [...(cur.updates || []), { at: nowIso, by: 'Rotation', byType: 'system', note: `Auto-assigned to ${pick.name}` }],
+      updatedAt: nowIso,
+    }, { merge: true });
+    await db.doc(`tenants/${tenantId}/maintenanceWorkers/${pick.id}`).set({ lastAssignedAt: nowIso }, { merge: true });
+    try {
+      const { smsConfigured, sendTenantSms } = await import('./sms');
+      if (pick.phone && smsConfigured()) {
+        const link = origin ? ` Details: ${String(origin).replace(/\/$/, '')}/maintain/${tenantId}?t=${pick.token}` : '';
+        await sendTenantSms(db, tenantId, pick.phone,
+          `New ${ticket.priority || 'normal'} ticket assigned to you: "${ticket.title}"${ticket.boothName ? ` at ${ticket.boothName}` : ''}.${link}`);
+      }
+    } catch { /* text is a bonus */ }
+    return { assigneeId: pick.id, assigneeName: pick.name };
+  } catch (err) {
+    console.error('[maintenance] auto-assign failed', err);
+    return null;
+  }
+}
 
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024; // 3 MB decoded — phone photos compress well below this
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
