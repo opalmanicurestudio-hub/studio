@@ -65,6 +65,45 @@ export interface MaintenanceWorker {
   createdAt: string;
 }
 
+// ── Preventive maintenance plan — recurring work that opens its own
+// tickets on schedule (deep-clean stations monthly, HVAC filter
+// quarterly…). The nightly cron is the engine: when nextRunAt arrives it
+// creates a normal ticket (same queue, same SLA, same notifications) and
+// advances nextRunAt by everyDays. Idempotent by construction — the
+// advance happens in the same write as the ticket creation.
+export interface MaintenancePlan {
+  id: string;
+  title: string;
+  description?: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+  boothId?: string | null;             // a specific station, or null = facility-wide
+  boothName?: string | null;
+  assigneeId?: string | null;          // pre-assign every generated ticket
+  assigneeName?: string | null;
+  everyDays: number;                   // 7 / 14 / 30 / 90 / custom
+  nextRunAt: string;                   // YYYY-MM-DD — next ticket creation date
+  lastRunAt?: string | null;
+  active: boolean;
+  createdAt: string;
+}
+
+// Date-only add — plans run on calendar days, not millisecond math.
+export const addDaysISO = (dateOnly: string, days: number): string => {
+  const d = new Date(`${dateOnly}T00:00:00`);
+  d.setDate(d.getDate() + Math.max(1, Math.round(days)));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+export const PLAN_INTERVALS: { days: number; label: string }[] = [
+  { days: 7, label: 'Weekly' },
+  { days: 14, label: 'Every 2 weeks' },
+  { days: 30, label: 'Monthly' },
+  { days: 90, label: 'Quarterly' },
+  { days: 180, label: 'Twice a year' },
+  { days: 365, label: 'Yearly' },
+];
+
 // SLA hours by priority — how long until a ticket is considered overdue.
 export const SLA_HOURS: Record<TicketPriority, number> = {
   urgent: 4,
