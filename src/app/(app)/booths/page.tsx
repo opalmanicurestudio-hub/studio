@@ -354,6 +354,18 @@ const EMPTY_RENTER_FORM: RenterFormState = {
 const localISO = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+// Human timestamp for timelines: a full ISO stamp renders with its TIME
+// ("Jul 25, 2026, 2:14 PM"); a date-only value renders as the date. Events
+// that were actually logged show exactly when they happened.
+const fmtStamp = (v: any): string => {
+  const s = typeof v === 'string' ? v : '';
+  if (!s) return '';
+  try {
+    if (s.length > 10) return new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return new Date(s + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return s.slice(0, 16); }
+};
+
 // Single default incidentals policy for the whole booths surface — the allowed
 // charge types and their hard caps. Mirrors src/lib/incidentals.ts (server) and
 // esign.ts's lease schedule, so the UI, the signed lease, and the server
@@ -1518,7 +1530,7 @@ function ContactProfileDrawer({
   // history), so the journey shows stage changes, follow-ups, lost/re-engaged,
   // and conversion with their real timestamps.
   for (const h of (Array.isArray(contact.history) ? contact.history : [])) {
-    if (h?.at && h?.event) timeline.push({ at: String(h.at).slice(0, 10), label: h.event, tone: 'ok' });
+    if (h?.at && h?.event) timeline.push({ at: String(h.at), label: h.event, tone: 'ok' });
   }
   timeline.sort((x, y) => y.at.localeCompare(x.at));
 
@@ -1696,7 +1708,7 @@ function ContactProfileDrawer({
                 </div>
                 <div className="min-w-0 -mt-0.5">
                   <p className="text-xs font-bold leading-snug">{t.label}</p>
-                  <p className="text-[10px] font-bold text-muted-foreground">{t.at}</p>
+                  <p className="text-[10px] font-bold text-muted-foreground">{fmtStamp(t.at)}</p>
                 </div>
               </div>
             ))}
@@ -1846,6 +1858,15 @@ function RenterProfileDrawer({
     if (typeof v?.seconds === 'number') return new Date(v.seconds * 1000).toISOString().slice(0, 10);
     return '';
   };
+  // Full-precision stamp (keeps the TIME) for events that were actually
+  // logged — timelines show the real moment, not just the day.
+  const stampStr = (v: any) => {
+    if (!v) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v?.toDate === 'function') { try { return v.toDate().toISOString(); } catch { return ''; } }
+    if (typeof v?.seconds === 'number') return new Date(v.seconds * 1000).toISOString();
+    return '';
+  };
   const thisYear = new Date().getFullYear().toString();
   const ytdTotal = useMemo(() => {
     const fromTxns = (txns || []).filter(t => dateStr(t.date || t.createdAt).startsWith(thisYear)).reduce((s, t) => s + dollars(t), 0);
@@ -1862,20 +1883,20 @@ function RenterProfileDrawer({
       if (lease.endDate) items.push({ at: lease.endDate, label: `Lease ends · ${booth?.name ?? ''}` });
     }
     myReservations.forEach(r => {
-      if (r.createdAt) items.push({ at: dateStr(r.createdAt), label: `Booked ${r.boothName} (${r.startDate} → ${r.endDate})` });
-      if (r.checked_inAt) items.push({ at: dateStr(r.checked_inAt), label: `Checked in · ${r.boothName}` });
-      if (r.completedAt) items.push({ at: dateStr(r.completedAt), label: `Completed stay · ${r.boothName}` });
-      if (r.cancelled_refund_pendingAt) items.push({ at: dateStr(r.cancelled_refund_pendingAt), label: `Cancelled — refund pending · ${r.boothName}` });
+      if (r.createdAt) items.push({ at: stampStr(r.createdAt), label: `Booked ${r.boothName} (${r.startDate} → ${r.endDate})` });
+      if (r.checked_inAt) items.push({ at: stampStr(r.checked_inAt), label: `Checked in · ${r.boothName}` });
+      if (r.completedAt) items.push({ at: stampStr(r.completedAt), label: `Completed stay · ${r.boothName}` });
+      if (r.cancelled_refund_pendingAt) items.push({ at: stampStr(r.cancelled_refund_pendingAt), label: `Cancelled — refund pending · ${r.boothName}` });
     });
     // Real logged events — signed lease + every status change with its
     // recorded timestamp (statusHistory is written the moment status changes).
-    if ((lease as any)?.signedAt) items.push({ at: dateStr((lease as any).signedAt), label: `Signed lease · ${booth?.name ?? ''}` });
+    if ((lease as any)?.signedAt) items.push({ at: stampStr((lease as any).signedAt), label: `Signed lease · ${booth?.name ?? ''}` });
     for (const h of (Array.isArray((renter as any).statusHistory) ? (renter as any).statusHistory : [])) {
-      if (h?.at && h?.to) items.push({ at: dateStr(h.at), label: `Status: ${RENTER_STATUS_LABELS[h.from] ?? h.from ?? '—'} → ${RENTER_STATUS_LABELS[h.to] ?? h.to}` });
+      if (h?.at && h?.to) items.push({ at: stampStr(h.at), label: `Status: ${RENTER_STATUS_LABELS[h.from] ?? h.from ?? '—'} → ${RENTER_STATUS_LABELS[h.to] ?? h.to}` });
     }
     // Money events from their ledger — payments recorded (cash, card, Zelle…).
     for (const t of (txns || [])) {
-      const at = dateStr(t.date || t.createdAt);
+      const at = stampStr(t.date || t.createdAt);
       if (at && (t.type === 'income' || typeof t.amount === 'number')) {
         items.push({ at, label: `${t.category === 'Booth Rent' || /rent/i.test(t.description || '') ? 'Rent' : t.category || 'Payment'} $${(typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100).toFixed(2)}${t.paymentMethod ? ` · ${t.paymentMethod}` : ''}` });
       }
@@ -2205,7 +2226,7 @@ function RenterProfileDrawer({
                     </div>
                     <div className="min-w-0 -mt-0.5">
                       <p className="text-xs font-bold leading-snug">{a.label}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground">{a.at}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground">{fmtStamp(a.at)}</p>
                     </div>
                   </div>
                 ))}
@@ -6084,24 +6105,35 @@ export default function BoothsPage() {
       {/* ── MONEY TAB ────────────────────────────────────────────────── */}
       {tab === 'money' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
-          {/* ── BUSINESS SCORECARD — the four numbers that run the business ── */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-            <div className="rounded-2xl border-2 bg-white px-3 py-2.5">
+          {/* ── Mobile jump bar — same pattern as Operations ── */}
+          <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
+            {([['money-collections', 'Collections'], ['money-passes', 'Passes'], ['money-reviews', 'Reviews']] as const).map(([id, label]) => (
+              <button key={id}
+                onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
+                className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── BUSINESS SCORECARD — swipeable card row on phones, grid on desktop ── */}
+          <div className="flex gap-2 overflow-x-auto snap-x snap-mandatory pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:overflow-visible">
+            <div className="rounded-2xl border-2 bg-white px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0">
               <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Occupancy</p>
               <p className={`text-2xl font-black tracking-tighter ${moneyStats.occupancyPct >= 80 ? 'text-emerald-600' : moneyStats.occupancyPct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{moneyStats.occupancyPct}%</p>
               <p className="text-[9px] font-bold text-muted-foreground">{moneyStats.occupied} of {moneyStats.rentable} stations leased</p>
             </div>
-            <div className="rounded-2xl border-2 bg-white px-3 py-2.5">
+            <div className="rounded-2xl border-2 bg-white px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0">
               <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Revenue this month</p>
               <p className="text-2xl font-black tracking-tighter text-slate-900">${(moneyStats.totalCents / 100).toFixed(0)}</p>
               <p className="text-[9px] font-bold text-muted-foreground">${(moneyStats.rentCents / 100).toFixed(0)} rent · ${(moneyStats.dayCents / 100).toFixed(0)} bookings</p>
             </div>
-            <div className="rounded-2xl border-2 bg-white px-3 py-2.5">
+            <div className="rounded-2xl border-2 bg-white px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0">
               <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Per station</p>
               <p className="text-2xl font-black tracking-tighter text-slate-900">${(moneyStats.perStationCents / 100).toFixed(0)}</p>
               <p className="text-[9px] font-bold text-muted-foreground">avg revenue / station / mo</p>
             </div>
-            <div className={`rounded-2xl border-2 px-3 py-2.5 ${moneyStats.vacancyMoCents > 0 ? 'border-red-200 bg-red-50' : 'bg-white'}`}>
+            <div className={`rounded-2xl border-2 px-3 py-2.5 min-w-[46%] snap-start sm:min-w-0 ${moneyStats.vacancyMoCents > 0 ? 'border-red-200 bg-red-50' : 'bg-white'}`}>
               <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Vacancy cost</p>
               <p className={`text-2xl font-black tracking-tighter ${moneyStats.vacancyMoCents > 0 ? 'text-red-600' : 'text-emerald-600'}`}>${(moneyStats.vacancyMoCents / 100).toFixed(0)}</p>
               <p className="text-[9px] font-bold text-muted-foreground">{moneyStats.vacancyMoCents > 0 ? 'left on the table / mo' : 'nothing sitting empty'}</p>
@@ -6112,7 +6144,7 @@ export default function BoothsPage() {
 
           {/* ── RENT ROLL (v78): every active lease, collection status ── */}
           {rentRoll.length > 0 && (
-            <div className="space-y-2">
+            <div id="money-collections" className="space-y-2 scroll-mt-14">
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-black uppercase tracking-widest">Rent roll</h2>
                 {rentRoll.some(r => r.owedCents > 0) && (
@@ -6182,7 +6214,7 @@ export default function BoothsPage() {
           <ZoneLabel>Products</ZoneLabel>
 
           {/* ── DAY PASSES — prepaid bundles: cash today, loyalty tomorrow ── */}
-          <div className="space-y-2">
+          <div id="money-passes" className="space-y-2 scroll-mt-14">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-black uppercase tracking-widest">Day passes</h2>
               {dayPasses.filter((p: any) => p.status === 'active').length > 0 && (
@@ -6232,7 +6264,7 @@ export default function BoothsPage() {
 
           {/* ── Reviews (v83) ── */}
           {reviewStats && (
-            <div className="space-y-2">
+            <div id="money-reviews" className="space-y-2 scroll-mt-14">
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-black uppercase tracking-widest">Reviews</h2>
                 <span className="text-amber-500 text-sm font-black">★ {reviewStats.avg.toFixed(1)}</span>
