@@ -85,7 +85,7 @@ import {
   PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
   ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
   markContactLost, reengageContact, setContactNote, linkContactRenter,
-  setContactPhoto, logContactTouch,
+  setContactPhoto, logContactTouch, logContactEvent,
 } from '@/lib/booth-contacts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -2293,6 +2293,50 @@ function RenterPerksSetting({ firestore, tenantId, initial }: { firestore: any; 
   );
 }
 
+// ── Day-pass pack presets (owner setting) ────────────────────────────
+// The bundles offered when selling a pass (e.g. "10 days · $450"). Stored at
+// tenants/{tid}.bookingPageSettings.dayPassPacks; the Sell Pass dialog shows
+// them as one-tap presets. Custom amounts are always possible at sale time.
+function DayPassPacksSetting({ firestore, tenantId, initial }: { firestore: any; tenantId: string | null; initial: any[] }) {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<{ label: string; days: string; dollars: string }[]>(
+    (Array.isArray(initial) && initial.length ? initial : []).map((p: any) => ({
+      label: p.label || '', days: String(p.days || ''), dollars: String(((p.amountCents || 0) / 100) || ''),
+    }))
+  );
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (!tenantId || saving) return;
+    setSaving(true);
+    try {
+      const packs = rows
+        .map(r => ({ label: r.label.trim() || `${Math.round(Number(r.days) || 0)}-day pack`, days: Math.round(Number(r.days) || 0), amountCents: Math.round(Number(r.dollars) * 100) || 0 }))
+        .filter(p => p.days > 0 && p.amountCents > 0);
+      await updateDoc(doc(firestore, 'tenants', tenantId), { 'bookingPageSettings.dayPassPacks': packs });
+      toast({ title: 'Packs saved', description: packs.length ? `${packs.length} preset${packs.length === 1 ? '' : 's'} ready in the Sell Pass dialog.` : 'No presets — you can still sell custom passes.' });
+    } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="rounded-2xl border-2 p-4 space-y-2 mt-4">
+      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">🎟 Day-pass packs</p>
+      <p className="text-xs font-medium text-slate-600">Prepaid bundles you sell in person (Money tab → Sell pass). Bookings redeem days automatically — cash up front, loyalty built in.</p>
+      {rows.map((r, i) => (
+        <div key={i} className="flex gap-2 items-center">
+          <input value={r.label} onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={`e.g. ${r.days || 10}-day pack`} className="flex-1 min-w-0 h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+          <input type="number" inputMode="numeric" value={r.days} onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, days: e.target.value } : x))} placeholder="days" className="w-16 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+          <input type="number" inputMode="decimal" value={r.dollars} onChange={e => setRows(rs => rs.map((x, j) => j === i ? { ...x, dollars: e.target.value } : x))} placeholder="$" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+          <button onClick={() => setRows(rs => rs.filter((_, j) => j !== i))} className="h-10 w-8 text-red-400 font-black shrink-0">×</button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <button onClick={() => setRows(rs => [...rs, { label: '', days: '10', dollars: '' }])} className="h-9 px-3 rounded-xl border-2 border-dashed text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-slate-400">+ Add pack</button>
+        <button onClick={save} disabled={saving} className="ml-auto h-9 px-4 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">{saving ? 'Saving…' : 'Save packs'}</button>
+      </div>
+    </div>
+  );
+}
+
 export default function BoothsPage() {
   const { firebaseApp, firestore } = useFirebase();
   const isMobile = useIsMobile();
@@ -2404,6 +2448,33 @@ export default function BoothsPage() {
     applications.filter(a => (a.status === 'new' || a.status === 'in_review') && (!a.locationId || a.locationId === selectedLocationId))
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')),
     [applications, selectedLocationId]);
+
+  // 🎟 Day passes — prepaid day bundles. Sold here (cash/Zelle/etc.),
+  // redeemed automatically by the public booking flow.
+  const [dayPasses, setDayPasses] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'boothPasses'),
+      (snap) => setDayPasses(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setDayPasses([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
+  // Remaining days per contactKey (digits phone, else lowercased email —
+  // matches how the reserve route looks passes up).
+  const passLeftByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of dayPasses) {
+      if (p.status !== 'active') continue;
+      const left = Math.max(0, (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0));
+      if (left > 0 && p.contactKey) m.set(p.contactKey, (m.get(p.contactKey) || 0) + left);
+    }
+    return m;
+  }, [dayPasses]);
+  const passLeftFor = useCallback((phone: any, email: any) => {
+    const pk = String(phone || '').replace(/\D/g, '');
+    const mk = String(email || '').trim().toLowerCase();
+    return (pk && passLeftByKey.get(pk)) || (mk && passLeftByKey.get(mk)) || 0;
+  }, [passLeftByKey]);
 
   // Follow-up tasks (created by the tour manager's outcome capture).
   const [tasks, setTasks] = useState<any[]>([]);
@@ -3604,6 +3675,62 @@ export default function BoothsPage() {
     id: currentUser?.uid || undefined,
     name: currentUser?.displayName || currentUser?.email || 'Owner',
   }), [currentUser?.uid, currentUser?.displayName, currentUser?.email]);
+
+  // ── 🎟 Sell a day pass — in-person sale (cash/Zelle/check/card note):
+  // creates the pass, records the revenue, logs it to their timeline. The
+  // public booking flow redeems it automatically from then on.
+  const [sellPassOpen, setSellPassOpen] = useState(false);
+  const [sellQuery, setSellQuery] = useState('');
+  const [sellPerson, setSellPerson] = useState<any>(null);
+  const [sellDays, setSellDays] = useState('10');
+  const [sellPrice, setSellPrice] = useState('');
+  const [sellMethod, setSellMethod] = useState('Cash');
+  const [sellSaving, setSellSaving] = useState(false);
+  const dayPassPacks = useMemo(() => {
+    const raw = (selectedTenant as any)?.bookingPageSettings?.dayPassPacks;
+    return Array.isArray(raw) ? raw.filter((p: any) => Number(p.days) > 0 && Number(p.amountCents) > 0) : [];
+  }, [selectedTenant]);
+  const sellPass = async () => {
+    if (!tenantId || !sellPerson || sellSaving) return;
+    const days = Math.max(1, Math.round(Number(sellDays) || 0));
+    const cents = Math.round(Number(sellPrice) * 100) || 0;
+    if (!(cents > 0)) { toast({ variant: 'destructive', title: 'Enter a price' }); return; }
+    const key = String(sellPerson.phone || '').replace(/\D/g, '') || String(sellPerson.email || '').trim().toLowerCase();
+    if (!key) { toast({ variant: 'destructive', title: 'No contact info', description: 'This person needs a phone or email on file first.' }); return; }
+    setSellSaving(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const batch = writeBatch(firestore);
+      const passRef = doc(collection(firestore, 'tenants', tenantId, 'boothPasses'));
+      batch.set(passRef, {
+        id: passRef.id, tenantId, contactKey: key,
+        name: sellPerson.name || 'Guest', phone: sellPerson.phone || '', email: sellPerson.email || '',
+        packLabel: `${days}-day pass`, daysTotal: days, daysUsed: 0,
+        amountCents: cents, pricePerDayCents: Math.round(cents / days),
+        status: 'active', method: sellMethod, purchasedAt: nowIso, createdAt: nowIso,
+      });
+      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+      batch.set(txnRef, {
+        id: txnRef.id, type: 'income', context: 'Business', taxBucket: 'revenue',
+        source: 'booth_rent', category: 'Day Pass',
+        amount: cents / 100,
+        description: `Day pass (${days} days) — ${sellPerson.name || 'guest'}`,
+        clientOrVendor: sellPerson.name || 'Guest', date: nowIso, paymentMethod: sellMethod,
+        hasReceipt: false, sourceId: passRef.id, tenantId, createdAt: nowIso,
+      });
+      const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+      batch.set(aRef, { id: aRef.id, ...auditEntry({
+        action: 'booth.pass_sold', targetType: 'boothPass', targetId: passRef.id,
+        summary: `Sold ${days}-day pass to ${sellPerson.name || 'guest'} — $${(cents / 100).toFixed(2)} (${sellMethod})`,
+        amount: cents / 100, actor: auditActor,
+      }) });
+      await batch.commit();
+      logContactEvent(firestore, tenantId, sellPerson, `🎟 Bought ${days}-day pass — $${(cents / 100).toFixed(2)} (${sellMethod})`).catch(() => {});
+      toast({ title: 'Pass sold 🎟', description: `${days} days on file for ${sellPerson.name || 'guest'} — their bookings redeem automatically, no charge.` });
+      setSellPassOpen(false); setSellPerson(null); setSellQuery('');
+    } catch { toast({ variant: 'destructive', title: 'Could not sell pass', description: 'Nothing was saved — try again.' }); }
+    finally { setSellSaving(false); }
+  };
 
   const [recordPay, setRecordPay] = useState<any>(null); // { mode:'rent'|'deposit', lease, renter, booth, invoice? }
   const [recordPayAmount, setRecordPayAmount] = useState('');
@@ -5786,6 +5913,7 @@ export default function BoothsPage() {
                         <p className="text-sm font-black truncate">
                           {g.name} <span className="text-xs">{MODE[g.mode] || ''}</span>
                           {g.tier === 'regular' && !g.isRenter && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">🔥</span>}
+                          {passLeftFor(g.phone, g.email) > 0 && <span className="ml-1 align-middle text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-violet-100 text-violet-700">🎟 {passLeftFor(g.phone, g.email)}</span>}
                           {g.lastRating && <span className="ml-1 text-amber-500 text-[10px]">{'★'.repeat(g.lastRating)}</span>}
                         </p>
                         <p className="text-[10px] font-bold text-muted-foreground truncate">{infoLine}</p>
@@ -5931,6 +6059,53 @@ export default function BoothsPage() {
               <p className="text-[10px] font-bold text-muted-foreground">Auto-collect charges the card on file on each due date (8 AM ET). Grace 3 days → late fee + retry → final retry day 7. Renters without a card get a due notification instead.</p>
             </div>
           )}
+
+          {/* ── 🎟 DAY PASSES — prepaid bundles: cash today, loyalty tomorrow ── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-black uppercase tracking-widest">Day passes</h2>
+              {dayPasses.filter((p: any) => p.status === 'active').length > 0 && (
+                <span className="h-5 min-w-5 px-1.5 bg-violet-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">
+                  {dayPasses.filter((p: any) => p.status === 'active').length}
+                </span>
+              )}
+              <button onClick={() => { setSellPassOpen(true); setSellPerson(null); setSellQuery(''); setSellPrice(''); setSellDays('10'); setSellMethod('Cash'); }}
+                className="ml-auto h-8 px-3 rounded-lg bg-violet-600 text-white font-black uppercase text-[9px] tracking-widest">
+                + Sell pass
+              </button>
+            </div>
+            {dayPasses.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Sell prepaid day bundles (e.g. 10 days for the price of 9) — cash up front, and their bookings redeem automatically with no charge. Your regulars 🔥 are the perfect first offer.</p>
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2">
+                {dayPasses
+                  .slice()
+                  .sort((a: any, b: any) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1) || (b.purchasedAt || '').localeCompare(a.purchasedAt || ''))
+                  .slice(0, 12)
+                  .map((p: any) => {
+                    const left = Math.max(0, (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0));
+                    const pct = (Number(p.daysTotal) || 1) > 0 ? Math.min(100, Math.round(((Number(p.daysUsed) || 0) / (Number(p.daysTotal) || 1)) * 100)) : 0;
+                    return (
+                      <div key={p.id} className={`rounded-2xl border-2 bg-white px-3.5 py-2.5 space-y-1.5 ${p.status !== 'active' ? 'opacity-60' : ''}`}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-black truncate">🎟 {p.name || 'Guest'}</p>
+                          <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 shrink-0 ${p.status === 'active' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500'}`}>
+                            {p.status === 'active' ? `${left} left` : 'Used up'}
+                          </span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="text-[10px] font-bold text-muted-foreground">
+                          {p.daysUsed || 0} of {p.daysTotal} days used · ${((p.amountCents || 0) / 100).toFixed(0)} paid {p.method ? `(${p.method})` : ''} · {String(p.purchasedAt || '').slice(0, 10)}
+                        </p>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+
 
           {/* ── Reviews (v83) ── */}
           {reviewStats && (
@@ -6874,6 +7049,80 @@ export default function BoothsPage() {
 
 
       {/* ── Automation settings (v85) ── */}
+      {/* ── 🎟 Sell a day pass ── */}
+      <Dialog open={sellPassOpen} onOpenChange={(o) => { if (!o) setSellPassOpen(false); }}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black tracking-tight">🎟 Sell a day pass</DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              Prepaid days · redeems automatically when they book
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {/* Who */}
+            {sellPerson ? (
+              <div className="rounded-xl border-2 border-violet-200 bg-violet-50 px-3 py-2 flex items-center gap-2">
+                <p className="flex-1 min-w-0 text-sm font-black truncate">{sellPerson.name}</p>
+                <p className="text-[10px] font-bold text-muted-foreground truncate">{sellPerson.phone || sellPerson.email}</p>
+                <button onClick={() => setSellPerson(null)} className="text-[9px] font-black uppercase tracking-widest text-violet-600 underline shrink-0">Change</button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <input value={sellQuery} onChange={e => setSellQuery(e.target.value)} placeholder="Who's buying? Search name, phone, email…" autoFocus
+                  className="w-full h-11 rounded-xl border-2 px-3.5 text-sm font-medium" />
+                {sellQuery.trim().length >= 2 && (
+                  <div className="rounded-xl border-2 divide-y max-h-44 overflow-y-auto">
+                    {peopleList
+                      .filter((p: any) => `${p.name} ${p.phone} ${p.email}`.toLowerCase().includes(sellQuery.trim().toLowerCase()))
+                      .slice(0, 6)
+                      .map((p: any) => (
+                        <button key={p.key} onClick={() => setSellPerson(p)} className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-center gap-2">
+                          <span className="text-sm font-bold flex-1 truncate">{p.name}</span>
+                          <span className="text-[10px] font-bold text-muted-foreground truncate">{p.phone || p.email}</span>
+                        </button>
+                      ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Pack presets from settings, else free-form */}
+            {dayPassPacks.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {dayPassPacks.map((p: any, i: number) => (
+                  <button key={i} onClick={() => { setSellDays(String(p.days)); setSellPrice(String((p.amountCents / 100).toFixed(0))); }}
+                    className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${String(p.days) === sellDays && String((p.amountCents / 100).toFixed(0)) === sellPrice ? 'bg-violet-600 text-white border-violet-600' : 'text-slate-600 hover:border-slate-400'}`}>
+                    {p.label || `${p.days} days`} · ${(p.amountCents / 100).toFixed(0)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Days</label>
+                <input type="number" inputMode="numeric" min={1} value={sellDays} onChange={e => setSellDays(e.target.value)} className="w-full h-11 rounded-xl border-2 px-3 text-sm font-bold" />
+              </div>
+              <div>
+                <label className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Price $</label>
+                <input type="number" inputMode="decimal" min={0} value={sellPrice} onChange={e => setSellPrice(e.target.value)} placeholder="0" className="w-full h-11 rounded-xl border-2 px-3 text-sm font-bold" />
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {['Cash', 'Check', 'Zelle / Venmo', 'Card (in person)', 'Other'].map((m) => (
+                <button key={m} onClick={() => setSellMethod(m)}
+                  className={`h-8 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-wide transition-colors ${sellMethod === m ? 'bg-slate-900 text-white border-slate-900' : 'text-slate-600 hover:border-slate-400'}`}>
+                  {m}
+                </button>
+              ))}
+            </div>
+            <button onClick={sellPass} disabled={sellSaving || !sellPerson || !(Number(sellPrice) > 0) || !(Number(sellDays) > 0)}
+              className="w-full h-12 rounded-2xl bg-violet-600 text-white font-black uppercase tracking-widest text-[10px] disabled:opacity-40">
+              {sellSaving ? 'Saving…' : `Sell ${Number(sellDays) || 0} days${Number(sellPrice) > 0 ? ` · $${Number(sellPrice).toFixed(0)}` : ''}`}
+            </button>
+            <p className="text-[10px] font-bold text-muted-foreground">Records the revenue now ({sellMethod}). Their future day/hourly bookings redeem days automatically — no charge at checkout.</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Report an issue (maintenance) ── */}
       <Dialog open={!!maintFor} onOpenChange={(o) => { if (!o) setMaintFor(null); }}>
         <DialogContent className="max-w-sm rounded-2xl">
@@ -6913,6 +7162,11 @@ export default function BoothsPage() {
             firestore={firestore}
             tenantId={tenantId}
             initial={Number((selectedTenant as any)?.bookingPageSettings?.renterDayDiscountPercent) || 0}
+          />
+          <DayPassPacksSetting
+            firestore={firestore}
+            tenantId={tenantId}
+            initial={(selectedTenant as any)?.bookingPageSettings?.dayPassPacks || []}
           />
         </DialogContent>
       </Dialog>
