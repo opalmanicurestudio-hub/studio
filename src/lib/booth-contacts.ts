@@ -151,6 +151,13 @@ export const setContactNote = (firestore: any, tenantId: string, person: EnsureI
 export const setContactPhoto = (firestore: any, tenantId: string, person: EnsureInput, photoUrl: string) =>
   patchContact(firestore, tenantId, person, { photoUrl }, 'Profile photo added');
 
+// Zero-effort communication trail: tapping call/text/email in the CRM logs
+// the touch to the person's history automatically. Fire-and-forget — a log
+// failure must never block the actual call/text from opening.
+export const logContactTouch = (firestore: any, tenantId: string, person: EnsureInput, kind: 'call' | 'text' | 'email') =>
+  patchContact(firestore, tenantId, person, {},
+    kind === 'call' ? '📞 Called' : kind === 'text' ? '💬 Texted' : '✉️ Emailed');
+
 export const linkContactRenter = (firestore: any, tenantId: string, person: EnsureInput, renterId: string) =>
   patchContact(firestore, tenantId, person, {
     convertedRenterId: renterId, pipelineStage: 'won', lostReason: null, lostAt: null, nextFollowUpAt: null,
