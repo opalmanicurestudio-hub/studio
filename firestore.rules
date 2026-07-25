@@ -273,6 +273,17 @@ service cloud.firestore {
     match /tenants/{tenantId}/maintenanceWorkers/{workerId} {
       allow read, write: if isManager(tenantId);
     }
+    // Preventive maintenance plans — schedule config is a manager concern;
+    // the cron (Admin SDK) advances nextRunAt and opens the tickets.
+    match /tenants/{tenantId}/maintenancePlans/{planId} {
+      allow read: if isStaff(tenantId);
+      allow write: if isManager(tenantId);
+    }
+    // Service-provider directory (plumber, HVAC, electrician…) — the
+    // business's rolodex: contacts, account numbers, rates, notes.
+    match /tenants/{tenantId}/serviceProviders/{providerId} {
+      allow read, write: if isStaff(tenantId);
+    }
 
     // v79 — step 5: the scoped check-ins collection. Written only by
     // /api/checkins (server); the portal and floor views read it.
@@ -318,7 +329,8 @@ service cloud.firestore {
           'boothPasses',
           'boothPassPurchases',
           'tickets',
-          'maintenanceWorkers'
+          'maintenanceWorkers',
+          'maintenancePlans'
         ]);
     }
 
