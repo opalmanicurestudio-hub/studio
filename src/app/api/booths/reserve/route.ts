@@ -28,6 +28,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
+import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
 
 // The owner's custom booking terms, if they wrote any, from the booking-page
 // config. A miss is fine — resolveDayUseAgreement falls back to the built-in
@@ -256,6 +257,26 @@ export async function POST(req: NextRequest) {
       unitsLabel = `${numDays} day${numDays === 1 ? '' : 's'}`;
     }
 
+    // ── RENTER RECOGNITION ────────────────────────────────────────────
+    // Match this contact against renters + past paid visits (shared module —
+    // the booking form's "welcome back" uses the same logic). A resident
+    // renter gets the owner-configured day-booking discount (0 = off), and
+    // their signed lease can stand in for the day-use re-sign below.
+    // Recognition is additive: any failure here books as a normal guest.
+    let recognition: Awaited<ReturnType<typeof recognizeContact>> | null = null;
+    let renterDiscountCents = 0;
+    try {
+      recognition = await recognizeContact(db, tenantId, phone, email);
+      if (recognition?.isResident) {
+        const tSnapEarly = await db.doc(`tenants/${tenantId}`).get();
+        const pct = resolveRenterDayDiscount(tSnapEarly.data());
+        if (pct > 0) {
+          renterDiscountCents = Math.round(amountCents * (pct / 100));
+          amountCents -= renterDiscountCents;
+        }
+      }
+    } catch { recognition = null; }
+
     if (await findConflict(db, tenantId, boothId, { startDate, endDate, bookingType: isHourly ? 'hourly' : 'daily', startTime, endTime })) {
       return NextResponse.json({ ok: false, error: 'Those dates were just taken — try different dates.' }, { status: 409 });
     }
@@ -360,8 +381,12 @@ export async function POST(req: NextRequest) {
     // The text is resolved and SNAPSHOTTED server-side (never trusting the
     // client), then persisted to the write-once legal store on confirm.
     const requireSignature = tenantData?.bookingPageSettings?.requireBookingSignature !== false;
+    // A resident renter with a SIGNED lease already has an agreement on file
+    // covering conduct, licensing, and incidentals — their lease stands in
+    // for the day-use re-sign. Everyone else signs.
+    const signatureWaived = !!(recognition?.isResident && recognition?.hasSignedLease);
     const signedName = String(agreementSignedName || '').trim().slice(0, 120);
-    if (requireSignature && signedName.length < 2) {
+    if (requireSignature && !signatureWaived && signedName.length < 2) {
       return NextResponse.json({ ok: false, error: 'Please type your name to sign the rental agreement before booking.' }, { status: 400 });
     }
     const bookingWindow = isHourly
@@ -406,6 +431,12 @@ export async function POST(req: NextRequest) {
       agreementText: agreement.text,
       agreementSignedName: signedName || null,
       agreementSignedAt: signedName ? nowIso : null,
+      agreementWaived: signatureWaived,
+      // Recognition — who this guest is to the business (resident renter,
+      // regular, returning, new) and any renter pricing applied.
+      renterId: recognition?.renterId || null,
+      guestTier: recognition?.tier || 'new',
+      renterDiscountCents: renterDiscountCents || 0,
       // Tranche 1 — compliance captured at booking
       doingServices: !!doingServices,
       licenseNumber: licenseNumber || null,
@@ -462,7 +493,8 @@ export async function POST(req: NextRequest) {
               + (depositCents > 0 ? ` (deposit)` : ''),
             description: (isHourly ? `${startDate} · ${startTime}–${endTime}` : `${startDate} → ${endDate}`)
               + (depositCents > 0 ? ` · $${(depositCents / 100).toFixed(2)} deposit of $${(netCents / 100).toFixed(2)} · balance $${(balanceDueCents / 100).toFixed(2)} ${balanceMode === 'at_checkin' ? 'at check-in' : 'in person'}` : '')
-              + (creditAppliedCents > 0 ? ` · $${(creditAppliedCents / 100).toFixed(2)} credit applied` : ''),
+              + (creditAppliedCents > 0 ? ` · $${(creditAppliedCents / 100).toFixed(2)} credit applied` : '')
+              + (renterDiscountCents > 0 ? ` · $${(renterDiscountCents / 100).toFixed(2)} renter discount` : ''),
           },
         },
       }],
