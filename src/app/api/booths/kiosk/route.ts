@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { resolveIncidentalPolicy } from '@/lib/incidentals';
+import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
 
 const digits = (s: any) => String(s || '').replace(/\D/g, '');
 
@@ -140,6 +141,36 @@ export async function POST(req: NextRequest) {
     }
     const db = getAdminDb();
     const today = new Date().toISOString().slice(0, 10);
+
+    // ── 'recognize': who is this contact to the business? ─────────────
+    // Powers the booking form's "welcome back" state. Requires a FULL
+    // phone (7+ digits) or email — never a partial probe — and returns
+    // only what the form needs: first name, tier, and the renter perks.
+    // No addresses, no booking history details, no other guests' data.
+    if (action === 'recognize') {
+      const phone = digits(body.phone);
+      const email = String(body.email || '').trim().toLowerCase();
+      if (phone.length < 7 && !/^\S+@\S+\.\S+$/.test(email)) {
+        return NextResponse.json({ ok: true, tier: 'new' });
+      }
+      const rec = await recognizeContact(db, tenantId, phone, email);
+      let discountPercent = 0;
+      if (rec.isResident) {
+        try {
+          const t = await db.doc(`tenants/${tenantId}`).get();
+          discountPercent = resolveRenterDayDiscount(t.data());
+        } catch { /* cosmetic */ }
+      }
+      return NextResponse.json({
+        ok: true,
+        tier: rec.tier,
+        firstName: rec.renterFirstName,
+        visits: rec.paidVisitsTotal,
+        isResident: rec.isResident,
+        signatureWaived: rec.isResident && rec.hasSignedLease,
+        discountPercent,
+      });
+    }
 
     if (action === 'lookup') {
       const last4 = digits(body.phoneLast4).slice(-4);
