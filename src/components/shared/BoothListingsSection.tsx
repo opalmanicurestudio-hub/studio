@@ -280,7 +280,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
       try {
         const res = await fetch(`/api/booths/reserve?tenantId=${encodeURIComponent(tenantId)}&reservationId=${encodeURIComponent(rid)}&sessionId=${encodeURIComponent(sid)}`);
         const data = await res.json();
-        if (data.ok && data.confirmed) setConfirmedRes(data);
+        if (data.ok && data.confirmed) setConfirmedRes({ ...data, reservationId: rid });
         else if (data.error) setConfirmError(data.error);
       } catch { /* silent — banner just won't show */ }
     })();
@@ -652,8 +652,38 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
               <div className="rounded-2xl border-2 bg-slate-50 p-4 text-left space-y-1">
                 <p className="font-black text-sm uppercase">{confirmedRes.boothName}</p>
                 <p className="text-xs font-bold text-slate-600">{confirmedRes.startDate} → {confirmedRes.endDate}</p>
-                <p className="text-[10px] font-bold text-slate-400 uppercase">Save or screenshot this confirmation</p>
               </div>
+              {/* The guest's ONE link for the whole visit: check-in signing,
+                  emergency contact, cancellation requests, rating. Surfaced
+                  HERE because nothing else delivers it automatically. */}
+              {confirmedRes.reservationId && (
+                <div className="rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-4 text-left space-y-2">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-indigo-700">📱 Your stay link — save this</p>
+                  <p className="text-[11px] font-semibold text-indigo-900 leading-snug">
+                    Check in, manage, or rate your visit any time. Verified with the last 4 digits of your phone.
+                  </p>
+                  <div className="flex gap-2">
+                    <a
+                      href={`/stay/${encodeURIComponent(tenantId)}/${encodeURIComponent(confirmedRes.reservationId)}`}
+                      target="_blank" rel="noreferrer"
+                      className="flex-1 h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest flex items-center justify-center"
+                    >
+                      Open my stay
+                    </a>
+                    <button
+                      onClick={() => {
+                        try {
+                          navigator.clipboard.writeText(`${window.location.origin}/stay/${tenantId}/${confirmedRes.reservationId}`);
+                          setConfirmedRes((c: any) => ({ ...c, linkCopied: true }));
+                        } catch { /* clipboard unavailable — the Open button still works */ }
+                      }}
+                      className="flex-1 h-10 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest"
+                    >
+                      {confirmedRes.linkCopied ? '✓ Copied' : 'Copy link'}
+                    </button>
+                  </div>
+                </div>
+              )}
               <button
                 onClick={() => { setConfirmedRes(null); try { window.history.replaceState({}, '', window.location.pathname); } catch {} }}
                 className="w-full h-12 rounded-2xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest"
