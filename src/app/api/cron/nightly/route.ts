@@ -225,6 +225,69 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── Preventive maintenance plans — for EVERY tenant, open the scheduled
+  // tickets whose nextRunAt has arrived. IDEMPOTENT: the nextRunAt advance
+  // is written in the same pass as the ticket, so a rerun the same night
+  // creates nothing twice. Generated tickets are completely normal tickets:
+  // same queue, same SLA, same portals, same notifications.
+  const planTotals = { ticketsOpened: 0, assigneeTexts: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tid = tDoc.id;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const plansSnap = await db.collection(`tenants/${tid}/maintenancePlans`).get();
+      for (const pDoc of plansSnap.docs) {
+        const p = pDoc.data() as any;
+        if (p.active === false) continue;
+        if (!p.nextRunAt || String(p.nextRunAt).slice(0, 10) > todayStr) continue;
+        const nowIso = new Date().toISOString();
+        const { dueAtFor, addDaysISO } = await import('@/lib/maintenance');
+        const every = Math.max(1, Math.round(Number(p.everyDays) || 30));
+        const tRef = db.collection(`tenants/${tid}/tickets`).doc();
+        // Advance the schedule FIRST-in-same-batch semantics: both writes
+        // together, so no partial state survives a crash between them.
+        const batch = db.batch();
+        batch.set(tRef, {
+          id: tRef.id, tenantId: tid, locationId: null,
+          title: p.title, description: p.description || '',
+          category: p.category || 'other', priority: p.priority || 'normal', status: 'open',
+          boothId: p.boothId || null, boothName: p.boothName || null,
+          resourceId: p.resourceId || null, resourceName: p.resourceName || null,
+          photoUrls: [],
+          reporter: { type: 'staff', name: 'Preventive plan' },
+          assigneeId: p.assigneeId || null, assigneeName: p.assigneeName || null,
+          planId: pDoc.id,
+          updates: [{ at: nowIso, by: 'Preventive plan', byType: 'system', note: `Scheduled ${every}-day maintenance`, status: 'open' }],
+          createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(p.priority || 'normal'), resolvedAt: null,
+        });
+        batch.set(pDoc.ref, {
+          lastRunAt: todayStr,
+          nextRunAt: addDaysISO(String(p.nextRunAt).slice(0, 10), every),
+        }, { merge: true });
+        await batch.commit();
+        planTotals.ticketsOpened += 1;
+        const nRef = db.collection(`tenants/${tid}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+          message: `Scheduled maintenance opened: "${p.title}"${p.boothName ? ` (${p.boothName})` : ''}${p.assigneeName ? ` — assigned to ${p.assigneeName}` : ' — needs a worker'}.` });
+        if (p.assigneeId) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const w = await db.doc(`tenants/${tid}/maintenanceWorkers/${p.assigneeId}`).get();
+              const phone = w.exists ? (w.data() as any)?.phone : null;
+              if (phone) {
+                const r = await sendTenantSms(db, tid, phone, `Scheduled job today: "${p.title}"${p.boothName ? ` at ${p.boothName}` : ''}. It's in your portal queue.`);
+                if (r.ok) planTotals.assigneeTexts += 1;
+              }
+            }
+          } catch { /* text is a bonus */ }
+        }
+      }
+    } catch (e) {
+      results[`plans:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
   // ── Maintenance SLA sweep — for EVERY tenant, flag open tickets past
   // their SLA deadline exactly ONCE (overdueNotifiedAt stamp): a notification
   // for the owner, and — when SMS is configured — a nudge text to the
@@ -263,6 +326,6 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· sla', slaTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, slaTotals, results });
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, planTotals, slaTotals, results });
 }
