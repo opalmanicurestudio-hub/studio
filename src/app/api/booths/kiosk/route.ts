@@ -161,6 +161,19 @@ export async function POST(req: NextRequest) {
           discountPercent = resolveRenterDayDiscount(t.data());
         } catch { /* cosmetic */ }
       }
+      // Active day-pass balance — the booking form tells them their next
+      // booking is already paid for.
+      let passDaysLeft = 0;
+      try {
+        const mail = email;
+        const snap = await db.collection(`tenants/${tenantId}/boothPasses`).where('status', '==', 'active').get();
+        for (const d of snap.docs) {
+          const p = d.data() as any;
+          if ((phone && p.contactKey === phone) || (mail && p.contactKey === mail)) {
+            passDaysLeft += Math.max(0, (Number(p.daysTotal) || 0) - (Number(p.daysUsed) || 0));
+          }
+        }
+      } catch { /* additive */ }
       return NextResponse.json({
         ok: true,
         tier: rec.tier,
@@ -169,6 +182,7 @@ export async function POST(req: NextRequest) {
         isResident: rec.isResident,
         signatureWaived: rec.isResident && rec.hasSignedLease,
         discountPercent,
+        passDaysLeft,
       });
     }
 
