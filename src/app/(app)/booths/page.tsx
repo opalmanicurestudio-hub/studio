@@ -2555,6 +2555,14 @@ export default function BoothsPage() {
       () => setMaintWorkers([]));
     return () => unsub();
   }, [firestore, tenantId]);
+  const [maintPlans, setMaintPlans] = useState<any[]>([]);
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const unsub = onSnapshot(collection(firestore, 'tenants', tenantId, 'maintenancePlans'),
+      (snap) => setMaintPlans(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))),
+      () => setMaintPlans([]));
+    return () => unsub();
+  }, [firestore, tenantId]);
 
   // Follow-up tasks (created by the tour manager's outcome capture).
   const [tasks, setTasks] = useState<any[]>([]);
@@ -6029,11 +6037,13 @@ export default function BoothsPage() {
           <div id="ops-maint" className="scroll-mt-14">
             <MaintenanceSection
               firestore={firestore}
+              storage={storage}
               tenantId={tenantId}
               locationId={selectedLocationId}
               booths={sortedBooths}
               tickets={tickets}
               workers={maintWorkers}
+              plans={maintPlans}
               ownerName={(selectedTenant as any)?.name ? `${(selectedTenant as any).name} team` : 'Owner'}
             />
           </div>
@@ -6144,6 +6154,19 @@ export default function BoothsPage() {
                             align="right"
                             items={[
                               { label: 'Edit renter', onClick: () => openEditRenter(rtLinked) },
+                              {
+                                label: 'Send portal link',
+                                onClick: () => {
+                                  // Their portal: sign in with their phone/email, a one-time
+                                  // code arrives (SMS if configured, else via you). Path is
+                                  // configurable per tenant if your portal lives elsewhere.
+                                  const path = (selectedTenant as any)?.renterPortalPath || '/renter';
+                                  const link = `${window.location.origin}${path}/${tenantId}`;
+                                  const msg = `Your renter portal for ${(selectedTenant as any)?.name || 'the studio'} — pay rent, get receipts, report issues, manage your card: ${link}`;
+                                  if (g.phone) window.location.href = `sms:${g.phone}?&body=${encodeURIComponent(msg)}`;
+                                  else { try { navigator.clipboard.writeText(link); toast({ title: 'Portal link copied' }); } catch { /* field select */ } }
+                                },
+                              },
                               ...(lease
                                 ? [{ label: 'End lease', danger: true, onClick: () => setEndLeaseTarget(rtLinked) }]
                                 : [{ label: '+ Assign a space', onClick: () => openLeaseWizard(rtLinked.id) }]),
