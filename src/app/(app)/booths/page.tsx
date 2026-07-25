@@ -1256,6 +1256,11 @@ function BoothCanvasCard({
             Available
           </span>
         )}
+        {!lensMode && booth.status === 'maintenance' && (booth as any).maintenanceNote && (
+          <span className="text-[10px] font-bold leading-tight truncate mb-1" style={{ color: colors.text }}>
+            🛠 {(booth as any).maintenanceNote}
+          </span>
+        )}
 
         {!lensMode && lease && monthlyRent > 0 && (
           <span
@@ -1307,12 +1312,16 @@ function DetailPanel({
   lease,
   onClose,
   onEdit,
+  onReportIssue,
+  onMarkFixed,
 }: {
   booth: Booth;
   renter?: Renter;
   lease?: Lease;
   onClose: () => void;
   onEdit: (booth: Booth) => void;
+  onReportIssue?: (booth: Booth) => void;
+  onMarkFixed?: (booth: Booth) => void;
 }) {
   const monthlyRent = useMemo(() => {
     if (!lease) return 0;
@@ -1398,6 +1407,16 @@ function DetailPanel({
         </div>
       )}
 
+      {booth.status === 'maintenance' && (booth as any).maintenanceNote && (
+        <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-2.5">
+          <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">🛠 Down for maintenance</p>
+          <p className="text-xs font-bold text-amber-800 mt-0.5">{(booth as any).maintenanceNote}</p>
+          {(booth as any).maintenanceReportedAt && (
+            <p className="text-[9px] font-bold text-amber-600 mt-0.5">since {String((booth as any).maintenanceReportedAt).slice(0, 10)}</p>
+          )}
+        </div>
+      )}
+
       <Button
         variant="outline"
         size="sm"
@@ -1407,6 +1426,21 @@ function DetailPanel({
         <Pencil className="h-3.5 w-3.5 mr-1.5" />
         Edit booth
       </Button>
+      {!['wall', 'door', 'plant'].includes((booth as any).shape) && (
+        booth.status === 'maintenance' ? (
+          onMarkFixed && (
+            <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => onMarkFixed(booth)}>
+              ✓ Mark fixed — back in service
+            </Button>
+          )
+        ) : (
+          onReportIssue && (
+            <Button variant="outline" size="sm" className="w-full text-amber-700 border-amber-300 hover:bg-amber-50" onClick={() => onReportIssue(booth)}>
+              🛠 Report an issue
+            </Button>
+          )
+        )
+      )}
     </div>
   );
 }
@@ -3351,6 +3385,15 @@ export default function BoothsPage() {
         });
       }
     }
+    for (const b of (booths.data || [])) {
+      if ((b as any).status !== 'maintenance') continue;
+      const since = String((b as any).maintenanceReportedAt || '').slice(0, 10);
+      items.push({
+        kind: 'maint',
+        text: `${b.name} is down${(b as any).maintenanceNote ? ` — ${(b as any).maintenanceNote}` : ''}${since ? ` (since ${since})` : ''}`,
+        actionLabel: 'View', run: () => { selectTab('spaces'); setSpaceView('floor'); setSelectedId(b.id); },
+      });
+    }
     for (const g of conversionCandidates) {
       items.push({
         kind: 'convert',
@@ -3358,9 +3401,9 @@ export default function BoothsPage() {
         actionLabel: 'Open', run: () => setProfileContact(g),
       });
     }
-    const RANK: Record<string, number> = { late: 0, expired: 1, due: 2, unsigned: 3, renewal: 4, expiring: 5, convert: 6 };
+    const RANK: Record<string, number> = { late: 0, expired: 1, maint: 2, due: 3, unsigned: 4, renewal: 5, expiring: 6, convert: 7 };
     return items.sort((a, b) => (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9)).slice(0, 8);
-  }, [rentRoll, leases.data, renters.data, reservations, conversionCandidates, renterById, tenantId]);
+  }, [rentRoll, leases.data, renters.data, reservations, conversionCandidates, renterById, tenantId, booths.data]);
   const toggleAutoCollect = async (l: any) => {
     const dueDay = Math.min(28, new Date((l.startDate || localISO()) + 'T00:00:00Z').getUTCDate());
     try {
@@ -3604,6 +3647,46 @@ export default function BoothsPage() {
     }
     return m;
   }, [lens, reservations, sortedBooths, activeLeaseByBooth]);
+
+  // ── BUSINESS SCORECARD — the four numbers an owner actually runs on ──
+  // occupancy (leased ÷ rentable), this month's revenue (rent + day
+  // bookings), revenue per station, and what vacancies cost per month.
+  const moneyStats = useMemo(() => {
+    const monthKey = localISO().slice(0, 7);
+    const rentable = sortedBooths.filter(b => (b as any).status !== 'inactive');
+    const occupied = rentable.filter(b => activeLeaseByBooth.get(b.id));
+    let rentCents = 0;
+    for (const l of (leases.data || [])) {
+      if (!['active', 'on_leave'].includes(l.status)) continue;
+      rentCents += Math.round((l.rentAmountCents || 0) * (FREQ_TO_MONTHLY[l.frequency] ?? 1));
+    }
+    let dayCents = 0;
+    for (const r of reservations) {
+      if (!['confirmed', 'checked_in', 'completed'].includes(r.status)) continue;
+      if (String(r.startDate || '').slice(0, 7) !== monthKey) continue;
+      dayCents += (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0);
+    }
+    let vacancyMoCents = 0;
+    for (const b of rentable) {
+      if (activeLeaseByBooth.get(b.id)) continue;
+      const opts: any[] = Array.isArray((b as any).pricingOptions) && (b as any).pricingOptions.length
+        ? (b as any).pricingOptions
+        : [{ frequency: b.baseRentFrequency || 'monthly', amountCents: b.baseRentCents || 0 }];
+      const mo = opts.find(o => o.frequency === 'monthly' && o.amountCents > 0);
+      const dy = opts.find(o => o.frequency === 'daily' && o.amountCents > 0);
+      const hr = opts.find(o => o.frequency === 'hourly' && o.amountCents > 0);
+      vacancyMoCents += mo ? mo.amountCents : dy ? dy.amountCents * 5 * 4.33 : hr ? hr.amountCents * 8 * 5 * 4.33 : 0;
+    }
+    const totalCents = rentCents + dayCents;
+    return {
+      occupancyPct: rentable.length ? Math.round((occupied.length / rentable.length) * 100) : 0,
+      occupied: occupied.length,
+      rentable: rentable.length,
+      rentCents, dayCents, totalCents,
+      perStationCents: rentable.length ? Math.round(totalCents / rentable.length) : 0,
+      vacancyMoCents: Math.round(vacancyMoCents),
+    };
+  }, [sortedBooths, activeLeaseByBooth, leases.data, reservations]);
 
   // ── TRUE FLOOR STATUS ───────────────────────────────────────────────────────
   // A booth's displayed status is DERIVED from reality — an active lease, a
@@ -4110,6 +4193,42 @@ export default function BoothsPage() {
       window.removeEventListener('pointercancel', handlePointerUp);
     };
   }, [firestore, tenantId, localPos, booths.data]);
+
+  // ── MAINTENANCE LOG — a station can be reported down in two taps ────
+  // Report: status → 'maintenance' (an explicit override displayStatus
+  // respects) + a note and timestamp, visible on the floor and in the
+  // weekly digest. Fix: status → 'vacant' and displayStatus re-derives
+  // reality (back to occupied if a lease holds it).
+  const [maintFor, setMaintFor] = useState<Booth | null>(null);
+  const [maintNote, setMaintNote] = useState('');
+  const [maintSaving, setMaintSaving] = useState(false);
+  const reportIssue = async () => {
+    if (!tenantId || !maintFor || maintSaving) return;
+    setMaintSaving(true);
+    try {
+      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), maintFor.id), {
+        status: 'maintenance',
+        maintenanceNote: maintNote.trim() || 'Needs attention',
+        maintenanceReportedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      toast({ title: `${maintFor.name} marked down`, description: 'It shows as maintenance on the floor and in your weekly digest.' });
+      setMaintFor(null); setMaintNote('');
+    } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
+    finally { setMaintSaving(false); }
+  };
+  const markFixed = async (booth: Booth) => {
+    if (!tenantId) return;
+    try {
+      await updateDoc(doc(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId), booth.id), {
+        status: 'vacant',
+        maintenanceNote: null,
+        maintenanceReportedAt: null,
+        updatedAt: new Date().toISOString(),
+      });
+      toast({ title: `${booth.name} back in service` });
+    } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
+  };
 
   // ── Quick-add layout elements — walls, doors, zones drop straight onto
   // the floor as one tap, no full booth dialog. They're status:'inactive'
@@ -5024,6 +5143,8 @@ export default function BoothsPage() {
                   lease={selectedLease}
                   onClose={() => setSelectedId(null)}
                   onEdit={(booth) => openEdit(booth)}
+                  onReportIssue={(b) => { setMaintFor(b); setMaintNote(''); }}
+                  onMarkFixed={markFixed}
                 />
               )}
             </div>
@@ -5037,6 +5158,8 @@ export default function BoothsPage() {
               lease={selectedLease}
               onClose={() => setSelectedId(null)}
               onEdit={(booth) => openEdit(booth)}
+              onReportIssue={(b) => { setMaintFor(b); setMaintNote(''); }}
+              onMarkFixed={markFixed}
             />
           )}
         </div>
@@ -5055,7 +5178,7 @@ export default function BoothsPage() {
                 <div key={`${it.kind}-${i}`} className="flex items-center gap-2.5">
                   <span className={`h-2 w-2 rounded-full shrink-0 ${
                     it.kind === 'late' || it.kind === 'expired' ? 'bg-red-500'
-                    : it.kind === 'due' || it.kind === 'unsigned' || it.kind === 'expiring' ? 'bg-amber-500'
+                    : it.kind === 'due' || it.kind === 'unsigned' || it.kind === 'expiring' || it.kind === 'maint' ? 'bg-amber-500'
                     : it.kind === 'renewal' ? 'bg-indigo-500'
                     : 'bg-emerald-500'}`} />
                   <p className="flex-1 min-w-0 text-xs font-bold text-slate-800 truncate">{it.text}</p>
@@ -5514,6 +5637,30 @@ export default function BoothsPage() {
       {/* ── MONEY TAB ────────────────────────────────────────────────── */}
       {tab === 'money' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-4">
+          {/* ── BUSINESS SCORECARD — the four numbers that run the business ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="rounded-2xl border-2 bg-white px-3 py-2.5">
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Occupancy</p>
+              <p className={`text-2xl font-black tracking-tighter ${moneyStats.occupancyPct >= 80 ? 'text-emerald-600' : moneyStats.occupancyPct >= 50 ? 'text-amber-600' : 'text-red-600'}`}>{moneyStats.occupancyPct}%</p>
+              <p className="text-[9px] font-bold text-muted-foreground">{moneyStats.occupied} of {moneyStats.rentable} stations leased</p>
+            </div>
+            <div className="rounded-2xl border-2 bg-white px-3 py-2.5">
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Revenue this month</p>
+              <p className="text-2xl font-black tracking-tighter text-slate-900">${(moneyStats.totalCents / 100).toFixed(0)}</p>
+              <p className="text-[9px] font-bold text-muted-foreground">${(moneyStats.rentCents / 100).toFixed(0)} rent · ${(moneyStats.dayCents / 100).toFixed(0)} bookings</p>
+            </div>
+            <div className="rounded-2xl border-2 bg-white px-3 py-2.5">
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Per station</p>
+              <p className="text-2xl font-black tracking-tighter text-slate-900">${(moneyStats.perStationCents / 100).toFixed(0)}</p>
+              <p className="text-[9px] font-bold text-muted-foreground">avg revenue / station / mo</p>
+            </div>
+            <div className={`rounded-2xl border-2 px-3 py-2.5 ${moneyStats.vacancyMoCents > 0 ? 'border-red-200 bg-red-50' : 'bg-white'}`}>
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Vacancy cost</p>
+              <p className={`text-2xl font-black tracking-tighter ${moneyStats.vacancyMoCents > 0 ? 'text-red-600' : 'text-emerald-600'}`}>${(moneyStats.vacancyMoCents / 100).toFixed(0)}</p>
+              <p className="text-[9px] font-bold text-muted-foreground">{moneyStats.vacancyMoCents > 0 ? 'left on the table / mo' : 'nothing sitting empty'}</p>
+            </div>
+          </div>
+
           {/* ── RENT ROLL (v78): every active lease, collection status ── */}
           {rentRoll.length > 0 && (
             <div className="space-y-2">
@@ -6523,6 +6670,34 @@ export default function BoothsPage() {
 
 
       {/* ── Automation settings (v85) ── */}
+      {/* ── Report an issue (maintenance) ── */}
+      <Dialog open={!!maintFor} onOpenChange={(o) => { if (!o) setMaintFor(null); }}>
+        <DialogContent className="max-w-sm rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black tracking-tight">🛠 Report an issue</DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              {maintFor?.name} — marks it down for maintenance
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <textarea
+              value={maintNote}
+              onChange={(e) => setMaintNote(e.target.value)}
+              placeholder="What's wrong? e.g. Chair hydraulic is out, outlet dead, leak under sink…"
+              rows={3}
+              className="w-full rounded-xl border-2 px-3.5 py-2.5 text-sm font-medium"
+              autoFocus
+            />
+            <p className="text-[10px] font-bold text-muted-foreground">
+              The station shows as maintenance on the floor and lands in your weekly digest until you mark it fixed. Guests can't book it while it's down.
+            </p>
+            <button onClick={reportIssue} disabled={maintSaving} className="w-full h-11 rounded-2xl bg-amber-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+              {maintSaving ? 'Saving…' : 'Mark down for maintenance'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={autoSettingsOpen} onOpenChange={setAutoSettingsOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl">
           <BoothAutomationSettings
