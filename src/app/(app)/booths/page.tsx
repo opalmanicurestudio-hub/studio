@@ -1330,117 +1330,124 @@ function DetailPanel({
     );
   }, [lease]);
 
+  const sc = BOOTH_STATUS_COLORS[booth.status] ?? BOOTH_STATUS_COLORS.vacant;
+
   return (
     <div
-      className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-auto w-full sm:w-64 max-h-[75vh] sm:max-h-none overflow-y-auto bg-background border border-border rounded-t-2xl sm:rounded-xl shadow-lg p-4 space-y-3 z-50"
-      style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:right-4 sm:top-4 sm:bottom-auto w-full sm:w-72 max-h-[75vh] sm:max-h-none overflow-y-auto bg-white border-2 rounded-t-3xl sm:rounded-2xl shadow-xl z-50 overflow-hidden"
+      style={{ paddingBottom: 'max(0px, env(safe-area-inset-bottom))' }}
     >
-      <div className="mx-auto mb-1 h-1 w-10 rounded-full bg-border sm:hidden" />
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold text-sm">{booth.name}</p>
-          <StatusPill status={booth.status} />
+      {/* Status-tinted identity band — the station's color IS the header */}
+      <div className="px-4 pt-4 pb-3" style={{ background: sc.bg, borderBottom: `2px solid ${sc.border}44` }}>
+        <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-black/10 sm:hidden" />
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-black text-base uppercase tracking-tight truncate" style={{ color: sc.text }}>{booth.name}</p>
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 text-white" style={{ background: sc.border }}>
+                {BOOTH_STATUS_LABELS[booth.status] ?? booth.status}
+              </span>
+              {booth.type && <span className="text-[9px] font-bold uppercase" style={{ color: sc.text + '99' }}>{booth.type}</span>}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-8 w-8 rounded-xl bg-white/60 hover:bg-white flex items-center justify-center shrink-0 transition-colors"
+            style={{ color: sc.text }}
+            aria-label="Close"
+          >
+            ×
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground text-xl leading-none h-8 w-8 flex items-center justify-center -mt-1 -mr-1 shrink-0"
-          aria-label="Close"
-        >
-          ×
-        </button>
+        {lease && monthlyRent > 0 && (
+          <p className="mt-2 text-xl font-black tracking-tighter" style={{ color: sc.text }}>
+            {formatCents(monthlyRent)}<span className="text-[10px] font-black uppercase tracking-widest opacity-60"> /mo</span>
+          </p>
+        )}
       </div>
 
-      {renter && (
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">Renter</p>
-          <p className="text-sm font-medium">
-            {renter.firstName} {renter.lastName}
-          </p>
-          {renter.businessName && (
-            <p className="text-xs text-muted-foreground">{renter.businessName}</p>
-          )}
-          {renter.specialty && (
-            <p className="text-xs text-muted-foreground">{renter.specialty}</p>
-          )}
-          <p className="text-xs text-muted-foreground">{renter.email}</p>
-          <Badge className="text-[10px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? 'Unknown'}</Badge>
-        </div>
-      )}
+      <div className="p-4 space-y-3">
+        {renter && (
+          <div className="rounded-2xl border-2 p-3 flex items-center gap-3">
+            {(renter as any).avatarUrl ? (
+              <img src={(renter as any).avatarUrl} alt="" className="w-10 h-10 rounded-xl object-cover shrink-0" />
+            ) : (
+              <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-black text-sm shrink-0">
+                {(renter.firstName || '?').charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black truncate">{renter.firstName} {renter.lastName}</p>
+              <p className="text-[10px] font-bold text-muted-foreground truncate">
+                {[renter.businessName, renter.specialty].filter(Boolean).join(' · ') || renter.email}
+              </p>
+            </div>
+            <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-slate-100 text-slate-600 shrink-0">
+              {RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? '—'}
+            </span>
+          </div>
+        )}
 
-      {lease && (
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground uppercase tracking-wide">Lease</p>
-          <p className="text-sm font-medium">{formatCents(monthlyRent)} / mo</p>
-          <p className="text-xs text-muted-foreground">
-            {formatCents(lease.rentAmountCents)} /{' '}
-            {(FREQUENCY_LABELS[lease.frequency] ?? lease.frequency ?? 'period').toLowerCase()}
-          </p>
-          {lease.scheduleSlot && (
-            <p className="text-xs text-muted-foreground">
-              Days: {lease.scheduleSlot.label ?? lease.scheduleSlot.days.join(', ')}
+        {lease && (
+          <div className="rounded-2xl border-2 p-3 space-y-1">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Lease</p>
+            <p className="text-xs font-bold text-slate-700">
+              {formatCents(lease.rentAmountCents)} / {(FREQUENCY_LABELS[lease.frequency] ?? lease.frequency ?? 'period').toLowerCase()}
+              <span className="text-muted-foreground font-semibold"> · {lease.endDate ? `ends ${lease.endDate}` : 'month-to-month'}</span>
             </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            {lease.endDate ? `Ends ${lease.endDate}` : 'Month-to-month'}
-          </p>
-          {(lease.perks?.length ?? 0) > 0 && (
-            <p className="text-xs text-muted-foreground">
-              {lease.perks.length} perk{lease.perks.length > 1 ? 's' : ''}
-            </p>
-          )}
-        </div>
-      )}
+            {lease.scheduleSlot && (
+              <p className="text-[10px] font-bold text-muted-foreground">Days: {lease.scheduleSlot.label ?? lease.scheduleSlot.days.join(', ')}</p>
+            )}
+            {(lease.perks?.length ?? 0) > 0 && (
+              <p className="text-[10px] font-bold text-muted-foreground">{lease.perks.length} perk{lease.perks.length > 1 ? 's' : ''} attached</p>
+            )}
+          </div>
+        )}
 
-      {(booth.amenities?.length ?? 0) > 0 && (
-        <div>
-          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Amenities</p>
+        {(booth.amenities?.length ?? 0) > 0 && (
           <div className="flex flex-wrap gap-1">
             {booth.amenities.map((a) => (
-              <span
-                key={a}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-              >
+              <span key={a} className="text-[9px] font-bold px-2 py-1 rounded-full bg-slate-100 text-slate-600">
                 {a}
               </span>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {booth.status === 'maintenance' && (booth as any).maintenanceNote && (
-        <div className="rounded-xl border-2 border-amber-200 bg-amber-50 p-2.5">
-          <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">🛠 Down for maintenance</p>
-          <p className="text-xs font-bold text-amber-800 mt-0.5">{(booth as any).maintenanceNote}</p>
-          {(booth as any).maintenanceReportedAt && (
-            <p className="text-[9px] font-bold text-amber-600 mt-0.5">since {String((booth as any).maintenanceReportedAt).slice(0, 10)}</p>
+        {booth.status === 'maintenance' && (booth as any).maintenanceNote && (
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3">
+            <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">🛠 Down for maintenance</p>
+            <p className="text-xs font-bold text-amber-800 mt-0.5">{(booth as any).maintenanceNote}</p>
+            {(booth as any).maintenanceReportedAt && (
+              <p className="text-[9px] font-bold text-amber-600 mt-0.5">since {String((booth as any).maintenanceReportedAt).slice(0, 10)}</p>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-2 pt-1">
+          <button
+            onClick={() => onEdit(booth)}
+            className="w-full h-10 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit space
+          </button>
+          {!['wall', 'door', 'plant'].includes((booth as any).shape) && (
+            booth.status === 'maintenance' ? (
+              onMarkFixed && (
+                <button onClick={() => onMarkFixed(booth)} className="w-full h-10 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest transition-colors">
+                  ✓ Mark fixed — back in service
+                </button>
+              )
+            ) : (
+              onReportIssue && (
+                <button onClick={() => onReportIssue(booth)} className="w-full h-10 rounded-2xl border-2 border-amber-300 text-amber-700 hover:bg-amber-50 font-black uppercase text-[9px] tracking-widest transition-colors">
+                  🛠 Report an issue
+                </button>
+              )
+            )
           )}
         </div>
-      )}
-
-      <Button
-        variant="outline"
-        size="sm"
-        className="w-full"
-        onClick={() => onEdit(booth)}
-      >
-        <Pencil className="h-3.5 w-3.5 mr-1.5" />
-        Edit booth
-      </Button>
-      {!['wall', 'door', 'plant'].includes((booth as any).shape) && (
-        booth.status === 'maintenance' ? (
-          onMarkFixed && (
-            <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => onMarkFixed(booth)}>
-              ✓ Mark fixed — back in service
-            </Button>
-          )
-        ) : (
-          onReportIssue && (
-            <Button variant="outline" size="sm" className="w-full text-amber-700 border-amber-300 hover:bg-amber-50" onClick={() => onReportIssue(booth)}>
-              🛠 Report an issue
-            </Button>
-          )
-        )
-      )}
+      </div>
     </div>
   );
 }
@@ -1507,49 +1514,54 @@ function ContactProfileDrawer({
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative w-full sm:w-[420px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        <div className="px-5 pt-5 pb-4 border-b space-y-3">
+        {/* Header — same identity-banner language as the renter profile, in a
+            lighter tone: this is a lead/guest, not a resident (yet). */}
+        <div className="bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-white px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-14 h-14 rounded-2xl bg-white/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
                 {(contact.name || '?').charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="font-black text-base truncate">{contact.name}</p>
-                <div className="flex gap-1.5 mt-0.5 flex-wrap">
+                <p className="font-black text-lg leading-tight truncate">{contact.name}</p>
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   {(() => {
-                    const S: Record<string, string> = { inquiry: 'text-slate-500', tour: 'text-sky-600', applicant: 'text-violet-600', guest: 'text-emerald-600', repeat: 'text-amber-600' };
+                    const S: Record<string, string> = { inquiry: 'bg-white/10 text-white/60', tour: 'bg-sky-400/20 text-sky-300', applicant: 'bg-violet-400/20 text-violet-300', guest: 'bg-emerald-400/20 text-emerald-300', repeat: 'bg-amber-400/20 text-amber-300' };
                     const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', repeat: 'Regular' };
-                    return <span className={`text-[9px] font-black uppercase tracking-widest ${S[contact.stage] || 'text-slate-500'}`}>{L[contact.stage] || 'Contact'}</span>;
+                    return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${S[contact.stage] || 'bg-white/10 text-white/60'}`}>{L[contact.stage] || 'Contact'}</span>;
                   })()}
-                  {contact.lastRating && <span className="text-amber-500 text-[10px]">{'★'.repeat(contact.lastRating)}</span>}
+                  {contact.tier === 'regular' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">🔥 Lease-ready</span>}
+                  {contact.lastRating && <span className="text-amber-300 text-[10px]">{'★'.repeat(contact.lastRating)}</span>}
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 shrink-0"><X className="h-4 w-4" /></button>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
           </div>
-          <div className="flex gap-2">
-            {contact.phone && <a href={`tel:${contact.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Call</a>}
-            {contact.phone && <a href={`sms:${contact.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Text</a>}
-            {contact.email && <a href={`mailto:${contact.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Email</a>}
+
+          {/* The three numbers, up in the banner where they read instantly */}
+          <div className="grid grid-cols-3 gap-2 mt-4">
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Visits</p>
+              <p className="text-sm font-black">{contact.visits || 0}</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Lifetime</p>
+              <p className="text-sm font-black text-emerald-300">${((contact.totalCents || 0) / 100).toFixed(0)}</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Rating</p>
+              <p className="text-sm font-black">{contact.lastRating ? `${contact.lastRating}★` : '—'}</p>
+            </div>
+          </div>
+
+          <div className="flex gap-2 mt-3">
+            {contact.phone && <a href={`tel:${contact.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
+            {contact.phone && <a href={`sms:${contact.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
+            {contact.email && <a href={`mailto:${contact.email}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-xl border-2 px-2 py-2.5 text-center">
-              <p className="text-lg font-black tracking-tighter">{contact.visits || 0}</p>
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Visits</p>
-            </div>
-            <div className="rounded-xl border-2 px-2 py-2.5 text-center">
-              <p className="text-lg font-black tracking-tighter text-emerald-700">${((contact.totalCents || 0) / 100).toFixed(0)}</p>
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Lifetime</p>
-            </div>
-            <div className="rounded-xl border-2 px-2 py-2.5 text-center">
-              <p className="text-lg font-black tracking-tighter">{contact.lastRating || '—'}</p>
-              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Rating</p>
-            </div>
-          </div>
-
           <div className="rounded-2xl border-2 p-4 space-y-1">
             <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Contact</p>
             {contact.phone && <p className="text-xs font-bold">{contact.phone}</p>}
@@ -1838,38 +1850,61 @@ function RenterProfileDrawer({
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative w-full sm:w-[420px] h-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-        {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b space-y-3">
+        {/* Header — identity banner: who they are + the three numbers that
+            matter, readable in one glance. Dark gradient so the profile feels
+            like a card, not a form. */}
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white px-5 pt-5 pb-0">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3.5 min-w-0">
               {(renter as any).avatarUrl ? (
-                <img src={(renter as any).avatarUrl} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0 border-2" />
+                <img src={(renter as any).avatarUrl} alt="" className="w-14 h-14 rounded-2xl object-cover shrink-0 ring-2 ring-white/30" />
               ) : (
-                <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-lg shrink-0">
+                <div className="w-14 h-14 rounded-2xl bg-white/10 ring-2 ring-white/20 text-white flex items-center justify-center font-black text-xl shrink-0">
                   {(renter.firstName || '?').charAt(0).toUpperCase()}
                 </div>
               )}
               <div className="min-w-0">
-                <p className="font-black text-base truncate">{fullName}</p>
-                {renter.businessName && <p className="text-[10px] font-bold text-muted-foreground truncate">{renter.businessName}</p>}
-                <div className="flex gap-1.5 mt-1 flex-wrap">
-                  <Badge className="text-[9px]">{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</Badge>
-                  {(renter as any).linkedStaffId && <span className="text-[9px] font-black uppercase tracking-widest text-violet-600">Hybrid</span>}
-                  {w9 ? <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">✓ W-9</span> : w9 === null ? <span className="text-[9px] font-black uppercase tracking-widest text-amber-600">⚠ W-9</span> : null}
+                <p className="font-black text-lg leading-tight truncate">{fullName}</p>
+                {renter.businessName && <p className="text-[10px] font-bold text-white/50 truncate">{renter.businessName}{renter.specialty ? ` · ${renter.specialty}` : ''}</p>}
+                {!renter.businessName && renter.specialty && <p className="text-[10px] font-bold text-white/50 truncate">{renter.specialty}</p>}
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                  <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${renter.status === 'active' ? 'bg-emerald-400/20 text-emerald-300' : 'bg-white/10 text-white/60'}`}>{RENTER_STATUS_LABELS[renter.status] ?? renter.status}</span>
+                  {(renter as any).linkedStaffId && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-400/20 text-violet-300">Hybrid</span>}
+                  {w9 ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-400/20 text-emerald-300">✓ W-9</span> : w9 === null ? <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-400/20 text-amber-300">⚠ W-9</span> : null}
+                  {(renter as any).cardOnFile && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-400/20 text-sky-300">💳 Card</span>}
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="h-9 w-9 rounded-xl border-2 flex items-center justify-center text-slate-500 shrink-0"><X className="h-4 w-4" /></button>
+            <button onClick={onClose} className="h-9 w-9 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 shrink-0 transition-colors"><X className="h-4 w-4" /></button>
           </div>
-          <div className="flex gap-2">
-            <button onClick={onEdit} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700">Edit</button>
-            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Call</a>}
-            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 flex items-center justify-center">Email</a>}
+
+          {/* The three numbers: station · rent · YTD value */}
+          <div className="grid grid-cols-3 gap-2 mt-4">
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Station</p>
+              <p className="text-sm font-black truncate">{booth?.name || '—'}</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">Rent</p>
+              <p className="text-sm font-black truncate">{lease ? `${formatCents(lease.rentAmountCents)}/${(lease.frequency || 'mo').slice(0, 2)}` : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.07] px-2.5 py-2">
+              <p className="text-[7px] font-black uppercase tracking-[0.2em] text-white/40">This year</p>
+              <p className="text-sm font-black truncate text-emerald-300">${ytdTotal.toFixed(0)}</p>
+            </div>
           </div>
-          <div className="flex gap-0 -mb-4 border-b-0">
+
+          <div className="flex gap-2 mt-3">
+            <button onClick={onEdit} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 transition-colors">Edit</button>
+            {renter.phone && <a href={`tel:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Call</a>}
+            {renter.phone && <a href={`sms:${renter.phone}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Text</a>}
+            {renter.email && <a href={`mailto:${renter.email}`} className="flex-1 h-9 rounded-xl bg-white/10 hover:bg-white/20 font-black uppercase text-[9px] tracking-widest text-white/90 flex items-center justify-center transition-colors">Email</a>}
+          </div>
+
+          <div className="flex gap-0 mt-3">
             {PTABS.map(t => (
               <button key={t.id} onClick={() => setPtab(t.id)}
-                className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${ptab === t.id ? 'text-slate-900 border-b-2 border-slate-900' : 'text-muted-foreground'}`}>
+                className={`px-3.5 py-2.5 text-[10px] font-black uppercase tracking-widest transition-colors rounded-t-xl ${ptab === t.id ? 'bg-white text-slate-900' : 'text-white/50 hover:text-white/80'}`}>
                 {t.label}
               </button>
             ))}
@@ -4564,10 +4599,20 @@ export default function BoothsPage() {
   };
   const handleBoothSelect = (boothId: string) => {
     const booth = boothById.get(boothId);
+    // One-tap prefill: picking the space fills EVERYTHING money-related from
+    // its own rates — prefer the monthly option, fall back to the base rate —
+    // and defaults the deposit to one period's rent (the industry norm).
+    // Every value stays editable; this just makes the happy path zero-typing.
+    const opts: any[] = booth && Array.isArray((booth as any).pricingOptions) ? (booth as any).pricingOptions : [];
+    const monthly = opts.find((o) => o.frequency === 'monthly' && o.amountCents > 0);
+    const rentCents = monthly ? monthly.amountCents : (booth?.baseRentCents || 0);
+    const freq = monthly ? 'monthly' : (booth?.baseRentFrequency || 'monthly');
     setLeaseForm((prev) => ({
       ...prev, boothId,
-      rentDollars: booth ? (booth.baseRentCents / 100).toString() : prev.rentDollars,
-      frequency: booth ? booth.baseRentFrequency : prev.frequency, dueDay: '1',
+      rentDollars: booth && rentCents > 0 ? (rentCents / 100).toString() : prev.rentDollars,
+      frequency: booth ? (freq as any) : prev.frequency,
+      dueDay: '1',
+      depositDollars: prev.depositDollars || (rentCents > 0 ? (rentCents / 100).toString() : prev.depositDollars),
     }));
   };
   const toggleScheduleDay = (day: WeekDay) => {
