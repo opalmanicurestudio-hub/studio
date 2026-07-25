@@ -261,6 +261,18 @@ service cloud.firestore {
     match /tenants/{tenantId}/contacts/{contactId} {
       allow read, write: if isStaff(tenantId);
     }
+    // ── v94 Maintenance tickets — one queue for renter-reported (server),
+    // floor-reported and owner-logged (client) issues. Techs update via the
+    // token-authed /api/maintenance route (Admin SDK). Never deleted —
+    // cancelled is the terminal state, history stays auditable.
+    match /tenants/{tenantId}/tickets/{ticketId} {
+      allow read, create, update: if isStaff(tenantId);
+      allow delete: if false;
+    }
+    // Worker roster carries portal TOKENS — managers only.
+    match /tenants/{tenantId}/maintenanceWorkers/{workerId} {
+      allow read, write: if isManager(tenantId);
+    }
 
     // v79 — step 5: the scoped check-ins collection. Written only by
     // /api/checkins (server); the portal and floor views read it.
@@ -304,7 +316,9 @@ service cloud.firestore {
           'leases',
           'appointmentCheckIns',
           'boothPasses',
-          'boothPassPurchases'
+          'boothPassPurchases',
+          'tickets',
+          'maintenanceWorkers'
         ]);
     }
 
