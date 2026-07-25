@@ -151,6 +151,11 @@ export const setContactNote = (firestore: any, tenantId: string, person: EnsureI
 export const setContactPhoto = (firestore: any, tenantId: string, person: EnsureInput, photoUrl: string) =>
   patchContact(firestore, tenantId, person, { photoUrl }, 'Profile photo added');
 
+// Generic timeline event — for anything worth remembering on a person's
+// history that isn't covered by a dedicated helper (pass purchases, etc.).
+export const logContactEvent = (firestore: any, tenantId: string, person: EnsureInput, event: string) =>
+  patchContact(firestore, tenantId, person, {}, event);
+
 // Zero-effort communication trail: tapping call/text/email in the CRM logs
 // the touch to the person's history automatically. Fire-and-forget — a log
 // failure must never block the actual call/text from opening.
