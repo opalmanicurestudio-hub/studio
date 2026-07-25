@@ -2495,7 +2495,6 @@ export default function BoothsPage() {
   }, [reviews]);
 
 
-  const [guestBookOpen, setGuestBookOpen] = useState(false);
   const [profileContact, setProfileContact] = useState<any | null>(null);
   const [managingTour, setManagingTour] = useState<any | null>(null);
 
@@ -3332,6 +3331,57 @@ export default function BoothsPage() {
       .sort((a, b) => (b.totalCents || 0) - (a.totalCents || 0))
       .slice(0, 3),
     [guestBook]);
+
+  // ── ONE PEOPLE DIRECTORY — renters, regulars, guests, and leads are the
+  // same humans at different stages, so they live in ONE list. guestBook
+  // already merges everyone with history; this folds in renters who have no
+  // bookings/lease yet (prospective) so nobody is missing, then search +
+  // filter chips slice the single list instead of stacking separate sections.
+  const [peopleQuery, setPeopleQuery] = useState('');
+  const [peopleFilter, setPeopleFilter] = useState<'all' | 'renters' | 'regulars' | 'guests' | 'leads'>('all');
+  const peopleList = useMemo(() => {
+    const norm = (v: any) => (v || '').trim().toLowerCase();
+    const out: any[] = guestBook.map(g => ({ ...g }));
+    const byKey = new Map(out.map(g => [g.key, g]));
+    for (const rt of (renters.data || [])) {
+      const key = norm((rt as any).phone) || norm((rt as any).email);
+      const existing = key ? byKey.get(key) : undefined;
+      if (existing) {
+        // Make sure the entry is LINKED to the renter record even when they
+        // have no active lease (guestBook only links via leases).
+        if (!existing.renterId) { existing.isRenter = true; existing.renterId = rt.id; existing.tier = 'resident'; existing.stage = 'renter'; }
+        continue;
+      }
+      out.push({
+        key: key || rt.id,
+        name: `${(rt as any).firstName || ''} ${(rt as any).lastName || ''}`.trim() || 'Renter',
+        phone: (rt as any).phone || '', email: (rt as any).email || '',
+        visits: 0, totalCents: 0, lastDate: '', stage: 'renter', tier: 'resident',
+        isRenter: true, renterId: rt.id, tags: [],
+      });
+    }
+    return out;
+  }, [guestBook, renters.data]);
+  const peopleShown = useMemo(() => {
+    const q = peopleQuery.trim().toLowerCase();
+    return peopleList
+      .filter(p => {
+        if (peopleFilter === 'renters' && !p.isRenter) return false;
+        if (peopleFilter === 'regulars' && p.tier !== 'regular') return false;
+        if (peopleFilter === 'guests' && (p.isRenter || !(p.visits > 0))) return false;
+        if (peopleFilter === 'leads' && (p.isRenter || p.visits > 0)) return false;
+        if (q && !(`${p.name} ${p.phone} ${p.email}`.toLowerCase().includes(q))) return false;
+        return true;
+      })
+      .sort((a, b) => (b.isRenter ? 1 : 0) - (a.isRenter ? 1 : 0) || (b.lastDate || '').localeCompare(a.lastDate || ''));
+  }, [peopleList, peopleFilter, peopleQuery]);
+  const peopleCounts = useMemo(() => ({
+    all: peopleList.length,
+    renters: peopleList.filter(p => p.isRenter).length,
+    regulars: peopleList.filter(p => p.tier === 'regular').length,
+    guests: peopleList.filter(p => !p.isRenter && p.visits > 0).length,
+    leads: peopleList.filter(p => !p.isRenter && !(p.visits > 0)).length,
+  }), [peopleList]);
 
   // Deep-link from the planner: /booths?contact=<phone|email> opens that exact
   // person's history & details on load — renter profile if they're a renter,
@@ -5545,74 +5595,76 @@ export default function BoothsPage() {
             </div>
           )}
 
-          {/* ── Guest book: every day/hourly guest who has ever paid ── */}
-          {guestBook.length > 0 && (
-            <div className="space-y-3">
-              <button onClick={() => setGuestBookOpen(o => !o)} className="flex items-center gap-2 w-full text-left">
-                <h2 className="text-xs font-black uppercase tracking-widest">Contacts</h2>
-                <span className="h-5 min-w-5 px-1.5 bg-slate-700 text-white text-[9px] font-black rounded-full flex items-center justify-center">{guestBook.length}</span>
-                <span className="text-[10px] font-bold text-muted-foreground">everyone who's touched your business · tap to {guestBookOpen ? 'hide' : 'show'}</span>
-              </button>
-              {guestBookOpen && (
-                <div className="grid gap-2 md:grid-cols-2">
-                  {guestBook.map((g: any) => (
-                    <div key={g.key} className="rounded-xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
-                      <button onClick={() => {
-                        if (g.isRenter && g.renterId) { const rt = renterById.get(g.renterId); if (rt) { setProfileRenter(rt); return; } }
-                        setProfileContact(g);
-                      }} className="w-8 h-8 rounded-lg overflow-hidden shrink-0 active:scale-95 transition-transform">
-                        {(g.renterId && (renterById.get(g.renterId) as any)?.avatarUrl) ? (
-                          <img src={(renterById.get(g.renterId) as any).avatarUrl} alt="" className="w-8 h-8 object-cover" />
-                        ) : (
-                          <span className="w-8 h-8 bg-slate-900 text-white flex items-center justify-center font-black text-xs">{g.name.charAt(0).toUpperCase()}</span>
-                        )}
-                      </button>
-                      <button onClick={() => {
-                        if (g.isRenter && g.renterId) { const rt = renterById.get(g.renterId); if (rt) { setProfileRenter(rt); return; } }
-                        setProfileContact(g);
-                      }} className="flex-1 min-w-0 text-left">
-                        <p className="text-xs font-black truncate">{g.name}</p>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {(() => {
-                            const S: Record<string, string> = { inquiry: 'bg-slate-100 text-slate-500', tour: 'bg-sky-100 text-sky-700', applicant: 'bg-violet-100 text-violet-700', guest: 'bg-emerald-100 text-emerald-700', renter: 'bg-slate-900 text-white', repeat: 'bg-amber-100 text-amber-700' };
-                            const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', renter: 'Renter', repeat: 'Regular' };
-                            return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${S[g.stage] || S.inquiry}`}>{L[g.stage] || 'Contact'}</span>;
-                          })()}
-                          {g.lastRating && <span className="text-amber-500 text-[9px]">{'★'.repeat(g.lastRating)}</span>}
-                        </div>
-                        <p className="text-[10px] font-bold text-muted-foreground truncate">
-                          {g.isRenter
-                            ? `Renter · $${(((g.monthlyRentCents || 0) / 100)).toFixed(0)}/mo${g.visits ? ` · +${g.visits} booking${g.visits === 1 ? '' : 's'}` : ''} · $${((g.totalCents / 100)).toFixed(0)} in bookings`
-                            : g.stage === 'inquiry' || g.stage === 'tour' || g.stage === 'applicant'
+          {/* ── PEOPLE — one directory. Renters, regulars, guests, and leads
+              are the same humans at different stages of one journey, so they
+              live in ONE searchable list. Filter chips slice it; renters get
+              the full management card, everyone else a contact card. ── */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xs font-black uppercase tracking-widest">People</h2>
+              <span className="h-5 min-w-5 px-1.5 bg-slate-700 text-white text-[9px] font-black rounded-full flex items-center justify-center">{peopleCounts.all}</span>
+              <span className="text-[10px] font-bold text-muted-foreground hidden sm:inline">everyone who's touched your business — one list</span>
+              <button onClick={openCreateRenter} className="ml-auto h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest shrink-0">+ Renter</button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                value={peopleQuery}
+                onChange={e => setPeopleQuery(e.target.value)}
+                placeholder="Search name, phone, email…"
+                className="h-9 w-full sm:w-60 rounded-xl border-2 px-3 text-sm font-medium"
+              />
+              <div className="flex gap-1 p-1 bg-white rounded-xl border overflow-x-auto max-w-full">
+                {([['all', 'All'], ['renters', 'Renters'], ['regulars', 'Regulars'], ['guests', 'Guests'], ['leads', 'Leads']] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setPeopleFilter(id)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-colors ${peopleFilter === id ? 'bg-slate-900 text-white' : 'text-muted-foreground hover:text-slate-700'}`}
+                  >
+                    {label}{peopleCounts[id] > 0 ? ` ${peopleCounts[id]}` : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {renters.isLoading && peopleShown.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3">Loading people…</p>
+            ) : peopleShown.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3">{peopleQuery ? 'No one matches that search.' : 'No one here yet — approve an application or add a renter.'}</p>
+            ) : (
+              <div className="grid gap-2.5 md:grid-cols-2">
+                {peopleShown.map((g: any) => {
+                  const rtLinked = g.isRenter && g.renterId ? renterById.get(g.renterId) : undefined;
+                  if (!rtLinked) {
+                    return (
+                      <div key={g.key} className="rounded-2xl border-2 bg-white px-3.5 py-2.5 flex items-center gap-3">
+                        <button onClick={() => setProfileContact(g)} className="w-9 h-9 rounded-xl overflow-hidden shrink-0 active:scale-95 transition-transform">
+                          <span className="w-9 h-9 bg-slate-100 text-slate-600 flex items-center justify-center font-black text-sm">{g.name.charAt(0).toUpperCase()}</span>
+                        </button>
+                        <button onClick={() => setProfileContact(g)} className="flex-1 min-w-0 text-left">
+                          <p className="text-xs font-black truncate">{g.name}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {(() => {
+                              const S: Record<string, string> = { inquiry: 'bg-slate-100 text-slate-500', tour: 'bg-sky-100 text-sky-700', applicant: 'bg-violet-100 text-violet-700', guest: 'bg-emerald-100 text-emerald-700', repeat: 'bg-amber-100 text-amber-700' };
+                              const L: Record<string, string> = { inquiry: 'Inquiry', tour: 'Toured', applicant: 'Applicant', guest: 'Guest', repeat: 'Regular' };
+                              return <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 ${S[g.stage] || S.inquiry}`}>{L[g.stage] || 'Contact'}</span>;
+                            })()}
+                            {g.tier === 'regular' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 bg-emerald-100 text-emerald-700">🔥 Lease-ready</span>}
+                            {g.lastRating && <span className="text-amber-500 text-[9px]">{'★'.repeat(g.lastRating)}</span>}
+                          </div>
+                          <p className="text-[10px] font-bold text-muted-foreground truncate">
+                            {g.stage === 'inquiry' || g.stage === 'tour' || g.stage === 'applicant'
                               ? `${g.stage === 'tour' ? 'Toured' : g.stage === 'applicant' ? 'Applied' : 'Inquired'}${g.lastDate ? ` · ${g.lastDate}` : ''} · not yet booked`
                               : `${g.visits} visit${g.visits === 1 ? '' : 's'} · $${(g.totalCents / 100).toFixed(0)} lifetime · last ${g.lastDate}`}
-                        </p>
-                      </button>
-                      <div className="flex gap-1.5 shrink-0">
-                        {g.phone && <a href={`tel:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Call</a>}
-                        {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
-                        {!g.phone && g.email && <a href={`mailto:${g.email}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Email</a>}
+                          </p>
+                        </button>
+                        <div className="flex gap-1.5 shrink-0">
+                          {g.phone && <a href={`tel:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Call</a>}
+                          {g.phone && <a href={`sms:${g.phone}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Text</a>}
+                          {!g.phone && g.email && <a href={`mailto:${g.email}`} className="h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest text-slate-600 flex items-center">Email</a>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Renters */}
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs font-black uppercase tracking-widest">Renters</h2>
-              {sortedRenters.length > 0 && <span className="text-[10px] font-bold text-muted-foreground">{sortedRenters.length}</span>}
-            </div>
-            {renters.isLoading ? (
-              <p className="text-xs text-muted-foreground py-3">Loading renters…</p>
-            ) : sortedRenters.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-3">No renters yet. Approve an application or add one manually.</p>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                {sortedRenters.map((renter: Renter) => {
+                    );
+                  }
+                  const renter = rtLinked as Renter;
                   const lease = occupyingLeaseByRenter.get(renter.id);
                   const booth = lease ? boothById.get(lease.boothId) : undefined;
                   return (
