@@ -43,6 +43,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
 import { dueAtFor, TICKET_STATUS_LABELS } from '@/lib/maintenance';
+import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const WINDOW_MS = 15 * 60 * 1000;
@@ -311,19 +312,27 @@ export async function POST(req: NextRequest) {
       }
       const nowIso = new Date().toISOString();
       const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
+      // Optional photo — "here's what it looks like" beats any description.
+      let photoUrl: string | null = null;
+      let photoError: string | undefined;
+      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, ref.id, body.photoData);
+        photoUrl = up.url; photoError = up.error;
+      }
       await ref.set({
         id: ref.id, tenantId, locationId: null,
         title, description, category, priority, status: 'open',
         boothId, boothName,
+        photoUrls: photoUrl ? [photoUrl] : [],
         reporter: { type: 'renter', name: session.name || 'Renter', phone: /\d{7,}/.test(key) ? key : '', renterId: session.renterId || null },
         assigneeId: null, assigneeName: null,
-        updates: [{ at: nowIso, by: session.name || 'Renter', byType: 'renter', note: 'Ticket created', status: 'open' }],
+        updates: [{ at: nowIso, by: session.name || 'Renter', byType: 'renter', note: 'Ticket created', status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
         createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor(priority), resolvedAt: null,
       });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
-        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority.` });
-      return NextResponse.json({ ok: true, ticketId: ref.id });
+        message: `Maintenance request from ${session.name || 'a renter'}: "${title}"${boothName ? ` (${boothName})` : ''} — ${priority} priority${photoUrl ? ' · photo attached' : ''}.` });
+      return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
     }
 
     if (action === 'my-tickets') {
@@ -340,7 +349,8 @@ export async function POST(req: NextRequest) {
           status: t.status, statusLabel: TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status,
           boothName: t.boothName || null, createdAt: t.createdAt, resolvedAt: t.resolvedAt || null,
           assigneeName: t.assigneeName || null,
-          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null })),
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         }));
       return NextResponse.json({ ok: true, tickets: mine });
     }
@@ -348,7 +358,8 @@ export async function POST(req: NextRequest) {
     if (action === 'ticket-note') {
       const { ticketId } = body;
       const note = String(body.note || '').trim().slice(0, 1000);
-      if (!ticketId || !note) return NextResponse.json({ ok: false, error: 'Write a note first.' }, { status: 400 });
+      const hasPhoto = typeof body.photoData === 'string' && body.photoData.startsWith('data:image');
+      if (!ticketId || (!note && !hasPhoto)) return NextResponse.json({ ok: false, error: 'Write a note or attach a photo first.' }, { status: 400 });
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
       const snap = await ref.get();
       if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
@@ -356,14 +367,17 @@ export async function POST(req: NextRequest) {
       const owns = (session.renterId && t.reporter?.renterId === session.renterId) || (t.reporter?.phone && t.reporter.phone === key);
       if (!owns) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
       const nowIso = new Date().toISOString();
+      let photoUrl: string | null = null;
+      if (hasPhoto) photoUrl = (await uploadTicketPhotoFromDataUrl(tenantId, ticketId, body.photoData)).url;
       await ref.set({
-        updates: [...(t.updates || []), { at: nowIso, by: session.name || 'Renter', byType: 'renter', note }],
+        updates: [...(t.updates || []), { at: nowIso, by: session.name || 'Renter', byType: 'renter', ...(note ? { note } : {}), ...(photoUrl ? { photoUrl } : {}) }],
+        ...(photoUrl ? { photoUrls: [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), photoUrl] } : {}),
         updatedAt: nowIso,
       }, { merge: true });
       const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
-        message: `${session.name || 'Renter'} added to ticket "${t.title}": "${note.slice(0, 120)}"` });
-      return NextResponse.json({ ok: true });
+        message: `${session.name || 'Renter'} added to ticket "${t.title}"${note ? `: "${note.slice(0, 120)}"` : ' — photo attached.'}` });
+      return NextResponse.json({ ok: true, photoUrl });
     }
 
     // ═══ me ═══════════════════════════════════════════════════════════════
