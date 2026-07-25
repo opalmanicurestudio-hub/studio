@@ -225,6 +225,44 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, results });
+  // ── Maintenance SLA sweep — for EVERY tenant, flag open tickets past
+  // their SLA deadline exactly ONCE (overdueNotifiedAt stamp): a notification
+  // for the owner, and — when SMS is configured — a nudge text to the
+  // assigned worker. Isolated loop; ticket failures never touch money jobs.
+  const slaTotals = { overdueFlagged: 0, techNudges: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tid = tDoc.id;
+      const nowIso = new Date().toISOString();
+      const snap = await db.collection(`tenants/${tid}/tickets`).get();
+      for (const d of snap.docs) {
+        const t = d.data() as any;
+        const openish = t.status === 'open' || t.status === 'in_progress';
+        if (!openish || !t.dueAt || t.dueAt >= nowIso || t.overdueNotifiedAt) continue;
+        await d.ref.set({ overdueNotifiedAt: nowIso }, { merge: true });
+        slaTotals.overdueFlagged += 1;
+        const nRef = db.collection(`tenants/${tid}/notifications`).doc();
+        await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
+          message: `Ticket OVERDUE: "${t.title}"${t.boothName ? ` (${t.boothName})` : ''} — ${t.priority} priority, due ${String(t.dueAt).slice(0, 16).replace('T', ' ')}${t.assigneeName ? `, assigned to ${t.assigneeName}` : ', UNASSIGNED'}.` });
+        if (t.assigneeId) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const w = await db.doc(`tenants/${tid}/maintenanceWorkers/${t.assigneeId}`).get();
+              const phone = w.exists ? (w.data() as any)?.phone : null;
+              if (phone) {
+                const r = await sendTenantSms(db, tid, phone, `Reminder: ticket "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''} is past due. Please update it in your portal.`);
+                if (r.ok) slaTotals.techNudges += 1;
+              }
+            }
+          } catch { /* nudge is a bonus */ }
+        }
+      }
+    } catch (e) {
+      results[`sla:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· sla', slaTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, slaTotals, results });
 }
