@@ -266,9 +266,19 @@ export async function GET(req: NextRequest) {
         }, { merge: true });
         await batch.commit();
         planTotals.ticketsOpened += 1;
+        // No pre-assigned worker on the plan? Rotation picks one (and texts
+        // them) so scheduled work never sits ownerless.
+        let rotatedName: string | null = null;
+        if (!p.assigneeId) {
+          try {
+            const { autoAssignTicket } = await import('@/lib/maintenance-server');
+            const assigned = await autoAssignTicket(db, tid, tRef.id, { title: p.title, boothName: p.boothName, priority: p.priority || 'normal' });
+            rotatedName = assigned?.assigneeName || null;
+          } catch { /* stays unassigned for manual triage */ }
+        }
         const nRef = db.collection(`tenants/${tid}/notifications`).doc();
         await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: nowIso, link: '/booths',
-          message: `Scheduled maintenance opened: "${p.title}"${p.boothName ? ` (${p.boothName})` : ''}${p.assigneeName ? ` — assigned to ${p.assigneeName}` : ' — needs a worker'}.` });
+          message: `Scheduled maintenance opened: "${p.title}"${p.boothName ? ` (${p.boothName})` : ''}${p.assigneeName ? ` — assigned to ${p.assigneeName}` : rotatedName ? ` — auto-assigned to ${rotatedName}` : ' — needs a worker'}.` });
         if (p.assigneeId) {
           try {
             const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
