@@ -51,6 +51,19 @@ export function MaintenancePortalPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
+  const [photoData, setPhotoData] = useState<string | null>(null);
+  const [photoName, setPhotoName] = useState('');
+  const [costDollars, setCostDollars] = useState('');
+
+  const pickPhoto = (file?: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setError('That file isn\'t an image.'); return; }
+    if (file.size > 2_800_000) { setError('Photo too large — most phones can pick a smaller size, or screenshot it.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { setPhotoData(String(reader.result || '')); setPhotoName(file.name); setError(''); };
+    reader.onerror = () => setError('Could not read that photo — try another.');
+    reader.readAsDataURL(file);
+  };
 
   const load = async () => {
     if (!tenantId || !token) { setState('denied'); setError('This link is incomplete — ask the studio to resend it.'); return; }
@@ -71,16 +84,26 @@ export function MaintenancePortalPage() {
 
   const act = async (ticketId: string, status?: 'in_progress' | 'resolved') => {
     if (busy) return;
-    if (!status && !note.trim()) return;
+    if (!status && !note.trim() && !photoData) return;
     setBusy(true);
     try {
+      const costCents = status === 'resolved' && Number(costDollars) > 0
+        ? Math.round(Number(costDollars) * 100) : undefined;
       const res = await fetch('/api/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'worker-update', tenantId, token, ticketId, status, note: note.trim() || undefined }),
+        body: JSON.stringify({
+          action: 'worker-update', tenantId, token, ticketId, status,
+          note: note.trim() || undefined,
+          photoData: photoData || undefined,
+          costCents,
+        }),
       });
       const d = await res.json();
-      if (d.ok) { setNote(''); setOpenId(null); await load(); }
-      else setError(d.error || 'Could not save — try again.');
+      if (d.ok) {
+        if (d.photoError) setError(d.photoError);
+        setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setOpenId(null);
+        await load();
+      } else setError(d.error || 'Could not save — try again.');
     } catch { setError('Network error — try again.'); }
     finally { setBusy(false); }
   };
@@ -122,12 +145,12 @@ export function MaintenancePortalPage() {
           const expanded = openId === t.id;
           return (
             <div key={t.id} className={`rounded-3xl bg-white border-2 overflow-hidden ${overdue ? 'border-red-300' : ''}`}>
-              <button onClick={() => { setOpenId(expanded ? null : t.id); setNote(''); }} className="w-full text-left p-4">
+              <button onClick={() => { setOpenId(expanded ? null : t.id); setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); }} className="w-full text-left p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-sm font-black text-slate-900 leading-snug">{t.title}</p>
                     <p className="text-[10px] font-bold text-muted-foreground mt-0.5">
-                      {t.boothName ? `${t.boothName} · ` : ''}{t.category} · reported by {t.reporterName} · {fmtWhen(t.createdAt)}
+                      {[t.boothName, t.resourceName].filter(Boolean).join(' · ')}{(t.boothName || t.resourceName) ? ' · ' : ''}{t.category} · reported by {t.reporterName} · {fmtWhen(t.createdAt)}
                     </p>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -142,21 +165,49 @@ export function MaintenancePortalPage() {
               {expanded && (
                 <div className="border-t px-4 py-3 space-y-3">
                   {t.description && <p className="text-xs font-medium text-slate-600 whitespace-pre-wrap">{t.description}</p>}
+                  {Array.isArray(t.photoUrls) && t.photoUrls.length > 0 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {t.photoUrls.map((u: string, i: number) => (
+                        <a key={i} href={u} target="_blank" rel="noreferrer" className="shrink-0">
+                          <img src={u} alt="" className="h-16 w-16 rounded-xl object-cover border-2" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   {(t.updates || []).length > 0 && (
                     <div className="space-y-1.5">
                       {(t.updates || []).slice(-5).map((u: any, i: number) => (
-                        <p key={i} className="text-[11px] font-medium text-slate-500">
+                        <div key={i} className="text-[11px] font-medium text-slate-500">
                           <span className="font-black text-slate-700">{u.by}</span>
                           {u.status ? ` → ${u.status === 'in_progress' ? 'in progress' : u.status}` : ''}
                           {u.note ? ` — ${u.note}` : ''}
                           <span className="text-slate-400"> · {fmtWhen(u.at)}</span>
-                        </p>
+                          {u.photoUrl && (
+                            <a href={u.photoUrl} target="_blank" rel="noreferrer" className="block mt-1">
+                              <img src={u.photoUrl} alt="" className="h-14 w-14 rounded-lg object-cover border-2" />
+                            </a>
+                          )}
+                        </div>
                       ))}
                     </div>
                   )}
                   <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
                     placeholder="Progress note — parts ordered, what you found, what's next…"
                     className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
+                  <div className="flex gap-2 items-center">
+                    <label className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center cursor-pointer">
+                      {photoData ? `Photo: ${photoName.slice(0, 16)}` : 'Attach photo'}
+                      <input type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+                    </label>
+                    {photoData && <button onClick={() => { setPhotoData(null); setPhotoName(''); }} className="text-[9px] font-black uppercase tracking-widest text-red-500 underline">Remove</button>}
+                    <div className="ml-auto flex items-center gap-1.5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Cost $</span>
+                      <input type="number" inputMode="decimal" min={0} value={costDollars} onChange={(e) => setCostDollars(e.target.value)}
+                        placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+                    </div>
+                  </div>
+                  <p className="text-[9px] font-bold text-slate-400 -mt-1.5">Cost saves when you mark resolved — it goes straight to the studio's books.</p>
                   <div className="grid grid-cols-2 gap-2">
                     {t.status === 'open' && (
                       <button onClick={() => act(t.id, 'in_progress')} disabled={busy}
@@ -168,9 +219,9 @@ export function MaintenancePortalPage() {
                       className="h-12 rounded-2xl bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
                       Mark resolved
                     </button>
-                    <button onClick={() => act(t.id)} disabled={busy || !note.trim()}
+                    <button onClick={() => act(t.id)} disabled={busy || (!note.trim() && !photoData)}
                       className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-slate-700 disabled:opacity-40 ${t.status === 'open' ? 'col-span-2' : ''}`}>
-                      Save note only
+                      Save note / photo
                     </button>
                   </div>
                   {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
