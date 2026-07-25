@@ -1097,6 +1097,7 @@ interface BoothCanvasCardProps {
   locked: boolean;
   lens?: 'now' | 'money' | 'schedule';
   lensInfo?: { bg: string; border: string; line: string; sub: string };
+  pxPerFt?: number;
   onDragStart: (e: React.PointerEvent, id: string) => void;
   onResizeStart: (e: React.PointerEvent, id: string) => void;
   onClick: (id: string) => void;
@@ -1112,6 +1113,7 @@ function BoothCanvasCard({
   locked,
   lens = 'now',
   lensInfo,
+  pxPerFt = 0,
   onDragStart,
   onResizeStart,
   onClick,
@@ -1274,6 +1276,12 @@ function BoothCanvasCard({
         )}
       </div>
 
+      {/* True size in feet while designing (needs scale calibration) */}
+      {!locked && pxPerFt > 0 && (
+        <span className="absolute -bottom-4 left-0 text-[9px] font-black text-slate-500 bg-white/85 rounded px-1 pointer-events-none whitespace-nowrap z-10">
+          {(booth.canvasW / pxPerFt).toFixed(1)} × {(booth.canvasH / pxPerFt).toFixed(1)} ft
+        </span>
+      )}
       {!locked && (
         <div
           className="absolute bottom-0 right-0 w-6 h-6 cursor-nwse-resize opacity-60 md:opacity-40 md:group-hover:opacity-100 transition-opacity touch-none"
@@ -3080,6 +3088,24 @@ export default function BoothsPage() {
       toast({ title: url ? 'Floor image set' : 'Floor image removed', description: url ? 'Drag your stations onto it in edit mode.' : undefined });
     } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
   };
+  // ── SCALE CALIBRATION — make the floor 100% true to the room ────────
+  // The owner enters the room's real width once (per location); every
+  // station then has a true size in feet, shown while designing. Stored on
+  // the tenant doc beside the floor image: floorScale.{locKey}.widthFt.
+  const floorScaleFt: number = Number((selectedTenant as any)?.floorScale?.[floorBgKey]?.widthFt) || 0;
+  const pxPerFt = floorScaleFt > 0 ? CANVAS_W / floorScaleFt : 0;
+  const [scaleDraft, setScaleDraft] = useState('');
+  useEffect(() => { setScaleDraft(floorScaleFt ? String(floorScaleFt) : ''); }, [floorScaleFt, floorBgKey]);
+  const saveFloorScale = async () => {
+    if (!tenantId) return;
+    const ft = Math.max(0, Math.round(Number(scaleDraft) || 0));
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId), { [`floorScale.${floorBgKey}`]: ft > 0 ? { widthFt: ft } : null });
+      toast({ title: ft > 0 ? `Scale set — room is ${ft} ft wide` : 'Scale cleared', description: ft > 0 ? `Stations now show their true size (${(CANVAS_H / (CANVAS_W / ft)).toFixed(0)} ft deep canvas).` : undefined });
+    } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); }
+  };
+  // Alignment guides — live snap lines while dragging in Design mode.
+  const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutSaving, setLayoutSaving] = useState(false);
 
@@ -3528,6 +3554,7 @@ export default function BoothsPage() {
           + (r.amountCents || 0) + (r.overageStatus === 'charged' ? (r.overageDueCents || 0) : 0));
       }
       for (const b of sortedBooths) {
+        if ((b as any).status === 'inactive') continue;   // decor/layout elements stay themselves
         const lease = activeLeaseByBooth.get(b.id);
         const rent = lease ? Math.round((lease.rentAmountCents || 0) * (FREQ_TO_MONTHLY[lease.frequency] ?? 1)) : 0;
         const day = revByBooth.get(b.id) || 0;
@@ -3556,6 +3583,7 @@ export default function BoothsPage() {
       const tomorrow = localISO(new Date(Date.now() + 86400000));
       const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
       for (const b of sortedBooths) {
+        if ((b as any).status === 'inactive') continue;   // decor/layout elements stay themselves
         const lease = activeLeaseByBooth.get(b.id);
         const next = reservations
           .filter(r => r.boothId === b.id && r.status === 'confirmed' && (r.startDate || '') >= today)
@@ -3988,14 +4016,43 @@ export default function BoothsPage() {
       const dy = e.clientY - d.startMouseY;
 
       if (d.mode === 'move') {
+        let nx = Math.max(0, Math.min(CANVAS_W - d.startBoothW, snap(d.startBoothX + dx)));
+        let ny = Math.max(0, Math.min(CANVAS_H - d.startBoothH, snap(d.startBoothY + dy)));
+        // ── Alignment guides: when an edge or center of the moving station
+        // comes within TH px of another station's edge/center, snap to it
+        // exactly and draw a guide line — things LINE UP instead of hovering
+        // slightly off. Best (closest) candidate wins per axis.
+        const TH = 8;
+        const others = (booths.data ?? [])
+          .filter((b) => b.id !== d.boothId)
+          .map((b) => {
+            const lp = localPos[b.id];
+            return { x: lp?.x ?? b.canvasX, y: lp?.y ?? b.canvasY, w: lp?.w ?? b.canvasW, h: lp?.h ?? b.canvasH };
+          });
+        const movingXOff = [0, d.startBoothW / 2, d.startBoothW];
+        const movingYOff = [0, d.startBoothH / 2, d.startBoothH];
+        let bestX: { delta: number; guide: number; off: number } | null = null;
+        let bestY: { delta: number; guide: number; off: number } | null = null;
+        for (const o of others) {
+          for (const gx of [o.x, o.x + o.w / 2, o.x + o.w]) {
+            for (const off of movingXOff) {
+              const delta = Math.abs(nx + off - gx);
+              if (delta <= TH && (!bestX || delta < bestX.delta)) bestX = { delta, guide: gx, off };
+            }
+          }
+          for (const gy of [o.y, o.y + o.h / 2, o.y + o.h]) {
+            for (const off of movingYOff) {
+              const delta = Math.abs(ny + off - gy);
+              if (delta <= TH && (!bestY || delta < bestY.delta)) bestY = { delta, guide: gy, off };
+            }
+          }
+        }
+        if (bestX) nx = Math.max(0, Math.min(CANVAS_W - d.startBoothW, bestX.guide - bestX.off));
+        if (bestY) ny = Math.max(0, Math.min(CANVAS_H - d.startBoothH, bestY.guide - bestY.off));
+        setGuides({ x: bestX ? [bestX.guide] : [], y: bestY ? [bestY.guide] : [] });
         setLocalPos((prev) => ({
           ...prev,
-          [d.boothId]: {
-            x: Math.max(0, Math.min(CANVAS_W - d.startBoothW, snap(d.startBoothX + dx))),
-            y: Math.max(0, Math.min(CANVAS_H - d.startBoothH, snap(d.startBoothY + dy))),
-            w: d.startBoothW,
-            h: d.startBoothH,
-          },
+          [d.boothId]: { x: nx, y: ny, w: d.startBoothW, h: d.startBoothH },
         }));
       } else {
         setLocalPos((prev) => ({
@@ -4003,14 +4060,16 @@ export default function BoothsPage() {
           [d.boothId]: {
             x: d.startBoothX,
             y: d.startBoothY,
-            w: Math.max(GRID * 4, snap(d.startBoothW + dx)),
-            h: Math.max(GRID * 4, snap(d.startBoothH + dy)),
+            // One grid cell minimum — thin elements like walls stay resizable.
+            w: Math.max(GRID, snap(d.startBoothW + dx)),
+            h: Math.max(GRID, snap(d.startBoothH + dy)),
           },
         }));
       }
     };
 
     const handlePointerUp = async () => {
+      setGuides({ x: [], y: [] });
       const d = dragRef.current;
       if (!d || !tenantId) {
         dragRef.current = null;
@@ -4050,7 +4109,40 @@ export default function BoothsPage() {
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
     };
-  }, [firestore, tenantId, localPos]);
+  }, [firestore, tenantId, localPos, booths.data]);
+
+  // ── Quick-add layout elements — walls, doors, zones drop straight onto
+  // the floor as one tap, no full booth dialog. They're status:'inactive'
+  // (never bookable, never counted as vacant) with no rate, purely so the
+  // map reads like the actual studio.
+  const quickAddElement = async (shape: 'wall' | 'door' | 'square' | 'chair' | 'sink' | 'plant') => {
+    if (!tenantId || !selectedLocationId) return;
+    const DEFS: Record<string, { name: string; w: number; h: number }> = {
+      wall: { name: 'Wall', w: 240, h: 20 },
+      door: { name: 'Door', w: 80, h: 20 },
+      square: { name: 'Zone', w: 160, h: 160 },
+      chair: { name: 'Chair', w: 80, h: 80 },
+      sink: { name: 'Wash', w: 80, h: 80 },
+      plant: { name: 'Plant', w: 60, h: 60 },
+    };
+    const dd = DEFS[shape];
+    try {
+      const now = new Date().toISOString();
+      const ref = doc(collection(firestore, BOOTH_RENTAL_COLLECTIONS.booths(tenantId)));
+      await setDoc(ref, {
+        id: ref.id, locationId: selectedLocationId,
+        name: dd.name, type: '', notes: '',
+        baseRentCents: 0, baseRentFrequency: 'monthly', pricingOptions: [],
+        amenities: [], photoUrls: [],
+        status: 'inactive', shape,
+        canvasX: 80, canvasY: 80, canvasW: dd.w, canvasH: dd.h,
+        sortOrder: 999, currentLeaseId: null,
+        createdAt: now, updatedAt: now,
+      });
+      setSelectedId(ref.id);
+      toast({ title: `${dd.name} added`, description: 'Drag it into place; corner handle resizes.' });
+    } catch { toast({ variant: 'destructive', title: 'Could not add', description: 'Try again.' }); }
+  };
 
   const autoArrangeBooths = async () => {
     if (!tenantId) return;
@@ -4826,13 +4918,38 @@ export default function BoothsPage() {
           ) : (
             <div className="relative">
               {!locked && (
-                <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-2 flex-wrap">
-                  <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize.
-                  <span className="ml-auto flex items-center gap-2">
-                    <span className="text-slate-500">Floor image:</span>
-                    <ImageUpload enableMarkup={false} clearOnUpload storageFolder="floorplans" onImageUploaded={(url) => { if (url) saveFloorBg(url); }} />
-                    {floorBgUrl && <button onClick={() => saveFloorBg(null)} className="text-red-500 font-black uppercase tracking-widest">Remove</button>}
-                  </span>
+                <div className="mb-2 space-y-1.5">
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-bold text-amber-700 flex items-center gap-2 flex-wrap">
+                    <Unlock className="h-3 w-3 shrink-0" /> Drag booths to reposition, drag the corner to resize — edges snap and align automatically.
+                    <span className="ml-auto flex items-center gap-2">
+                      <span className="text-slate-500">Floor image:</span>
+                      <ImageUpload enableMarkup={false} clearOnUpload storageFolder="floorplans" onImageUploaded={(url) => { if (url) saveFloorBg(url); }} />
+                      {floorBgUrl && <button onClick={() => saveFloorBg(null)} className="text-red-500 font-black uppercase tracking-widest">Remove</button>}
+                    </span>
+                  </div>
+                  <div className="rounded-xl border-2 bg-white px-3 py-2 flex items-center gap-2 flex-wrap">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500 shrink-0">Add to floor:</span>
+                    {([
+                      ['wall', '▬ Wall'],
+                      ['door', '🚪 Door'],
+                      ['square', '⬛ Zone'],
+                      ['chair', '🪑 Chair'],
+                      ['sink', '🚿 Wash'],
+                      ['plant', '🪴 Plant'],
+                    ] as const).map(([shape, label]) => (
+                      <button key={shape} onClick={() => quickAddElement(shape)}
+                        className="h-8 px-2.5 rounded-lg border-2 text-[10px] font-black uppercase tracking-wide text-slate-600 hover:border-slate-400 active:scale-95 transition-all">
+                        {label}
+                      </button>
+                    ))}
+                    <span className="ml-auto flex items-center gap-1.5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Room width</span>
+                      <input type="number" inputMode="numeric" min={0} value={scaleDraft} onChange={e => setScaleDraft(e.target.value)}
+                        placeholder="ft" className="w-16 h-8 rounded-lg border-2 px-2 text-xs font-bold" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">ft</span>
+                      <button onClick={saveFloorScale} className="h-8 px-2.5 rounded-lg bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest">Set</button>
+                    </span>
+                  </div>
                 </div>
               )}
               {floorEvents.length > 0 && (
@@ -4862,6 +4979,19 @@ export default function BoothsPage() {
                   {floorBgUrl && (
                     <img src={floorBgUrl} alt="" draggable={false} className="absolute inset-0 pointer-events-none select-none" style={{ width: CANVAS_W, height: CANVAS_H, objectFit: 'cover', opacity: 0.55 }} />
                   )}
+                  {/* Alignment guides — live snap lines while dragging */}
+                  {guides.x.map((gx) => (
+                    <div key={`gx-${gx}`} className="absolute top-0 bottom-0 pointer-events-none z-20" style={{ left: gx, width: 1, background: '#6366f1', boxShadow: '0 0 4px #6366f188' }} />
+                  ))}
+                  {guides.y.map((gy) => (
+                    <div key={`gy-${gy}`} className="absolute left-0 right-0 pointer-events-none z-20" style={{ top: gy, height: 1, background: '#6366f1', boxShadow: '0 0 4px #6366f188' }} />
+                  ))}
+                  {/* Room dimensions readout when the floor is calibrated */}
+                  {!locked && pxPerFt > 0 && (
+                    <div className="absolute bottom-2 right-2 z-20 rounded-lg bg-slate-900/80 text-white px-2.5 py-1 text-[10px] font-black uppercase tracking-widest pointer-events-none">
+                      Room {floorScaleFt} × {(CANVAS_H / pxPerFt).toFixed(0)} ft
+                    </div>
+                  )}
                   {sortedBooths.map((b: Booth) => {
                     const eb = { ...effectiveBooth(b), status: displayStatus(b) };
                     const lease = activeLeaseByBooth.get(b.id);
@@ -4878,6 +5008,7 @@ export default function BoothsPage() {
                         locked={locked}
                         lens={locked ? lens : 'now'}
                         lensInfo={lensByBooth.get(b.id)}
+                        pxPerFt={pxPerFt}
                         onDragStart={handleDragStart}
                         onResizeStart={handleResizeStart}
                         onClick={setSelectedId}
