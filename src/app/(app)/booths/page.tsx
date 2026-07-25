@@ -1739,6 +1739,7 @@ function complianceOf(r: any): { items: { label: string; number: string; expiry:
 function RenterProfileDrawer({
   renter, lease, booth, reservations, amenityRequests, w9, tenantId, firestore,
   onClose, onEdit, onLease, onEndLease, contactNote, onSaveNote,
+  onRecordPayment, onAddCard,
 }: {
   renter: Renter;
   lease?: Lease;
@@ -1754,6 +1755,8 @@ function RenterProfileDrawer({
   onEndLease: () => void;
   contactNote?: string;
   onSaveNote?: (note: string) => void;
+  onRecordPayment?: (() => void) | null;
+  onAddCard?: () => void;
 }) {
   const [ptab, setPtab] = useState<'overview' | 'money' | 'documents' | 'activity'>('overview');
   const [noteDraft, setNoteDraft] = useState<string>(contactNote || '');
@@ -2073,6 +2076,24 @@ function RenterProfileDrawer({
                 <p className="text-[9px] font-black uppercase tracking-widest text-white/50">{thisYear} total paid</p>
                 <p className="text-2xl font-black tracking-tighter">${ytdTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
               </div>
+              {/* Money actions — record a payment or get their card on file,
+                  right where you're already looking at their money. */}
+              <div className="grid grid-cols-2 gap-2">
+                {onRecordPayment && (
+                  <button onClick={onRecordPayment} className="h-11 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-[9px] tracking-widest transition-colors">
+                    💵 Record payment
+                  </button>
+                )}
+                {(renter as any).cardOnFile ? (
+                  <div className="h-11 rounded-2xl border-2 border-emerald-200 bg-emerald-50 flex items-center justify-center text-[9px] font-black uppercase tracking-widest text-emerald-700">
+                    💳 {(renter as any).cardBrand || 'Card'} ····{(renter as any).cardLast4 || ''}
+                  </div>
+                ) : onAddCard ? (
+                  <button onClick={onAddCard} className="h-11 rounded-2xl border-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50 font-black uppercase text-[9px] tracking-widest transition-colors">
+                    💳 Add card on file
+                  </button>
+                ) : null}
+              </div>
               {txns === null ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p> : (
                 <>
                   {(txns.length + myReservations.length) === 0 && <p className="text-xs text-muted-foreground text-center py-4">No payments on record.</p>}
@@ -2089,7 +2110,10 @@ function RenterProfileDrawer({
                     <div key={t.id} className="rounded-xl border-2 px-3.5 py-2.5 flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-black truncate">{t.description || 'Booth rent'}</p>
-                        <p className="text-[10px] font-bold text-muted-foreground">{dateStr(t.date || t.createdAt)}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground truncate">
+                          {(() => { try { return new Date(t.date || t.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return dateStr(t.date || t.createdAt); } })()}
+                          {t.paymentMethod ? ` · ${t.paymentMethod}` : ''}
+                        </p>
                       </div>
                       <p className="font-black text-emerald-700 text-sm shrink-0">${dollars(t).toFixed(2)}</p>
                     </div>
@@ -3634,6 +3658,17 @@ export default function BoothsPage() {
         });
       }
     }
+    // Card on file is the backbone of automation (auto-collect, incidentals) —
+    // any active renter missing one is a one-tap fix worth surfacing.
+    for (const rt of (renters.data || [])) {
+      if (String((rt as any).status || '') !== 'active') continue;
+      if ((rt as any).cardOnFile) continue;
+      items.push({
+        kind: 'nocard',
+        text: `${rt.firstName} ${rt.lastName} has no card on file — auto-collect can't run`,
+        actionLabel: '💳 Set up', run: () => startCardSetup(rt),
+      });
+    }
     for (const b of (booths.data || [])) {
       if ((b as any).status !== 'maintenance') continue;
       const since = String((b as any).maintenanceReportedAt || '').slice(0, 10);
@@ -3650,7 +3685,7 @@ export default function BoothsPage() {
         actionLabel: 'Open', run: () => setProfileContact(g),
       });
     }
-    const RANK: Record<string, number> = { late: 0, expired: 1, maint: 2, due: 3, unsigned: 4, renewal: 5, expiring: 6, convert: 7 };
+    const RANK: Record<string, number> = { late: 0, expired: 1, maint: 2, due: 3, nocard: 4, unsigned: 5, renewal: 6, expiring: 7, convert: 8 };
     return items.sort((a, b) => (RANK[a.kind] ?? 9) - (RANK[b.kind] ?? 9)).slice(0, 8);
   }, [rentRoll, leases.data, renters.data, reservations, conversionCandidates, renterById, tenantId, booths.data]);
   const toggleAutoCollect = async (l: any) => {
@@ -3731,6 +3766,44 @@ export default function BoothsPage() {
     } catch { toast({ variant: 'destructive', title: 'Could not sell pass', description: 'Nothing was saved — try again.' }); }
     finally { setSellSaving(false); }
   };
+
+  // ── 💳 Card on file for every renter ─────────────────────────────────
+  // Opens Stripe's hosted setup page (and copies the link so you can text
+  // it). On return, the ?cfSetupSession params confirm + store the card.
+  const startCardSetup = async (rt: any) => {
+    if (!tenantId || !rt?.id) return;
+    try {
+      const res = await fetch('/api/booths/setup-card', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, renterId: rt.id, returnUrl: window.location.href }),
+      });
+      const d = await res.json();
+      if (d.ok && d.url) {
+        try { await navigator.clipboard.writeText(d.url); } catch { /* clipboard optional */ }
+        window.open(d.url, '_blank');
+        toast({ title: 'Card setup opened', description: 'Link copied too — text it to the renter, or hand them your phone to enter their card.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Could not start card setup', description: d.error || 'Check the Stripe configuration.' });
+      }
+    } catch { toast({ variant: 'destructive', title: 'Network error', description: 'Try again.' }); }
+  };
+  // Returning from Stripe card setup — confirm & store, then clean the URL.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !tenantId) return;
+    const params = new URLSearchParams(window.location.search);
+    const sid = params.get('cfSetupSession');
+    const rid = params.get('cfRenterId');
+    if (!sid || !rid) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/booths/setup-card?tenantId=${encodeURIComponent(tenantId)}&renterId=${encodeURIComponent(rid)}&session=${encodeURIComponent(sid)}`);
+        const d = await res.json();
+        if (d.ok) toast({ title: 'Card on file ✓', description: `${d.cardBrand || 'Card'} ····${d.cardLast4 || ''} saved — rent auto-collect and incidentals are ready.` });
+        else toast({ variant: 'destructive', title: 'Card setup incomplete', description: d.error || 'Try again.' });
+      } catch { /* silent */ }
+      try { window.history.replaceState({}, '', window.location.pathname); } catch { /* cosmetic */ }
+    })();
+  }, [tenantId]);
 
   const [recordPay, setRecordPay] = useState<any>(null); // { mode:'rent'|'deposit', lease, renter, booth, invoice? }
   const [recordPayAmount, setRecordPayAmount] = useState('');
@@ -5512,6 +5585,17 @@ export default function BoothsPage() {
       {/* ── OPERATIONS TAB ───────────────────────────────────────────── */}
       {tab === 'ops' && (
         <div className="px-4 sm:px-6 md:px-8 py-5 space-y-6">
+          {/* ── Mobile jump bar — thumb-reach navigation for a long page ── */}
+          <div className="sm:hidden sticky top-0 z-30 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur border-b flex gap-1.5 overflow-x-auto">
+            {([['ops-tours', '🚶 Tours'], ['ops-apps', '📋 Applications'], ['ops-rentals', '⚡ Rentals'], ['ops-people', '👥 People']] as const).map(([id, label]) => (
+              <button key={id}
+                onClick={() => { try { document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { /* older browsers */ } }}
+                className="h-8 px-3 rounded-full border-2 bg-white text-[10px] font-black uppercase tracking-widest text-slate-600 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* ── NEEDS ATTENTION THIS WEEK — the one digest ── */}
           {weeklyDigest.length > 0 && (
             <div className="rounded-2xl border-2 border-slate-300 bg-white p-4 space-y-2">
@@ -5522,7 +5606,7 @@ export default function BoothsPage() {
                 <div key={`${it.kind}-${i}`} className="flex items-center gap-2.5">
                   <span className={`h-2 w-2 rounded-full shrink-0 ${
                     it.kind === 'late' || it.kind === 'expired' ? 'bg-red-500'
-                    : it.kind === 'due' || it.kind === 'unsigned' || it.kind === 'expiring' || it.kind === 'maint' ? 'bg-amber-500'
+                    : it.kind === 'due' || it.kind === 'unsigned' || it.kind === 'expiring' || it.kind === 'maint' || it.kind === 'nocard' ? 'bg-amber-500'
                     : it.kind === 'renewal' ? 'bg-indigo-500'
                     : 'bg-emerald-500'}`} />
                   <p className="flex-1 min-w-0 text-xs font-bold text-slate-800 truncate">{it.text}</p>
@@ -5537,7 +5621,7 @@ export default function BoothsPage() {
           )}
 
           {/* Tour scorecard */}
-          <div className="space-y-3">
+          <div id="ops-tours" className="space-y-3 scroll-mt-14">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-xs font-black uppercase tracking-widest">Tours</h2>
               <div className="flex items-center gap-2">
@@ -5604,7 +5688,7 @@ export default function BoothsPage() {
           )}
 
           {/* Applications */}
-          <div className="space-y-3">
+          <div id="ops-apps" className="space-y-3 scroll-mt-14">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-black uppercase tracking-widest">Applications</h2>
@@ -5699,7 +5783,7 @@ export default function BoothsPage() {
           )}
 
           {upcomingReservations.length > 0 && (
-            <div className="space-y-3">
+            <div id="ops-rentals" className="space-y-3 scroll-mt-14">
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-black uppercase tracking-widest">Day Rentals</h2>
                 <span className="h-5 min-w-5 px-1.5 bg-emerald-600 text-white text-[9px] font-black rounded-full flex items-center justify-center">{upcomingReservations.length}</span>
@@ -5848,7 +5932,7 @@ export default function BoothsPage() {
               are the same humans at different stages of one journey, so they
               live in ONE searchable list. Filter chips slice it; renters get
               the full management card, everyone else a contact card. ── */}
-          <div className="space-y-3">
+          <div id="ops-people" className="space-y-3 scroll-mt-14">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-xs font-black uppercase tracking-widest">People</h2>
               <span className="h-5 min-w-5 px-1.5 bg-slate-700 text-white text-[9px] font-black rounded-full flex items-center justify-center">{peopleCounts.all}</span>
@@ -7307,6 +7391,12 @@ export default function BoothsPage() {
           onEndLease={() => { const r = profileRenter; setProfileRenter(null); setEndLeaseTarget(r); }}
           contactNote={contactByKey.get(boothContactKey(profileRenter.phone, profileRenter.email))?.ownerNotes || ''}
           onSaveNote={(note: string) => handleSaveNote({ name: `${profileRenter.firstName || ''} ${profileRenter.lastName || ''}`.trim(), phone: profileRenter.phone, email: profileRenter.email }, note)}
+          onRecordPayment={(() => {
+            const row = rentRoll.find(r => r.lease?.renterId === profileRenter.id);
+            if (!row) return null;
+            return () => { const r2 = row; setProfileRenter(null); openRecordPay('rent', r2); };
+          })()}
+          onAddCard={() => startCardSetup(profileRenter)}
         />
       )}
 
