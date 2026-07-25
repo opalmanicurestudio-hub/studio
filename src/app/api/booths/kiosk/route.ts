@@ -186,6 +186,20 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ── 'pass-packs': the day-pass bundles offered for sale on the public
+    // booking page. Prices come from the OWNER'S config only.
+    if (action === 'pass-packs') {
+      try {
+        const t = await db.doc(`tenants/${tenantId}`).get();
+        const raw = (t.data() as any)?.bookingPageSettings?.dayPassPacks;
+        const packs = Array.isArray(raw)
+          ? raw.filter((p: any) => Number(p.days) > 0 && Number(p.amountCents) > 0)
+              .map((p: any) => ({ label: p.label || `${p.days}-day pack`, days: Number(p.days), amountCents: Number(p.amountCents) }))
+          : [];
+        return NextResponse.json({ ok: true, packs });
+      } catch { return NextResponse.json({ ok: true, packs: [] }); }
+    }
+
     if (action === 'lookup') {
       const last4 = digits(body.phoneLast4).slice(-4);
       if (last4.length !== 4) {
