@@ -78,15 +78,21 @@ export async function POST(req: NextRequest) {
     }
     const db = getAdminDb();
 
-    // ── Tech portal: my queue ─────────────────────────────────────────
+    // ── Tech portal: my queue + my history ────────────────────────────
     if (action === 'worker-view') {
       const worker = await findWorker(db, tenantId, body.token);
       if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link — ask the studio for a new one.' }, { status: 401 });
       const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
-      const tickets = snap.docs
-        .map((d) => ({ id: d.id, ...(d.data() as any) }))
+      const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const tickets = all
         .filter((t) => ['open', 'in_progress'].includes(t.status) && (!t.assigneeId || t.assigneeId === worker.id))
         .sort((a, b) => (a.dueAt || '').localeCompare(b.dueAt || ''));
+      // Their track record travels with them: last 20 finished jobs, so a
+      // tech can reference past work and reprint any work order on site.
+      const history = all
+        .filter((t) => t.status === 'resolved' && t.assigneeId === worker.id)
+        .sort((a, b) => (b.resolvedAt || '').localeCompare(a.resolvedAt || ''))
+        .slice(0, 20);
       let studioName = 'The studio';
       try {
         const t = await db.doc(`tenants/${tenantId}`).get();
@@ -111,7 +117,56 @@ export async function POST(req: NextRequest) {
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
           updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         })),
+        history: history.map((t) => ({
+          id: t.id, title: t.title, category: t.category, priority: t.priority, status: t.status,
+          boothName: t.boothName || null, resourceName: t.resourceName || null,
+          createdAt: t.createdAt, resolvedAt: t.resolvedAt, dueAt: t.dueAt,
+          costCents: t.costCents || 0, laborCents: t.laborCents || 0, laborHours: t.laborHours || 0,
+          reporterName: t.reporter?.name || 'Studio', description: t.description || '',
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
+        })),
       });
+    }
+
+    // ── Tech portal: REQUEST something ─────────────────────────────────
+    // "Need more caulk", "buy a replacement filter", "key to the supply
+    // closet" — techs shouldn't have to text you and hope you remember.
+    // A request is a normal ticket (category 'request'): it lands in your
+    // queue, has a thread, notifies you, and resolving it with a
+    // Materials $ logs the purchase to the ledger in the same motion.
+    if (action === 'worker-request') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const title = String(body.title || '').trim().slice(0, 140);
+      const detail = String(body.detail || '').trim().slice(0, 1000);
+      if (!title) return NextResponse.json({ ok: false, error: 'Say what you need in a few words.' }, { status: 400 });
+      const nowIso = new Date().toISOString();
+      const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
+      let photoUrl: string | null = null;
+      let photoError: string | undefined;
+      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, ref.id, body.photoData);
+        photoUrl = up.url; photoError = up.error;
+      }
+      const { dueAtFor } = await import('@/lib/maintenance');
+      await ref.set({
+        id: ref.id, tenantId, locationId: null,
+        title, description: detail, category: 'request', priority: 'normal', status: 'open',
+        boothId: null, boothName: null, resourceId: null, resourceName: null,
+        photoUrls: photoUrl ? [photoUrl] : [],
+        reporter: { type: 'tech', name: worker.name, phone: worker.phone || '' },
+        assigneeId: null, assigneeName: null,
+        updates: [{ at: nowIso, by: worker.name, byType: 'tech', note: 'Request filed from the portal', status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
+        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor('normal'), resolvedAt: null,
+      });
+      await notifyOwner(db, tenantId, `Request from ${worker.name}: "${title}"${detail ? ` — ${detail.slice(0, 100)}` : ''}${photoUrl ? ' · photo attached' : ''}`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'maintenance.request_filed', targetType: 'ticket', targetId: ref.id,
+        summary: `${worker.name} (tech) requested: "${title}"`,
+        actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
+      });
+      return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
     }
 
     // ── Tech portal: progress a ticket ────────────────────────────────
@@ -282,9 +337,11 @@ export async function POST(req: NextRequest) {
       const t = snap.data() as any;
       if (t.lastReporterNotifyStatus === t.status) return NextResponse.json({ ok: true, already: true });
       let sent = false;
-      if (t.reporter?.phone && t.reporter?.type === 'renter' && smsConfigured()) {
+      // Renters hear about their reported issues; techs hear about their
+      // filed requests ("approved & bought" = resolved). Same loop-closer.
+      if (t.reporter?.phone && ['renter', 'tech'].includes(t.reporter?.type) && smsConfigured()) {
         const r = await sendTenantSms(db, tenantId, t.reporter.phone,
-          `Update on your maintenance request "${t.title}": ${TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status}.`);
+          `Update on your ${t.category === 'request' ? 'request' : 'maintenance request'} "${t.title}": ${TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status}.`);
         sent = r.ok;
       }
       await ref.set({ lastReporterNotifyStatus: t.status }, { merge: true });
