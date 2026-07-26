@@ -148,8 +148,11 @@ export async function uploadTicketPhotoFromDataUrl(
         return { url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}` };
       } catch (err) { lastErr = err; }
     }
-    console.error('[maintenance] photo upload failed on every bucket candidate', lastErr);
-    return { url: null, error: describeUploadError(lastErr) };
+    console.error('[maintenance] photo upload failed on every bucket candidate', Array.from(tried), lastErr);
+    // Show WHICH names were tried — comparing this list against the real
+    // gs:// name in the Firebase console makes the fix self-evident.
+    const triedNote = tried.size > 0 ? ` Tried: ${Array.from(tried).join(', ')}.` : ' No bucket name could be resolved at all.';
+    return { url: null, error: `${describeUploadError(lastErr)}${triedNote}` };
   } catch (err: any) {
     console.error('[maintenance] photo upload failed', err);
     return { url: null, error: describeUploadError(err) };
