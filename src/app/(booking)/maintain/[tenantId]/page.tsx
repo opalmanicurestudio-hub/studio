@@ -48,6 +48,13 @@ export function MaintenancePortalPage() {
   const [studioName, setStudioName] = useState('');
   const [worker, setWorker] = useState<any>(null);
   const [tickets, setTickets] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  // Requests — "need more caulk" shouldn't be a text message you hope
+  // the studio remembers. It's a tracked ticket with a paper trail.
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [reqTitle, setReqTitle] = useState('');
+  const [reqDetail, setReqDetail] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,6 +95,7 @@ export function MaintenancePortalPage() {
       setStudioName(d.studioName || 'The studio');
       setWorker(d.worker);
       setTickets(d.tickets || []);
+      setHistory(d.history || []);
       setState('ready');
     } catch { setState('denied'); setError('No connection to the server — check your signal and tap Try again.'); }
   };
@@ -118,6 +126,28 @@ export function MaintenancePortalPage() {
         setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setHoursDraft(''); setDeadlineDraft(''); setOpenId(null);
         await load();
       } else setError(d.error || 'Could not save — try again.');
+    } catch { setError('Network error — try again.'); }
+    finally { setBusy(false); }
+  };
+
+  const submitRequest = async () => {
+    if (busy || !reqTitle.trim()) return;
+    setBusy(true);
+    try {
+      const res = await fetch('/api/maintenance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'worker-request', tenantId, token,
+          title: reqTitle.trim(), detail: reqDetail.trim() || undefined,
+          photoData: photoData || undefined,
+        }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        if (d.photoError) setError(d.photoError);
+        setReqTitle(''); setReqDetail(''); setPhotoData(null); setPhotoName(''); setRequestOpen(false);
+        await load();
+      } else setError(d.error || 'Could not send the request — try again.');
     } catch { setError('Network error — try again.'); }
     finally { setBusy(false); }
   };
@@ -364,6 +394,66 @@ export function MaintenancePortalPage() {
             </div>
           );
         })}
+
+        {/* ── REQUEST SOMETHING — supplies, parts, keys, questions ── */}
+        {state === 'ready' && (
+          <div className="rounded-3xl bg-white border-2 overflow-hidden">
+            <button onClick={() => setRequestOpen(o => !o)} className="w-full text-left p-4">
+              <p className="text-sm font-black text-slate-900">Need something?</p>
+              <p className="text-[10px] font-bold text-muted-foreground mt-0.5">Supplies, parts, keys, a question — it goes on the studio's list with a paper trail, and you'll get an update when it's handled.</p>
+            </button>
+            {requestOpen && (
+              <div className="border-t px-4 py-3 space-y-2">
+                <input value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} placeholder="What do you need? *"
+                  className="w-full h-11 rounded-xl border-2 px-3 text-sm font-medium" />
+                <textarea value={reqDetail} onChange={(e) => setReqDetail(e.target.value)} rows={2}
+                  placeholder="Details — brand, size, which room, why…"
+                  className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
+                <div className="flex gap-2 items-center">
+                  <label className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center cursor-pointer">
+                    {photoData ? `Photo: ${photoName.slice(0, 14)}` : 'Attach photo'}
+                    <input type="file" accept="image/*" capture="environment" className="hidden"
+                      onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+                  </label>
+                  <button onClick={submitRequest} disabled={busy || !reqTitle.trim()}
+                    className="flex-1 h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+                    Send request
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── MY HISTORY — the jobs already done, reprintable on site ── */}
+        {state === 'ready' && history.length > 0 && (
+          <div className="rounded-3xl bg-white border-2 overflow-hidden">
+            <button onClick={() => setShowHistory(o => !o)} className="w-full text-left p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-black text-slate-900">My finished jobs</p>
+                <p className="text-[10px] font-bold text-muted-foreground mt-0.5">{history.length} on record — tap one to reprint its work order.</p>
+              </div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{showHistory ? 'Hide' : 'Show'}</span>
+            </button>
+            {showHistory && (
+              <div className="border-t divide-y">
+                {history.map((h) => (
+                  <div key={h.id} className="px-4 py-2.5 flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black truncate">{h.title}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground truncate">
+                        {[h.boothName, h.resourceName, `done ${fmtWhen(h.resolvedAt)}`,
+                          (h.costCents || 0) > 0 ? `$${(h.costCents / 100).toFixed(0)} materials` : null,
+                          (h.laborHours || 0) > 0 ? `${h.laborHours}h` : null].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <button onClick={() => printTicket(h)} className="h-8 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0">Print</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {state === 'ready' && (
           <p className="text-center text-[10px] font-medium text-slate-400">
