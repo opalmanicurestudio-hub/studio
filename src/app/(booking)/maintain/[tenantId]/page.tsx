@@ -47,6 +47,12 @@ const REQ_KINDS = [
   { value: 'help' as const, label: 'Extra hands' },
   { value: 'other' as const, label: 'Other' },
 ];
+const fmtMin = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
+const timedMin = (t: any, nowMs: number) => Math.round(((t.workSessions || []) as any[]).reduce((a, s) => {
+  const end = s.endAt ? new Date(s.endAt).getTime() : nowMs;
+  return a + Math.max(0, end - new Date(s.startAt).getTime());
+}, 0) / 60000);
+
 const dueChip = (t: any): { label: string; late: boolean } | null => {
   if (!t.dueAt || ['resolved', 'cancelled'].includes(t.status)) return null;
   const ms = new Date(t.dueAt).getTime() - Date.now();
@@ -88,6 +94,27 @@ export function MaintenancePortalPage() {
   const [qHours, setQHours] = useState('');
   const [qMaterials, setQMaterials] = useState('');
   const [qNote, setQNote] = useState('');
+  // Job clock — ticks every 15s so the elapsed time reads live
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    const i = setInterval(() => setClockTick((x) => x + 1), 15000);
+    return () => clearInterval(i);
+  }, []);
+  const toggleClock = async (t: any) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const running = (t.workSessions || []).some((s: any) => !s.endAt);
+      const res = await fetch('/api/maintenance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'worker-timer', tenantId, token, ticketId: t.id, op: running ? 'stop' : 'start' }),
+      });
+      const d = await res.json();
+      if (d.ok) await load();
+      else setError(d.error || 'Clock did not respond — try again.');
+    } catch { setError('Network error — try again.'); }
+    finally { setBusy(false); }
+  };
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -414,6 +441,27 @@ export function MaintenancePortalPage() {
                       ))}
                     </div>
                   )}
+                  {/* ── JOB CLOCK — tap when the wrench comes out ── */}
+                  {['open', 'in_progress'].includes(t.status) && (() => {
+                    const running = (t.workSessions || []).some((s: any) => !s.endAt);
+                    const total = timedMin(t, Date.now());
+                    return (
+                      <div className={`rounded-xl border-2 p-2.5 flex items-center gap-3 ${running ? 'border-emerald-300 bg-emerald-50' : ''}`}>
+                        <button onClick={() => toggleClock(t)} disabled={busy}
+                          className={`h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest disabled:opacity-40 shrink-0 ${running ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                          {running ? 'Stop clock' : total > 0 ? 'Resume clock' : 'Start clock'}
+                        </button>
+                        <div className="min-w-0">
+                          <p className={`text-sm font-black ${running ? 'text-emerald-700' : 'text-slate-700'}`}>
+                            {running ? `On the clock · ${fmtMin(total)}` : total > 0 ? `${fmtMin(total)} on this job` : 'Not started'}
+                          </p>
+                          <p className="text-[9px] font-bold text-muted-foreground">
+                            {(t.workSessions || []).length > 0 ? `${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'} — every start and stop is on the record` : 'Times your work and fills in your hours at the end'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {/* ── QUOTE — price it before you start ── */}
                   {t.quoteRequested && !t.quote && (
                     <p className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-2.5 text-[11px] font-bold text-indigo-700">
@@ -493,6 +541,12 @@ export function MaintenancePortalPage() {
                       <input type="number" inputMode="decimal" min={0} max={24} step={0.25} value={hoursDraft} onChange={(e) => setHoursDraft(e.target.value)}
                         placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
                     </div>
+                    {timedMin(t, Date.now()) > 0 && (
+                      <button onClick={() => setHoursDraft(String(Math.max(0.25, Math.round((timedMin(t, Date.now()) / 60) * 4) / 4)))}
+                        className="h-10 px-3 rounded-xl border-2 border-emerald-300 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
+                        Use timed · {fmtMin(timedMin(t, Date.now()))}
+                      </button>
+                    )}
                   </div>
                   <p className="text-[9px] font-bold text-slate-400 -mt-1.5">
                     Both save when you mark resolved. Materials (attach the receipt photo) go to the studio's books.
