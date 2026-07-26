@@ -15,7 +15,7 @@ import { uploadImageBlob } from '@/lib/upload-image';
 import { useToast } from '@/hooks/use-toast';
 import { auditEntry } from '@/lib/audit';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle, FileClock } from 'lucide-react';
+import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle, FileClock, Shield } from 'lucide-react';
 import {
   dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS, pickRotationWorker,
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
@@ -39,11 +39,13 @@ const newToken = () => {
 };
 
 export function MaintenanceSection({
-  firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign, publicOrigin, studioName,
+  firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign, publicOrigin, studioName, rules,
 }: {
   firestore: any;
   storage?: any;
   studioName?: string;
+  // tenants/{id}.maintenanceRules — the business's own approval policy
+  rules?: any;
   tenantId: string;
   locationId?: string | null;
   booths: any[];
@@ -83,6 +85,10 @@ export function MaintenanceSection({
   // Worker profile expansion + payout
   const [profileWorkerId, setProfileWorkerId] = useState<string | null>(null);
   const [payoutMethod, setPayoutMethod] = useState('Cash');
+  // Approval RULES — the business writes its own policy
+  const [rulesOpen, setRulesOpen] = useState(false);
+  const [rulesDraft, setRulesDraft] = useState<{ auto: string; quote: string; receipt: string }>({ auto: '', quote: '', receipt: '' });
+  const [rulesSaving, setRulesSaving] = useState(false);
   // Work order HISTORY — searchable archive with money totals + CSV
   const [historyOpen, setHistoryOpen] = useState(false);
   const [hQuery, setHQuery] = useState('');
@@ -527,6 +533,32 @@ export function MaintenanceSection({
     }
   };
 
+  // ── APPROVAL RULES — this business's own thresholds, in its own hands.
+  // Enforced server-side; this dialog just writes the policy.
+  const openRules = () => {
+    const r = (rules || {}) as any;
+    const d = (c: any) => (Number(c) || 0) > 0 ? String((Number(c) || 0) / 100) : '';
+    setRulesDraft({ auto: d(r.autoApproveUnderCents), quote: d(r.requireQuoteOverCents), receipt: d(r.receiptRequiredOverCents) });
+    setRulesOpen(true);
+  };
+  const saveRules = async () => {
+    if (rulesSaving) return;
+    setRulesSaving(true);
+    try {
+      const c = (v: string) => Math.max(0, Math.round((Number(v) || 0) * 100));
+      await updateDoc(doc(firestore, 'tenants', tenantId), {
+        maintenanceRules: {
+          autoApproveUnderCents: c(rulesDraft.auto),
+          requireQuoteOverCents: c(rulesDraft.quote),
+          receiptRequiredOverCents: c(rulesDraft.receipt),
+        },
+      });
+      toast({ title: 'Rules saved', description: 'They apply to every tech and every ticket immediately — enforced by the server, not the honor system.' });
+      setRulesOpen(false);
+    } catch { toast({ variant: 'destructive', title: 'Could not save rules' }); }
+    finally { setRulesSaving(false); }
+  };
+
   // ── QUOTES — price agreed before work starts ─────────────────────────
   const requestQuote = async (t: any) => {
     if (await patchTicket(t, { quoteRequested: true, quoteRequestNotified: null }, { note: 'Quote requested before work starts' })) {
@@ -718,6 +750,9 @@ export function MaintenanceSection({
           {showResolved ? 'hide resolved' : 'show resolved'}
         </button>
         <div className="ml-auto flex gap-2 flex-wrap">
+          <button onClick={openRules} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
+            <Shield className="h-3 w-3" /> Rules
+          </button>
           <button onClick={() => setHistoryOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
             <FileClock className="h-3 w-3" /> History
           </button>
@@ -1161,6 +1196,46 @@ export function MaintenanceSection({
       </Dialog>
 
       {/* ── Workers roster ── */}
+      {/* ── APPROVAL RULES — the business writes its own policy ── */}
+      <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
+        <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black tracking-tight">Approval rules</DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              Your thresholds, enforced automatically — leave blank to turn a rule off
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {([
+              { key: 'auto' as const, title: 'Auto-approve small quotes', desc: 'Quotes at or under this amount approve instantly — techs get the green light without waiting on you.', prefix: 'Under $' },
+              { key: 'quote' as const, title: 'Require a quote on big jobs', desc: 'A job can\'t be resolved above this total (materials + labor) unless you approved a quote first. The server blocks it, not the honor system.', prefix: 'Over $' },
+              { key: 'receipt' as const, title: 'Require receipts on big purchases', desc: 'Materials above this amount can\'t be logged without a photo of the receipt attached to the ticket.', prefix: 'Over $' },
+            ]).map((r) => (
+              <div key={r.key} className="rounded-2xl border-2 p-3 space-y-1.5">
+                <p className="text-xs font-black">{r.title}</p>
+                <p className="text-[10px] font-bold text-muted-foreground">{r.desc}</p>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{r.prefix}</span>
+                  <input type="number" inputMode="decimal" min={0} value={rulesDraft[r.key]}
+                    onChange={(e) => setRulesDraft(d => ({ ...d, [r.key]: e.target.value }))}
+                    placeholder="off" className="w-24 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+                  {Number(rulesDraft[r.key]) > 0
+                    ? <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">On</span>
+                    : <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">Off</span>}
+                </div>
+              </div>
+            ))}
+            <button onClick={saveRules} disabled={rulesSaving}
+              className="w-full h-11 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+              {rulesSaving ? 'Saving…' : 'Save rules'}
+            </button>
+            <p className="text-[10px] font-bold text-muted-foreground">
+              Rules apply to every worker and every ticket the moment you save. Techs see your thresholds in their portal before they hit them — warnings first, hard stops at the server.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── WORK ORDER HISTORY — the archive, with money attached ── */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
