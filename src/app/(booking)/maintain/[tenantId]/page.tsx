@@ -47,6 +47,7 @@ export function MaintenancePortalPage() {
   const [error, setError] = useState('');
   const [studioName, setStudioName] = useState('');
   const [worker, setWorker] = useState<any>(null);
+  const [rules, setRules] = useState<any>({});
   const [tickets, setTickets] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [showHistory, setShowHistory] = useState(false);
@@ -99,6 +100,7 @@ export function MaintenancePortalPage() {
       }
       setStudioName(d.studioName || 'The studio');
       setWorker(d.worker);
+      setRules(d.rules || {});
       setTickets(d.tickets || []);
       setHistory(d.history || []);
       setState('ready');
@@ -397,6 +399,9 @@ export function MaintenancePortalPage() {
                             Comes to ${(((Number(qHours) || 0) * (worker.hourlyRateCents || 0) + (Number(qMaterials) || 0) * 100) / 100).toFixed(2)} at your ${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr rate.
                           </p>
                         )}
+                        {(rules?.autoApproveUnderCents || 0) > 0 && (
+                          <p className="text-[10px] font-bold text-indigo-600">Quotes at or under ${((rules.autoApproveUnderCents || 0) / 100).toFixed(0)} approve instantly — no waiting.</p>
+                        )}
                         <input value={qNote} onChange={(e) => setQNote(e.target.value)} placeholder="What the price covers, options, caveats…"
                           className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
                         <div className="flex gap-2">
@@ -443,6 +448,24 @@ export function MaintenancePortalPage() {
                         ? ` Labor pays at the studio's rate: $${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr${Number(hoursDraft) > 0 ? ` × ${Math.min(24, Number(hoursDraft))}h = $${((Math.min(24, Number(hoursDraft)) * (worker.hourlyRateCents || 0)) / 100).toFixed(2)}` : ''}.`
                         : ' No hourly rate is on file yet — hours are logged, but ask the studio to set your rate so labor can accrue.'}
                   </p>
+                  {/* The studio's own rules, surfaced BEFORE the server
+                      rejects — no one finds out at the last tap. */}
+                  {(() => {
+                    const mat = Math.round((Number(costDollars) || 0) * 100);
+                    const lab = worker?.payType !== 'payroll' ? Math.round(Math.min(24, Number(hoursDraft) || 0) * (worker?.hourlyRateCents || 0)) : 0;
+                    const warns: string[] = [];
+                    if ((rules?.requireQuoteOverCents || 0) > 0 && (mat + lab) > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
+                      warns.push(`Jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)} need an approved quote first — send one above before resolving.`);
+                    }
+                    if ((rules?.receiptRequiredOverCents || 0) > 0 && mat > rules.receiptRequiredOverCents && !photoData && !(Array.isArray(t.photoUrls) && t.photoUrls.length > 0)) {
+                      warns.push(`Materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)} need the receipt photo attached.`);
+                    }
+                    return warns.length > 0 ? (
+                      <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-2.5 space-y-1">
+                        {warns.map((w, i) => <p key={i} className="text-[11px] font-bold text-amber-700">{w}</p>)}
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="flex gap-2 items-center">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Move deadline</span>
                     <input type="date" value={deadlineDraft} onChange={(e) => setDeadlineDraft(e.target.value)}
