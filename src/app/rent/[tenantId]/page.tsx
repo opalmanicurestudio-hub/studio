@@ -298,6 +298,23 @@ export default function RenterPortalPage() {
     if (!s) setData(null);
   };
 
+  // Magic link (?rt=TOKEN): the owner shared a personal sign-in link from
+  // the renter's profile — exchange it for a session on arrival, then wipe
+  // the token from the URL so it doesn't linger in history or share sheets.
+  // This is the no-SMS path: it works before Twilio is configured.
+  useEffect(() => {
+    if (typeof window === 'undefined' || session?.token) return;
+    const rt = new URLSearchParams(window.location.search).get('rt');
+    if (!rt) return;
+    window.history.replaceState({}, '', window.location.pathname);
+    (async () => {
+      const d = await api({ action: 'token-login', tenantId, magicToken: rt });
+      if (d.ok && d.token) saveSession({ token: d.token, expiresAt: d.expiresAt, name: d.name || null });
+      else toast({ variant: 'destructive', title: 'Link didn’t work', description: d.error || 'Sign in with your phone or email below.' });
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const refresh = useCallback(async (tok?: string) => {
     const token = tok || session?.token;
     if (!token) return;
