@@ -32,6 +32,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { getFirestore, collection, query, where, getDocs, doc, setDoc, type Firestore } from 'firebase/firestore';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { AGREEMENT_TEMPLATES } from '@/lib/esign';
+import { SmsConsent } from '@/components/shared/SmsConsent';
 
 const FREQ_LABEL: Record<string, string> = { monthly: '/mo', weekly: '/wk', daily: '/day', hourly: '/hr' };
 const DEFAULT_NICHES = ['Hair', 'Nails', 'Esthetics', 'Massage', 'Barber', 'Tattoo', 'Lashes & Brows', 'Wellness', 'Photography', 'Other'];
@@ -175,6 +176,9 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [applyFor, setApplyFor] = useState<any | null>(null);
   const [photoIdx, setPhotoIdx] = useState(0);
   const [form, setForm] = useState({ name: '', phone: '', email: '', niche: '', nicheOther: '', moveIn: '', startDate: '', endDate: '', message: '', startTime: '', endTime: '', licensed: '', bringClients: '', experience: '' });
+  // SMS opt-in — NEVER pre-selected (carrier requirement). Booking works
+  // either way; this only records consent for text notifications.
+  const [smsConsent, setSmsConsent] = useState(false);
   const [granularity, setGranularity] = useState<'daily' | 'hourly'>('daily');
   // v89 — stepped reserve flow: 'type' → 'when' → 'time' → 'you'
   const [reserveStep, setReserveStep] = useState<'type' | 'when' | 'time' | 'you'>('type');
@@ -274,6 +278,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
   const [passPacks, setPassPacks] = useState<any[]>([]);
   const [buyIdx, setBuyIdx] = useState(-1);
   const [buyForm, setBuyForm] = useState({ name: '', phone: '', email: '' });
+  const [buySmsConsent, setBuySmsConsent] = useState(false);
   const [buyBusy, setBuyBusy] = useState(false);
   const [passConfirm, setPassConfirm] = useState<any | null>(null);
   useEffect(() => {
@@ -542,6 +547,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
             endTime: granularity === 'hourly' ? form.endTime : undefined,
             slotLabel: granularity === 'hourly' && pickedSlot ? pickedSlot.label : undefined,
             name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
+            smsOptIn: smsConsent,
             returnUrl: window.location.href,
             agreementSignedName: signName.trim(),
             consentAccepted: isPaidDayBooking ? signOk : (!!agreementText && agreed),
@@ -591,6 +597,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
         locationId: applyFor.locationId || null,
         rentalType: isApp ? (applyMode === 'lease' ? 'lease' : 'day_rental') : null,
         name: form.name.trim(), phone: form.phone.trim(), email: form.email.trim(),
+        smsOptIn: smsConsent,
         specialty: nicheValue,
         timing: inquiryKind === 'tour' ? [form.moveIn ? `Tour ${form.moveIn}` : 'Tour', tourSlot].filter(Boolean).join(' · ')
           : !isApp ? ''
@@ -789,6 +796,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                 <input type="email" value={buyForm.email} onChange={e => setBuyForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
               </div>
               <p className="text-[10px] font-bold text-slate-400">Your pass is linked to this phone/email — book with the same one and days redeem automatically.</p>
+              <SmsConsent checked={buySmsConsent} onChange={setBuySmsConsent} businessName={config?.studioName || config?.businessName || 'the studio'} />
               <button
                 onClick={async () => {
                   if (buyBusy || !buyForm.name.trim() || !(buyForm.phone.trim() || buyForm.email.trim())) return;
@@ -1083,6 +1091,7 @@ export function BoothListingsSection({ tenantId, config, db }: { tenantId: strin
                     <input type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Phone *" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                     <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" className="h-12 rounded-xl border-2 px-4 text-sm font-medium" />
                   </div>
+                  <SmsConsent checked={smsConsent} onChange={setSmsConsent} businessName={config?.studioName || config?.businessName || 'the studio'} />
                   {recog && recog.tier !== 'new' && (
                     <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 px-3.5 py-2.5 animate-in fade-in duration-200">
                       <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
