@@ -39,7 +39,7 @@ const newToken = () => {
 };
 
 export function MaintenanceSection({
-  firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign,
+  firestore, storage, tenantId, locationId, booths, tickets, workers, plans, ownerName, autoAssign, publicOrigin,
 }: {
   firestore: any;
   storage?: any;
@@ -51,9 +51,14 @@ export function MaintenanceSection({
   plans: any[];
   ownerName?: string;
   autoAssign?: boolean;
+  // The tenant's permanent domain — worker links and texted portal links
+  // are built on it so they survive deploys (preview URLs are frozen).
+  publicOrigin?: string | null;
 }) {
   const { toast } = useToast();
   const me = ownerName || 'Owner';
+  const shareOrigin = (String(publicOrigin || '').trim().replace(/\/+$/, ''))
+    || (typeof window !== 'undefined' ? window.location.origin : '');
 
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', category: 'equipment', priority: 'normal' as TicketPriority, boothId: '', resourceId: '', assigneeId: '' });
@@ -265,7 +270,7 @@ export function MaintenanceSection({
     try {
       fetch('/api/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, tenantId, ticketId, origin: window.location.origin }),
+        body: JSON.stringify({ action, tenantId, ticketId, origin: shareOrigin }),
       }).catch(() => {});
     } catch { /* automation is a bonus */ }
   };
@@ -460,7 +465,7 @@ export function MaintenanceSection({
         : 'Send them their portal link below. Labor you log on resolved tickets accrues to their payout balance.' });
     } catch { toast({ variant: 'destructive', title: 'Could not add worker' }); }
   };
-  const workerLink = (w: any) => `${typeof window !== 'undefined' ? window.location.origin : ''}/maintain/${tenantId}?t=${w.token}`;
+  const workerLink = (w: any) => `${shareOrigin}/maintain/${tenantId}?t=${w.token}`;
   const rotateToken = async (w: any) => {
     try {
       await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { token: newToken() });
