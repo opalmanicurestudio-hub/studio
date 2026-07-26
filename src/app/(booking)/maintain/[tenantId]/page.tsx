@@ -48,10 +48,18 @@ const REQ_KINDS = [
   { value: 'other' as const, label: 'Other' },
 ];
 const fmtMin = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
-const timedMin = (t: any, nowMs: number) => Math.round(((t.workSessions || []) as any[]).reduce((a, s) => {
+const timedMs = (t: any, nowMs: number) => ((t.workSessions || []) as any[]).reduce((a, s) => {
   const end = s.endAt ? new Date(s.endAt).getTime() : nowMs;
   return a + Math.max(0, end - new Date(s.startAt).getTime());
-}, 0) / 60000);
+}, 0);
+const timedMin = (t: any, nowMs: number) => Math.round(timedMs(t, nowMs) / 60000);
+// Stopwatch face: 1:07:32 while running — seconds visible, so the tech
+// KNOWS it's alive without wondering whether the tap registered.
+const fmtStopwatch = (ms: number) => {
+  const sec = Math.floor(ms / 1000);
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
+};
 
 const dueChip = (t: any): { label: string; late: boolean } | null => {
   if (!t.dueAt || ['resolved', 'cancelled'].includes(t.status)) return null;
@@ -94,20 +102,40 @@ export function MaintenancePortalPage() {
   const [qHours, setQHours] = useState('');
   const [qMaterials, setQMaterials] = useState('');
   const [qNote, setQNote] = useState('');
-  // Job clock — ticks every 15s so the elapsed time reads live
+  // Job clock — a LIVE stopwatch. While any session is running the page
+  // ticks every second (seconds visible = trust the tap worked); idle,
+  // there's no interval at all, so the battery is left alone.
+  const anyRunning = tickets.some((t: any) => (t.workSessions || []).some((s: any) => !s.endAt));
   const [, setClockTick] = useState(0);
   useEffect(() => {
-    const i = setInterval(() => setClockTick((x) => x + 1), 15000);
+    if (!anyRunning) return;
+    const i = setInterval(() => setClockTick((x) => x + 1), 1000);
     return () => clearInterval(i);
-  }, []);
+  }, [anyRunning]);
+  // Location at clock in/out — best-effort with a hard 4s cap so a slow
+  // GPS never delays the tap. Denied/unavailable = null, work proceeds.
+  const grabLocation = (): Promise<{ lat: number; lng: number; acc?: number } | null> =>
+    new Promise((resolve) => {
+      try {
+        if (!navigator.geolocation) return resolve(null);
+        const timer = setTimeout(() => resolve(null), 4000);
+        navigator.geolocation.getCurrentPosition(
+          (p) => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy || 0) }); },
+          () => { clearTimeout(timer); resolve(null); },
+          { enableHighAccuracy: false, timeout: 3500, maximumAge: 120000 },
+        );
+      } catch { resolve(null); }
+    });
+
   const toggleClock = async (t: any) => {
     if (busy) return;
     setBusy(true);
     try {
       const running = (t.workSessions || []).some((s: any) => !s.endAt);
+      const loc = await grabLocation();
       const res = await fetch('/api/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'worker-timer', tenantId, token, ticketId: t.id, op: running ? 'stop' : 'start' }),
+        body: JSON.stringify({ action: 'worker-timer', tenantId, token, ticketId: t.id, op: running ? 'stop' : 'start', loc }),
       });
       const d = await res.json();
       if (d.ok) await load();
@@ -122,6 +150,7 @@ export function MaintenancePortalPage() {
   const [photoName, setPhotoName] = useState('');
   const [costDollars, setCostDollars] = useState('');
   const [hoursDraft, setHoursDraft] = useState('');
+  const [milesDraft, setMilesDraft] = useState('');
   const [deadlineDraft, setDeadlineDraft] = useState('');
 
   const pickPhoto = (file?: File | null) => {
@@ -179,13 +208,14 @@ export function MaintenancePortalPage() {
           note: note.trim() || undefined,
           photoData: photoData || undefined,
           costCents, laborHours,
+          miles: status === 'resolved' && Number(milesDraft) > 0 ? Number(milesDraft) : undefined,
           dueAt: dueAt || undefined,
         }),
       });
       const d = await res.json();
       if (d.ok) {
         if (d.photoError) setError(d.photoError);
-        setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setHoursDraft(''); setDeadlineDraft(''); setOpenId(null);
+        setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setHoursDraft(''); setMilesDraft(''); setDeadlineDraft(''); setOpenId(null);
         await load();
       } else setError(d.error || 'Could not save — try again.');
     } catch { setError('Network error — try again.'); }
@@ -333,7 +363,9 @@ export function MaintenancePortalPage() {
               {(() => {
                 const open = tickets.length;
                 const late = tickets.filter((t) => dueChip(t)?.late).length;
+                const runningT = tickets.find((t) => (t.workSessions || []).some((s: any) => !s.endAt));
                 const chips: { label: string; cls: string }[] = [
+                  ...(runningT ? [{ label: `On the clock · ${fmtStopwatch(timedMs(runningT, Date.now()))}`, cls: 'bg-emerald-500 text-white' }] : []),
                   { label: `${open} open job${open === 1 ? '' : 's'}`, cls: 'bg-white/10 text-white' },
                   ...(late > 0 ? [{ label: `${late} overdue`, cls: 'bg-red-500/90 text-white' }] : []),
                   ...(worker?.payType !== 'payroll' && (worker?.unpaidLaborCents || 0) > 0
@@ -444,19 +476,25 @@ export function MaintenancePortalPage() {
                   {/* ── JOB CLOCK — tap when the wrench comes out ── */}
                   {['open', 'in_progress'].includes(t.status) && (() => {
                     const running = (t.workSessions || []).some((s: any) => !s.endAt);
-                    const total = timedMin(t, Date.now());
+                    const ms = timedMs(t, Date.now());
+                    const total = Math.round(ms / 60000);
                     return (
-                      <div className={`rounded-xl border-2 p-2.5 flex items-center gap-3 ${running ? 'border-emerald-300 bg-emerald-50' : ''}`}>
+                      <div className={`rounded-xl border-2 p-3 flex items-center gap-3 ${running ? 'border-emerald-400 bg-emerald-50' : ''}`}>
                         <button onClick={() => toggleClock(t)} disabled={busy}
-                          className={`h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest disabled:opacity-40 shrink-0 ${running ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
-                          {running ? 'Stop clock' : total > 0 ? 'Resume clock' : 'Start clock'}
+                          className={`h-12 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest disabled:opacity-40 shrink-0 ${running ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                          {running ? 'Stop' : total > 0 ? 'Resume' : 'Start clock'}
                         </button>
-                        <div className="min-w-0">
-                          <p className={`text-sm font-black ${running ? 'text-emerald-700' : 'text-slate-700'}`}>
-                            {running ? `On the clock · ${fmtMin(total)}` : total > 0 ? `${fmtMin(total)} on this job` : 'Not started'}
-                          </p>
-                          <p className="text-[9px] font-bold text-muted-foreground">
-                            {(t.workSessions || []).length > 0 ? `${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'} — every start and stop is on the record` : 'Times your work and fills in your hours at the end'}
+                        <div className="min-w-0 flex-1">
+                          {running ? (
+                            <p className="text-2xl font-black tabular-nums text-emerald-700 leading-none flex items-center gap-2">
+                              {fmtStopwatch(ms)}
+                              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                            </p>
+                          ) : (
+                            <p className="text-sm font-black text-slate-700">{total > 0 ? `${fmtMin(total)} on this job` : 'Not started'}</p>
+                          )}
+                          <p className="text-[9px] font-bold text-muted-foreground mt-1">
+                            {(t.workSessions || []).length > 0 ? `${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'} on the record` : 'Times your work and fills in your hours at the end'}
                           </p>
                         </div>
                       </div>
@@ -471,8 +509,13 @@ export function MaintenancePortalPage() {
                   {t.quote && (
                     <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
                       <p className="text-[9px] font-black uppercase tracking-widest">
-                        {t.quote.status === 'approved' ? 'Quote approved — go ahead' : t.quote.status === 'declined' ? 'Quote declined — hold off' : 'Quote sent — waiting on the studio'}
+                        {t.quote.status === 'approved' ? (t.quote.countered ? 'Deal agreed (studio adjusted the terms) — go ahead' : 'Quote approved — this is the deal') : t.quote.status === 'declined' ? 'Quote declined — hold off' : 'Quote sent — waiting on the studio'}
                       </p>
+                      {t.quote.status === 'approved' && (t.quote.hours || 0) > 0 && timedMin(t, Date.now()) > t.quote.hours * 60 && (
+                        <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mt-1">
+                          You're past the agreed {t.quote.hours}h ({fmtMin(timedMin(t, Date.now()))} timed) — the studio has been notified. Talk before going further.
+                        </p>
+                      )}
                       <p className="text-xs font-bold mt-0.5">
                         {[(t.quote.hours || 0) > 0 ? `${t.quote.hours}h` : null,
                           (t.quote.materialsCents || 0) > 0 ? `$${(t.quote.materialsCents / 100).toFixed(2)} materials` : null]
@@ -546,6 +589,16 @@ export function MaintenancePortalPage() {
                         className="h-10 px-3 rounded-xl border-2 border-emerald-300 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
                         Use timed · {fmtMin(timedMin(t, Date.now()))}
                       </button>
+                    )}
+                    {(rules?.mileageRateCents || 0) > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Miles</span>
+                        <input type="number" inputMode="decimal" min={0} max={500} value={milesDraft} onChange={(e) => setMilesDraft(e.target.value)}
+                          placeholder="0" className="w-16 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+                        {Number(milesDraft) > 0 && (
+                          <span className="text-[9px] font-bold text-emerald-700">= ${((Number(milesDraft) * (rules.mileageRateCents || 0)) / 100).toFixed(2)}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                   <p className="text-[9px] font-bold text-slate-400 -mt-1.5">
