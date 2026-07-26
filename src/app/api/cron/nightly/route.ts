@@ -230,7 +230,7 @@ export async function GET(req: NextRequest) {
   // is written in the same pass as the ticket, so a rerun the same night
   // creates nothing twice. Generated tickets are completely normal tickets:
   // same queue, same SLA, same portals, same notifications.
-  const planTotals: { ticketsOpened: number; assigneeTexts: number; staffTexts?: number } = { ticketsOpened: 0, assigneeTexts: 0, staffTexts: 0 };
+  const planTotals: { ticketsOpened: number; assigneeTexts: number; staffTexts?: number; renterTexts?: number } = { ticketsOpened: 0, assigneeTexts: 0, staffTexts: 0, renterTexts: 0 };
   for (const tDoc of allTenantsSnap.docs) {
     try {
       const tid = tDoc.id;
@@ -263,6 +263,7 @@ export async function GET(req: NextRequest) {
         batch.set(pDoc.ref, {
           lastRunAt: todayStr,
           nextRunAt: addDaysISO(String(p.nextRunAt).slice(0, 10), every),
+          runCount: Math.max(0, Math.round(Number(p.runCount) || 0)) + 1,
         }, { merge: true });
         await batch.commit();
         planTotals.ticketsOpened += 1;
@@ -291,6 +292,26 @@ export async function GET(req: NextRequest) {
               }
             }
           } catch { /* text is a bonus */ }
+        }
+        // The RENTER whose station gets worked on hears about it the
+        // morning of — nobody should arrive to find someone under their
+        // sink unannounced. Any priority: it's their space.
+        if (p.boothId) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const leases = await db.collection(`tenants/${tid}/leases`).where('boothId', '==', p.boothId).get();
+              const lease = leases.docs.map((d: any) => d.data() as any).find((l: any) => ['active', 'on_leave'].includes(l.status));
+              if (lease?.renterId) {
+                const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
+                if (r?.phone) {
+                  await sendTenantSms(db, tid, r.phone,
+                    `Heads up: scheduled maintenance at ${p.boothName || 'your station'} today ("${p.title}")${p.assigneeName ? ` — ${p.assigneeName} will handle it` : ''}. Questions? Just reply or ask the front desk.`);
+                  planTotals.renterTexts = (planTotals.renterTexts || 0) + 1;
+                }
+              }
+            }
+          } catch { /* renter text is a bonus */ }
         }
         // BLOCKING scheduled work takes the space out of service, so the
         // TEAM hears about it too — every active staff member with a phone
