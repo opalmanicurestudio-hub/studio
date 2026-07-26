@@ -5351,10 +5351,10 @@ export default function BoothsPage() {
 
       {/* ── KPI HEADER STRIP ─────────────────────────────────────────── */}
       <div className="bg-white border-b px-4 sm:px-6 md:px-8 pt-5 pb-4 space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
             <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-slate-900 flex items-center gap-2.5 leading-none">
-              <span className="h-9 w-9 rounded-2xl bg-slate-900 flex items-center justify-center shadow-md shadow-slate-900/10">
+              <span className="h-9 w-9 rounded-2xl bg-slate-900 flex items-center justify-center shadow-md shadow-slate-900/10 shrink-0">
                 <Armchair className="h-5 w-5 text-white" />
               </span>
               Spaces
@@ -5363,7 +5363,7 @@ export default function BoothsPage() {
               {metrics.occupancyPct}% occupied · {metrics.activeRenters} active renter{metrics.activeRenters !== 1 ? 's' : ''}
             </p>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <LocationSwitcher />
             <Button size="sm" variant="outline" className="relative" onClick={() => setCommandCenterOpen(true)}>
               <ActivityIcon className="h-4 w-4" />
