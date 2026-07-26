@@ -129,6 +129,11 @@ const LoginFlow = ({ tenantId, onSession }: {
               <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 px-1">
                 Phone or email you booked with
               </label>
+              {/* Carrier-required disclosure for the OTP text this requests */}
+              <p className="text-[10px] font-medium text-slate-400 px-1 leading-snug">
+                We'll text a one-time sign-in code to this number. Msg &amp; data rates may
+                apply. Reply STOP to opt out. <a href="/terms" target="_blank" rel="noreferrer" className="underline">SMS Terms</a> · <a href="/privacy" target="_blank" rel="noreferrer" className="underline">Privacy</a>
+              </p>
               <div className="relative">
                 <Phone className="w-4 h-4 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
                 <input
