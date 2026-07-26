@@ -114,6 +114,8 @@ export async function POST(req: NextRequest) {
           dueAt: t.dueAt, createdAt: t.createdAt,
           reporterName: t.reporter?.name || 'Studio',
           assignedToMe: t.assigneeId === worker.id,
+          quote: t.quote || null,
+          quoteRequested: !!t.quoteRequested,
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
           updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         })),
@@ -167,6 +169,90 @@ export async function POST(req: NextRequest) {
         actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
       return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
+    }
+
+    // ── Tech portal: SUBMIT A QUOTE ────────────────────────────────────
+    // Priced BEFORE work starts: estimated hours (priced at the OWNER-set
+    // rate — techs still can't invent labor dollars), expected materials,
+    // and a note. Lands on the ticket as 'pending'; the owner approves or
+    // declines from their queue and the tech gets a text either way.
+    if (action === 'worker-quote') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (t.assigneeId && t.assigneeId !== worker.id) {
+        return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
+      }
+      const hours = Math.min(200, Math.max(0, Number(body.hours) || 0));
+      const materialsCents = Math.min(5_000_000, Math.max(0, Math.round(Number(body.materialsCents) || 0)));
+      const note = String(body.note || '').trim().slice(0, 500);
+      const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
+      const laborCents = worker.payType !== 'payroll' && rateCents > 0 ? Math.round(hours * rateCents) : 0;
+      const totalCents = materialsCents + laborCents;
+      if (totalCents <= 0 && hours <= 0) {
+        return NextResponse.json({ ok: false, error: 'Give the quote some substance — hours or materials.' }, { status: 400 });
+      }
+      const nowIso = new Date().toISOString();
+      await ref.set({
+        quote: { hours, materialsCents, laborCents, totalCents, note: note || null, by: worker.name, at: nowIso, status: 'pending', decidedAt: null },
+        quoteRequested: false,
+        // A tech quoting an unassigned ticket claims it, same as touching it.
+        assigneeId: t.assigneeId || worker.id,
+        assigneeName: t.assigneeName || worker.name,
+        updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Quoted: ${hours > 0 ? `${hours}h` : ''}${hours > 0 && materialsCents > 0 ? ' + ' : ''}${materialsCents > 0 ? `$${(materialsCents / 100).toFixed(2)} materials` : ''}${laborCents > 0 ? ` = $${(totalCents / 100).toFixed(2)} total` : ''}${note ? ` — ${note}` : ''}` }],
+        updatedAt: nowIso,
+      }, { merge: true });
+      await notifyOwner(db, tenantId,
+        `Quote from ${worker.name} on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: $${(totalCents / 100).toFixed(2)}${hours > 0 ? ` (${hours}h${materialsCents > 0 ? ` + $${(materialsCents / 100).toFixed(2)} materials` : ''})` : ''} — approve or decline in Maintenance.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'maintenance.quote_submitted', targetType: 'ticket', targetId: ticketId,
+        summary: `${worker.name} quoted $${(totalCents / 100).toFixed(2)} on "${t.title}"`,
+        amount: totalCents / 100,
+        actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
+      });
+      return NextResponse.json({ ok: true, laborCents, totalCents });
+    }
+
+    // ── Automation: tell the tech the quote verdict ────────────────────
+    // Owner approves/declines client-side; this just delivers the text.
+    // Dedupe via quoteNotifiedStatus so repeat calls are no-ops.
+    if (action === 'notify-quote') {
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      let sent = false;
+      // Case 1: owner requested a quote → nudge the assignee to price it.
+      if (t.quoteRequested && t.assigneeId && t.quoteRequestNotified !== t.assigneeId) {
+        const w = (await db.doc(`tenants/${tenantId}/maintenanceWorkers/${t.assigneeId}`).get()).data() as any;
+        if (w?.phone && smsConfigured()) {
+          const r = await sendTenantSms(db, tenantId, w.phone,
+            `Please send a quote before starting "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''} — there's a Send quote button on the ticket in your portal.`);
+          sent = r.ok;
+        }
+        await ref.set({ quoteRequestNotified: t.assigneeId }, { merge: true });
+        return NextResponse.json({ ok: true, sent });
+      }
+      // Case 2: owner decided → tell the tech the verdict.
+      if (t.quote && ['approved', 'declined'].includes(t.quote.status) && t.quoteNotifiedStatus !== t.quote.status && t.assigneeId) {
+        const w = (await db.doc(`tenants/${tenantId}/maintenanceWorkers/${t.assigneeId}`).get()).data() as any;
+        if (w?.phone && smsConfigured()) {
+          const r = await sendTenantSms(db, tenantId, w.phone,
+            t.quote.status === 'approved'
+              ? `Quote APPROVED for "${t.title}" — $${((t.quote.totalCents || 0) / 100).toFixed(2)}. Go ahead when ready.`
+              : `Quote declined for "${t.title}" — hold off. The studio will follow up${t.quote.declineNote ? `: ${t.quote.declineNote}` : '.'}`);
+          sent = r.ok;
+        }
+        await ref.set({ quoteNotifiedStatus: t.quote.status }, { merge: true });
+      }
+      return NextResponse.json({ ok: true, sent });
     }
 
     // ── Tech portal: progress a ticket ────────────────────────────────
