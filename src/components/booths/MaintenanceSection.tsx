@@ -15,7 +15,7 @@ import { uploadImageBlob } from '@/lib/upload-image';
 import { useToast } from '@/hooks/use-toast';
 import { auditEntry } from '@/lib/audit';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle } from 'lucide-react';
+import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle, FileClock } from 'lucide-react';
 import {
   dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS, pickRotationWorker,
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
@@ -83,6 +83,11 @@ export function MaintenanceSection({
   // Worker profile expansion + payout
   const [profileWorkerId, setProfileWorkerId] = useState<string | null>(null);
   const [payoutMethod, setPayoutMethod] = useState('Cash');
+  // Work order HISTORY — searchable archive with money totals + CSV
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [hQuery, setHQuery] = useState('');
+  const [hRange, setHRange] = useState<'30' | '90' | '365' | 'all'>('90');
+  const [hPlace, setHPlace] = useState('');
 
   // ── Per-worker KPIs, computed live from the ticket history ───────────
   const workerStats = useMemo(() => {
@@ -273,6 +278,57 @@ export function MaintenanceSection({
     s.owedLabor = workers.reduce((a: number, w: any) => a + Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0)), 0);
     return s;
   }, [tickets, workers]);
+
+  // ── WORK ORDER HISTORY — every finished job, searchable ──────────────
+  // Filter by text, place, and period; totals recompute on the filtered
+  // set; each row reprints its work order; CSV export hands the whole
+  // thing to an accountant or an insurance adjuster in one tap.
+  const historyRows = useMemo(() => {
+    const cutoff = hRange === 'all' ? '' : new Date(Date.now() - Number(hRange) * 86400000).toISOString();
+    const q = hQuery.trim().toLowerCase();
+    return tickets
+      .filter((t: any) => ['resolved', 'cancelled'].includes(t.status))
+      .filter((t: any) => !cutoff || (t.resolvedAt || t.updatedAt || '') >= cutoff)
+      .filter((t: any) => !hPlace || t.boothName === hPlace || t.resourceName === hPlace)
+      .filter((t: any) => !q || `${t.title} ${t.description || ''} ${t.boothName || ''} ${t.resourceName || ''} ${t.assigneeName || ''} ${t.category || ''}`.toLowerCase().includes(q))
+      .sort((a: any, b: any) => (b.resolvedAt || b.updatedAt || '').localeCompare(a.resolvedAt || a.updatedAt || ''));
+  }, [tickets, hQuery, hRange, hPlace]);
+  const historyTotals = useMemo(() => {
+    const t = { jobs: 0, materials: 0, labor: 0 };
+    for (const h of historyRows) {
+      if (h.status !== 'resolved') continue;
+      t.jobs += 1; t.materials += Math.max(0, Number(h.costCents) || 0); t.labor += Math.max(0, Number(h.laborCents) || 0);
+    }
+    return t;
+  }, [historyRows]);
+  const historyPlaces = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of tickets) { if (t.boothName) s.add(t.boothName); if (t.resourceName) s.add(t.resourceName); }
+    return Array.from(s).sort();
+  }, [tickets]);
+  const exportHistoryCsv = () => {
+    try {
+      const escCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const lines = [
+        ['Ticket', 'Title', 'Place', 'Category', 'Priority', 'Status', 'Reported by', 'Worker', 'Created', 'Resolved', 'Hours', 'Materials $', 'Labor $', 'Total $'].map(escCsv).join(','),
+        ...historyRows.map((t: any) => [
+          String(t.id).slice(0, 8).toUpperCase(), t.title,
+          [t.boothName, t.resourceName].filter(Boolean).join(' / '),
+          t.category, t.priority, t.status, t.reporter?.name || '', t.assigneeName || '',
+          t.createdAt || '', t.resolvedAt || '', t.laborHours || 0,
+          ((Number(t.costCents) || 0) / 100).toFixed(2),
+          ((Number(t.laborCents) || 0) / 100).toFixed(2),
+          (((Number(t.costCents) || 0) + (Number(t.laborCents) || 0)) / 100).toFixed(2),
+        ].map(escCsv).join(',')),
+      ];
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `maintenance-history-${todayISO()}.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    } catch { toast({ variant: 'destructive', title: 'Export failed' }); }
+  };
 
   // ── PRINTABLE WORK ORDER — the paper trail for any single job ────────
   // A branded, comprehensive document: header with the studio's name and
@@ -641,6 +697,9 @@ export function MaintenanceSection({
           {showResolved ? 'hide resolved' : 'show resolved'}
         </button>
         <div className="ml-auto flex gap-2 flex-wrap">
+          <button onClick={() => setHistoryOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
+            <FileClock className="h-3 w-3" /> History
+          </button>
           <button onClick={() => setProvidersOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
             <BookUser className="h-3 w-3" /> Providers {providers.filter((p: any) => !p.archived).length > 0 ? providers.filter((p: any) => !p.archived).length : ''}
           </button>
@@ -984,6 +1043,11 @@ export function MaintenanceSection({
                   {p.assigneeName ? ` · ${p.assigneeName}` : ''}
                   {p.active !== false ? ` · next ${p.nextRunAt}` : ''}
                 </p>
+                {(Number(p.runCount) || 0) > 0 && (
+                  <p className="text-[10px] font-bold text-muted-foreground">
+                    Ran {p.runCount} time{Number(p.runCount) === 1 ? '' : 's'}{p.lastRunAt ? ` · last ${p.lastRunAt}` : ''} — full record in History
+                  </p>
+                )}
                 {p.active !== false && (
                   <button onClick={() => runPlanNow(p)} className="text-[9px] font-black uppercase tracking-widest text-indigo-600 underline underline-offset-2">Run on tonight's sweep</button>
                 )}
@@ -1044,6 +1108,68 @@ export function MaintenanceSection({
       </Dialog>
 
       {/* ── Workers roster ── */}
+      {/* ── WORK ORDER HISTORY — the archive, with money attached ── */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-black tracking-tight">Work order history</DialogTitle>
+            <DialogDescription className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+              Every finished job — searchable, printable, exportable
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2 flex-wrap">
+              <input value={hQuery} onChange={(e) => setHQuery(e.target.value)} placeholder="Search title, worker, place…"
+                className="flex-1 min-w-[140px] h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+              <select value={hPlace} onChange={(e) => setHPlace(e.target.value)} className="h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white">
+                <option value="">All places</option>
+                {historyPlaces.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <div className="flex rounded-xl border-2 overflow-hidden">
+                {([['30', '30d'], ['90', '90d'], ['365', 'Year'], ['all', 'All']] as const).map(([v, label]) => (
+                  <button key={v} onClick={() => setHRange(v)}
+                    className={`h-10 px-2.5 text-[9px] font-black uppercase tracking-widest ${hRange === v ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{label}</button>
+                ))}
+              </div>
+            </div>
+            {/* Totals for exactly what's filtered — answer "what did the
+                pedicure chairs cost me this year" in two taps */}
+            <div className="rounded-xl border-2 bg-slate-50 p-2.5 flex items-center gap-4 flex-wrap">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                {historyTotals.jobs} job{historyTotals.jobs === 1 ? '' : 's'} · ${(historyTotals.materials / 100).toFixed(0)} materials · ${(historyTotals.labor / 100).toFixed(0)} labor · ${((historyTotals.materials + historyTotals.labor) / 100).toFixed(0)} total
+              </p>
+              <button onClick={exportHistoryCsv} disabled={historyRows.length === 0}
+                className="ml-auto h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 disabled:opacity-40">
+                Export CSV
+              </button>
+            </div>
+            {historyRows.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">Nothing in this window — widen the period or clear the search.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {historyRows.slice(0, 100).map((t: any) => (
+                  <div key={t.id} className="rounded-xl border-2 px-3 py-2 flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full shrink-0 ${t.status === 'resolved' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-black truncate">{t.title}</p>
+                      <p className="text-[10px] font-bold text-muted-foreground truncate">
+                        {[[t.boothName, t.resourceName].filter(Boolean).join(' / '), t.assigneeName,
+                          fmtWhen(t.resolvedAt || t.updatedAt),
+                          (t.costCents || 0) > 0 ? `$${((t.costCents || 0) / 100).toFixed(0)} mat` : null,
+                          (t.laborCents || 0) > 0 ? `$${((t.laborCents || 0) / 100).toFixed(0)} labor` : null,
+                          t.status === 'cancelled' ? 'cancelled' : null].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    <button onClick={() => printTicket(t)} className="h-8 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0">Print</button>
+                  </div>
+                ))}
+                {historyRows.length > 100 && <p className="text-[10px] font-bold text-muted-foreground">Showing the latest 100 — narrow the filters or export the CSV for everything.</p>}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={workersOpen} onOpenChange={(o) => { setWorkersOpen(o); if (!o) setProfileWorkerId(null); }}>
         <DialogContent className="max-w-md rounded-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
