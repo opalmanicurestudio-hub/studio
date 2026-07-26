@@ -30,9 +30,29 @@ const PRIORITY_TONE: Record<string, string> = {
   urgent: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700',
   normal: 'bg-slate-100 text-slate-600', low: 'bg-slate-50 text-slate-400',
 };
+// Priority reads at a glance from the card's left rail — color does the
+// work before any text is read.
+const PRIORITY_RAIL: Record<string, string> = {
+  urgent: 'border-l-red-500', high: 'border-l-orange-400',
+  normal: 'border-l-indigo-300', low: 'border-l-slate-200',
+};
 const STATUS_TONE: Record<string, string> = {
   open: 'bg-amber-100 text-amber-700', in_progress: 'bg-indigo-100 text-indigo-700',
   resolved: 'bg-emerald-100 text-emerald-700',
+};
+const REQ_KINDS = [
+  { value: 'materials' as const, label: 'Materials' },
+  { value: 'tool' as const, label: 'Tool' },
+  { value: 'access' as const, label: 'Access / keys' },
+  { value: 'help' as const, label: 'Extra hands' },
+  { value: 'other' as const, label: 'Other' },
+];
+const dueChip = (t: any): { label: string; late: boolean } | null => {
+  if (!t.dueAt || ['resolved', 'cancelled'].includes(t.status)) return null;
+  const ms = new Date(t.dueAt).getTime() - Date.now();
+  const h = Math.max(1, Math.round(Math.abs(ms) / 3600000));
+  const span = h < 48 ? `${h}h` : `${Math.round(h / 24)}d`;
+  return { label: ms < 0 ? `${span} overdue` : `due in ${span}`, late: ms < 0 };
 };
 
 const fmtWhen = (s?: string | null) => {
@@ -56,6 +76,13 @@ export function MaintenancePortalPage() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [reqTitle, setReqTitle] = useState('');
   const [reqDetail, setReqDetail] = useState('');
+  const [reqKind, setReqKind] = useState<'materials' | 'tool' | 'access' | 'help' | 'other'>('materials');
+  const [reqQty, setReqQty] = useState('');
+  const [reqNeededBy, setReqNeededBy] = useState('');
+  const [reqEstCost, setReqEstCost] = useState('');
+  const [reqForStaff, setReqForStaff] = useState<string[]>([]);
+  const [reqRelated, setReqRelated] = useState('');
+  const [staffNames, setStaffNames] = useState<string[]>([]);
   // Quotes — price the job before starting it
   const [quoteFor, setQuoteFor] = useState<string | null>(null);
   const [qHours, setQHours] = useState('');
@@ -101,6 +128,7 @@ export function MaintenancePortalPage() {
       setStudioName(d.studioName || 'The studio');
       setWorker(d.worker);
       setRules(d.rules || {});
+      setStaffNames(d.staffNames || []);
       setTickets(d.tickets || []);
       setHistory(d.history || []);
       setState('ready');
@@ -167,13 +195,20 @@ export function MaintenancePortalPage() {
         body: JSON.stringify({
           action: 'worker-request', tenantId, token,
           title: reqTitle.trim(), detail: reqDetail.trim() || undefined,
+          kind: reqKind,
+          qty: reqQty.trim() || undefined,
+          neededBy: reqNeededBy || undefined,
+          estCostCents: Number(reqEstCost) > 0 ? Math.round(Number(reqEstCost) * 100) : undefined,
+          forStaff: reqForStaff.length ? reqForStaff : undefined,
+          relatedTicketId: reqRelated || undefined,
           photoData: photoData || undefined,
         }),
       });
       const d = await res.json();
       if (d.ok) {
         if (d.photoError) setError(d.photoError);
-        setReqTitle(''); setReqDetail(''); setPhotoData(null); setPhotoName(''); setRequestOpen(false);
+        setReqTitle(''); setReqDetail(''); setReqQty(''); setReqNeededBy(''); setReqEstCost(''); setReqForStaff([]); setReqRelated('');
+        setPhotoData(null); setPhotoName(''); setRequestOpen(false);
         await load();
       } else setError(d.error || 'Could not send the request — try again.');
     } catch { setError('Network error — try again.'); }
@@ -257,20 +292,33 @@ export function MaintenancePortalPage() {
     } catch { setError('Could not open the print view.'); }
   };
 
-  const nowIso = new Date().toISOString();
-
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-6" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
       <div className="max-w-lg mx-auto space-y-4">
-        <div className="text-center">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">{studioName || 'Maintenance'}</p>
-          <h1 className="text-xl font-black tracking-tight text-slate-900 mt-0.5">
-            {state === 'ready' ? `Work queue — ${worker?.name}` : 'Maintenance portal'}
+        {/* ── HEADER — who you are, what's on your plate, what you're owed ── */}
+        <div className="rounded-3xl bg-slate-900 text-white p-5 shadow-xl">
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{studioName || 'Maintenance'}</p>
+          <h1 className="text-xl font-black tracking-tight mt-0.5">
+            {state === 'ready' ? worker?.name : 'Maintenance portal'}
           </h1>
-          {state === 'ready' && worker?.payType !== 'payroll' && (worker?.unpaidLaborCents || 0) > 0 && (
-            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 mt-1">
-              Unpaid labor balance: ${((worker.unpaidLaborCents || 0) / 100).toFixed(2)} — the studio pays this out
-            </p>
+          {state === 'ready' && (
+            <div className="flex gap-2 mt-3 flex-wrap">
+              {(() => {
+                const open = tickets.length;
+                const late = tickets.filter((t) => dueChip(t)?.late).length;
+                const chips: { label: string; cls: string }[] = [
+                  { label: `${open} open job${open === 1 ? '' : 's'}`, cls: 'bg-white/10 text-white' },
+                  ...(late > 0 ? [{ label: `${late} overdue`, cls: 'bg-red-500/90 text-white' }] : []),
+                  ...(worker?.payType !== 'payroll' && (worker?.unpaidLaborCents || 0) > 0
+                    ? [{ label: `$${((worker.unpaidLaborCents || 0) / 100).toFixed(0)} owed to you`, cls: 'bg-emerald-500/90 text-white' }] : []),
+                  ...((worker?.hourlyRateCents || 0) > 0 && worker?.payType !== 'payroll'
+                    ? [{ label: `$${((worker.hourlyRateCents || 0) / 100).toFixed(0)}/hr`, cls: 'bg-white/10 text-slate-200' }] : []),
+                ];
+                return chips.map((c) => (
+                  <span key={c.label} className={`h-7 px-3 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center ${c.cls}`}>{c.label}</span>
+                ));
+              })()}
+            </div>
           )}
         </div>
 
@@ -310,25 +358,31 @@ export function MaintenancePortalPage() {
         )}
 
         {state === 'ready' && tickets.map((t) => {
-          const overdue = t.dueAt && t.dueAt < nowIso;
+          const due = dueChip(t);
           const expanded = openId === t.id;
           return (
-            <div key={t.id} className={`rounded-3xl bg-white border-2 overflow-hidden ${overdue ? 'border-red-300' : ''}`}>
+            <div key={t.id} className={`rounded-3xl bg-white border-2 border-l-4 overflow-hidden shadow-sm ${PRIORITY_RAIL[t.priority] || PRIORITY_RAIL.normal} ${due?.late ? 'border-red-200' : ''}`}>
               <button onClick={() => { setOpenId(expanded ? null : t.id); setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); }} className="w-full text-left p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-sm font-black text-slate-900 leading-snug">{t.title}</p>
                     <p className="text-[10px] font-bold text-muted-foreground mt-0.5">
-                      {[t.boothName, t.resourceName].filter(Boolean).join(' · ')}{(t.boothName || t.resourceName) ? ' · ' : ''}{t.category} · reported by {t.reporterName} · {fmtWhen(t.createdAt)}
+                      {[[t.boothName, t.resourceName].filter(Boolean).join(' · ') || null,
+                        t.category, `by ${t.reporterName}`, fmtWhen(t.createdAt)].filter(Boolean).join(' · ')}
                     </p>
+                    <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                      {due && <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${due.late ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{due.label}</span>}
+                      {!t.assignedToMe && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-700">Open to claim</span>}
+                      {t.quoteRequested && !t.quote && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote needed</span>}
+                      {t.quote?.status === 'pending' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote sent</span>}
+                      {t.quote?.status === 'approved' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700">Quote approved</span>}
+                    </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
                     <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${PRIORITY_TONE[t.priority] || PRIORITY_TONE.normal}`}>{t.priority}</span>
                     <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${STATUS_TONE[t.status] || ''}`}>{t.status === 'in_progress' ? 'In progress' : t.status}</span>
                   </div>
                 </div>
-                {overdue && <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mt-1.5">Overdue — was due {fmtWhen(t.dueAt)}</p>}
-                {!t.assignedToMe && !expanded && <p className="text-[10px] font-bold text-indigo-600 mt-1.5">Unassigned — open to claim it</p>}
               </button>
 
               {expanded && (
@@ -498,28 +552,81 @@ export function MaintenancePortalPage() {
           );
         })}
 
-        {/* ── REQUEST SOMETHING — supplies, parts, keys, questions ── */}
+        {/* ── REQUEST SOMETHING — structured enough to decide from a phone:
+            what kind, how many, by when, roughly how much, for which job,
+            and which staff member is affected. ── */}
         {state === 'ready' && (
-          <div className="rounded-3xl bg-white border-2 overflow-hidden">
-            <button onClick={() => setRequestOpen(o => !o)} className="w-full text-left p-4">
-              <p className="text-sm font-black text-slate-900">Need something?</p>
-              <p className="text-[10px] font-bold text-muted-foreground mt-0.5">Supplies, parts, keys, a question — it goes on the studio's list with a paper trail, and you'll get an update when it's handled.</p>
+          <div className={`rounded-3xl bg-white border-2 overflow-hidden shadow-sm ${requestOpen ? 'border-indigo-300' : ''}`}>
+            <button onClick={() => setRequestOpen(o => !o)} className="w-full text-left p-4 flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-black text-slate-900">Need something?</p>
+                <p className="text-[10px] font-bold text-muted-foreground mt-0.5">Materials, tools, keys, backup — tracked with a paper trail, answered with a text.</p>
+              </div>
+              <span className={`h-8 w-8 rounded-xl flex items-center justify-center text-lg font-black shrink-0 ${requestOpen ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>+</span>
             </button>
             {requestOpen && (
-              <div className="border-t px-4 py-3 space-y-2">
-                <input value={reqTitle} onChange={(e) => setReqTitle(e.target.value)} placeholder="What do you need? *"
+              <div className="border-t px-4 py-3 space-y-2.5">
+                {/* What KIND — one tap sets the shape of the request */}
+                <div className="flex gap-1.5 flex-wrap">
+                  {REQ_KINDS.map((k) => (
+                    <button key={k.value} onClick={() => setReqKind(k.value)}
+                      className={`h-8 px-3 rounded-full text-[9px] font-black uppercase tracking-widest ${reqKind === k.value ? 'bg-indigo-600 text-white' : 'border-2 text-slate-500'}`}>
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
+                <input value={reqTitle} onChange={(e) => setReqTitle(e.target.value)}
+                  placeholder={reqKind === 'materials' ? 'What exactly? e.g. Silicone caulk, white *' : reqKind === 'tool' ? 'What tool? e.g. 6ft ladder *' : reqKind === 'access' ? 'Access to what? e.g. supply closet key *' : reqKind === 'help' ? 'What do you need help with? *' : 'What do you need? *'}
                   className="w-full h-11 rounded-xl border-2 px-3 text-sm font-medium" />
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Quantity / size</p>
+                    <input value={reqQty} onChange={(e) => setReqQty(e.target.value)} placeholder="e.g. 3 tubes"
+                      className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+                  </div>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Est. cost $</p>
+                    <input type="number" inputMode="decimal" min={0} value={reqEstCost} onChange={(e) => setReqEstCost(e.target.value)} placeholder="optional"
+                      className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+                  </div>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Needed by</p>
+                    <input type="date" value={reqNeededBy} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setReqNeededBy(e.target.value)}
+                      className="w-full h-10 rounded-xl border-2 px-2 text-sm font-medium bg-white" />
+                  </div>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">For which job</p>
+                    <select value={reqRelated} onChange={(e) => setReqRelated(e.target.value)}
+                      className="w-full h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white">
+                      <option value="">Not job-specific</option>
+                      {tickets.map((t) => <option key={t.id} value={t.id}>{t.title.slice(0, 40)}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {staffNames.length > 0 && (
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Who's affected (tap names)</p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {staffNames.map((n) => (
+                        <button key={n} onClick={() => setReqForStaff(s => s.includes(n) ? s.filter(x => x !== n) : [...s, n])}
+                          className={`h-8 px-3 rounded-full text-[10px] font-bold ${reqForStaff.includes(n) ? 'bg-slate-900 text-white' : 'border-2 text-slate-500'}`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <textarea value={reqDetail} onChange={(e) => setReqDetail(e.target.value)} rows={2}
-                  placeholder="Details — brand, size, which room, why…"
+                  placeholder="Anything else — brand, link, which room, why it matters…"
                   className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
                 <div className="flex gap-2 items-center">
-                  <label className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center cursor-pointer">
-                    {photoData ? `Photo: ${photoName.slice(0, 14)}` : 'Attach photo'}
+                  <label className="h-11 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center cursor-pointer shrink-0">
+                    {photoData ? `Photo ✓` : 'Photo'}
                     <input type="file" accept="image/*" capture="environment" className="hidden"
                       onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
                   </label>
                   <button onClick={submitRequest} disabled={busy || !reqTitle.trim()}
-                    className="flex-1 h-10 rounded-xl bg-slate-900 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+                    className="flex-1 h-11 rounded-xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
                     Send request
                   </button>
                 </div>
