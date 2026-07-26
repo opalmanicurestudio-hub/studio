@@ -101,9 +101,19 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
   // the loop entirely. Anything else (email contact, SMS down, not yet
   // configured) falls back to the owner's inbox for manual relay.
   const isPhone = /^\+?[\d\s().-]{7,}$/.test(contact.trim());
+  // Secondary method: know their email too? SMS failure falls through to
+  // an emailed code before bothering the owner.
+  let fallbackEmail: string | null = null;
+  try {
+    const rs = await db.collection(`tenants/${tenantId}/renters`).get();
+    const norm = (s: any) => String(s || '').replace(/\D+/g, '');
+    const r = rs.docs.map((d: any) => d.data() as any).find((x: any) => norm(x.phone) && norm(x.phone) === norm(contact));
+    if (r?.email && /@/.test(r.email)) fallbackEmail = r.email;
+  } catch { /* fallback is a bonus */ }
   if (isPhone && smsConfigured()) {
     const sent = await sendTenantSms(db, tenantId, contact,
-      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`);
+      `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+      { email: fallbackEmail, subject: 'Your sign-in code' });
     if (sent.ok) {
       const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
       await ref.set({
@@ -113,6 +123,32 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
       });
       return;
     }
+  }
+  // Contact IS an email (or SMS+email both failed) → email the code
+  // directly before falling back to the owner inbox.
+  const contactIsEmail = /@/.test(contact);
+  if ((contactIsEmail || fallbackEmail) && process.env.RESEND_API_KEY) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+        body: JSON.stringify({
+          from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
+          to: [contactIsEmail ? contact.trim() : fallbackEmail],
+          subject: 'Your sign-in code',
+          text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+        }),
+      });
+      if (res.ok) {
+        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        await nRef.set({
+          id: nRef.id, userId: null, read: false, createdAt: new Date().toISOString(),
+          type: 'renter_code', link: 'inbox',
+          message: `${name || 'A renter'} signed in to the renter portal — code emailed to them automatically.`,
+        });
+        return;
+      }
+    } catch { /* fall through to the owner inbox */ }
   }
   const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
   await ref.set({
