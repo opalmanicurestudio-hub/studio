@@ -56,8 +56,16 @@ export interface Ticket {
   // (studio money already left); 'tech' = the tech fronted it — accrues
   // as a reimbursement owed, ledger entry happens at payout.
   materialsPaidBy?: 'studio' | 'tech' | null;
-  laborHours?: number | null;          // hours the tech logged at resolution
-  laborCents?: number | null;          // laborHours × the OWNER-set hourly rate
+  laborHours?: number | null;          // TOTAL hours across all workers on the job
+  laborCents?: number | null;          // TOTAL labor dollars (each worker at their own rate)
+  // OUTSOURCED HELP — extra workers (often portal-enabled providers)
+  // brought onto THIS job. Helpers can clock in, add notes/photos, and
+  // log their own hours (accruing to their own balance at their own
+  // rate); only the assignee can change status.
+  helpers?: { id: string; name: string }[];
+  helperNotifiedIds?: string[];
+  // Per-worker labor breakdown — who worked how long for how much.
+  laborEntries?: { workerId: string; name: string; hours: number; cents: number; at: string }[];
   overdueNotifiedAt?: string | null;   // cron stamp — one nag, not nightly spam
   // JOB CLOCK — start/stop sessions tapped from the tech portal. The
   // timer is EVIDENCE, not the pay input: it pre-fills the hours field
