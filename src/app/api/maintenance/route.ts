@@ -130,6 +130,7 @@ export async function POST(req: NextRequest) {
           quote: t.quote || null,
           quoteRequested: !!t.quoteRequested,
           requestMeta: t.requestMeta || null,
+          openRequests: Array.isArray(t.openRequests) ? t.openRequests : [],
           workSessions: Array.isArray(t.workSessions) ? t.workSessions : [],
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
           updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
@@ -182,6 +183,49 @@ export async function POST(req: NextRequest) {
         } catch { /* linkage is a bonus */ }
       }
       const nowIso = new Date().toISOString();
+      const kindLabel = ({ materials: 'Materials / parts', tool: 'Tool / equipment', access: 'Access / keys', help: 'Extra hands', other: 'Request' } as any)[kind];
+      const metaBits = [
+        qty ? `qty: ${qty}` : null,
+        neededBy ? `needed by ${neededBy}` : null,
+        estCostCents > 0 ? `est. $${(estCostCents / 100).toFixed(2)}` : null,
+        forStaff.length ? `for ${forStaff.join(', ')}` : null,
+      ].filter(Boolean).join(' · ');
+
+      // JOB-LINKED REQUEST → it lives on THAT work order's thread. One
+      // job, one thread, one paper trail — never a second ticket to
+      // reconcile against the first.
+      if (relatedTicketId) {
+        const rRef = db.doc(`tenants/${tenantId}/tickets/${relatedTicketId}`);
+        const rSnap = await rRef.get();
+        const rt = rSnap.data() as any;
+        let photoUrl: string | null = null;
+        let photoError: string | undefined;
+        if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
+          const up = await uploadTicketPhotoFromDataUrl(tenantId, relatedTicketId, body.photoData);
+          photoUrl = up.url; photoError = up.error;
+        }
+        const reqEntry = {
+          id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+          kind, kindLabel, title, qty: qty || null, neededBy, estCostCents,
+          forStaff, by: worker.name, at: nowIso, status: 'open' as const,
+        };
+        await rRef.set({
+          openRequests: [...(Array.isArray(rt.openRequests) ? rt.openRequests : []), reqEntry],
+          updates: [...(rt.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `${kindLabel} request for this job: "${title}"${metaBits ? ` — ${metaBits}` : ''}${detail ? ` · ${detail.slice(0, 200)}` : ''}`, ...(photoUrl ? { photoUrl } : {}) }],
+          ...(photoUrl ? { photoUrls: [...(Array.isArray(rt.photoUrls) ? rt.photoUrls : []), photoUrl] } : {}),
+          updatedAt: nowIso,
+        }, { merge: true });
+        await notifyOwner(db, tenantId, `${kindLabel} request on "${rt.title}"${rt.boothName ? ` (${rt.boothName})` : ''} from ${worker.name}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        await logAuditAdmin(db, tenantId, {
+          action: 'maintenance.request_filed', targetType: 'ticket', targetId: relatedTicketId,
+          summary: `${worker.name} (tech) requested on "${rt.title}": "${title}"${estCostCents > 0 ? ` · est. $${(estCostCents / 100).toFixed(2)}` : ''}`,
+          ...(estCostCents > 0 ? { amount: estCostCents / 100 } : {}),
+          actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
+        });
+        return NextResponse.json({ ok: true, ticketId: relatedTicketId, appended: true, photoError });
+      }
+
+      // Standalone request → its own ticket, as before.
       const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
       let photoUrl: string | null = null;
       let photoError: string | undefined;
@@ -190,14 +234,6 @@ export async function POST(req: NextRequest) {
         photoUrl = up.url; photoError = up.error;
       }
       const { dueAtFor } = await import('@/lib/maintenance');
-      const kindLabel = ({ materials: 'Materials / parts', tool: 'Tool / equipment', access: 'Access / keys', help: 'Extra hands', other: 'Request' } as any)[kind];
-      const metaBits = [
-        qty ? `qty: ${qty}` : null,
-        neededBy ? `needed by ${neededBy}` : null,
-        estCostCents > 0 ? `est. $${(estCostCents / 100).toFixed(2)}` : null,
-        forStaff.length ? `for ${forStaff.join(', ')}` : null,
-        relatedTicketTitle ? `job: "${relatedTicketTitle}"` : null,
-      ].filter(Boolean).join(' · ');
       await ref.set({
         id: ref.id, tenantId, locationId: null,
         title, description: detail, category: 'request', priority: neededBy && neededBy <= nowIso.slice(0, 10) ? 'high' : 'normal', status: 'open',
