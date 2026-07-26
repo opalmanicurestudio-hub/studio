@@ -139,30 +139,49 @@ export function MaintenanceSection({
   // Pay out a per-job worker's accrued labor: one expense entry ('Contract
   // Labor'), an audit record, and a payment stamp on the worker — then the
   // balance resets. Their money trail is as auditable as everything else.
+  // Payout settles BOTH balances with the RIGHT tax categories:
+  // labor + mileage → Contract Labor (1099 money), fronted materials →
+  // Maintenance & Repairs (a reimbursement — expense recognized now,
+  // when the studio's cash actually moves). One tap, two clean entries.
   const payOutLabor = async (w: any) => {
-    const cents = Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0));
+    const laborCents = Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0));
+    const matCents = Math.max(0, Math.round(Number(w.unpaidMaterialsCents) || 0));
+    const cents = laborCents + matCents;
     if (!(cents > 0)) return;
     try {
       const nowIso = new Date().toISOString();
-      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
-      await setDoc(txnRef, {
-        id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
-        amount: cents / 100, category: 'Contract Labor',
-        description: `Maintenance payout — ${w.name} (settles labor + mileage accrued to date)`,
-        clientOrVendor: w.name, date: nowIso, paymentMethod: payoutMethod,
-        hasReceipt: false, sourceId: w.id, tenantId, createdAt: nowIso,
-      });
+      if (laborCents > 0) {
+        const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+        await setDoc(txnRef, {
+          id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+          amount: laborCents / 100, category: 'Contract Labor',
+          description: `Maintenance payout — ${w.name} (labor + mileage accrued to date)`,
+          clientOrVendor: w.name, date: nowIso, paymentMethod: payoutMethod,
+          hasReceipt: false, sourceId: w.id, tenantId, createdAt: nowIso,
+        });
+      }
+      if (matCents > 0) {
+        const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+        await setDoc(txnRef, {
+          id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+          amount: matCents / 100, category: 'Maintenance & Repairs',
+          description: `Reimbursement — materials fronted by ${w.name} (receipts on the tickets)`,
+          clientOrVendor: w.name, date: nowIso, paymentMethod: payoutMethod,
+          hasReceipt: false, sourceId: w.id, tenantId, createdAt: nowIso,
+        });
+      }
       const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
       await setDoc(aRef, { id: aRef.id, ...auditEntry({
         action: 'maintenance.labor_paid', targetType: 'maintenanceWorker', targetId: w.id,
-        summary: `Paid ${w.name} $${(cents / 100).toFixed(2)} for ticket labor (${payoutMethod})`,
+        summary: `Paid ${w.name} $${(cents / 100).toFixed(2)} (${payoutMethod})${laborCents > 0 ? ` · $${(laborCents / 100).toFixed(2)} labor` : ''}${matCents > 0 ? ` · $${(matCents / 100).toFixed(2)} reimbursed materials` : ''}`,
         amount: cents / 100, actor: { type: 'user', name: me },
       }) });
       await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), {
         unpaidLaborCents: 0,
-        laborPayments: arrayUnion({ at: nowIso, amountCents: cents, method: payoutMethod }),
+        unpaidMaterialsCents: 0,
+        laborPayments: arrayUnion({ at: nowIso, amountCents: cents, method: payoutMethod, laborCents, materialsCents: matCents }),
       });
-      toast({ title: `Paid ${w.name}`, description: `$${(cents / 100).toFixed(2)} logged under Contract Labor.` });
+      toast({ title: `Paid ${w.name}`, description: `${laborCents > 0 ? `$${(laborCents / 100).toFixed(2)} Contract Labor` : ''}${laborCents > 0 && matCents > 0 ? ' + ' : ''}${matCents > 0 ? `$${(matCents / 100).toFixed(2)} reimbursement (Maintenance & Repairs)` : ''} in the ledger.` });
     } catch { toast({ variant: 'destructive', title: 'Payout not recorded', description: 'Nothing was saved — try again.' }); }
   };
   // Preventive plans
@@ -292,7 +311,7 @@ export function MaintenanceSection({
       if (mat > 0 && Array.isArray(t.photoUrls) && t.photoUrls.length > 0) s.receipts += 1;
       if ((t.resolvedAt || '') >= mIso) { s.monthMaterials += mat; s.monthLabor += lab; s.monthJobs += 1; }
     }
-    s.owedLabor = workers.reduce((a: number, w: any) => a + Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0)), 0);
+    s.owedLabor = workers.reduce((a: number, w: any) => a + Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0)) + Math.max(0, Math.round(Number(w.unpaidMaterialsCents) || 0)), 0);
     return s;
   }, [tickets, workers]);
 
@@ -376,7 +395,7 @@ export function MaintenanceSection({
       const costRows = [
         q ? `<tr><td>Approved quote <span class="who">(${[q.hours ? `${q.hours}h est.` : null, (q.materialsCents || 0) > 0 ? `$${(q.materialsCents / 100).toFixed(2)} materials est.` : null].filter(Boolean).join(' + ') || 'agreed price'}${q.by ? ` · by ${esc(q.by)}` : ''})</span></td><td class="amt">$${((q.totalCents || 0) / 100).toFixed(2)}</td></tr>` : '',
         purchased > 0 ? `<tr><td>Purchases during the job <span class="who">(each already in the ledger with its receipt)</span></td><td class="amt">$${(purchased / 100).toFixed(2)}</td></tr>` : '',
-        mat > 0 ? `<tr><td>Materials at completion${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' <span class="who">(receipt on file)</span>' : ''}</td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
+        mat > 0 ? `<tr><td>Materials at completion <span class="who">(${t.materialsPaidBy === 'tech' ? 'fronted by tech — reimbursed at payout' : 'studio-paid'}${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' · receipt on file' : ''})</span></td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
         lab > 0 ? `<tr><td>Labor${hrs > 0 ? ` <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} @ $${((lab / hrs) / 100).toFixed(2)}/hr)</span>` : ''}</td><td class="amt">$${(lab / 100).toFixed(2)}</td></tr>` : '',
         hrs > 0 && lab === 0 ? `<tr><td>Labor <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} logged — no rate on file)</span></td><td class="amt">—</td></tr>` : '',
         (t.mileage || 0) > 0 ? `<tr><td>Mileage <span class="who">(${t.mileage} mi)</span></td><td class="amt">${(t.mileageCents || 0) > 0 ? `$${((t.mileageCents || 0) / 100).toFixed(2)}` : '—'}</td></tr>` : '',
@@ -997,7 +1016,7 @@ export function MaintenanceSection({
                     )}
                     {((t.costCents || 0) > 0 || (t.laborCents || 0) > 0 || (t.laborHours || 0) > 0) && (
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                        {[(t.costCents || 0) > 0 ? `Materials $${(t.costCents / 100).toFixed(2)} · in ledger` : null,
+                        {[(t.costCents || 0) > 0 ? `Materials $${(t.costCents / 100).toFixed(2)}${t.materialsPaidBy === 'tech' ? ' · fronted by tech, reimburses at payout' : ' · in ledger'}` : null,
                           (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}${(t.laborHours || 0) > 0 ? ` (${t.laborHours}h)` : ''}` : (t.laborHours || 0) > 0 ? `${t.laborHours}h logged · no rate set` : null].filter(Boolean).join(' · ')}
                       </p>
                     )}
@@ -1538,7 +1557,7 @@ export function MaintenanceSection({
             </div>
             {workers.map((w: any) => {
               const st = workerStats.get(w.id) || { open: 0, resolved30: 0, resolvedAll: 0, onTimePct: null, avgHours: null, materialsCents: 0, overdueNow: 0, recent: [] };
-              const balance = Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0));
+              const balance = Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0)) + Math.max(0, Math.round(Number(w.unpaidMaterialsCents) || 0));
               const onPayroll = w.payType === 'payroll';
               const showProfile = profileWorkerId === w.id;
               return (
@@ -1597,7 +1616,13 @@ export function MaintenanceSection({
                           <p className="text-[10px] font-bold text-muted-foreground">Wages, hours, and payday run through the Staff page — labor on tickets is covered there, so nothing accrues here.</p>
                         ) : balance > 0 ? (
                           <div className="space-y-2">
-                            <p className="text-xs font-black text-amber-700">Unpaid labor: ${(balance / 100).toFixed(2)}</p>
+                            <p className="text-xs font-black text-amber-700">
+                              Owed: ${(balance / 100).toFixed(2)}
+                              <span className="text-[10px] font-bold text-amber-600/80">
+                                {' '}({[(Number(w.unpaidLaborCents) || 0) > 0 ? `$${((Number(w.unpaidLaborCents) || 0) / 100).toFixed(2)} labor + mileage` : null,
+                                  (Number(w.unpaidMaterialsCents) || 0) > 0 ? `$${((Number(w.unpaidMaterialsCents) || 0) / 100).toFixed(2)} fronted materials` : null].filter(Boolean).join(' · ')})
+                              </span>
+                            </p>
                             <div className="flex gap-1.5 flex-wrap">
                               {['Cash', 'Zelle', 'Venmo', 'Check', 'Card'].map((mth) => (
                                 <button key={mth} onClick={() => setPayoutMethod(mth)}
