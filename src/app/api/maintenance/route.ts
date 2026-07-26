@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
           id: worker.id, name: worker.name,
           payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
           unpaidLaborCents: Math.max(0, Math.round(Number(worker.unpaidLaborCents) || 0)),
+          hourlyRateCents: Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0)),
         },
         tickets: tickets.map((t) => ({
           id: t.id, title: t.title, description: t.description,
@@ -171,32 +172,41 @@ export async function POST(req: NextRequest) {
 
       // Costs at resolution → real money records, attributed to the ticket
       // (and its station) so maintenance spend is analyzable. Materials
-      // become a ledger expense; labor accrues to a per-job worker's payout
-      // balance (payroll workers are paid through the Staff page instead).
+      // become a ledger expense.
+      //
+      // LABOR IS NOT SELF-PRICED. Techs submit HOURS; the dollar amount is
+      // computed HERE from the hourly rate the OWNER set on their worker
+      // profile. Any dollar figure a client sends is ignored, so a tech
+      // cannot invent their own pay. No rate on file → nothing accrues and
+      // the tech is told to ask the studio. Hours are capped at 24/job.
       const costCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.costCents) || 0)) : 0;
-      const laborCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.laborCents) || 0)) : 0;
+      const laborHours = status === 'resolved' ? Math.min(24, Math.max(0, Number(body.laborHours) || 0)) : 0;
+      const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
+      const laborCents = laborHours > 0 && rateCents > 0 && worker.payType !== 'payroll'
+        ? Math.round(laborHours * rateCents) : 0;
       if (status) {
         patch.status = status;
         if (status === 'resolved') {
           patch.resolvedAt = nowIso;
           if (costCents > 0) patch.costCents = costCents;
+          if (laborHours > 0) patch.laborHours = laborHours;
           if (laborCents > 0) patch.laborCents = laborCents;
         }
       }
       await ref.set(patch, { merge: true });
 
       let laborNote: string | null = null;
-      if (laborCents > 0) {
-        if (worker.payType === 'payroll') {
-          laborNote = 'covered by wages (payroll)';
-        } else {
-          try {
-            const { FieldValue } = await import('firebase-admin/firestore');
-            await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
-              { unpaidLaborCents: FieldValue.increment(laborCents) }, { merge: true });
-            laborNote = `added to ${worker.name}'s payout balance`;
-          } catch { laborNote = 'could not accrue — log it manually'; }
-        }
+      if (laborHours > 0 && worker.payType === 'payroll') {
+        laborNote = `${laborHours}h logged — covered by wages (payroll)`;
+      } else if (laborHours > 0 && rateCents <= 0) {
+        laborNote = `${laborHours}h logged — no hourly rate on file, nothing accrued`;
+      } else if (laborCents > 0) {
+        try {
+          const { FieldValue } = await import('firebase-admin/firestore');
+          await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+            { unpaidLaborCents: FieldValue.increment(laborCents) }, { merge: true });
+          laborNote = `${laborHours}h × $${(rateCents / 100).toFixed(2)}/hr = $${(laborCents / 100).toFixed(2)} to ${worker.name}'s payout balance`;
+        } catch { laborNote = 'could not accrue — log it manually'; }
       }
 
       if (costCents > 0) {
@@ -217,7 +227,7 @@ export async function POST(req: NextRequest) {
 
       await syncBoothFromTickets(db, tenantId, t.boothId);
       await notifyOwner(db, tenantId,
-        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${laborCents > 0 ? ` · labor $${(laborCents / 100).toFixed(2)} (${laborNote})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
         await sendTenantSms(db, tenantId, t.reporter.phone,
