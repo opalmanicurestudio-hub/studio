@@ -2413,6 +2413,23 @@ export default function BoothsPage() {
 
   const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
 
+  // ── SELF-HEALING STORAGE CONFIG ──────────────────────────────────────
+  // The browser has always known the storage bucket's REAL name — it's in
+  // the web app's Firebase config. The server never did (it guessed from
+  // the project id and 404'd on projects with non-standard bucket names).
+  // So: record the true name on the tenant doc the first time the Booth
+  // Hub opens. Server-side photo uploads read it from there — no env
+  // vars, no manual steps, correct forever.
+  useEffect(() => {
+    if (!firestore || !tenantId || !firebaseApp) return;
+    try {
+      const b = String((firebaseApp as any)?.options?.storageBucket || '');
+      if (!b || (selectedTenant as any)?.storageBucket === b) return;
+      updateDoc(doc(firestore, 'tenants', tenantId), { storageBucket: b }).catch(() => { /* retry next visit */ });
+    } catch { /* options unavailable — retry next visit */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId, firebaseApp, (selectedTenant as any)?.storageBucket]);
+
   const { booths, renters, leases } = useBoothRentalCollections(
     tenantId,
     selectedLocationId
