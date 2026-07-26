@@ -54,7 +54,7 @@ export function MaintenancePortalPage() {
   const [photoData, setPhotoData] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState('');
   const [costDollars, setCostDollars] = useState('');
-  const [laborDollars, setLaborDollars] = useState('');
+  const [hoursDraft, setHoursDraft] = useState('');
   const [deadlineDraft, setDeadlineDraft] = useState('');
 
   const pickPhoto = (file?: File | null) => {
@@ -100,22 +100,22 @@ export function MaintenancePortalPage() {
     try {
       const costCents = status === 'resolved' && Number(costDollars) > 0
         ? Math.round(Number(costDollars) * 100) : undefined;
-      const laborCents = status === 'resolved' && Number(laborDollars) > 0
-        ? Math.round(Number(laborDollars) * 100) : undefined;
+      const laborHours = status === 'resolved' && Number(hoursDraft) > 0
+        ? Math.min(24, Number(hoursDraft)) : undefined;
       const res = await fetch('/api/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'worker-update', tenantId, token, ticketId, status,
           note: note.trim() || undefined,
           photoData: photoData || undefined,
-          costCents, laborCents,
+          costCents, laborHours,
           dueAt: dueAt || undefined,
         }),
       });
       const d = await res.json();
       if (d.ok) {
         if (d.photoError) setError(d.photoError);
-        setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setLaborDollars(''); setDeadlineDraft(''); setOpenId(null);
+        setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setHoursDraft(''); setDeadlineDraft(''); setOpenId(null);
         await load();
       } else setError(d.error || 'Could not save — try again.');
     } catch { setError('Network error — try again.'); }
@@ -178,6 +178,15 @@ export function MaintenancePortalPage() {
             </p>
           )}
         </div>
+
+        {/* Persistent error banner — a photo that failed to save must not
+            vanish with the collapsed ticket. */}
+        {state === 'ready' && error && (
+          <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-3 flex items-start gap-2">
+            <p className="flex-1 text-[11px] font-bold text-red-700">{error}</p>
+            <button onClick={() => setError('')} className="text-[9px] font-black uppercase tracking-widest text-red-400 underline shrink-0">Dismiss</button>
+          </div>
+        )}
 
         {state === 'loading' && (
           <div className="rounded-3xl bg-white border-2 p-8 text-center">
@@ -274,14 +283,18 @@ export function MaintenancePortalPage() {
                         placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">My labor $</span>
-                      <input type="number" inputMode="decimal" min={0} value={laborDollars} onChange={(e) => setLaborDollars(e.target.value)}
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Hours worked</span>
+                      <input type="number" inputMode="decimal" min={0} max={24} step={0.25} value={hoursDraft} onChange={(e) => setHoursDraft(e.target.value)}
                         placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
                     </div>
                   </div>
                   <p className="text-[9px] font-bold text-slate-400 -mt-1.5">
-                    Both save when you mark resolved. Materials (attach the receipt photo) go to the studio's books;
-                    {worker?.payType === 'payroll' ? ' labor is covered by your wages.' : ' labor adds to your payout balance.'}
+                    Both save when you mark resolved. Materials (attach the receipt photo) go to the studio's books.
+                    {worker?.payType === 'payroll'
+                      ? ' Hours are logged for the record — pay comes through your wages.'
+                      : (worker?.hourlyRateCents || 0) > 0
+                        ? ` Labor pays at the studio's rate: $${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr${Number(hoursDraft) > 0 ? ` × ${Math.min(24, Number(hoursDraft))}h = $${((Math.min(24, Number(hoursDraft)) * (worker.hourlyRateCents || 0)) / 100).toFixed(2)}` : ''}.`
+                        : ' No hourly rate is on file yet — hours are logged, but ask the studio to set your rate so labor can accrue.'}
                   </p>
                   <div className="flex gap-2 items-center">
                     <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Move deadline</span>
