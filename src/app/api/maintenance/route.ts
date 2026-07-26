@@ -84,8 +84,9 @@ export async function POST(req: NextRequest) {
       if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link — ask the studio for a new one.' }, { status: 401 });
       const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
       const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const isHelperOn = (t: any) => (t.helpers || []).some((h: any) => h.id === worker.id);
       const tickets = all
-        .filter((t) => ['open', 'in_progress'].includes(t.status) && (!t.assigneeId || t.assigneeId === worker.id))
+        .filter((t) => ['open', 'in_progress'].includes(t.status) && (!t.assigneeId || t.assigneeId === worker.id || isHelperOn(t)))
         .sort((a, b) => (a.dueAt || '').localeCompare(b.dueAt || ''));
       // Their track record travels with them: last 20 finished jobs, so a
       // tech can reference past work and reprint any work order on site.
@@ -128,6 +129,7 @@ export async function POST(req: NextRequest) {
           dueAt: t.dueAt, createdAt: t.createdAt,
           reporterName: t.reporter?.name || 'Studio',
           assignedToMe: t.assigneeId === worker.id,
+          helping: isHelperOn(t) && t.assigneeId !== worker.id,
           quote: t.quote || null,
           quoteRequested: !!t.quoteRequested,
           requestMeta: t.requestMeta || null,
@@ -271,7 +273,7 @@ export async function POST(req: NextRequest) {
       const snap = await ref.get();
       if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
       const t = snap.data() as any;
-      if (t.assigneeId && t.assigneeId !== worker.id) {
+      if (t.assigneeId && t.assigneeId !== worker.id && !(t.helpers || []).some((h: any) => h.id === worker.id)) {
         return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
       }
       const nowIso = new Date().toISOString();
@@ -332,7 +334,7 @@ export async function POST(req: NextRequest) {
       const snap = await ref.get();
       if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
       const t = snap.data() as any;
-      if (t.assigneeId && t.assigneeId !== worker.id) {
+      if (t.assigneeId && t.assigneeId !== worker.id && !(t.helpers || []).some((h: any) => h.id === worker.id)) {
         return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
       }
       const hours = Math.min(200, Math.max(0, Number(body.hours) || 0));
@@ -425,14 +427,14 @@ export async function POST(req: NextRequest) {
       // Techs can move the deadline ("parts arrive Thursday") — date only,
       // never backdated below now, and it lands on the thread for everyone.
       const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueAt || '')) ? String(body.dueAt) : null;
-      if (!ticketId || (!status && !note && !hasPhoto && !dueDate)) {
-        return NextResponse.json({ ok: false, error: 'Add a note, a photo, a new deadline, or a status change.' }, { status: 400 });
+      if (!ticketId || (!status && !note && !hasPhoto && !dueDate && !(Number(body.laborHours) > 0))) {
+        return NextResponse.json({ ok: false, error: 'Add a note, a photo, hours, a new deadline, or a status change.' }, { status: 400 });
       }
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
       const snap = await ref.get();
       if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
       const t = snap.data() as any;
-      if (t.assigneeId && t.assigneeId !== worker.id) {
+      if (t.assigneeId && t.assigneeId !== worker.id && !(t.helpers || []).some((h: any) => h.id === worker.id)) {
         return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
       }
       const nowIso = new Date().toISOString();
@@ -486,10 +488,19 @@ export async function POST(req: NextRequest) {
       //            on the worker's balance and books at payout, when the
       //            studio's cash actually moves.
       const paidBy: 'studio' | 'tech' = body.paidBy === 'tech' ? 'tech' : 'studio';
-      const laborHours = status === 'resolved' ? Math.min(24, Math.max(0, Number(body.laborHours) || 0)) : 0;
+      // Hours can be logged at RESOLVE (the assignee) or MID-JOB with no
+      // status change (helpers on a multi-worker job, or a multi-visit
+      // job). Either way each worker's hours price at THEIR OWN rate and
+      // accrue to THEIR OWN balance; the ticket accumulates totals plus a
+      // per-worker breakdown in laborEntries.
+      const laborHours = Math.min(24, Math.max(0, Number(body.laborHours) || 0));
       const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
       const laborCents = laborHours > 0 && rateCents > 0 && worker.payType !== 'payroll'
         ? Math.round(laborHours * rateCents) : 0;
+      // Only the ASSIGNEE moves status — helpers contribute, they don't close.
+      if (status && t.assigneeId && t.assigneeId !== worker.id) {
+        return NextResponse.json({ ok: false, error: `Only ${t.assigneeName || 'the assigned worker'} can change this job's status — add your notes and hours instead.` }, { status: 403 });
+      }
 
       // Mileage: miles × the studio's per-mile rate (0 rate = no mileage).
       let rules: any = { mileageRateCents: 0 };
@@ -512,13 +523,19 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ ok: false, error: `This studio requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)} — attach the receipt and resolve again.` }, { status: 422 });
         }
       }
+      // Labor accumulates on the ticket — totals plus who-did-what.
+      if (laborHours > 0) {
+        patch.laborHours = Math.max(0, Number(t.laborHours) || 0) + laborHours;
+        if (laborCents > 0) patch.laborCents = Math.max(0, Number(t.laborCents) || 0) + laborCents;
+        patch.laborEntries = [...(Array.isArray(t.laborEntries) ? t.laborEntries : []),
+          { workerId: worker.id, name: worker.name, hours: laborHours, cents: laborCents, at: nowIso }];
+        if (!status) update.note = [update.note, `Logged ${laborHours}h${laborCents > 0 ? ` ($${(laborCents / 100).toFixed(2)})` : ''}`].filter(Boolean).join(' · ');
+      }
       if (status) {
         patch.status = status;
         if (status === 'resolved') {
           patch.resolvedAt = nowIso;
-          if (costCents > 0) { patch.costCents = costCents; patch.materialsPaidBy = paidBy; }
-          if (laborHours > 0) patch.laborHours = laborHours;
-          if (laborCents > 0) patch.laborCents = laborCents;
+          if (costCents > 0) { patch.costCents = Math.max(0, Number(t.costCents) || 0) + costCents; patch.materialsPaidBy = paidBy; }
           if (miles > 0) { patch.mileage = miles; if (mileageCents > 0) patch.mileageCents = mileageCents; }
           // Auto-stop a running clock — resolving IS stopping work.
           const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
@@ -608,6 +625,39 @@ export async function POST(req: NextRequest) {
         actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
       return NextResponse.json({ ok: true, photoUrl, photoError });
+    }
+
+    // ── Automation: text HELPERS their invite to the job ──────────────
+    // Called after the owner adds a helper; texts every helper who hasn't
+    // been notified yet (dedupe via helperNotifiedIds).
+    if (action === 'notify-helper') {
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      const notified: string[] = Array.isArray(t.helperNotifiedIds) ? [...t.helperNotifiedIds] : [];
+      let sent = 0;
+      let base = '';
+      try { base = String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.publicOrigin || '').replace(/\/+$/, ''); } catch { /* fall back */ }
+      if (!base && process.env.VERCEL_PROJECT_PRODUCTION_URL) base = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+      if (!base) base = String(body.origin || '').replace(/\/+$/, '');
+      for (const h of (t.helpers || [])) {
+        if (notified.includes(h.id)) continue;
+        try {
+          const w = (await db.doc(`tenants/${tenantId}/maintenanceWorkers/${h.id}`).get()).data() as any;
+          if (w?.phone && smsConfigured()) {
+            const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
+            const r = await sendTenantSms(db, tenantId, w.phone,
+              `You've been added to help on "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}${t.assigneeName ? ` (lead: ${t.assigneeName})` : ''}. Log your own hours on the job.${link}`);
+            if (r.ok) sent++;
+          }
+          notified.push(h.id);
+        } catch { /* next helper */ }
+      }
+      await ref.set({ helperNotifiedIds: notified }, { merge: true });
+      return NextResponse.json({ ok: true, sent });
     }
 
     // ── Automation: text the assigned tech their ticket ───────────────
