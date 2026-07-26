@@ -59,7 +59,19 @@ export interface Ticket {
   // timer is EVIDENCE, not the pay input: it pre-fills the hours field
   // at resolve, and the owner sees timed vs claimed side by side. Pay
   // still comes from hours × the owner-set rate.
-  workSessions?: { startAt: string; endAt?: string | null; by?: string }[];
+  workSessions?: {
+    startAt: string; endAt?: string | null; by?: string;
+    // Location stamps captured at clock in/out (fail-soft — permission
+    // denied records null and never blocks work). Proof of presence.
+    startLoc?: { lat: number; lng: number; acc?: number } | null;
+    endLoc?: { lat: number; lng: number; acc?: number } | null;
+  }[];
+  // MILEAGE — miles logged at resolve × the studio's per-mile rate (set
+  // in Rules). Reimbursement rides the same payout balance as labor.
+  mileage?: number | null;
+  mileageCents?: number | null;
+  // One-shot stamp: owner notified that timed work passed the agreement.
+  agreementOverNotified?: boolean;
   // QUOTES — for jobs big enough to price before work starts. The tech
   // submits from their portal; the owner approves or declines; the work
   // order prints quoted vs actual so overruns are visible, not felt.
@@ -74,6 +86,9 @@ export interface Ticket {
     at: string;
     status: 'pending' | 'approved' | 'declined';
     decidedAt?: string | null;
+    // Owner countered before approving — hours/total are the OWNER'S
+    // numbers now. The approved quote is the working agreement either way.
+    countered?: boolean;
   } | null;
 }
 
@@ -208,6 +223,9 @@ export interface MaintenanceRules {
   // Resolving with materials over this requires a photo on the ticket
   // (the receipt). ("Spend over $75 shows me the receipt.")
   receiptRequiredOverCents?: number;
+  // Per-mile reimbursement rate. 0 = mileage not reimbursed (field stays
+  // hidden in the tech portal). E.g. 67 = $0.67/mile.
+  mileageRateCents?: number;
 }
 // Total timed minutes across a ticket's work sessions. An open session
 // counts up to `now` (pass it in — keeps this pure and testable).
@@ -229,6 +247,7 @@ export function normalizeRules(raw: any): Required<MaintenanceRules> {
     autoApproveUnderCents: n(raw?.autoApproveUnderCents),
     requireQuoteOverCents: n(raw?.requireQuoteOverCents),
     receiptRequiredOverCents: n(raw?.receiptRequiredOverCents),
+    mileageRateCents: n(raw?.mileageRateCents),
   };
 }
 
