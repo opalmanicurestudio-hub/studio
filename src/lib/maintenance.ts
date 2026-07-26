@@ -55,6 +55,21 @@ export interface Ticket {
   laborHours?: number | null;          // hours the tech logged at resolution
   laborCents?: number | null;          // laborHours × the OWNER-set hourly rate
   overdueNotifiedAt?: string | null;   // cron stamp — one nag, not nightly spam
+  // QUOTES — for jobs big enough to price before work starts. The tech
+  // submits from their portal; the owner approves or declines; the work
+  // order prints quoted vs actual so overruns are visible, not felt.
+  quoteRequested?: boolean;
+  quote?: {
+    hours?: number;
+    materialsCents?: number;
+    laborCents?: number;
+    totalCents: number;
+    note?: string;
+    by: string;
+    at: string;
+    status: 'pending' | 'approved' | 'declined';
+    decidedAt?: string | null;
+  } | null;
 }
 
 export interface MaintenanceWorker {
