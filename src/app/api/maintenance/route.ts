@@ -238,17 +238,22 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
       }
       const nowIso = new Date().toISOString();
+      // Location stamp — proof of presence, captured fail-soft. A denied
+      // permission or a basement with no GPS records null, never a block.
+      const loc = body.loc && Number.isFinite(Number(body.loc.lat)) && Number.isFinite(Number(body.loc.lng))
+        ? { lat: Number(body.loc.lat), lng: Number(body.loc.lng), acc: Math.round(Number(body.loc.acc) || 0) }
+        : null;
       const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
       const openIdx = sessions.findIndex((s) => !s.endAt);
       if (op === 'start') {
         if (openIdx >= 0) return NextResponse.json({ ok: true, already: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
-        sessions.push({ startAt: nowIso, by: worker.name });
+        sessions.push({ startAt: nowIso, by: worker.name, startLoc: loc });
         await ref.set({
           workSessions: sessions,
           assigneeId: t.assigneeId || worker.id,
           assigneeName: t.assigneeName || worker.name,
           ...(t.status === 'open' ? { status: 'in_progress' } : {}),
-          updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: 'Clock started', ...(t.status === 'open' ? { status: 'in_progress' } : {}) }],
+          updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Clock started${loc ? ' · location recorded' : ' · no location available'}`, ...(t.status === 'open' ? { status: 'in_progress' } : {}) }],
           updatedAt: nowIso,
         }, { merge: true });
         if (t.status === 'open') await syncBoothFromTickets(db, tenantId, t.boothId);
@@ -256,14 +261,23 @@ export async function POST(req: NextRequest) {
       }
       // stop
       if (openIdx < 0) return NextResponse.json({ ok: true, already: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
-      sessions[openIdx] = { ...sessions[openIdx], endAt: nowIso };
+      sessions[openIdx] = { ...sessions[openIdx], endAt: nowIso, endLoc: loc };
       const sessionMin = Math.max(1, Math.round((new Date(nowIso).getTime() - new Date(sessions[openIdx].startAt).getTime()) / 60000));
       const totalMin = timedMinutesOf({ workSessions: sessions }, Date.now());
-      await ref.set({
+      const patch: any = {
         workSessions: sessions,
-        updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Clock stopped — ${fmtMinutes(sessionMin)} this session · ${fmtMinutes(totalMin)} total on the job` }],
+        updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Clock stopped — ${fmtMinutes(sessionMin)} this session · ${fmtMinutes(totalMin)} total on the job${loc ? ' · location recorded' : ''}` }],
         updatedAt: nowIso,
-      }, { merge: true });
+      };
+      // AGREEMENT WATCH: the approved quote's hours are the deal. The
+      // first time timed work passes them, everyone hears about it —
+      // thread note + owner notification, exactly once.
+      if (t.quote?.status === 'approved' && (t.quote.hours || 0) > 0 && totalMin > t.quote.hours * 60 && !t.agreementOverNotified) {
+        patch.agreementOverNotified = true;
+        patch.updates.push({ at: nowIso, by: 'Agreement', byType: 'system', note: `Timed work (${fmtMinutes(totalMin)}) has passed the agreed ${t.quote.hours}h — the studio has been notified.` });
+        await notifyOwner(db, tenantId, `"${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: ${worker.name}'s timed work (${fmtMinutes(totalMin)}) just passed the agreed ${t.quote.hours}h ($${((t.quote.totalCents || 0) / 100).toFixed(2)}). Check in before it grows.`);
+      }
+      await ref.set(patch, { merge: true });
       return NextResponse.json({ ok: true, timedMinutes: totalMin });
     }
 
@@ -431,12 +445,18 @@ export async function POST(req: NextRequest) {
       const laborCents = laborHours > 0 && rateCents > 0 && worker.payType !== 'payroll'
         ? Math.round(laborHours * rateCents) : 0;
 
+      // Mileage: miles × the studio's per-mile rate (0 rate = no mileage).
+      let rules: any = { mileageRateCents: 0 };
+      if (status === 'resolved') {
+        try { rules = normalizeRules(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules); } catch { /* rules off */ }
+      }
+      const miles = status === 'resolved' ? Math.min(500, Math.max(0, Number(body.miles) || 0)) : 0;
+      const mileageCents = miles > 0 && (rules.mileageRateCents || 0) > 0 ? Math.round(miles * rules.mileageRateCents) : 0;
+
       // ── THE BUSINESS'S OWN APPROVAL RULES, enforced at the gate ───────
       // The portal warns early, but this is the wall: a resolve that
       // violates the studio's thresholds is rejected with the reason.
       if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
-        let rules: any = {};
-        try { rules = normalizeRules(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules); } catch { /* rules off */ }
         const actual = costCents + laborCents;
         if (rules.requireQuoteOverCents > 0 && actual > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
           return NextResponse.json({ ok: false, error: `This studio requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)} — send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
@@ -453,6 +473,7 @@ export async function POST(req: NextRequest) {
           if (costCents > 0) patch.costCents = costCents;
           if (laborHours > 0) patch.laborHours = laborHours;
           if (laborCents > 0) patch.laborCents = laborCents;
+          if (miles > 0) { patch.mileage = miles; if (mileageCents > 0) patch.mileageCents = mileageCents; }
           // Auto-stop a running clock — resolving IS stopping work.
           const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
           const openIdx = sessions.findIndex((s) => !s.endAt);
@@ -477,6 +498,27 @@ export async function POST(req: NextRequest) {
           laborNote = `${laborHours}h × $${(rateCents / 100).toFixed(2)}/hr = $${(laborCents / 100).toFixed(2)} to ${worker.name}'s payout balance`;
         } catch { laborNote = 'could not accrue — log it manually'; }
       }
+      // Mileage reimbursement rides the same payout balance (payroll
+      // workers' mileage is flagged for their next paycheck instead).
+      let mileageNote: string | null = null;
+      if (mileageCents > 0) {
+        if (worker.payType === 'payroll') {
+          mileageNote = `${miles} mi = $${(mileageCents / 100).toFixed(2)} — add to their next payroll run`;
+        } else {
+          try {
+            const { FieldValue } = await import('firebase-admin/firestore');
+            await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+              { unpaidLaborCents: FieldValue.increment(mileageCents) }, { merge: true });
+            mileageNote = `${miles} mi × $${(rules.mileageRateCents / 100).toFixed(2)} = $${(mileageCents / 100).toFixed(2)} to the payout balance`;
+          } catch { mileageNote = `${miles} mi — could not accrue, log manually`; }
+        }
+      } else if (miles > 0) {
+        mileageNote = `${miles} mi logged — no mileage rate set in Rules`;
+      }
+      // Agreement check at the finish line: resolving past the approved
+      // quote is allowed (reality happens) but never silent.
+      const overAgreement = t.quote?.status === 'approved' && (t.quote.totalCents || 0) > 0
+        && (costCents + laborCents) > t.quote.totalCents;
 
       if (costCents > 0) {
         try {
@@ -496,7 +538,7 @@ export async function POST(req: NextRequest) {
 
       await syncBoothFromTickets(db, tenantId, t.boothId);
       await notifyOwner(db, tenantId,
-        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · OVER THE AGREED QUOTE ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
         await sendTenantSms(db, tenantId, t.reporter.phone,
