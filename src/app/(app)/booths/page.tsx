@@ -5755,25 +5755,30 @@ export default function BoothsPage() {
               <p className="flex-1 text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
                 <Link2 className="h-3.5 w-3.5" /> Quick links
               </p>
-              {/* Vercel preview URLs (r4k-…, r08-…) are frozen snapshots — a
-                  link built on one 404s after the next deploy. Lock links to
-                  the real domain once and they survive every deploy. */}
+              {/* The domain is AUTOMATIC (Vercel injects the production
+                  domain at build time). This button is only an override
+                  for the rare case links should live somewhere else. */}
               <button onClick={async () => {
                   const cur = String((selectedTenant as any)?.publicOrigin || '');
-                  const v = window.prompt('Links are built on this address. Enter your app\'s permanent domain (e.g. https://your-app.vercel.app) — leave empty to use whatever address you\'re browsing on:', cur);
+                  const v = window.prompt(`Links are automatic — they currently use ${shareOrigin.replace(/^https?:\/\//, '')}. Only enter a domain here to OVERRIDE that (e.g. https://yourbrand.com). Leave empty to stay automatic:`, cur);
                   if (v === null) return;
                   const cleaned = v.trim().replace(/\/+$/, '');
-                  if (cleaned && !/^https?:\/\/[^ ]+\.[^ ]+$/.test(cleaned)) { toast({ variant: 'destructive', title: 'That doesn\'t look like a URL', description: 'Include https:// — e.g. https://your-app.vercel.app' }); return; }
+                  if (cleaned && !/^https?:\/\/[^ ]+\.[^ ]+$/.test(cleaned)) { toast({ variant: 'destructive', title: 'That doesn\'t look like a URL', description: 'Include https:// — e.g. https://yourbrand.com' }); return; }
                   try {
                     await updateDoc(doc(firestore, 'tenants', tenantId), { publicOrigin: cleaned || null });
-                    toast({ title: cleaned ? 'Link domain saved' : 'Link domain cleared', description: cleaned ? `All shared links now use ${cleaned}.` : 'Links use the address you\'re browsing on.' });
+                    toast({ title: cleaned ? 'Domain override saved' : 'Back to automatic', description: cleaned ? `All shared links now use ${cleaned}.` : 'Links use your production domain automatically.' });
                   } catch { toast({ variant: 'destructive', title: 'Could not save' }); }
                 }}
-                className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0">
-                {(selectedTenant as any)?.publicOrigin ? 'Domain ✓' : 'Set domain'}
+                className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0"
+                title={`Links use ${shareOrigin.replace(/^https?:\/\//, '')}`}>
+                {(selectedTenant as any)?.publicOrigin ? 'Custom domain ✓' : process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ? 'Domain: auto ✓' : 'Set domain'}
               </button>
             </div>
-            {!(selectedTenant as any)?.publicOrigin && shareOrigin && /-[a-z0-9]{2,}-.*vercel\.app$/i.test(shareOrigin.replace(/^https?:\/\//, '')) && (
+            <p className="text-[10px] font-bold text-muted-foreground -mt-1">
+              Links are built on <span className="font-black text-slate-600">{shareOrigin.replace(/^https?:\/\//, '') || '—'}</span>
+              {(selectedTenant as any)?.publicOrigin ? ' (your override)' : process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ? ' — set automatically' : ''}
+            </p>
+            {!(selectedTenant as any)?.publicOrigin && !process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL && shareOrigin && /-[a-z0-9]{2,}-.*vercel\.app$/i.test(shareOrigin.replace(/^https?:\/\//, '')) && (
               <p className="text-[10px] font-bold text-amber-600">You're browsing a deployment-specific address — links copied now may break after your next deploy. Tap Set domain and enter your permanent URL.</p>
             )}
             {([
