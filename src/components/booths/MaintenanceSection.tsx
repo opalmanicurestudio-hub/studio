@@ -743,32 +743,32 @@ export function MaintenanceSection({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Header: title + primary action on one line; tools live in a
+          single horizontal-scroll chip row that never wraps on a phone. */}
+      <div className="flex items-center gap-2">
         <h2 className="text-xs font-black uppercase tracking-widest flex items-center gap-1.5"><Wrench className="h-3.5 w-3.5" /> Maintenance</h2>
         {openCount > 0 && <span className="h-5 min-w-5 px-1.5 bg-amber-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">{openCount}</span>}
-        <button onClick={() => setShowResolved(o => !o)} className="text-[10px] font-bold text-muted-foreground underline underline-offset-2">
-          {showResolved ? 'hide resolved' : 'show resolved'}
+        <button onClick={() => setCreateOpen(true)} className="ml-auto h-9 px-4 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center gap-1 shrink-0">
+          <Plus className="h-3 w-3" /> Ticket
         </button>
-        <div className="ml-auto flex gap-2 flex-wrap">
-          <button onClick={openRules} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
-            <Shield className="h-3 w-3" /> Rules
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        {([
+          { icon: Users, label: 'Workers', count: activeWorkers.length, onClick: () => setWorkersOpen(true) },
+          { icon: CalendarClock, label: 'Plans', count: plans.filter((p: any) => p.active !== false).length, onClick: () => setPlansOpen(true) },
+          { icon: BookUser, label: 'Providers', count: providers.filter((p: any) => !p.archived).length, onClick: () => setProvidersOpen(true) },
+          { icon: FileClock, label: 'History', count: 0, onClick: () => setHistoryOpen(true) },
+          { icon: Shield, label: 'Rules', count: 0, onClick: openRules },
+        ] as any[]).map((b) => (
+          <button key={b.label} onClick={b.onClick}
+            className="h-9 px-3.5 rounded-full border-2 bg-white font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1.5 whitespace-nowrap shrink-0 active:scale-95 transition-transform">
+            <b.icon className="h-3.5 w-3.5" /> {b.label}{b.count > 0 ? ` · ${b.count}` : ''}
           </button>
-          <button onClick={() => setHistoryOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
-            <FileClock className="h-3 w-3" /> History
-          </button>
-          <button onClick={() => setProvidersOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
-            <BookUser className="h-3 w-3" /> Providers {providers.filter((p: any) => !p.archived).length > 0 ? providers.filter((p: any) => !p.archived).length : ''}
-          </button>
-          <button onClick={() => setPlansOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
-            <CalendarClock className="h-3 w-3" /> Plans {plans.filter((p: any) => p.active !== false).length > 0 ? plans.filter((p: any) => p.active !== false).length : ''}
-          </button>
-          <button onClick={() => setWorkersOpen(true)} className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center gap-1">
-            <Users className="h-3 w-3" /> Workers {activeWorkers.length > 0 ? activeWorkers.length : ''}
-          </button>
-          <button onClick={() => setCreateOpen(true)} className="h-8 px-3 rounded-lg bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest flex items-center gap-1">
-            <Plus className="h-3 w-3" /> Ticket
-          </button>
-        </div>
+        ))}
+        <button onClick={() => setShowResolved(o => !o)}
+          className={`h-9 px-3.5 rounded-full border-2 font-black uppercase text-[9px] tracking-widest whitespace-nowrap shrink-0 ${showResolved ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400'}`}>
+          {showResolved ? 'Hiding nothing' : 'Show resolved'}
+        </button>
       </div>
 
       {/* Running costs — what maintenance is actually costing, live */}
@@ -797,18 +797,31 @@ export function MaintenanceSection({
           {shown.map((t: any) => {
             const overdue = isTicketOverdue(t);
             const expanded = expandedId === t.id;
+            const isRequest = t.category === 'request';
+            const rail = isRequest ? 'border-l-violet-400'
+              : t.priority === 'urgent' ? 'border-l-red-500'
+              : t.priority === 'high' ? 'border-l-orange-400'
+              : t.priority === 'low' ? 'border-l-slate-200' : 'border-l-indigo-300';
             return (
-              <div key={t.id} className={`rounded-2xl border-2 bg-white overflow-hidden ${overdue ? 'border-red-300' : ''}`}>
+              <div key={t.id} className={`rounded-2xl border-2 border-l-4 bg-white overflow-hidden shadow-sm ${rail} ${overdue ? 'border-red-200' : ''}`}>
                 <button onClick={() => { setExpandedId(expanded ? null : t.id); setNoteDraft(''); }} className="w-full text-left px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-sm font-black truncate">{t.title}</p>
+                      <p className="text-sm font-black truncate">{isRequest && <span className="text-violet-600">Request · </span>}{t.title}</p>
                       <p className="text-[10px] font-bold text-muted-foreground truncate">
                         {[t.boothName, t.resourceName, TICKET_CATEGORIES.find(c => c.value === t.category)?.label || t.category,
                           `by ${t.reporter?.name || '—'}`,
-                          t.assigneeName ? `assigned ${t.assigneeName}` : 'unassigned',
+                          t.assigneeName ? `assigned ${t.assigneeName}` : isRequest ? null : 'unassigned',
                           fmtWhen(t.createdAt)].filter(Boolean).join(' · ')}
                       </p>
+                      {isRequest && t.requestMeta && (
+                        <p className="text-[10px] font-bold text-violet-600 truncate mt-0.5">
+                          {[t.requestMeta.qty ? `qty ${t.requestMeta.qty}` : null,
+                            t.requestMeta.neededBy ? `by ${t.requestMeta.neededBy}` : null,
+                            (t.requestMeta.estCostCents || 0) > 0 ? `est. $${(t.requestMeta.estCostCents / 100).toFixed(0)}` : null,
+                            t.requestMeta.forStaff?.length ? `for ${t.requestMeta.forStaff.join(', ')}` : null].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
                       {overdue && <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mt-0.5">Overdue · was due {fmtWhen(t.dueAt)}</p>}
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
@@ -819,6 +832,26 @@ export function MaintenanceSection({
                 </button>
                 {expanded && (
                   <div className="border-t px-4 py-3 space-y-3">
+                    {/* Request decision card — everything needed to say yes
+                        from a phone: what, how many, when, cost, who, job */}
+                    {isRequest && t.requestMeta && (
+                      <div className="rounded-xl border-2 border-violet-200 bg-violet-50 p-3 grid grid-cols-2 gap-x-4 gap-y-2">
+                        {([
+                          ['Type', t.requestMeta.kindLabel || 'Request'],
+                          ['Quantity', t.requestMeta.qty || '—'],
+                          ['Needed by', t.requestMeta.neededBy || 'no deadline'],
+                          ['Est. cost', (t.requestMeta.estCostCents || 0) > 0 ? `$${(t.requestMeta.estCostCents / 100).toFixed(2)}` : '—'],
+                          ['For', t.requestMeta.forStaff?.length ? t.requestMeta.forStaff.join(', ') : '—'],
+                          ['Job', t.requestMeta.relatedTicketTitle || 'not job-specific'],
+                        ] as [string, string][]).map(([k, v]) => (
+                          <div key={k}>
+                            <p className="text-[8px] font-black uppercase tracking-widest text-violet-500">{k}</p>
+                            <p className="text-xs font-bold text-slate-800">{v}</p>
+                          </div>
+                        ))}
+                        <p className="col-span-2 text-[10px] font-bold text-violet-600">Bought it? Resolve with the Materials $ and receipt — the purchase logs to the ledger and {t.reporter?.name || 'the tech'} gets a text.</p>
+                      </div>
+                    )}
                     {t.description && <p className="text-xs font-medium text-slate-600 whitespace-pre-wrap">{t.description}</p>}
                     {Array.isArray(t.photoUrls) && t.photoUrls.length > 0 && (
                       <div className="flex gap-2 overflow-x-auto pb-1">
