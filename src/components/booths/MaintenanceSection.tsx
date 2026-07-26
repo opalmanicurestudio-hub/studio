@@ -537,7 +537,7 @@ export function MaintenanceSection({
       setWForm({ name: '', phone: '', email: '', payType: 'per_job' });
       toast({ title: 'Worker added', description: wForm.payType === 'payroll'
         ? 'Send them their portal link below. Add them on the Staff page too so payroll covers their wages.'
-        : 'Send them their portal link below. Labor you log on resolved tickets accrues to their payout balance.' });
+        : 'Send them their portal link below, then tap their name and set their hourly rate — their logged hours are priced at YOUR rate, never their own number.' });
     } catch { toast({ variant: 'destructive', title: 'Could not add worker' }); }
   };
   const workerLink = (w: any) => `${shareOrigin}/maintain/${tenantId}?t=${w.token}`;
@@ -552,6 +552,21 @@ export function MaintenanceSection({
       await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { active: w.active === false });
     } catch { toast({ variant: 'destructive', title: 'Could not update' }); }
   };
+  // The owner sets the hourly rate — techs log HOURS in their portal and
+  // the server prices them at this rate. Techs can never invent a dollar
+  // amount for their own labor.
+  const setWorkerRate = async (w: any) => {
+    const cur = (Number(w.hourlyRateCents) || 0) / 100;
+    const v = window.prompt(`Hourly rate for ${w.name} ($/hr). Their logged hours are priced at this rate — they cannot set their own pay. Enter 0 to disable labor accrual:`, cur > 0 ? String(cur) : '');
+    if (v === null) return;
+    const dollars = Math.max(0, Number(v) || 0);
+    if (dollars > 500) { toast({ variant: 'destructive', title: 'That rate looks too high', description: 'Enter dollars per hour, e.g. 45.' }); return; }
+    try {
+      await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { hourlyRateCents: Math.round(dollars * 100) });
+      toast({ title: dollars > 0 ? `${w.name} → $${dollars.toFixed(2)}/hr` : `${w.name}'s rate cleared`, description: dollars > 0 ? 'Hours they log now accrue at this rate.' : 'Hours are logged for the record, but no labor accrues.' });
+    } catch { toast({ variant: 'destructive', title: 'Could not save the rate' }); }
+  };
+
   const setWorkerPayType = async (w: any, payType: 'payroll' | 'per_job') => {
     if ((w.payType || 'per_job') === payType) return;
     if (payType === 'payroll' && (w.unpaidLaborCents || 0) > 0) {
@@ -647,10 +662,10 @@ export function MaintenanceSection({
                         ))}
                       </div>
                     )}
-                    {((t.costCents || 0) > 0 || (t.laborCents || 0) > 0) && (
+                    {((t.costCents || 0) > 0 || (t.laborCents || 0) > 0 || (t.laborHours || 0) > 0) && (
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                         {[(t.costCents || 0) > 0 ? `Materials $${(t.costCents / 100).toFixed(2)} · in ledger` : null,
-                          (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ')}
+                          (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}${(t.laborHours || 0) > 0 ? ` (${t.laborHours}h)` : ''}` : (t.laborHours || 0) > 0 ? `${t.laborHours}h logged · no rate set` : null].filter(Boolean).join(' · ')}
                       </p>
                     )}
                     <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
@@ -1050,6 +1065,14 @@ export function MaintenanceSection({
                             ))}
                           </div>
                         </div>
+                        {!onPayroll && (
+                          <button onClick={() => setWorkerRate(w)}
+                            className="w-full h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center justify-center gap-1.5">
+                            {(w.hourlyRateCents || 0) > 0
+                              ? <>Rate ${((w.hourlyRateCents || 0) / 100).toFixed(2)}/hr · change</>
+                              : <>Set hourly rate — required before labor accrues</>}
+                          </button>
+                        )}
                         {onPayroll ? (
                           <p className="text-[10px] font-bold text-muted-foreground">Wages, hours, and payday run through the Staff page — labor on tickets is covered there, so nothing accrues here.</p>
                         ) : balance > 0 ? (
