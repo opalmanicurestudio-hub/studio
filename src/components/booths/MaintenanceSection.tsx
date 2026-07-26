@@ -560,6 +560,18 @@ export function MaintenanceSection({
     } catch { toast({ variant: 'destructive', title: 'Could not save', description: 'Try again.' }); return false; }
   };
 
+  // Outsourced help: a second worker (often a portal-enabled provider)
+  // joins the SAME job. They see it in their portal, clock in, and log
+  // their own hours at their own rate — the assignee still owns closing.
+  const addHelper = async (t: any, workerId: string) => {
+    const w = activeWorkers.find((x: any) => x.id === workerId);
+    if (!w || w.id === t.assigneeId || (t.helpers || []).some((h: any) => h.id === w.id)) return;
+    if (await patchTicket(t, { helpers: [...(t.helpers || []), { id: w.id, name: w.name }] }, { note: `${w.name} added to help on this job` })) {
+      fireAndForget('notify-helper', t.id);
+      toast({ title: `${w.name} added as help`, description: w.phone ? 'They get a text with their portal link — their hours accrue at their own rate.' : 'No phone on file — send them their portal link from Workers.' });
+    }
+  };
+
   const assign = async (t: any, workerId: string) => {
     const w = activeWorkers.find((x: any) => x.id === workerId);
     if (!w) return;
@@ -1054,6 +1066,21 @@ export function MaintenanceSection({
                         Mileage {t.mileage} mi{(t.mileageCents || 0) > 0 ? ` · $${((t.mileageCents || 0) / 100).toFixed(2)} reimbursed via payout balance` : ''}
                       </p>
                     )}
+                    {/* The crew: lead + helpers, and who logged what */}
+                    {(t.helpers || []).length > 0 && (
+                      <p className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
+                        Crew: {t.assigneeName || 'unassigned'} (lead){(t.helpers || []).map((h: any) => ` + ${h.name}`).join('')}
+                      </p>
+                    )}
+                    {(t.laborEntries || []).length > 1 && (
+                      <div className="space-y-0.5">
+                        {(t.laborEntries || []).map((e: any, i: number) => (
+                          <p key={i} className="text-[10px] font-bold text-muted-foreground">
+                            {e.name}: {e.hours}h{(e.cents || 0) > 0 ? ` · $${(e.cents / 100).toFixed(2)}` : ''} · {fmtWhen(e.at)}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     {(t.purchasedCents || 0) > 0 && (
                       <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
                         Purchases logged so far ${((t.purchasedCents || 0) / 100).toFixed(2)} · already in the ledger
@@ -1119,6 +1146,14 @@ export function MaintenanceSection({
                           </select>
                           {t.status === 'open' && (
                             <button onClick={() => setStatus(t, 'in_progress')} className="h-9 px-3 rounded-xl bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Start</button>
+                          )}
+                          {t.assigneeId && activeWorkers.filter((w: any) => w.id !== t.assigneeId && !(t.helpers || []).some((h: any) => h.id === w.id)).length > 0 && (
+                            <select value="" onChange={(e) => e.target.value && addHelper(t, e.target.value)}
+                              className="h-9 rounded-xl border-2 border-dashed px-2 text-xs font-bold bg-white text-slate-500 max-w-[150px]">
+                              <option value="">+ Add help…</option>
+                              {activeWorkers.filter((w: any) => w.id !== t.assigneeId && !(t.helpers || []).some((h: any) => h.id === w.id))
+                                .map((w: any) => <option key={w.id} value={w.id}>{w.name}{w.providerId ? ' (provider)' : ''}</option>)}
+                            </select>
                           )}
                           {!t.quote && !t.quoteRequested && t.assigneeId && (
                             <button onClick={() => requestQuote(t)} className="h-9 px-3 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest">Request quote</button>
