@@ -129,7 +129,7 @@ function PlannerPageContent() {
       if (!t || !t.tourStartIso) return false;
       // Hide every resolved state — 'closed' is what the "Resolve" button sets,
       // so without it a handled tour lingered on the planner all day.
-      if (['declined', 'cancelled', 'closed', 'completed', 'archived', 'no_show', 'done'].includes(String(t.status || ''))) return false;
+      if (['declined', 'cancelled', 'closed', 'completed', 'archived', 'no_show', 'done', 'converted'].includes(String(t.status || ''))) return false;
       const d = safeDate(t.tourStartIso);
       return d && !isNaN(d.getTime()) && isSameDay(d, currentDate);
     });
@@ -151,6 +151,57 @@ function PlannerPageContent() {
     return (reservationsRaw as any[]).filter(r =>
       r && r.startDate && r.startDate <= curIso && (r.endDate || r.startDate) >= curIso);
   }, [reservationsRaw, currentDate]);
+
+  // ── MAINTENANCE ON THE PLANNER ──────────────────────────────────────
+  // Two live feeds keep every planner honest about spaces nobody can use:
+  // open blocking tickets (urgent/high, unresolved → the station is out of
+  // service until fixed) and preventive-maintenance plans (nextRunAt = the
+  // day the work happens — visible when browsing ahead, not just today).
+  // They render as blocked time on the Studio lane, on the matching
+  // resource column, and as secondary blocks on every staff column, so
+  // the whole team sees it before anyone books into a dead space.
+  const openTicketsQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null :
+      query(collection(firestore, `tenants/${tenantId}/tickets`), where('status', 'in', ['open', 'in_progress'])),
+    [firestore, tenantId]
+  );
+  const { data: openTicketsRaw } = useCollection<any>(openTicketsQ);
+  const maintPlansQ = useMemoFirebase(
+    () => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/maintenancePlans`),
+    [firestore, tenantId]
+  );
+  const { data: maintPlansRaw } = useCollection<any>(maintPlansQ);
+
+  const maintenanceToday = useMemo(() => {
+    const items: any[] = [];
+    const cd = currentDate;
+    const curIso = `${cd.getFullYear()}-${String(cd.getMonth() + 1).padStart(2, '0')}-${String(cd.getDate()).padStart(2, '0')}`;
+    // Blocking tickets: the space is down from the day it was reported
+    // until someone marks it resolved.
+    (openTicketsRaw || []).forEach((t: any) => {
+      if (!['urgent', 'high'].includes(String(t.priority || ''))) return;
+      const created = String(t.createdAt || '').slice(0, 10);
+      if (created && created > curIso) return; // not reported yet on this day
+      items.push({
+        kind: 'ticket', id: t.id,
+        title: `Out of service — ${t.boothName || t.resourceName || t.title}`,
+        detail: `${t.title}${t.assigneeName ? ` · ${t.assigneeName} on it` : ' · unassigned'}`,
+        resourceId: t.resourceId || null, status: t.status,
+      });
+    });
+    // Scheduled preventive runs: pinned to the exact day the ticket opens.
+    (maintPlansRaw || []).forEach((p: any) => {
+      if (p.active === false) return;
+      if (String(p.nextRunAt || '') !== curIso) return;
+      items.push({
+        kind: 'plan', id: p.id,
+        title: `Scheduled maintenance — ${p.boothName || p.resourceName || p.title}`,
+        detail: `${p.title}${p.assigneeName ? ` · ${p.assigneeName}` : ''} · repeats every ${p.everyDays} days`,
+        resourceId: p.resourceId || null, status: 'scheduled',
+      });
+    });
+    return items;
+  }, [openTicketsRaw, maintPlansRaw, currentDate]);
 
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTechnicianReviewOpen, setIsTechnicianReviewOpen] = useState(false);
@@ -368,9 +419,37 @@ function PlannerPageContent() {
         }
     });
 
+    // Maintenance blocks propagate exactly like global blocked events: the
+    // Studio lane gets the primary item, the matching resource column gets
+    // it in resources view, and every staff column gets a secondary copy —
+    // staff see "Out of service — Station 3" on THEIR planner, not just
+    // the owner's, so nobody plans a day around a space they can't occupy.
+    maintenanceToday.forEach((mi) => {
+        const start = new Date(targetDateStart); start.setHours(9, 0, 0, 0);
+        const end = new Date(targetDateStart); end.setHours(17, 0, 0, 0);
+        const base = {
+            id: `maint-${mi.kind}-${mi.id}`,
+            itemType: 'event', type: 'blocked',
+            title: mi.title, name: mi.title,
+            startTime: start.toISOString(), endTime: end.toISOString(),
+            allDay: true, staffIds: [], checklist: [], guestCount: 0,
+            notes: mi.detail, location: '', status: mi.status,
+            isMaintenance: true,
+        } as any;
+        if (map.has('business')) map.get('business')!.push(base);
+        if (activeView === 'resources' && mi.resourceId && map.has(mi.resourceId)) {
+            map.get(mi.resourceId)!.push({ ...base, isSecondary: true });
+        }
+        if (activeView === 'staff') {
+            columns.forEach(col => {
+                if (col.id !== 'business' && map.has(col.id)) map.get(col.id)!.push({ ...base, isSecondary: true });
+            });
+        }
+    });
+
     map.forEach(items => items.sort((a, b) => safeDate(a.startTime || a.dueDate).getTime() - safeDate(b.startTime || b.dueDate).getTime()));
     return map;
-  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday]);
+  }, [currentDate, appointments, columns, activeView, billInstances, billDefinitions, events, studioEventsToday, toursToday, reservationsToday, maintenanceToday]);
 
   const kpis = useMemo(() => {
     if (!transactions || !appointments || !services || !selectedTenant) return { weeklyRevenue: 0, projectedRevenue: 0, weeklyBreakEven: 0, weeklyNetProfit: 0, absorbedCosts: 0 };
