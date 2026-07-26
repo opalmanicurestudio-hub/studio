@@ -185,6 +185,25 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       (hit as any).reconciled = true;   // don't double-match
       matched++;
     } else {
+      // NEAR-MATCH suggestion — the double-count killer for card
+      // purchases logged by hand before the statement amount was known
+      // ("logged $38, card charged $38.42 with tax"). Same direction,
+      // within ±5% (min $3), within ±5 days → suggest "same as", never
+      // auto-book. The reviewer taps Match and the ledger keeps ONE entry.
+      const near = ledger.find((t: any) => {
+        if ((t.context || 'Business') !== (bt.__context || 'Business')) return false;
+        const dirOk = outflow ? t.type === 'expense' : t.type === 'income';
+        if (!dirOk) return false;
+        const tCents = Math.round((t.amount || 0) * 100);
+        const tol = Math.max(300, Math.round(cents * 0.05));
+        if (Math.abs(tCents - cents) > tol || tCents === cents) return false;
+        const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime();
+        return Math.abs(tDate - btDate) <= 5 * 86400000;
+      });
+      if (near) {
+        record.suggestedMatchTxnId = near.id;
+        record.suggestedMatchLabel = `${(near.description || near.category || 'Ledger entry').slice(0, 60)} · $${(near.amount || 0).toFixed(2)} · ${String(near.date).slice(0, 10)}`;
+      }
       // v69 — bill match takes priority over rule auto-booking: paying a
       // bill deserves the human tap (it also marks the bill paid), so a
       // matched line always goes to review with the bill suggestion
@@ -207,9 +226,12 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
         }
         continue;
       }
-      // Vendor-rule hit → book it automatically
+      // Vendor-rule hit → book it automatically — UNLESS a near-match to
+      // an existing ledger entry was found: auto-booking then would be
+      // the exact double-count we're guarding against, so the line goes
+      // to review with the "same as" suggestion instead.
       const rule = vendorRules.get(`${(bt.__context || 'Business').toLowerCase()}:${vendorKey(bt.merchant_name || bt.name)}`);
-      if (rule && !bt.pending) {
+      if (rule && !bt.pending && !near) {
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
           id: txnRef.id, type: rule.type || (outflow ? 'expense' : 'income'),
