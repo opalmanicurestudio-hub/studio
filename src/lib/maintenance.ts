@@ -55,6 +55,11 @@ export interface Ticket {
   laborHours?: number | null;          // hours the tech logged at resolution
   laborCents?: number | null;          // laborHours × the OWNER-set hourly rate
   overdueNotifiedAt?: string | null;   // cron stamp — one nag, not nightly spam
+  // JOB CLOCK — start/stop sessions tapped from the tech portal. The
+  // timer is EVIDENCE, not the pay input: it pre-fills the hours field
+  // at resolve, and the owner sees timed vs claimed side by side. Pay
+  // still comes from hours × the owner-set rate.
+  workSessions?: { startAt: string; endAt?: string | null; by?: string }[];
   // QUOTES — for jobs big enough to price before work starts. The tech
   // submits from their portal; the owner approves or declines; the work
   // order prints quoted vs actual so overruns are visible, not felt.
@@ -204,6 +209,20 @@ export interface MaintenanceRules {
   // (the receipt). ("Spend over $75 shows me the receipt.")
   receiptRequiredOverCents?: number;
 }
+// Total timed minutes across a ticket's work sessions. An open session
+// counts up to `now` (pass it in — keeps this pure and testable).
+export function timedMinutesOf(
+  t: { workSessions?: { startAt: string; endAt?: string | null }[] },
+  nowMs: number,
+): number {
+  return Math.round((t.workSessions || []).reduce((acc, s) => {
+    const start = new Date(s.startAt).getTime();
+    const end = s.endAt ? new Date(s.endAt).getTime() : nowMs;
+    return acc + Math.max(0, end - start);
+  }, 0) / 60000);
+}
+export const fmtMinutes = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ''}`.trim();
+
 export function normalizeRules(raw: any): Required<MaintenanceRules> {
   const n = (v: any) => Math.max(0, Math.round(Number(v) || 0));
   return {
