@@ -51,7 +51,10 @@ export async function autoAssignTicket(
     try {
       const { smsConfigured, sendTenantSms } = await import('./sms');
       if (pick.phone && smsConfigured()) {
-        const link = origin ? ` Details: ${String(origin).replace(/\/$/, '')}/maintain/${tenantId}?t=${pick.token}` : '';
+        // Prefer the tenant's permanent domain — links built on a request's
+        // deployment-specific origin die on the next deploy.
+        const base = String((t.data() as any)?.publicOrigin || origin || '').replace(/\/+$/, '');
+        const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${pick.token}` : '';
         await sendTenantSms(db, tenantId, pick.phone,
           `New ${ticket.priority || 'normal'} ticket assigned to you: "${ticket.title}"${ticket.boothName ? ` at ${ticket.boothName}` : ''}.${link}`);
       }
