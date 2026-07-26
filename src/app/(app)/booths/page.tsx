@@ -6131,6 +6131,7 @@ export default function BoothsPage() {
               ownerName={(selectedTenant as any)?.name ? `${(selectedTenant as any).name} team` : 'Owner'}
               autoAssign={(selectedTenant as any)?.maintenanceAutoAssign === 'rotate'}
               publicOrigin={(selectedTenant as any)?.publicOrigin || null}
+              studioName={(selectedTenant as any)?.name || ''}
             />
           </div>
 
