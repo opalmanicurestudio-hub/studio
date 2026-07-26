@@ -435,6 +435,7 @@ export function MaintenancePortalPage() {
                       {t.quoteRequested && !t.quote && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote needed</span>}
                       {t.quote?.status === 'pending' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote sent</span>}
                       {t.quote?.status === 'approved' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700">Quote approved</span>}
+                      {(t.openRequests || []).some((r: any) => r.status === 'open') && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-100 text-violet-700">Request pending</span>}
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-1 shrink-0">
@@ -710,6 +711,9 @@ export function MaintenancePortalPage() {
                     </select>
                   </div>
                 </div>
+                {reqRelated && (
+                  <p className="text-[10px] font-bold text-indigo-600">Goes onto that job's work order thread — one job, one record.</p>
+                )}
                 {staffNames.length > 0 && (
                   <div>
                     <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Who's affected (tap names)</p>
