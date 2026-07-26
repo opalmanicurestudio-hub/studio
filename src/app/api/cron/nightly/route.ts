@@ -230,7 +230,7 @@ export async function GET(req: NextRequest) {
   // is written in the same pass as the ticket, so a rerun the same night
   // creates nothing twice. Generated tickets are completely normal tickets:
   // same queue, same SLA, same portals, same notifications.
-  const planTotals = { ticketsOpened: 0, assigneeTexts: 0 };
+  const planTotals: { ticketsOpened: number; assigneeTexts: number; staffTexts?: number } = { ticketsOpened: 0, assigneeTexts: 0, staffTexts: 0 };
   for (const tDoc of allTenantsSnap.docs) {
     try {
       const tid = tDoc.id;
@@ -291,6 +291,27 @@ export async function GET(req: NextRequest) {
               }
             }
           } catch { /* text is a bonus */ }
+        }
+        // BLOCKING scheduled work takes the space out of service, so the
+        // TEAM hears about it too — every active staff member with a phone
+        // gets one text. Normal/low plans (cleaning, filters) don't disrupt
+        // anyone's day, so they stay quiet and just show on the planner.
+        if (['urgent', 'high'].includes(String(p.priority || '')) && (p.boothName || p.resourceName)) {
+          try {
+            const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+            if (smsConfigured()) {
+              const staffSnap = await db.collection(`tenants/${tid}/staff`).get();
+              for (const sDoc of staffSnap.docs) {
+                const s = sDoc.data() as any;
+                if (s.active === false || s.archived) continue;
+                const sPhone = s.phone || s.phoneNumber || null;
+                if (!sPhone) continue;
+                await sendTenantSms(db, tid, sPhone,
+                  `Heads up: ${p.boothName || p.resourceName} is out of service today for scheduled maintenance ("${p.title}"). It's on the planner — plan around it.`);
+                planTotals.staffTexts = (planTotals.staffTexts || 0) + 1;
+              }
+            }
+          } catch { /* staff texts are a bonus — the planner block is the source of truth */ }
         }
       }
     } catch (e) {
