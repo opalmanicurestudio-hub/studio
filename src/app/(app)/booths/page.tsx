@@ -172,6 +172,7 @@ import {
   Camera,
   Paperclip,
   Scissors,
+  Link2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -5734,6 +5735,40 @@ export default function BoothsPage() {
             </div>
           )}
 
+          {/* ── QUICK LINKS — every shareable door into the system, one tap
+              to copy. No more hunting through profiles and dialogs when a
+              renter asks "where do I log in?" ── */}
+          <div className="rounded-2xl border-2 bg-white p-4 space-y-2.5">
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
+              <Link2 className="h-3.5 w-3.5" /> Quick links
+            </p>
+            {([
+              { label: 'Renter portal', desc: 'Renters sign in with their phone or email — rent, receipts, report issues, card on file.',
+                url: `${typeof window !== 'undefined' ? window.location.origin : ''}${(selectedTenant as any)?.renterPortalPath || '/rent'}/${tenantId}` },
+              { label: 'Booking kiosk', desc: 'Public page for day and hourly bookings.',
+                url: `${typeof window !== 'undefined' ? window.location.origin : ''}/kiosk/${tenantId}` },
+              { label: 'Tour booking', desc: 'Prospects pick a tour time.',
+                url: `${typeof window !== 'undefined' ? window.location.origin : ''}/tour/${tenantId}` },
+            ] as const).map((l) => (
+              <div key={l.label} className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-black">{l.label}</p>
+                  <p className="text-[10px] font-bold text-muted-foreground truncate">{l.desc}</p>
+                </div>
+                <button onClick={() => { try { navigator.clipboard.writeText(l.url); toast({ title: `${l.label} link copied` }); } catch { window.prompt('Copy this link', l.url); } }}
+                  className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0">Copy</button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-black">Maintenance portal</p>
+                <p className="text-[10px] font-bold text-muted-foreground truncate">Each worker has their own secure link — send or copy it from Workers.</p>
+              </div>
+              <button onClick={() => { try { document.getElementById('ops-maint')?.scrollIntoView({ behavior: 'smooth' }); } catch { /* anchor */ } }}
+                className="h-8 px-3 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 shrink-0">Workers</button>
+            </div>
+          </div>
+
           <ZoneLabel>Pipeline — new business</ZoneLabel>
 
           {/* Tour scorecard */}
@@ -6178,8 +6213,9 @@ export default function BoothsPage() {
                                 onClick: () => {
                                   // Their portal: sign in with their phone/email, a one-time
                                   // code arrives (SMS if configured, else via you). Path is
-                                  // configurable per tenant if your portal lives elsewhere.
-                                  const path = (selectedTenant as any)?.renterPortalPath || '/renter';
+                                  // configurable per tenant if your portal lives elsewhere —
+                                  // the app's page is src/app/rent/[tenantId], i.e. /rent.
+                                  const path = (selectedTenant as any)?.renterPortalPath || '/rent';
                                   const link = `${window.location.origin}${path}/${tenantId}`;
                                   const msg = `Your renter portal for ${(selectedTenant as any)?.name || 'the studio'} — pay rent, get receipts, report issues, manage your card: ${link}`;
                                   if (g.phone) window.location.href = `sms:${g.phone}?&body=${encodeURIComponent(msg)}`;
