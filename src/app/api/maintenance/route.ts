@@ -95,7 +95,11 @@ export async function POST(req: NextRequest) {
       // Minimal reporter exposure: name only — techs don't need contacts.
       return NextResponse.json({
         ok: true, studioName,
-        worker: { id: worker.id, name: worker.name },
+        worker: {
+          id: worker.id, name: worker.name,
+          payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
+          unpaidLaborCents: Math.max(0, Math.round(Number(worker.unpaidLaborCents) || 0)),
+        },
         tickets: tickets.map((t) => ({
           id: t.id, title: t.title, description: t.description,
           category: t.category, priority: t.priority, status: t.status,
@@ -120,8 +124,11 @@ export async function POST(req: NextRequest) {
       const status = ['in_progress', 'resolved'].includes(body.status) ? body.status : null;
       const note = String(body.note || '').slice(0, 1000).trim();
       const hasPhoto = typeof body.photoData === 'string' && body.photoData.startsWith('data:image');
-      if (!ticketId || (!status && !note && !hasPhoto)) {
-        return NextResponse.json({ ok: false, error: 'Add a note, a photo, or a status change.' }, { status: 400 });
+      // Techs can move the deadline ("parts arrive Thursday") — date only,
+      // never backdated below now, and it lands on the thread for everyone.
+      const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueAt || '')) ? String(body.dueAt) : null;
+      if (!ticketId || (!status && !note && !hasPhoto && !dueDate)) {
+        return NextResponse.json({ ok: false, error: 'Add a note, a photo, a new deadline, or a status change.' }, { status: 400 });
       }
       const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
       const snap = await ref.get();
@@ -153,17 +160,44 @@ export async function POST(req: NextRequest) {
       };
       if (photoUrl) patch.photoUrls = [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), photoUrl];
 
-      // Cost at resolution → real expense in the books, attributed to the
-      // ticket (and its station) so maintenance spend is analyzable.
+      // Deadline move: end of the chosen day, never into the past.
+      if (dueDate && !status) {
+        const newDue = `${dueDate}T23:59:59.000Z`;
+        if (newDue > nowIso) {
+          patch.dueAt = newDue;
+          update.note = [update.note, `Deadline moved to ${dueDate}`].filter(Boolean).join(' · ');
+        }
+      }
+
+      // Costs at resolution → real money records, attributed to the ticket
+      // (and its station) so maintenance spend is analyzable. Materials
+      // become a ledger expense; labor accrues to a per-job worker's payout
+      // balance (payroll workers are paid through the Staff page instead).
       const costCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.costCents) || 0)) : 0;
+      const laborCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.laborCents) || 0)) : 0;
       if (status) {
         patch.status = status;
         if (status === 'resolved') {
           patch.resolvedAt = nowIso;
           if (costCents > 0) patch.costCents = costCents;
+          if (laborCents > 0) patch.laborCents = laborCents;
         }
       }
       await ref.set(patch, { merge: true });
+
+      let laborNote: string | null = null;
+      if (laborCents > 0) {
+        if (worker.payType === 'payroll') {
+          laborNote = 'covered by wages (payroll)';
+        } else {
+          try {
+            const { FieldValue } = await import('firebase-admin/firestore');
+            await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+              { unpaidLaborCents: FieldValue.increment(laborCents) }, { merge: true });
+            laborNote = `added to ${worker.name}'s payout balance`;
+          } catch { laborNote = 'could not accrue — log it manually'; }
+        }
+      }
 
       if (costCents > 0) {
         try {
@@ -183,7 +217,7 @@ export async function POST(req: NextRequest) {
 
       await syncBoothFromTickets(db, tenantId, t.boothId);
       await notifyOwner(db, tenantId,
-        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · cost $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${laborCents > 0 ? ` · labor $${(laborCents / 100).toFixed(2)} (${laborNote})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
         await sendTenantSms(db, tenantId, t.reporter.phone,
