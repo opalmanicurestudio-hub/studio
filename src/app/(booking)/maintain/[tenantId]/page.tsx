@@ -200,8 +200,9 @@ export function MaintenancePortalPage() {
     try {
       const costCents = status === 'resolved' && Number(costDollars) > 0
         ? Math.round(Number(costDollars) * 100) : undefined;
-      const laborHours = status === 'resolved' && Number(hoursDraft) > 0
-        ? Math.min(24, Number(hoursDraft)) : undefined;
+      // Hours travel with a resolve OR on their own (helpers, multi-visit
+      // jobs) — the server prices and accrues them either way.
+      const laborHours = Number(hoursDraft) > 0 ? Math.min(24, Number(hoursDraft)) : undefined;
       const res = await fetch('/api/maintenance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -433,7 +434,8 @@ export function MaintenancePortalPage() {
                     </p>
                     <div className="flex gap-1.5 mt-1.5 flex-wrap">
                       {due && <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${due.late ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{due.label}</span>}
-                      {!t.assignedToMe && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-700">Open to claim</span>}
+                      {t.helping && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-sky-100 text-sky-700">Helping — log your own hours</span>}
+                      {!t.assignedToMe && !t.helping && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-700">Open to claim</span>}
                       {t.quoteRequested && !t.quote && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote needed</span>}
                       {t.quote?.status === 'pending' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote sent</span>}
                       {t.quote?.status === 'approved' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700">Quote approved</span>}
@@ -659,21 +661,34 @@ export function MaintenancePortalPage() {
                     <button onClick={() => printTicket(t)} className="ml-auto h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Print</button>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    {t.status === 'open' && (
+                    {t.status === 'open' && !t.helping && (
                       <button onClick={() => act(t.id, 'in_progress')} disabled={busy}
                         className="h-12 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
                         {t.assignedToMe ? 'Start work' : 'Claim & start'}
                       </button>
                     )}
-                    <button onClick={() => act(t.id, 'resolved')} disabled={busy}
-                      className="h-12 rounded-2xl bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                      Mark resolved
-                    </button>
-                    <button onClick={() => act(t.id)} disabled={busy || (!note.trim() && !photoData)}
-                      className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-slate-700 disabled:opacity-40 ${t.status === 'open' ? 'col-span-2' : ''}`}>
+                    {!t.helping && (
+                      <button onClick={() => act(t.id, 'resolved')} disabled={busy}
+                        className="h-12 rounded-2xl bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+                        Mark resolved
+                      </button>
+                    )}
+                    {t.helping && Number(hoursDraft) > 0 && (
+                      <button onClick={() => act(t.id)} disabled={busy}
+                        className="h-12 rounded-2xl bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
+                        Log my {Math.min(24, Number(hoursDraft))}h
+                      </button>
+                    )}
+                    <button onClick={() => act(t.id)} disabled={busy || (!note.trim() && !photoData && !(t.helping && Number(hoursDraft) > 0))}
+                      className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-slate-700 disabled:opacity-40 ${(t.status === 'open' && !t.helping) || (t.helping && !(Number(hoursDraft) > 0)) ? 'col-span-2' : ''}`}>
                       Save note / photo
                     </button>
                   </div>
+                  {t.helping && (
+                    <p className="text-[9px] font-bold text-slate-400 -mt-1">
+                      You're helping on this job — {`${t.assignedToMe ? '' : 'only the lead can resolve it. '}`}Your hours accrue to your own balance at your own rate.
+                    </p>
+                  )}
                   {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
                 </div>
               )}
