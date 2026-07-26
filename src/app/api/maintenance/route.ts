@@ -650,7 +650,8 @@ export async function POST(req: NextRequest) {
           if (w?.phone && smsConfigured()) {
             const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
             const r = await sendTenantSms(db, tenantId, w.phone,
-              `You've been added to help on "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}${t.assigneeName ? ` (lead: ${t.assigneeName})` : ''}. Log your own hours on the job.${link}`);
+              `You've been added to help on "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}${t.assigneeName ? ` (lead: ${t.assigneeName})` : ''}. Log your own hours on the job.${link}`,
+              { email: w.email || null, subject: 'Added to help on a job' });
             if (r.ok) sent++;
           }
           notified.push(h.id);
@@ -683,7 +684,8 @@ export async function POST(req: NextRequest) {
         if (!base) base = String(body.origin || '').replace(/\/+$/, '');
         const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
         const r = await sendTenantSms(db, tenantId, w.phone,
-          `New ${t.priority} ticket: "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}.${link}`);
+          `New ${t.priority} ticket: "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}.${link}`,
+          { email: w.email || null, subject: 'New ticket assigned to you' });
         sent = r.ok;
       }
       await ref.set({ assignNotifiedFor: t.assigneeId }, { merge: true });
