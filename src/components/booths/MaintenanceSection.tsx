@@ -59,6 +59,7 @@ export function MaintenanceSection({
   const { toast } = useToast();
   const me = ownerName || 'Owner';
   const shareOrigin = (String(publicOrigin || '').trim().replace(/\/+$/, ''))
+    || (process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}` : '')
     || (typeof window !== 'undefined' ? window.location.origin : '');
 
   const [createOpen, setCreateOpen] = useState(false);
