@@ -20,7 +20,7 @@
 
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'cancelled';
 export type TicketPriority = 'urgent' | 'high' | 'normal' | 'low';
-export type TicketCategory = 'equipment' | 'plumbing' | 'electrical' | 'cleaning' | 'safety' | 'other';
+export type TicketCategory = 'equipment' | 'plumbing' | 'electrical' | 'cleaning' | 'safety' | 'request' | 'other';
 
 export interface TicketUpdate {
   at: string;                          // ISO — real timestamps everywhere
@@ -167,6 +167,10 @@ export const TICKET_CATEGORIES: { value: TicketCategory; label: string }[] = [
   { value: 'electrical', label: 'Electrical' },
   { value: 'cleaning', label: 'Cleaning' },
   { value: 'safety', label: 'Safety' },
+  // Techs file these from their portal: "need more caulk", "buy a new
+  // filter", "key for the back room". Same queue, same thread, same
+  // notifications — resolving one with a Materials $ logs the purchase.
+  { value: 'request', label: 'Supplies / request' },
   { value: 'other', label: 'Other' },
 ];
 
