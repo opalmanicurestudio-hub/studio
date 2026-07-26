@@ -149,6 +149,7 @@ export function MaintenancePortalPage() {
   const [photoData, setPhotoData] = useState<string | null>(null);
   const [photoName, setPhotoName] = useState('');
   const [costDollars, setCostDollars] = useState('');
+  const [paidBy, setPaidBy] = useState<'studio' | 'tech'>('studio');
   const [hoursDraft, setHoursDraft] = useState('');
   const [milesDraft, setMilesDraft] = useState('');
   const [deadlineDraft, setDeadlineDraft] = useState('');
@@ -208,6 +209,7 @@ export function MaintenancePortalPage() {
           note: note.trim() || undefined,
           photoData: photoData || undefined,
           costCents, laborHours,
+          paidBy: status === 'resolved' && costCents ? paidBy : undefined,
           miles: status === 'resolved' && Number(milesDraft) > 0 ? Number(milesDraft) : undefined,
           dueAt: dueAt || undefined,
         }),
@@ -368,8 +370,8 @@ export function MaintenancePortalPage() {
                   ...(runningT ? [{ label: `On the clock · ${fmtStopwatch(timedMs(runningT, Date.now()))}`, cls: 'bg-emerald-500 text-white' }] : []),
                   { label: `${open} open job${open === 1 ? '' : 's'}`, cls: 'bg-white/10 text-white' },
                   ...(late > 0 ? [{ label: `${late} overdue`, cls: 'bg-red-500/90 text-white' }] : []),
-                  ...(worker?.payType !== 'payroll' && (worker?.unpaidLaborCents || 0) > 0
-                    ? [{ label: `$${((worker.unpaidLaborCents || 0) / 100).toFixed(0)} owed to you`, cls: 'bg-emerald-500/90 text-white' }] : []),
+                  ...(worker?.payType !== 'payroll' && ((worker?.unpaidLaborCents || 0) + (worker?.unpaidMaterialsCents || 0)) > 0
+                    ? [{ label: `$${(((worker.unpaidLaborCents || 0) + (worker.unpaidMaterialsCents || 0)) / 100).toFixed(0)} owed to you${(worker?.unpaidMaterialsCents || 0) > 0 ? ' (incl. reimbursements)' : ''}`, cls: 'bg-emerald-500/90 text-white' }] : []),
                   ...((worker?.hourlyRateCents || 0) > 0 && worker?.payType !== 'payroll'
                     ? [{ label: `$${((worker.hourlyRateCents || 0) / 100).toFixed(0)}/hr`, cls: 'bg-white/10 text-slate-200' }] : []),
                 ];
@@ -602,6 +604,25 @@ export function MaintenancePortalPage() {
                       </div>
                     )}
                   </div>
+                  {Number(costDollars) > 0 && (
+                    <div className="flex gap-1.5 items-center flex-wrap -mt-0.5">
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Who paid?</span>
+                      {([
+                        { v: 'studio' as const, label: 'Studio money' },
+                        { v: 'tech' as const, label: 'My own money' },
+                      ]).map((o) => (
+                        <button key={o.v} onClick={() => setPaidBy(o.v)}
+                          className={`h-8 px-3 rounded-full text-[9px] font-black uppercase tracking-widest ${paidBy === o.v ? 'bg-slate-900 text-white' : 'border-2 text-slate-500'}`}>
+                          {o.label}
+                        </button>
+                      ))}
+                      <span className="text-[9px] font-bold text-slate-400 w-full">
+                        {paidBy === 'tech'
+                          ? 'You get reimbursed — it adds to your payout balance and the studio pays it with your labor.'
+                          : 'Studio card or studio cash — it books to their ledger right away.'}
+                      </span>
+                    </div>
+                  )}
                   <p className="text-[9px] font-bold text-slate-400 -mt-1.5">
                     Both save when you mark resolved. Materials (attach the receipt photo) go to the studio's books.
                     {worker?.payType === 'payroll'
