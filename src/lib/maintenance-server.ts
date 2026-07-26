@@ -103,10 +103,31 @@ export async function uploadTicketPhotoFromDataUrl(
     // client getDownloadURL uses. Both bucket-naming conventions are tried:
     // older projects use {id}.appspot.com, newer ones {id}.firebasestorage.app.
     const token = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || '';
+    // Hunt the project id EVERYWHERE it can live — env vars, the admin
+    // app's options, its service-account credential, and the service-
+    // account JSON itself. Projects whose Firebase config is hardcoded in
+    // source (not env) have NONE of the NEXT_PUBLIC_* vars server-side,
+    // which is why "no storage bucket exists" fired even though the
+    // bucket is right there.
+    let projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+      || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
+    let appBucket: string | null = null;
+    try {
+      const { getApps } = await import('firebase-admin/app');
+      const opts: any = getApps()[0]?.options || {};
+      appBucket = opts.storageBucket || null;
+      if (!projectId) projectId = opts.projectId || opts.credential?.projectId || '';
+    } catch { /* keep hunting */ }
+    if (!projectId) {
+      try {
+        const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_KEY || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || '{}');
+        if (sa.project_id) projectId = sa.project_id;
+      } catch { /* not JSON — fine */ }
+    }
     const names: (string | null)[] = [null, // null = the app's default bucket
       process.env.FIREBASE_STORAGE_BUCKET || null,
       process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || null,
+      appBucket,
       projectId ? `${projectId}.firebasestorage.app` : null,
       projectId ? `${projectId}.appspot.com` : null,
     ];
@@ -140,7 +161,7 @@ function describeUploadError(err: any): string {
   const msg = String(err?.message || err || '');
   const code = Number((err as any)?.code) || 0;
   if (code === 404 || /not exist|notfound|not found/i.test(msg)) {
-    return 'Photo not saved: no storage bucket exists — in the Firebase console, open Storage and click "Get started", then try again.';
+    return 'Photo not saved: the server could not find the storage bucket — the studio should add NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET (the storageBucket value from the Firebase web config) to the Vercel environment variables and redeploy.';
   }
   if (code === 403 || /permission|forbidden|unauthorized/i.test(msg)) {
     return 'Photo not saved: the server is not allowed to write to storage — give the Firebase service account the "Storage Admin" role.';
