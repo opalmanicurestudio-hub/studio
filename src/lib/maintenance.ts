@@ -189,6 +189,30 @@ export const TICKET_CATEGORIES: { value: TicketCategory; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+// ── APPROVAL RULES — each business sets its own thresholds ─────────────
+// Stored at tenants/{id}.maintenanceRules and enforced SERVER-SIDE (the
+// portal warns early, but the API is the gate — rules can't be bypassed
+// by a creative client). All amounts in cents; 0/absent = rule off.
+export interface MaintenanceRules {
+  // Quotes at or under this auto-approve instantly — small jobs don't
+  // wait on the owner. ("Don't ask me about anything under $50.")
+  autoApproveUnderCents?: number;
+  // Resolving a job whose total (materials + labor) exceeds this WITHOUT
+  // an approved quote is blocked. ("Nothing over $200 without sign-off.")
+  requireQuoteOverCents?: number;
+  // Resolving with materials over this requires a photo on the ticket
+  // (the receipt). ("Spend over $75 shows me the receipt.")
+  receiptRequiredOverCents?: number;
+}
+export function normalizeRules(raw: any): Required<MaintenanceRules> {
+  const n = (v: any) => Math.max(0, Math.round(Number(v) || 0));
+  return {
+    autoApproveUnderCents: n(raw?.autoApproveUnderCents),
+    requireQuoteOverCents: n(raw?.requireQuoteOverCents),
+    receiptRequiredOverCents: n(raw?.receiptRequiredOverCents),
+  };
+}
+
 // A ticket blocks its station when it's serious and unfinished — the floor
 // derives 'maintenance' status from this, so the map and the ticket system
 // can never disagree.
