@@ -88,7 +88,7 @@ export function MaintenanceSection({
   const [payoutMethod, setPayoutMethod] = useState('Cash');
   // Approval RULES — the business writes its own policy
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [rulesDraft, setRulesDraft] = useState<{ auto: string; quote: string; receipt: string }>({ auto: '', quote: '', receipt: '' });
+  const [rulesDraft, setRulesDraft] = useState<{ auto: string; quote: string; receipt: string; mileage: string }>({ auto: '', quote: '', receipt: '', mileage: '' });
   const [rulesSaving, setRulesSaving] = useState(false);
   // Work order HISTORY — searchable archive with money totals + CSV
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -266,6 +266,16 @@ export function MaintenanceSection({
 
   const activeWorkers = useMemo(() => workers.filter((w: any) => w.active !== false), [workers]);
 
+  // Live clock readout: while any tech is on the clock, refresh the
+  // elapsed display every 30s. No interval when nobody's working.
+  const anyClockRunning = useMemo(() => tickets.some((t: any) => (t.workSessions || []).some((s: any) => !s.endAt)), [tickets]);
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!anyClockRunning) return;
+    const i = setInterval(() => setClockTick((x) => x + 1), 30000);
+    return () => clearInterval(i);
+  }, [anyClockRunning]);
+
   // ── RUNNING COSTS — always visible, not buried in the ledger ─────────
   // This month vs all-time, split materials/labor, plus how much unpaid
   // labor is waiting to be paid out. Computed straight from the tickets,
@@ -317,15 +327,18 @@ export function MaintenanceSection({
     try {
       const escCsv = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
       const lines = [
-        ['Ticket', 'Title', 'Place', 'Category', 'Priority', 'Status', 'Reported by', 'Worker', 'Created', 'Resolved', 'Hours', 'Materials $', 'Labor $', 'Total $'].map(escCsv).join(','),
+        ['Ticket', 'Title', 'Place', 'Category', 'Priority', 'Status', 'Reported by', 'Worker', 'Created', 'Resolved', 'Hours', 'Timed', 'Miles', 'Materials $', 'Labor $', 'Mileage $', 'Total $'].map(escCsv).join(','),
         ...historyRows.map((t: any) => [
           String(t.id).slice(0, 8).toUpperCase(), t.title,
           [t.boothName, t.resourceName].filter(Boolean).join(' / '),
           t.category, t.priority, t.status, t.reporter?.name || '', t.assigneeName || '',
           t.createdAt || '', t.resolvedAt || '', t.laborHours || 0,
+          (t.workSessions || []).length > 0 ? (timedMinutesOf(t, Date.now()) / 60).toFixed(2) : '',
+          t.mileage || 0,
           ((Number(t.costCents) || 0) / 100).toFixed(2),
           ((Number(t.laborCents) || 0) / 100).toFixed(2),
-          (((Number(t.costCents) || 0) + (Number(t.laborCents) || 0)) / 100).toFixed(2),
+          ((Number(t.mileageCents) || 0) / 100).toFixed(2),
+          (((Number(t.costCents) || 0) + (Number(t.laborCents) || 0) + (Number(t.mileageCents) || 0)) / 100).toFixed(2),
         ].map(escCsv).join(',')),
       ];
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -364,7 +377,8 @@ export function MaintenanceSection({
         mat > 0 ? `<tr><td>Materials &amp; parts${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' <span class="who">(receipt on file)</span>' : ''}</td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
         lab > 0 ? `<tr><td>Labor${hrs > 0 ? ` <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} @ $${((lab / hrs) / 100).toFixed(2)}/hr)</span>` : ''}</td><td class="amt">$${(lab / 100).toFixed(2)}</td></tr>` : '',
         hrs > 0 && lab === 0 ? `<tr><td>Labor <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} logged — no rate on file)</span></td><td class="amt">—</td></tr>` : '',
-        (t.workSessions || []).length > 0 ? `<tr><td><span class="who">Job clock: ${esc(fmtMinutes(timedMinutesOf(t, Date.now())))} recorded across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}</span></td><td class="amt"></td></tr>` : '',
+        (t.mileage || 0) > 0 ? `<tr><td>Mileage <span class="who">(${t.mileage} mi)</span></td><td class="amt">${(t.mileageCents || 0) > 0 ? `$${((t.mileageCents || 0) / 100).toFixed(2)}` : '—'}</td></tr>` : '',
+        (t.workSessions || []).length > 0 ? `<tr><td><span class="who">Job clock: ${esc(fmtMinutes(timedMinutesOf(t, Date.now())))} recorded across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}${(t.workSessions || []).some((s: any) => s.startLoc) ? ' · locations on file' : ''}</span></td><td class="amt"></td></tr>` : '',
         q && (mat + lab) > 0 ? `<tr><td><span class="who">${(mat + lab) > (q.totalCents || 0) ? `Over quote by $${(((mat + lab) - (q.totalCents || 0)) / 100).toFixed(2)}` : 'Delivered on or under quote'}</span></td><td class="amt"></td></tr>` : '',
       ].join('');
       const w = window.open('', '_blank');
@@ -540,7 +554,7 @@ export function MaintenanceSection({
   const openRules = () => {
     const r = (rules || {}) as any;
     const d = (c: any) => (Number(c) || 0) > 0 ? String((Number(c) || 0) / 100) : '';
-    setRulesDraft({ auto: d(r.autoApproveUnderCents), quote: d(r.requireQuoteOverCents), receipt: d(r.receiptRequiredOverCents) });
+    setRulesDraft({ auto: d(r.autoApproveUnderCents), quote: d(r.requireQuoteOverCents), receipt: d(r.receiptRequiredOverCents), mileage: d(r.mileageRateCents) });
     setRulesOpen(true);
   };
   const saveRules = async () => {
@@ -553,6 +567,7 @@ export function MaintenanceSection({
           autoApproveUnderCents: c(rulesDraft.auto),
           requireQuoteOverCents: c(rulesDraft.quote),
           receiptRequiredOverCents: c(rulesDraft.receipt),
+          mileageRateCents: c(rulesDraft.mileage),
         },
       });
       toast({ title: 'Rules saved', description: 'They apply to every tech and every ticket immediately — enforced by the server, not the honor system.' });
@@ -572,10 +587,29 @@ export function MaintenanceSection({
     if (!t.quote) return;
     const status = approved ? 'approved' : 'declined';
     if (await patchTicket(t,
-      { quote: { ...t.quote, status, decidedAt: new Date().toISOString() } },
+      { quote: { ...t.quote, status, decidedAt: new Date().toISOString() }, agreementOverNotified: false },
       { note: approved ? `Quote approved — $${((t.quote.totalCents || 0) / 100).toFixed(2)}` : 'Quote declined' })) {
       fireAndForget('notify-quote', t.id);
       toast({ title: approved ? 'Quote approved' : 'Quote declined', description: approved ? 'The tech gets a green-light text.' : 'The tech is told to hold off — they can send a new quote.' });
+    }
+  };
+  // NEGOTIATE: approve on YOUR numbers. The countered hours + total
+  // become the working agreement — the timer and the resolve are both
+  // checked against them.
+  const counterQuote = async (t: any) => {
+    if (!t.quote) return;
+    const h = window.prompt(`Agreed hours (they proposed ${t.quote.hours || 0}h):`, String(t.quote.hours || ''));
+    if (h === null) return;
+    const total = window.prompt(`Agreed total $ (they proposed $${((t.quote.totalCents || 0) / 100).toFixed(2)}):`, String(((t.quote.totalCents || 0) / 100).toFixed(0)));
+    if (total === null) return;
+    const hours = Math.min(200, Math.max(0, Number(h) || 0));
+    const totalCents = Math.max(0, Math.round((Number(total) || 0) * 100));
+    if (!(totalCents > 0) && !(hours > 0)) { toast({ variant: 'destructive', title: 'Give the counter some substance' }); return; }
+    if (await patchTicket(t,
+      { quote: { ...t.quote, hours, totalCents, status: 'approved', countered: true, decidedAt: new Date().toISOString() }, agreementOverNotified: false },
+      { note: `Counter agreed — ${hours > 0 ? `${hours}h, ` : ''}$${(totalCents / 100).toFixed(2)} total (they proposed $${((t.quote.totalCents || 0) / 100).toFixed(2)})` })) {
+      fireAndForget('notify-quote', t.id);
+      toast({ title: 'Deal set on your terms', description: `${hours > 0 ? `${hours}h · ` : ''}$${(totalCents / 100).toFixed(2)} — the tech gets the green light at these numbers.` });
     }
   };
 
@@ -877,10 +911,14 @@ export function MaintenanceSection({
                         </p>
                         {t.quote.note && <p className="text-[11px] font-medium text-slate-600 mt-0.5">{t.quote.note}</p>}
                         {t.quote.status === 'pending' && (
-                          <div className="flex gap-2 mt-2">
-                            <button onClick={() => decideQuote(t, true)} className="flex-1 h-9 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Approve · ${((t.quote.totalCents || 0) / 100).toFixed(0)}</button>
-                            <button onClick={() => decideQuote(t, false)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>
+                          <div className="flex gap-2 mt-2 flex-wrap">
+                            <button onClick={() => decideQuote(t, true)} className="flex-1 min-w-[120px] h-10 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Approve · ${((t.quote.totalCents || 0) / 100).toFixed(0)}</button>
+                            <button onClick={() => counterQuote(t)} className="h-10 px-3 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest">Counter</button>
+                            <button onClick={() => decideQuote(t, false)} className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>
                           </div>
+                        )}
+                        {t.quote.status === 'approved' && t.quote.countered && (
+                          <p className="text-[9px] font-black uppercase tracking-widest text-indigo-600 mt-1">Agreed on your counter</p>
                         )}
                         {t.quote.status === 'approved' && t.status === 'resolved' && ((t.costCents || 0) + (t.laborCents || 0)) > 0 && (
                           <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${((t.costCents || 0) + (t.laborCents || 0)) > (t.quote.totalCents || 0) ? 'text-amber-600' : 'text-emerald-700'}`}>
@@ -904,12 +942,32 @@ export function MaintenanceSection({
                       const claimedMin = (Number(t.laborHours) || 0) * 60;
                       const hot = t.status === 'resolved' && claimedMin > 0 && tm > 0 && claimedMin > tm * 1.25;
                       return (
-                        <p className={`text-[10px] font-black uppercase tracking-widest ${running ? 'text-emerald-600' : hot ? 'text-amber-600' : 'text-slate-400'}`}>
-                          {running ? `Clock running · ${fmtMinutes(tm)} so far` : `Timer: ${fmtMinutes(tm)} across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}`}
-                          {hot ? ` · claimed ${t.laborHours}h — ${fmtMinutes(Math.round(claimedMin - tm))} more than timed` : ''}
-                        </p>
+                        <div className="space-y-1">
+                          <p className={`text-[10px] font-black uppercase tracking-widest ${running ? 'text-emerald-600' : hot ? 'text-amber-600' : 'text-slate-400'}`}>
+                            {running ? `Clock running · ${fmtMinutes(tm)} so far` : `Timer: ${fmtMinutes(tm)} across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}`}
+                            {hot ? ` · claimed ${t.laborHours}h — ${fmtMinutes(Math.round(claimedMin - tm))} more than timed` : ''}
+                          </p>
+                          {/* Sessions with location stamps — tap to see where
+                              they clocked in/out */}
+                          {(t.workSessions || []).slice(-4).map((s: any, i: number) => (
+                            <p key={i} className="text-[10px] font-bold text-muted-foreground">
+                              {fmtWhen(s.startAt)}{s.endAt ? ` – ${new Date(s.endAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ' – running'}
+                              {s.startLoc
+                                ? <> · <a href={`https://maps.google.com/?q=${s.startLoc.lat},${s.startLoc.lng}`} target="_blank" rel="noreferrer" className="text-indigo-600 underline underline-offset-2">in</a></>
+                                : ' · in: no loc'}
+                              {s.endAt ? (s.endLoc
+                                ? <> · <a href={`https://maps.google.com/?q=${s.endLoc.lat},${s.endLoc.lng}`} target="_blank" rel="noreferrer" className="text-indigo-600 underline underline-offset-2">out</a></>
+                                : ' · out: no loc') : null}
+                            </p>
+                          ))}
+                        </div>
                       );
                     })()}
+                    {(t.mileage || 0) > 0 && (
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        Mileage {t.mileage} mi{(t.mileageCents || 0) > 0 ? ` · $${((t.mileageCents || 0) / 100).toFixed(2)} reimbursed via payout balance` : ''}
+                      </p>
+                    )}
                     <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
                       Print work order
                     </button>
@@ -935,7 +993,7 @@ export function MaintenanceSection({
                       <>
                         <div className="flex gap-2 flex-wrap items-center">
                           <select value={t.assigneeId || ''} onChange={(e) => e.target.value && assign(t, e.target.value)}
-                            className="h-9 rounded-xl border-2 px-2 text-xs font-bold bg-white">
+                            className="h-9 rounded-xl border-2 px-2 text-xs font-bold bg-white flex-1 min-w-[130px] max-w-full">
                             <option value="">{t.assigneeName ? `Assigned: ${t.assigneeName}` : 'Assign worker…'}</option>
                             {activeWorkers.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
                           </select>
@@ -978,7 +1036,7 @@ export function MaintenanceSection({
                             </div>
                             <button onClick={() => setStatus(t, 'resolved', Math.round(Number(costDraft) * 100) || 0, Math.round(Number(laborDraft) * 100) || 0, receiptUrl)}
                               disabled={uploading}
-                              className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                              className="w-full h-11 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
                               Confirm resolve{Number(costDraft) > 0 ? ` · $${Number(costDraft).toFixed(0)} materials to ledger` : ''}{Number(laborDraft) > 0 ? ` · $${Number(laborDraft).toFixed(0)} labor` : ''}
                             </button>
                           </div>
@@ -1259,6 +1317,7 @@ export function MaintenanceSection({
               { key: 'auto' as const, title: 'Auto-approve small quotes', desc: 'Quotes at or under this amount approve instantly — techs get the green light without waiting on you.', prefix: 'Under $' },
               { key: 'quote' as const, title: 'Require a quote on big jobs', desc: 'A job can\'t be resolved above this total (materials + labor) unless you approved a quote first. The server blocks it, not the honor system.', prefix: 'Over $' },
               { key: 'receipt' as const, title: 'Require receipts on big purchases', desc: 'Materials above this amount can\'t be logged without a photo of the receipt attached to the ticket.', prefix: 'Over $' },
+              { key: 'mileage' as const, title: 'Mileage reimbursement', desc: 'Per-mile rate for job travel (the IRS rate is a common choice, e.g. 0.67). Techs log miles at resolve; the math is automatic and rides their payout balance.', prefix: '$/mile' },
             ]).map((r) => (
               <div key={r.key} className="rounded-2xl border-2 p-3 space-y-1.5">
                 <p className="text-xs font-black">{r.title}</p>
