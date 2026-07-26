@@ -86,6 +86,9 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
   const [catOverride, setCatOverride] = useState<Record<string, string>>({});
   const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({});
   const [receiptOpenFor, setReceiptOpenFor] = useState('');
+  // v69 — bill links: lines matched to an unpaid bill are linked by
+  // default (booking also marks the bill paid); the owner can unlink.
+  const [billUnlinked, setBillUnlinked] = useState<Record<string, boolean>>({});
 
   // Review inbox: unmatched bank lines, live
   useEffect(() => {
@@ -150,15 +153,19 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
     finally { setBusy(''); }
   };
 
-  const resolve = async (bt: any, mode: 'create' | 'ignore', contextOverride?: string) => {
+  const resolve = async (bt: any, mode: 'create' | 'ignore' | 'match', contextOverride?: string, ledgerTxnId?: string) => {
     if (busy) return;
     setBusy(bt.id); setError('');
     try {
       const payload: any = { action: 'resolve', bankTxnId: bt.id, mode };
+      if (mode === 'match' && ledgerTxnId) payload.ledgerTxnId = ledgerTxnId;
       if (contextOverride) payload.contextOverride = contextOverride;
       const chosen = catOverride[bt.id];
       if (mode === 'create' && chosen && chosen !== bt.suggestedCategory) payload.categoryOverride = chosen;
       if (mode === 'create' && receiptUrls[bt.id]) payload.receiptUrl = receiptUrls[bt.id];
+      if (mode === 'create' && bt.suggestedBillInstanceId && !billUnlinked[bt.id]) {
+        payload.billInstanceId = bt.suggestedBillInstanceId;
+      }
       const d = await api(payload);
       if (!d.ok) setError(d.error || 'Could not save.');
       else {
@@ -314,6 +321,44 @@ export function BankFeedSection({ tenantId, firestore, actor }: {
                   </div>
                   <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-1.5 py-0.5 shrink-0 ${bt.context === 'Personal' ? 'bg-slate-100 text-slate-500' : 'bg-slate-900 text-white'}`}>{bt.context === 'Personal' ? '🏠' : '💼'}</span>
                 </div>
+
+                {/* NEAR-MATCH — this bank line looks like a ledger entry you
+                    already logged by hand (card charge with tax vs the pre-tax
+                    amount). Match links them into ONE record; booking would
+                    double-count the expense. */}
+                {bt.suggestedMatchTxnId && (
+                  <div className="flex items-center gap-2 rounded-lg border px-2.5 py-1.5 bg-emerald-50 border-emerald-300">
+                    <span className="text-[9px] font-black uppercase tracking-widest flex-1 truncate text-emerald-700">
+                      Looks already logged: {bt.suggestedMatchLabel || 'ledger entry'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busy === bt.id}
+                      onClick={() => resolve(bt, 'match', undefined, bt.suggestedMatchTxnId)}
+                      className="h-7 px-2.5 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest shrink-0 disabled:opacity-40"
+                    >
+                      Match — don't double-book
+                    </button>
+                  </div>
+                )}
+
+                {/* v69 — bill match chip: booking this line will also mark
+                    the matched bill paid unless the owner unlinks it */}
+                {bt.suggestedBillInstanceId && (
+                  <div className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 ${billUnlinked[bt.id] ? 'bg-slate-50 border-slate-200' : 'bg-purple-50 border-purple-200'}`}>
+                    <Landmark className={`w-3 h-3 shrink-0 ${billUnlinked[bt.id] ? 'text-slate-400' : 'text-purple-700'}`} />
+                    <span className={`text-[9px] font-black uppercase tracking-widest flex-1 truncate ${billUnlinked[bt.id] ? 'text-slate-400' : 'text-purple-700'}`}>
+                      {billUnlinked[bt.id] ? `Bill link off: ${bt.suggestedBillName}` : `Books + marks bill paid: ${bt.suggestedBillName}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setBillUnlinked(m => ({ ...m, [bt.id]: !m[bt.id] }))}
+                      className={`text-[9px] font-black uppercase underline underline-offset-2 shrink-0 ${billUnlinked[bt.id] ? 'text-slate-500' : 'text-purple-700'}`}
+                    >
+                      {billUnlinked[bt.id] ? 'Relink' : 'Unlink'}
+                    </button>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {/* Category — pulled from the shared library, editable pre-booking */}
