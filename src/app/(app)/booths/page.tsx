@@ -3848,10 +3848,13 @@ export default function BoothsPage() {
   // ── THE address every shared link is built on ────────────────────────
   // window.location.origin is a trap on Vercel: each deployment gets its
   // own frozen URL (r4k-…, r08-…), so a link generated while browsing a
-  // preview snapshot 404s forever once you ship new code. Set the REAL
-  // domain once (tenants/{id}.publicOrigin, editable in Quick links) and
-  // every portal/kiosk/card link is built on it instead.
+  // preview snapshot 404s forever once you ship new code. AUTOMATIC fix:
+  // Vercel injects the project's permanent production domain at build
+  // time (NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL — it's the custom
+  // domain when one exists), so links use it with zero setup. Manual
+  // publicOrigin (Quick links → Set domain) remains as an override only.
   const shareOrigin = (String((selectedTenant as any)?.publicOrigin || '').trim().replace(/\/+$/, ''))
+    || (process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}` : '')
     || (typeof window !== 'undefined' ? window.location.origin : '');
 
   // ── Card on file for every renter ────────────────────────────────────
