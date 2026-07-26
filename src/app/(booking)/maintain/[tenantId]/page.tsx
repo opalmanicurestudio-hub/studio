@@ -122,41 +122,78 @@ export function MaintenancePortalPage() {
     finally { setBusy(false); }
   };
 
-  // Print a WORK ORDER — a clean paper/PDF record of the whole job:
-  // details, timeline, money, and sign-off lines. Works from the phone's
-  // share/print sheet; the studio has the same button on their side.
+  // Print a WORK ORDER — the same branded document the studio prints:
+  // header, status chip, meta grid, description, activity log, photos,
+  // and sign-off lines. Browser print → paper or Save as PDF.
   const printTicket = (t: any) => {
     try {
       const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const rows = (t.updates || []).map((u: any) =>
-        `<tr><td>${esc(fmtWhen(u.at))}</td><td>${esc(u.by)}${u.status ? ` → ${esc(u.status === 'in_progress' ? 'in progress' : u.status)}` : ''}</td><td>${esc(u.note || '')}${u.photoUrl ? ' (photo)' : ''}</td></tr>`).join('');
-      const photos = (Array.isArray(t.photoUrls) ? t.photoUrls : []).map((u: string) =>
-        `<img src="${esc(u)}" style="height:120px;border:1px solid #ccc;border-radius:8px;margin:4px" />`).join('');
+      const num = esc(String(t.id).slice(0, 8).toUpperCase());
+      const statusLabel = esc(t.status === 'in_progress' ? 'In progress' : t.status.charAt(0).toUpperCase() + t.status.slice(1));
+      const chipColor = t.status === 'resolved' ? '#047857' : t.status === 'in_progress' ? '#4338ca' : '#b45309';
+      const chipBg = t.status === 'resolved' ? '#d1fae5' : t.status === 'in_progress' ? '#e0e7ff' : '#fef3c7';
+      const rows = (t.updates || []).map((u: any, i: number) =>
+        `<tr${i % 2 ? ' class="alt"' : ''}><td class="nowrap">${esc(fmtWhen(u.at))}</td><td><strong>${esc(u.by)}</strong> <span class="who">${esc(u.byType || '')}</span></td><td>${u.status ? `<span class="move">→ ${esc(u.status === 'in_progress' ? 'in progress' : u.status)}</span> ` : ''}${esc(u.note || '')}${u.photoUrl ? ' <span class="who">(photo)</span>' : ''}</td></tr>`).join('');
+      const photos = (Array.isArray(t.photoUrls) ? t.photoUrls : []).map((u: string) => `<img src="${esc(u)}" />`).join('');
       const w = window.open('', '_blank');
       if (!w) { setError('Allow pop-ups to print.'); return; }
-      w.document.write(`<!doctype html><html><head><title>Work order — ${esc(t.title)}</title><style>
-        body{font-family:-apple-system,system-ui,sans-serif;padding:24px;color:#111;max-width:720px;margin:0 auto}
-        h1{font-size:20px;margin:0 0 2px} .sub{color:#555;font-size:12px;margin-bottom:16px}
-        table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0} td,th{border:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
-        .grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:13px;margin:12px 0}
-        .lbl{color:#666;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
-        .sig{margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
-        .sig div{border-top:1px solid #111;padding-top:4px;font-size:11px;color:#555}
-        @media print{.noprint{display:none}}</style></head><body>
-        <h1>Work order — ${esc(t.title)}</h1>
-        <p class="sub">${esc(studioName)} · Ticket ${esc(String(t.id).slice(0, 8).toUpperCase())}</p>
-        <div class="grid">
-          <div><span class="lbl">Location</span><br/>${esc([t.boothName, t.resourceName].filter(Boolean).join(' · ') || '—')}</div>
-          <div><span class="lbl">Category / priority</span><br/>${esc(t.category)} · ${esc(t.priority)}</div>
-          <div><span class="lbl">Reported by</span><br/>${esc(t.reporterName || '—')} on ${esc(fmtWhen(t.createdAt))}</div>
-          <div><span class="lbl">Status</span><br/>${esc(t.status === 'in_progress' ? 'In progress' : t.status)}${t.dueAt ? ` · due ${esc(fmtWhen(t.dueAt))}` : ''}</div>
+      w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Work order ${num} — ${esc(t.title)}</title><style>
+        @page{margin:16mm}
+        *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;max-width:760px;margin:0 auto;padding:28px;font-size:13px;line-height:1.5}
+        .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:14px;border-bottom:3px solid #0f172a}
+        .brand{font-size:11px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#64748b}
+        h1{font-size:24px;margin:4px 0 0;letter-spacing:-.02em}
+        .ttl{font-size:15px;font-weight:700;color:#334155;margin-top:2px}
+        .numbox{text-align:right;flex-shrink:0}
+        .num{font-size:15px;font-weight:800;font-family:ui-monospace,Menlo,monospace}
+        .chip{display:inline-block;margin-top:6px;padding:3px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${chipColor};background:${chipBg}}
+        .printed{font-size:10px;color:#94a3b8;margin-top:6px}
+        .meta{display:grid;grid-template-columns:repeat(2,1fr);gap:0;margin:18px 0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
+        .meta>div{padding:10px 14px;border-bottom:1px solid #e2e8f0;border-right:1px solid #e2e8f0}
+        .meta>div:nth-child(2n){border-right:none}.meta>div:nth-last-child(-n+2){border-bottom:none}
+        .lbl{display:block;color:#94a3b8;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;margin-bottom:2px}
+        .desc{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;white-space:pre-wrap;margin:0 0 18px}
+        h2{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.18em;color:#64748b;margin:22px 0 8px}
+        table{width:100%;border-collapse:collapse;font-size:12px}
+        th{background:#0f172a;color:#fff;text-align:left;padding:7px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.12em}
+        td{padding:7px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+        tr.alt td{background:#f8fafc}
+        .nowrap{white-space:nowrap}.who{color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+        .move{color:#4338ca;font-weight:700}
+        .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+        .photos img{width:100%;height:150px;object-fit:cover;border:1px solid #e2e8f0;border-radius:10px}
+        .sig{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
+        .sig div{border-top:1.5px solid #0f172a;padding-top:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#64748b}
+        .foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between}
+        @media print{.noprint{display:none}}
+      </style></head><body>
+        <div class="top">
+          <div>
+            <p class="brand">${esc(studioName || 'Studio')}</p>
+            <h1>Work Order</h1>
+            <p class="ttl">${esc(t.title)}</p>
+          </div>
+          <div class="numbox">
+            <p class="num">#${num}</p>
+            <span class="chip">${statusLabel}</span>
+            <p class="printed">Printed ${esc(new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}</p>
+          </div>
         </div>
-        ${t.description ? `<p style="font-size:13px;white-space:pre-wrap">${esc(t.description)}</p>` : ''}
-        <table><tr><th>When</th><th>Who</th><th>Update</th></tr>${rows || '<tr><td colspan=3>No updates yet</td></tr>'}</table>
-        ${photos ? `<div>${photos}</div>` : ''}
+        <div class="meta">
+          <div><span class="lbl">Location</span>${esc([t.boothName, t.resourceName].filter(Boolean).join(' · ') || '—')}</div>
+          <div><span class="lbl">Category / priority</span>${esc(t.category)} · ${esc(t.priority)}</div>
+          <div><span class="lbl">Reported by</span>${esc(t.reporterName || '—')}<br/><span style="color:#94a3b8;font-size:11px">${esc(fmtWhen(t.createdAt))}</span></div>
+          <div><span class="lbl">Due</span>${esc(t.dueAt ? fmtWhen(t.dueAt) : '—')}</div>
+        </div>
+        ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
+        <h2>Activity log</h2>
+        <table><tr><th>When</th><th>Who</th><th>Update</th></tr>${rows || '<tr><td colspan="3">No updates yet</td></tr>'}</table>
+        ${photos ? `<h2>Photo record</h2><div class="photos">${photos}</div>` : ''}
         <div class="sig"><div>Completed by / date</div><div>Approved by / date</div></div>
-        <p class="noprint" style="margin-top:24px"><button onclick="window.print()" style="padding:10px 18px;font-weight:700">Print</button></p>
-        <script>setTimeout(function(){ try { window.print(); } catch (e) {} }, 300)</script>
+        <div class="foot"><span>${esc(studioName || 'Studio')} · Maintenance work order #${num}</span><span>Keep with receipts for tax records</span></div>
+        <p class="noprint" style="margin-top:24px;text-align:center"><button onclick="window.print()" style="padding:12px 28px;font-weight:800;border-radius:10px;border:2px solid #0f172a;background:#0f172a;color:#fff;letter-spacing:.1em;text-transform:uppercase;font-size:11px">Print / Save as PDF</button></p>
+        <script>setTimeout(function(){ try { window.print(); } catch (e) {} }, 400)</script>
       </body></html>`);
       w.document.close();
     } catch { setError('Could not open the print view.'); }
