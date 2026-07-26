@@ -1,810 +1,669 @@
-'use client';
+/**
+ * /api/maintenance — the maintenance ticket system's server surface.
+ *
+ * Serves the TECH PORTAL (token-authed maintenance workers) and the
+ * NOTIFICATION automations. Owner/staff mutations happen client-side
+ * under Firestore rules; renters go through /api/portal/renter; techs
+ * and notifications come through here with the Admin SDK.
+ *
+ * POST { action, tenantId, ... }
+ *   'worker-view'    { token }                    → worker + their queue
+ *   'worker-update'  { token, ticketId, status?, note? }
+ *                    → appends to the public thread, moves status,
+ *                      auto-notifies the reporter (SMS if configured)
+ *                      and the owner.
+ *   'notify-assign'  { ticketId }                 → texts the assigned
+ *                      tech their ticket + portal link. Called after the
+ *                      owner assigns; deduped per (ticket, assignee).
+ *   'notify-reporter'{ ticketId }                 → texts the reporter
+ *                      the latest status. Called after owner-side status
+ *                      changes; dedupe via lastReporterNotifyStatus.
+ *
+ * Security: worker token is the auth (rotate to revoke). notify-* take
+ * only a ticketId and send predefined content to addresses already on
+ * the ticket — nothing attacker-controllable beyond triggering a resend,
+ * and dedupe stamps make even that a no-op.
+ */
 
-// src/app/(booking)/maintain/[tenantId]/page.tsx
-//
-// MAINTENANCE TECH PORTAL — the whole job in one thumb-friendly page.
-// Techs open their personal token link (texted by the owner), see their
-// queue sorted by SLA deadline, and work tickets: claim, add progress
-// notes, resolve. Every action lands on the ticket's public thread, so
-// the owner and the reporting renter see status without anyone calling
-// anyone.
-//
-// Auth = the token in the URL (?t=...). Rotating the worker's token in
-// the Booth Hub revokes this link instantly. No accounts, no passwords.
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminDb } from '@/lib/firebase-admin';
+import { logAuditAdmin } from '@/lib/audit';
+import { smsConfigured, sendTenantSms } from '@/lib/sms';
+import { ticketBlocksBooth, TICKET_STATUS_LABELS, normalizeRules, timedMinutesOf, fmtMinutes } from '@/lib/maintenance';
+import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
 
-import React, { useEffect, useMemo, useState } from 'react';
-
-function useIds(): { tenantId: string; token: string } {
-  return useMemo(() => {
-    if (typeof window === 'undefined') return { tenantId: '', token: '' };
-    try {
-      const q = new URLSearchParams(window.location.search);
-      const parts = window.location.pathname.split('/').filter(Boolean);
-      const i = parts.indexOf('maintain');
-      return { tenantId: i >= 0 ? (parts[i + 1] || '') : (q.get('tenantId') || ''), token: q.get('t') || '' };
-    } catch { return { tenantId: '', token: '' }; }
-  }, []);
+async function findWorker(db: FirebaseFirestore.Firestore, tenantId: string, token: string) {
+  if (!token || String(token).length < 12) return null;
+  const snap = await db.collection(`tenants/${tenantId}/maintenanceWorkers`)
+    .where('token', '==', String(token)).limit(1).get();
+  if (snap.empty) return null;
+  const w = { id: snap.docs[0].id, ...(snap.docs[0].data() as any) };
+  return w.active === false ? null : w;
 }
 
-const PRIORITY_TONE: Record<string, string> = {
-  urgent: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700',
-  normal: 'bg-slate-100 text-slate-600', low: 'bg-slate-50 text-slate-400',
-};
-// Priority reads at a glance from the card's left rail — color does the
-// work before any text is read.
-const PRIORITY_RAIL: Record<string, string> = {
-  urgent: 'border-l-red-500', high: 'border-l-orange-400',
-  normal: 'border-l-indigo-300', low: 'border-l-slate-200',
-};
-const STATUS_TONE: Record<string, string> = {
-  open: 'bg-amber-100 text-amber-700', in_progress: 'bg-indigo-100 text-indigo-700',
-  resolved: 'bg-emerald-100 text-emerald-700',
-};
-const REQ_KINDS = [
-  { value: 'materials' as const, label: 'Materials' },
-  { value: 'tool' as const, label: 'Tool' },
-  { value: 'access' as const, label: 'Access / keys' },
-  { value: 'help' as const, label: 'Extra hands' },
-  { value: 'other' as const, label: 'Other' },
-];
-const fmtMin = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`;
-const timedMs = (t: any, nowMs: number) => ((t.workSessions || []) as any[]).reduce((a, s) => {
-  const end = s.endAt ? new Date(s.endAt).getTime() : nowMs;
-  return a + Math.max(0, end - new Date(s.startAt).getTime());
-}, 0);
-const timedMin = (t: any, nowMs: number) => Math.round(timedMs(t, nowMs) / 60000);
-// Stopwatch face: 1:07:32 while running — seconds visible, so the tech
-// KNOWS it's alive without wondering whether the tap registered.
-const fmtStopwatch = (ms: number) => {
-  const sec = Math.floor(ms / 1000);
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
-};
+// Keep the floor honest: any serious unfinished ticket holds its booth in
+// 'maintenance'; when the last one clears, the booth returns to service and
+// displayStatus re-derives reality (occupied if leased, vacant otherwise).
+async function syncBoothFromTickets(db: FirebaseFirestore.Firestore, tenantId: string, boothId: string | null | undefined) {
+  if (!boothId) return;
+  try {
+    const open = await db.collection(`tenants/${tenantId}/tickets`)
+      .where('boothId', '==', boothId).get();
+    const blocking = open.docs.some((d) => ticketBlocksBooth(d.data() as any));
+    const bRef = db.doc(`tenants/${tenantId}/booths/${boothId}`);
+    const bSnap = await bRef.get();
+    if (!bSnap.exists) return;
+    const b = bSnap.data() as any;
+    if (blocking && b.status !== 'maintenance') {
+      await bRef.set({ status: 'maintenance', updatedAt: new Date().toISOString() }, { merge: true });
+    } else if (!blocking && b.status === 'maintenance') {
+      await bRef.set({ status: 'vacant', maintenanceNote: null, maintenanceReportedAt: null, updatedAt: new Date().toISOString() }, { merge: true });
+    }
+  } catch { /* floor sync is best-effort — the ticket is the source of truth */ }
+}
 
-const dueChip = (t: any): { label: string; late: boolean } | null => {
-  if (!t.dueAt || ['resolved', 'cancelled'].includes(t.status)) return null;
-  const ms = new Date(t.dueAt).getTime() - Date.now();
-  const h = Math.max(1, Math.round(Math.abs(ms) / 3600000));
-  const span = h < 48 ? `${h}h` : `${Math.round(h / 24)}d`;
-  return { label: ms < 0 ? `${span} overdue` : `due in ${span}`, late: ms < 0 };
-};
+async function notifyOwner(db: FirebaseFirestore.Firestore, tenantId: string, message: string) {
+  try {
+    const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+    await nRef.set({ id: nRef.id, type: 'maintenance', read: false, createdAt: new Date().toISOString(), link: '/booths', message });
+  } catch { /* best-effort */ }
+}
 
-const fmtWhen = (s?: string | null) => {
-  if (!s) return '';
-  try { return new Date(s).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
-  catch { return String(s).slice(0, 16); }
-};
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { action, tenantId } = body || {};
+    if (!action || !tenantId) {
+      return NextResponse.json({ ok: false, error: 'Missing parameters.' }, { status: 400 });
+    }
+    const db = getAdminDb();
 
-export function MaintenancePortalPage() {
-  const { tenantId, token } = useIds();
-  const [state, setState] = useState<'loading' | 'ready' | 'denied'>('loading');
-  const [error, setError] = useState('');
-  const [studioName, setStudioName] = useState('');
-  const [worker, setWorker] = useState<any>(null);
-  const [rules, setRules] = useState<any>({});
-  const [tickets, setTickets] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-  // Requests — "need more caulk" shouldn't be a text message you hope
-  // the studio remembers. It's a tracked ticket with a paper trail.
-  const [requestOpen, setRequestOpen] = useState(false);
-  const [reqTitle, setReqTitle] = useState('');
-  const [reqDetail, setReqDetail] = useState('');
-  const [reqKind, setReqKind] = useState<'materials' | 'tool' | 'access' | 'help' | 'other'>('materials');
-  const [reqQty, setReqQty] = useState('');
-  const [reqNeededBy, setReqNeededBy] = useState('');
-  const [reqEstCost, setReqEstCost] = useState('');
-  const [reqForStaff, setReqForStaff] = useState<string[]>([]);
-  const [reqRelated, setReqRelated] = useState('');
-  const [staffNames, setStaffNames] = useState<string[]>([]);
-  // Quotes — price the job before starting it
-  const [quoteFor, setQuoteFor] = useState<string | null>(null);
-  const [qHours, setQHours] = useState('');
-  const [qMaterials, setQMaterials] = useState('');
-  const [qNote, setQNote] = useState('');
-  // Job clock — a LIVE stopwatch. While any session is running the page
-  // ticks every second (seconds visible = trust the tap worked); idle,
-  // there's no interval at all, so the battery is left alone.
-  const anyRunning = tickets.some((t: any) => (t.workSessions || []).some((s: any) => !s.endAt));
-  const [, setClockTick] = useState(0);
-  useEffect(() => {
-    if (!anyRunning) return;
-    const i = setInterval(() => setClockTick((x) => x + 1), 1000);
-    return () => clearInterval(i);
-  }, [anyRunning]);
-  // Location at clock in/out — best-effort with a hard 4s cap so a slow
-  // GPS never delays the tap. Denied/unavailable = null, work proceeds.
-  const grabLocation = (): Promise<{ lat: number; lng: number; acc?: number } | null> =>
-    new Promise((resolve) => {
+    // ── Tech portal: my queue + my history ────────────────────────────
+    if (action === 'worker-view') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link — ask the studio for a new one.' }, { status: 401 });
+      const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
+      const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+      const tickets = all
+        .filter((t) => ['open', 'in_progress'].includes(t.status) && (!t.assigneeId || t.assigneeId === worker.id))
+        .sort((a, b) => (a.dueAt || '').localeCompare(b.dueAt || ''));
+      // Their track record travels with them: last 20 finished jobs, so a
+      // tech can reference past work and reprint any work order on site.
+      const history = all
+        .filter((t) => t.status === 'resolved' && t.assigneeId === worker.id)
+        .sort((a, b) => (b.resolvedAt || '').localeCompare(a.resolvedAt || ''))
+        .slice(0, 20);
+      let studioName = 'The studio';
+      let rules: any = { autoApproveUnderCents: 0, requireQuoteOverCents: 0, receiptRequiredOverCents: 0 };
       try {
-        if (!navigator.geolocation) return resolve(null);
-        const timer = setTimeout(() => resolve(null), 4000);
-        navigator.geolocation.getCurrentPosition(
-          (p) => { clearTimeout(timer); resolve({ lat: p.coords.latitude, lng: p.coords.longitude, acc: Math.round(p.coords.accuracy || 0) }); },
-          () => { clearTimeout(timer); resolve(null); },
-          { enableHighAccuracy: false, timeout: 3500, maximumAge: 120000 },
-        );
-      } catch { resolve(null); }
-    });
-
-  const toggleClock = async (t: any) => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const running = (t.workSessions || []).some((s: any) => !s.endAt);
-      const loc = await grabLocation();
-      const res = await fetch('/api/maintenance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'worker-timer', tenantId, token, ticketId: t.id, op: running ? 'stop' : 'start', loc }),
+        const t = await db.doc(`tenants/${tenantId}`).get();
+        studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
+        rules = normalizeRules((t.data() as any)?.maintenanceRules);
+      } catch { /* cosmetic */ }
+      // Staff first names only — so a request can say WHO has the problem
+      // ("blow dryer at Maya's chair") without exposing contact details.
+      let staffNames: string[] = [];
+      try {
+        const sSnap = await db.collection(`tenants/${tenantId}/staff`).get();
+        staffNames = sSnap.docs
+          .map((d) => (d.data() as any))
+          .filter((s) => (s.name || '').trim() && s.active !== false && !s.archived)
+          .map((s) => String(s.name).trim())
+          .sort();
+      } catch { /* names are a nicety */ }
+      // Minimal reporter exposure: name only — techs don't need contacts.
+      return NextResponse.json({
+        ok: true, studioName, rules, staffNames,
+        worker: {
+          id: worker.id, name: worker.name,
+          payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
+          unpaidLaborCents: Math.max(0, Math.round(Number(worker.unpaidLaborCents) || 0)),
+          unpaidMaterialsCents: Math.max(0, Math.round(Number(worker.unpaidMaterialsCents) || 0)),
+          hourlyRateCents: Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0)),
+        },
+        tickets: tickets.map((t) => ({
+          id: t.id, title: t.title, description: t.description,
+          category: t.category, priority: t.priority, status: t.status,
+          boothName: t.boothName || null, resourceName: t.resourceName || null,
+          dueAt: t.dueAt, createdAt: t.createdAt,
+          reporterName: t.reporter?.name || 'Studio',
+          assignedToMe: t.assigneeId === worker.id,
+          quote: t.quote || null,
+          quoteRequested: !!t.quoteRequested,
+          requestMeta: t.requestMeta || null,
+          openRequests: Array.isArray(t.openRequests) ? t.openRequests : [],
+          workSessions: Array.isArray(t.workSessions) ? t.workSessions : [],
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
+        })),
+        history: history.map((t) => ({
+          id: t.id, title: t.title, category: t.category, priority: t.priority, status: t.status,
+          boothName: t.boothName || null, resourceName: t.resourceName || null,
+          createdAt: t.createdAt, resolvedAt: t.resolvedAt, dueAt: t.dueAt,
+          costCents: t.costCents || 0, laborCents: t.laborCents || 0, laborHours: t.laborHours || 0,
+          reporterName: t.reporter?.name || 'Studio', description: t.description || '',
+          photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
+          updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
+        })),
       });
-      const d = await res.json();
-      if (d.ok) await load();
-      else setError(d.error || 'Clock did not respond — try again.');
-    } catch { setError('Network error — try again.'); }
-    finally { setBusy(false); }
-  };
-  const [openId, setOpenId] = useState<string | null>(null);
-  const [note, setNote] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [photoData, setPhotoData] = useState<string | null>(null);
-  const [photoName, setPhotoName] = useState('');
-  const [costDollars, setCostDollars] = useState('');
-  const [paidBy, setPaidBy] = useState<'studio' | 'tech'>('studio');
-  const [hoursDraft, setHoursDraft] = useState('');
-  const [milesDraft, setMilesDraft] = useState('');
-  const [deadlineDraft, setDeadlineDraft] = useState('');
+    }
 
-  const pickPhoto = (file?: File | null) => {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setError('That file isn\'t an image.'); return; }
-    if (file.size > 2_800_000) { setError('Photo too large — most phones can pick a smaller size, or screenshot it.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => { setPhotoData(String(reader.result || '')); setPhotoName(file.name); setError(''); };
-    reader.onerror = () => setError('Could not read that photo — try another.');
-    reader.readAsDataURL(file);
-  };
-
-  const load = async () => {
-    if (!tenantId || !token) { setState('denied'); setError('This link is incomplete — ask the studio to resend it.'); return; }
-    try {
-      const res = await fetch('/api/maintenance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'worker-view', tenantId, token }),
-      });
-      // Surface the REAL failure — a generic "network error" hides whether
-      // the API route is missing (404), crashed (500), or rejected the token.
-      let d: any = null;
-      try { d = await res.json(); } catch { /* non-JSON body (error page) */ }
-      if (!res.ok || !d?.ok) {
-        setState('denied');
-        if (res.status === 404) setError('The portal service is not on this deployment (404). The app needs src/app/api/maintenance/route.ts deployed — then this link will work.');
-        else if (res.status >= 500) setError(`The portal service hit an error (${res.status})${d?.error ? ` — ${d.error}` : ''}. The studio can check the /api/maintenance function logs.`);
-        else setError(d?.error || `Access denied (${res.status}). Ask the studio to resend your link.`);
-        return;
+    // ── Tech portal: REQUEST something ─────────────────────────────────
+    // "Need more caulk", "buy a replacement filter", "key to the supply
+    // closet" — techs shouldn't have to text you and hope you remember.
+    // A request is a normal ticket (category 'request'): it lands in your
+    // queue, has a thread, notifies you, and resolving it with a
+    // Materials $ logs the purchase to the ledger in the same motion.
+    if (action === 'worker-request') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const title = String(body.title || '').trim().slice(0, 140);
+      const detail = String(body.detail || '').trim().slice(0, 1000);
+      if (!title) return NextResponse.json({ ok: false, error: 'Say what you need in a few words.' }, { status: 400 });
+      // STRUCTURED context — the difference between "need caulk" and a
+      // decision the owner can make from their phone in five seconds:
+      // what kind, how many, by when, roughly how much, for which job,
+      // and which staff member is affected.
+      const kind = ['materials', 'tool', 'access', 'help', 'other'].includes(body.kind) ? body.kind : 'other';
+      const qty = String(body.qty || '').trim().slice(0, 60);
+      const neededBy = /^\d{4}-\d{2}-\d{2}$/.test(String(body.neededBy || '')) ? String(body.neededBy) : null;
+      const estCostCents = Math.min(5_000_000, Math.max(0, Math.round(Number(body.estCostCents) || 0)));
+      const forStaff = Array.isArray(body.forStaff) ? body.forStaff.map((s: any) => String(s).slice(0, 60)).slice(0, 8) : [];
+      let relatedTicketId: string | null = null;
+      let relatedTicketTitle: string | null = null;
+      let relatedBoothId: string | null = null;
+      let relatedBoothName: string | null = null;
+      if (body.relatedTicketId) {
+        try {
+          const rt = await db.doc(`tenants/${tenantId}/tickets/${String(body.relatedTicketId)}`).get();
+          if (rt.exists) {
+            const rd = rt.data() as any;
+            relatedTicketId = rt.id; relatedTicketTitle = rd.title || null;
+            relatedBoothId = rd.boothId || null; relatedBoothName = rd.boothName || null;
+          }
+        } catch { /* linkage is a bonus */ }
       }
-      setStudioName(d.studioName || 'The studio');
-      setWorker(d.worker);
-      setRules(d.rules || {});
-      setStaffNames(d.staffNames || []);
-      setTickets(d.tickets || []);
-      setHistory(d.history || []);
-      setState('ready');
-    } catch { setState('denied'); setError('No connection to the server — check your signal and tap Try again.'); }
-  };
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId, token]);
+      const nowIso = new Date().toISOString();
+      const kindLabel = ({ materials: 'Materials / parts', tool: 'Tool / equipment', access: 'Access / keys', help: 'Extra hands', other: 'Request' } as any)[kind];
+      const metaBits = [
+        qty ? `qty: ${qty}` : null,
+        neededBy ? `needed by ${neededBy}` : null,
+        estCostCents > 0 ? `est. $${(estCostCents / 100).toFixed(2)}` : null,
+        forStaff.length ? `for ${forStaff.join(', ')}` : null,
+      ].filter(Boolean).join(' · ');
 
-  const act = async (ticketId: string, status?: 'in_progress' | 'resolved', dueAt?: string) => {
-    if (busy) return;
-    if (!status && !note.trim() && !photoData && !dueAt) return;
-    setBusy(true);
-    try {
-      const costCents = status === 'resolved' && Number(costDollars) > 0
-        ? Math.round(Number(costDollars) * 100) : undefined;
-      const laborHours = status === 'resolved' && Number(hoursDraft) > 0
-        ? Math.min(24, Number(hoursDraft)) : undefined;
-      const res = await fetch('/api/maintenance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'worker-update', tenantId, token, ticketId, status,
-          note: note.trim() || undefined,
-          photoData: photoData || undefined,
-          costCents, laborHours,
-          paidBy: status === 'resolved' && costCents ? paidBy : undefined,
-          miles: status === 'resolved' && Number(milesDraft) > 0 ? Number(milesDraft) : undefined,
-          dueAt: dueAt || undefined,
-        }),
+      // JOB-LINKED REQUEST → it lives on THAT work order's thread. One
+      // job, one thread, one paper trail — never a second ticket to
+      // reconcile against the first.
+      if (relatedTicketId) {
+        const rRef = db.doc(`tenants/${tenantId}/tickets/${relatedTicketId}`);
+        const rSnap = await rRef.get();
+        const rt = rSnap.data() as any;
+        let photoUrl: string | null = null;
+        let photoError: string | undefined;
+        if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
+          const up = await uploadTicketPhotoFromDataUrl(tenantId, relatedTicketId, body.photoData);
+          photoUrl = up.url; photoError = up.error;
+        }
+        const reqEntry = {
+          id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+          kind, kindLabel, title, qty: qty || null, neededBy, estCostCents,
+          forStaff, by: worker.name, at: nowIso, status: 'open' as const,
+        };
+        await rRef.set({
+          openRequests: [...(Array.isArray(rt.openRequests) ? rt.openRequests : []), reqEntry],
+          updates: [...(rt.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `${kindLabel} request for this job: "${title}"${metaBits ? ` — ${metaBits}` : ''}${detail ? ` · ${detail.slice(0, 200)}` : ''}`, ...(photoUrl ? { photoUrl } : {}) }],
+          ...(photoUrl ? { photoUrls: [...(Array.isArray(rt.photoUrls) ? rt.photoUrls : []), photoUrl] } : {}),
+          updatedAt: nowIso,
+        }, { merge: true });
+        await notifyOwner(db, tenantId, `${kindLabel} request on "${rt.title}"${rt.boothName ? ` (${rt.boothName})` : ''} from ${worker.name}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        await logAuditAdmin(db, tenantId, {
+          action: 'maintenance.request_filed', targetType: 'ticket', targetId: relatedTicketId,
+          summary: `${worker.name} (tech) requested on "${rt.title}": "${title}"${estCostCents > 0 ? ` · est. $${(estCostCents / 100).toFixed(2)}` : ''}`,
+          ...(estCostCents > 0 ? { amount: estCostCents / 100 } : {}),
+          actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
+        });
+        return NextResponse.json({ ok: true, ticketId: relatedTicketId, appended: true, photoError });
+      }
+
+      // Standalone request → its own ticket, as before.
+      const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
+      let photoUrl: string | null = null;
+      let photoError: string | undefined;
+      if (typeof body.photoData === 'string' && body.photoData.startsWith('data:image')) {
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, ref.id, body.photoData);
+        photoUrl = up.url; photoError = up.error;
+      }
+      const { dueAtFor } = await import('@/lib/maintenance');
+      await ref.set({
+        id: ref.id, tenantId, locationId: null,
+        title, description: detail, category: 'request', priority: neededBy && neededBy <= nowIso.slice(0, 10) ? 'high' : 'normal', status: 'open',
+        boothId: relatedBoothId, boothName: relatedBoothName, resourceId: null, resourceName: null,
+        requestMeta: { kind, kindLabel, qty: qty || null, neededBy, estCostCents, forStaff, relatedTicketId, relatedTicketTitle },
+        photoUrls: photoUrl ? [photoUrl] : [],
+        reporter: { type: 'tech', name: worker.name, phone: worker.phone || '' },
+        assigneeId: null, assigneeName: null,
+        updates: [{ at: nowIso, by: worker.name, byType: 'tech', note: `${kindLabel} request${metaBits ? ` — ${metaBits}` : ''}`, status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
+        createdAt: nowIso, updatedAt: nowIso, dueAt: neededBy ? `${neededBy}T23:59:59.000Z` : dueAtFor('normal'), resolvedAt: null,
       });
-      const d = await res.json();
-      if (d.ok) {
-        if (d.photoError) setError(d.photoError);
-        setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setHoursDraft(''); setMilesDraft(''); setDeadlineDraft(''); setOpenId(null);
-        await load();
-      } else setError(d.error || 'Could not save — try again.');
-    } catch { setError('Network error — try again.'); }
-    finally { setBusy(false); }
-  };
-
-  const submitQuote = async (ticketId: string) => {
-    if (busy) return;
-    if (!(Number(qHours) > 0) && !(Number(qMaterials) > 0)) { setError('Give the quote hours or materials.'); return; }
-    setBusy(true);
-    try {
-      const res = await fetch('/api/maintenance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'worker-quote', tenantId, token, ticketId,
-          hours: Number(qHours) || 0,
-          materialsCents: Math.round((Number(qMaterials) || 0) * 100),
-          note: qNote.trim() || undefined,
-        }),
+      await notifyOwner(db, tenantId, `${kindLabel} request from ${worker.name}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? ' · photo attached' : ''}`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'maintenance.request_filed', targetType: 'ticket', targetId: ref.id,
+        summary: `${worker.name} (tech) requested: "${title}"${estCostCents > 0 ? ` · est. $${(estCostCents / 100).toFixed(2)}` : ''}`,
+        ...(estCostCents > 0 ? { amount: estCostCents / 100 } : {}),
+        actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
-      const d = await res.json();
-      if (d.ok) { setQuoteFor(null); setQHours(''); setQMaterials(''); setQNote(''); await load(); }
-      else setError(d.error || 'Could not send the quote — try again.');
-    } catch { setError('Network error — try again.'); }
-    finally { setBusy(false); }
-  };
+      return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
+    }
 
-  const submitRequest = async () => {
-    if (busy || !reqTitle.trim()) return;
-    setBusy(true);
-    try {
-      const res = await fetch('/api/maintenance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'worker-request', tenantId, token,
-          title: reqTitle.trim(), detail: reqDetail.trim() || undefined,
-          kind: reqKind,
-          qty: reqQty.trim() || undefined,
-          neededBy: reqNeededBy || undefined,
-          estCostCents: Number(reqEstCost) > 0 ? Math.round(Number(reqEstCost) * 100) : undefined,
-          forStaff: reqForStaff.length ? reqForStaff : undefined,
-          relatedTicketId: reqRelated || undefined,
-          photoData: photoData || undefined,
-        }),
+    // ── Tech portal: THE JOB CLOCK ─────────────────────────────────────
+    // Start when the wrench comes out, stop when it goes away. Sessions
+    // stack on the ticket; every start/stop lands on the thread; starting
+    // claims the ticket and moves it to in-progress. The timer is evidence
+    // for the hours claimed at resolve — not a leash.
+    if (action === 'worker-timer') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const { ticketId } = body;
+      const op = body.op === 'stop' ? 'stop' : 'start';
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (t.assigneeId && t.assigneeId !== worker.id) {
+        return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
+      }
+      const nowIso = new Date().toISOString();
+      // Location stamp — proof of presence, captured fail-soft. A denied
+      // permission or a basement with no GPS records null, never a block.
+      const loc = body.loc && Number.isFinite(Number(body.loc.lat)) && Number.isFinite(Number(body.loc.lng))
+        ? { lat: Number(body.loc.lat), lng: Number(body.loc.lng), acc: Math.round(Number(body.loc.acc) || 0) }
+        : null;
+      const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
+      const openIdx = sessions.findIndex((s) => !s.endAt);
+      if (op === 'start') {
+        if (openIdx >= 0) return NextResponse.json({ ok: true, already: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
+        sessions.push({ startAt: nowIso, by: worker.name, startLoc: loc });
+        await ref.set({
+          workSessions: sessions,
+          assigneeId: t.assigneeId || worker.id,
+          assigneeName: t.assigneeName || worker.name,
+          ...(t.status === 'open' ? { status: 'in_progress' } : {}),
+          updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Clock started${loc ? ' · location recorded' : ' · no location available'}`, ...(t.status === 'open' ? { status: 'in_progress' } : {}) }],
+          updatedAt: nowIso,
+        }, { merge: true });
+        if (t.status === 'open') await syncBoothFromTickets(db, tenantId, t.boothId);
+        return NextResponse.json({ ok: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
+      }
+      // stop
+      if (openIdx < 0) return NextResponse.json({ ok: true, already: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
+      sessions[openIdx] = { ...sessions[openIdx], endAt: nowIso, endLoc: loc };
+      const sessionMin = Math.max(1, Math.round((new Date(nowIso).getTime() - new Date(sessions[openIdx].startAt).getTime()) / 60000));
+      const totalMin = timedMinutesOf({ workSessions: sessions }, Date.now());
+      const patch: any = {
+        workSessions: sessions,
+        updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Clock stopped — ${fmtMinutes(sessionMin)} this session · ${fmtMinutes(totalMin)} total on the job${loc ? ' · location recorded' : ''}` }],
+        updatedAt: nowIso,
+      };
+      // AGREEMENT WATCH: the approved quote's hours are the deal. The
+      // first time timed work passes them, everyone hears about it —
+      // thread note + owner notification, exactly once.
+      if (t.quote?.status === 'approved' && (t.quote.hours || 0) > 0 && totalMin > t.quote.hours * 60 && !t.agreementOverNotified) {
+        patch.agreementOverNotified = true;
+        patch.updates.push({ at: nowIso, by: 'Agreement', byType: 'system', note: `Timed work (${fmtMinutes(totalMin)}) has passed the agreed ${t.quote.hours}h — the studio has been notified.` });
+        await notifyOwner(db, tenantId, `"${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: ${worker.name}'s timed work (${fmtMinutes(totalMin)}) just passed the agreed ${t.quote.hours}h ($${((t.quote.totalCents || 0) / 100).toFixed(2)}). Check in before it grows.`);
+      }
+      await ref.set(patch, { merge: true });
+      return NextResponse.json({ ok: true, timedMinutes: totalMin });
+    }
+
+    // ── Tech portal: SUBMIT A QUOTE ────────────────────────────────────
+    // Priced BEFORE work starts: estimated hours (priced at the OWNER-set
+    // rate — techs still can't invent labor dollars), expected materials,
+    // and a note. Lands on the ticket as 'pending'; the owner approves or
+    // declines from their queue and the tech gets a text either way.
+    if (action === 'worker-quote') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (t.assigneeId && t.assigneeId !== worker.id) {
+        return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
+      }
+      const hours = Math.min(200, Math.max(0, Number(body.hours) || 0));
+      const materialsCents = Math.min(5_000_000, Math.max(0, Math.round(Number(body.materialsCents) || 0)));
+      const note = String(body.note || '').trim().slice(0, 500);
+      const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
+      const laborCents = worker.payType !== 'payroll' && rateCents > 0 ? Math.round(hours * rateCents) : 0;
+      const totalCents = materialsCents + laborCents;
+      if (totalCents <= 0 && hours <= 0) {
+        return NextResponse.json({ ok: false, error: 'Give the quote some substance — hours or materials.' }, { status: 400 });
+      }
+      const nowIso = new Date().toISOString();
+      // The BUSINESS'S OWN RULE: quotes at/under their threshold skip the
+      // owner entirely — small jobs get an instant green light.
+      let rules: any = {};
+      try { rules = normalizeRules(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules); } catch { /* rules off */ }
+      const autoApproved = rules.autoApproveUnderCents > 0 && totalCents <= rules.autoApproveUnderCents;
+      await ref.set({
+        quote: { hours, materialsCents, laborCents, totalCents, note: note || null, by: worker.name, at: nowIso, status: autoApproved ? 'approved' : 'pending', decidedAt: autoApproved ? nowIso : null },
+        quoteRequested: false,
+        // A tech quoting an unassigned ticket claims it, same as touching it.
+        assigneeId: t.assigneeId || worker.id,
+        assigneeName: t.assigneeName || worker.name,
+        updates: [...(t.updates || []),
+          { at: nowIso, by: worker.name, byType: 'tech', note: `Quoted: ${hours > 0 ? `${hours}h` : ''}${hours > 0 && materialsCents > 0 ? ' + ' : ''}${materialsCents > 0 ? `$${(materialsCents / 100).toFixed(2)} materials` : ''}${laborCents > 0 ? ` = $${(totalCents / 100).toFixed(2)} total` : ''}${note ? ` — ${note}` : ''}` },
+          ...(autoApproved ? [{ at: nowIso, by: 'Rules', byType: 'system', note: `Auto-approved — under the studio's $${(rules.autoApproveUnderCents / 100).toFixed(0)} threshold` }] : []),
+        ],
+        updatedAt: nowIso,
+      }, { merge: true });
+      await notifyOwner(db, tenantId, autoApproved
+        ? `Quote auto-approved (your under-$${(rules.autoApproveUnderCents / 100).toFixed(0)} rule): ${worker.name} on "${t.title}" — $${(totalCents / 100).toFixed(2)}.`
+        : `Quote from ${worker.name} on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: $${(totalCents / 100).toFixed(2)}${hours > 0 ? ` (${hours}h${materialsCents > 0 ? ` + $${(materialsCents / 100).toFixed(2)} materials` : ''})` : ''} — approve or decline in Maintenance.`);
+      await logAuditAdmin(db, tenantId, {
+        action: 'maintenance.quote_submitted', targetType: 'ticket', targetId: ticketId,
+        summary: `${worker.name} quoted $${(totalCents / 100).toFixed(2)} on "${t.title}"`,
+        amount: totalCents / 100,
+        actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
-      const d = await res.json();
-      if (d.ok) {
-        if (d.photoError) setError(d.photoError);
-        setReqTitle(''); setReqDetail(''); setReqQty(''); setReqNeededBy(''); setReqEstCost(''); setReqForStaff([]); setReqRelated('');
-        setPhotoData(null); setPhotoName(''); setRequestOpen(false);
-        await load();
-      } else setError(d.error || 'Could not send the request — try again.');
-    } catch { setError('Network error — try again.'); }
-    finally { setBusy(false); }
-  };
+      return NextResponse.json({ ok: true, laborCents, totalCents, autoApproved });
+    }
 
-  // Print a WORK ORDER — the same branded document the studio prints:
-  // header, status chip, meta grid, description, activity log, photos,
-  // and sign-off lines. Browser print → paper or Save as PDF.
-  const printTicket = (t: any) => {
-    try {
-      const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const num = esc(String(t.id).slice(0, 8).toUpperCase());
-      const statusLabel = esc(t.status === 'in_progress' ? 'In progress' : t.status.charAt(0).toUpperCase() + t.status.slice(1));
-      const chipColor = t.status === 'resolved' ? '#047857' : t.status === 'in_progress' ? '#4338ca' : '#b45309';
-      const chipBg = t.status === 'resolved' ? '#d1fae5' : t.status === 'in_progress' ? '#e0e7ff' : '#fef3c7';
-      const rows = (t.updates || []).map((u: any, i: number) =>
-        `<tr${i % 2 ? ' class="alt"' : ''}><td class="nowrap">${esc(fmtWhen(u.at))}</td><td><strong>${esc(u.by)}</strong> <span class="who">${esc(u.byType || '')}</span></td><td>${u.status ? `<span class="move">→ ${esc(u.status === 'in_progress' ? 'in progress' : u.status)}</span> ` : ''}${esc(u.note || '')}${u.photoUrl ? ' <span class="who">(photo)</span>' : ''}</td></tr>`).join('');
-      const photos = (Array.isArray(t.photoUrls) ? t.photoUrls : []).map((u: string) => `<img src="${esc(u)}" />`).join('');
-      const w = window.open('', '_blank');
-      if (!w) { setError('Allow pop-ups to print.'); return; }
-      w.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Work order ${num} — ${esc(t.title)}</title><style>
-        @page{margin:16mm}
-        *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;max-width:760px;margin:0 auto;padding:28px;font-size:13px;line-height:1.5}
-        .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:14px;border-bottom:3px solid #0f172a}
-        .brand{font-size:11px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;color:#64748b}
-        h1{font-size:24px;margin:4px 0 0;letter-spacing:-.02em}
-        .ttl{font-size:15px;font-weight:700;color:#334155;margin-top:2px}
-        .numbox{text-align:right;flex-shrink:0}
-        .num{font-size:15px;font-weight:800;font-family:ui-monospace,Menlo,monospace}
-        .chip{display:inline-block;margin-top:6px;padding:3px 12px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:${chipColor};background:${chipBg}}
-        .printed{font-size:10px;color:#94a3b8;margin-top:6px}
-        .meta{display:grid;grid-template-columns:repeat(2,1fr);gap:0;margin:18px 0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}
-        .meta>div{padding:10px 14px;border-bottom:1px solid #e2e8f0;border-right:1px solid #e2e8f0}
-        .meta>div:nth-child(2n){border-right:none}.meta>div:nth-last-child(-n+2){border-bottom:none}
-        .lbl{display:block;color:#94a3b8;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.14em;margin-bottom:2px}
-        .desc{background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;white-space:pre-wrap;margin:0 0 18px}
-        h2{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.18em;color:#64748b;margin:22px 0 8px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
-        th{background:#0f172a;color:#fff;text-align:left;padding:7px 10px;font-size:9px;text-transform:uppercase;letter-spacing:.12em}
-        td{padding:7px 10px;border-bottom:1px solid #e2e8f0;vertical-align:top}
-        tr.alt td{background:#f8fafc}
-        .nowrap{white-space:nowrap}.who{color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
-        .move{color:#4338ca;font-weight:700}
-        .photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-        .photos img{width:100%;height:150px;object-fit:cover;border:1px solid #e2e8f0;border-radius:10px}
-        .sig{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:32px}
-        .sig div{border-top:1.5px solid #0f172a;padding-top:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#64748b}
-        .foot{margin-top:28px;padding-top:10px;border-top:1px solid #e2e8f0;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between}
-        @media print{.noprint{display:none}}
-      </style></head><body>
-        <div class="top">
-          <div>
-            <p class="brand">${esc(studioName || 'Studio')}</p>
-            <h1>Work Order</h1>
-            <p class="ttl">${esc(t.title)}</p>
-          </div>
-          <div class="numbox">
-            <p class="num">#${num}</p>
-            <span class="chip">${statusLabel}</span>
-            <p class="printed">Printed ${esc(new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}</p>
-          </div>
-        </div>
-        <div class="meta">
-          <div><span class="lbl">Location</span>${esc([t.boothName, t.resourceName].filter(Boolean).join(' · ') || '—')}</div>
-          <div><span class="lbl">Category / priority</span>${esc(t.category)} · ${esc(t.priority)}</div>
-          <div><span class="lbl">Reported by</span>${esc(t.reporterName || '—')}<br/><span style="color:#94a3b8;font-size:11px">${esc(fmtWhen(t.createdAt))}</span></div>
-          <div><span class="lbl">Due</span>${esc(t.dueAt ? fmtWhen(t.dueAt) : '—')}</div>
-        </div>
-        ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
-        <h2>Activity log</h2>
-        <table><tr><th>When</th><th>Who</th><th>Update</th></tr>${rows || '<tr><td colspan="3">No updates yet</td></tr>'}</table>
-        ${photos ? `<h2>Photo record</h2><div class="photos">${photos}</div>` : ''}
-        <div class="sig"><div>Completed by / date</div><div>Approved by / date</div></div>
-        <div class="foot"><span>${esc(studioName || 'Studio')} · Maintenance work order #${num}</span><span>Keep with receipts for tax records</span></div>
-        <p class="noprint" style="margin-top:24px;text-align:center"><button onclick="window.print()" style="padding:12px 28px;font-weight:800;border-radius:10px;border:2px solid #0f172a;background:#0f172a;color:#fff;letter-spacing:.1em;text-transform:uppercase;font-size:11px">Print / Save as PDF</button></p>
-        <script>setTimeout(function(){ try { window.print(); } catch (e) {} }, 400)</script>
-      </body></html>`);
-      w.document.close();
-    } catch { setError('Could not open the print view.'); }
-  };
+    // ── Automation: tell the tech the quote verdict ────────────────────
+    // Owner approves/declines client-side; this just delivers the text.
+    // Dedupe via quoteNotifiedStatus so repeat calls are no-ops.
+    if (action === 'notify-quote') {
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      let sent = false;
+      // Case 1: owner requested a quote → nudge the assignee to price it.
+      if (t.quoteRequested && t.assigneeId && t.quoteRequestNotified !== t.assigneeId) {
+        const w = (await db.doc(`tenants/${tenantId}/maintenanceWorkers/${t.assigneeId}`).get()).data() as any;
+        if (w?.phone && smsConfigured()) {
+          const r = await sendTenantSms(db, tenantId, w.phone,
+            `Please send a quote before starting "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''} — there's a Send quote button on the ticket in your portal.`);
+          sent = r.ok;
+        }
+        await ref.set({ quoteRequestNotified: t.assigneeId }, { merge: true });
+        return NextResponse.json({ ok: true, sent });
+      }
+      // Case 2: owner decided → tell the tech the verdict.
+      if (t.quote && ['approved', 'declined'].includes(t.quote.status) && t.quoteNotifiedStatus !== t.quote.status && t.assigneeId) {
+        const w = (await db.doc(`tenants/${tenantId}/maintenanceWorkers/${t.assigneeId}`).get()).data() as any;
+        if (w?.phone && smsConfigured()) {
+          const r = await sendTenantSms(db, tenantId, w.phone,
+            t.quote.status === 'approved'
+              ? `Quote APPROVED for "${t.title}" — $${((t.quote.totalCents || 0) / 100).toFixed(2)}. Go ahead when ready.`
+              : `Quote declined for "${t.title}" — hold off. The studio will follow up${t.quote.declineNote ? `: ${t.quote.declineNote}` : '.'}`);
+          sent = r.ok;
+        }
+        await ref.set({ quoteNotifiedStatus: t.quote.status }, { merge: true });
+      }
+      return NextResponse.json({ ok: true, sent });
+    }
 
-  return (
-    <div className="min-h-screen bg-slate-50 px-4 py-6" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
-      <div className="max-w-lg mx-auto space-y-4">
-        {/* ── HEADER — who you are, what's on your plate, what you're owed ── */}
-        <div className="rounded-3xl bg-slate-900 text-white p-5 shadow-xl">
-          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{studioName || 'Maintenance'}</p>
-          <h1 className="text-xl font-black tracking-tight mt-0.5">
-            {state === 'ready' ? worker?.name : 'Maintenance portal'}
-          </h1>
-          {state === 'ready' && (
-            <div className="flex gap-2 mt-3 flex-wrap">
-              {(() => {
-                const open = tickets.length;
-                const late = tickets.filter((t) => dueChip(t)?.late).length;
-                const runningT = tickets.find((t) => (t.workSessions || []).some((s: any) => !s.endAt));
-                const chips: { label: string; cls: string }[] = [
-                  ...(runningT ? [{ label: `On the clock · ${fmtStopwatch(timedMs(runningT, Date.now()))}`, cls: 'bg-emerald-500 text-white' }] : []),
-                  { label: `${open} open job${open === 1 ? '' : 's'}`, cls: 'bg-white/10 text-white' },
-                  ...(late > 0 ? [{ label: `${late} overdue`, cls: 'bg-red-500/90 text-white' }] : []),
-                  ...(worker?.payType !== 'payroll' && ((worker?.unpaidLaborCents || 0) + (worker?.unpaidMaterialsCents || 0)) > 0
-                    ? [{ label: `$${(((worker.unpaidLaborCents || 0) + (worker.unpaidMaterialsCents || 0)) / 100).toFixed(0)} owed to you${(worker?.unpaidMaterialsCents || 0) > 0 ? ' (incl. reimbursements)' : ''}`, cls: 'bg-emerald-500/90 text-white' }] : []),
-                  ...((worker?.hourlyRateCents || 0) > 0 && worker?.payType !== 'payroll'
-                    ? [{ label: `$${((worker.hourlyRateCents || 0) / 100).toFixed(0)}/hr`, cls: 'bg-white/10 text-slate-200' }] : []),
-                ];
-                return chips.map((c) => (
-                  <span key={c.label} className={`h-7 px-3 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center ${c.cls}`}>{c.label}</span>
-                ));
-              })()}
-            </div>
-          )}
-        </div>
+    // ── Tech portal: progress a ticket ────────────────────────────────
+    // Accepts any combination of: a status move, a note, a photo (base64
+    // data URL, uploaded server-side), and — when resolving — a cost that
+    // flows straight into the ledger as a Maintenance & Repairs expense.
+    if (action === 'worker-update') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const { ticketId } = body;
+      const status = ['in_progress', 'resolved'].includes(body.status) ? body.status : null;
+      const note = String(body.note || '').slice(0, 1000).trim();
+      const hasPhoto = typeof body.photoData === 'string' && body.photoData.startsWith('data:image');
+      // Techs can move the deadline ("parts arrive Thursday") — date only,
+      // never backdated below now, and it lands on the thread for everyone.
+      const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueAt || '')) ? String(body.dueAt) : null;
+      if (!ticketId || (!status && !note && !hasPhoto && !dueDate)) {
+        return NextResponse.json({ ok: false, error: 'Add a note, a photo, a new deadline, or a status change.' }, { status: 400 });
+      }
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (t.assigneeId && t.assigneeId !== worker.id) {
+        return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
+      }
+      const nowIso = new Date().toISOString();
 
-        {/* Persistent error banner — a photo that failed to save must not
-            vanish with the collapsed ticket. */}
-        {state === 'ready' && error && (
-          <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-3 flex items-start gap-2">
-            <p className="flex-1 text-[11px] font-bold text-red-700">{error}</p>
-            <button onClick={() => setError('')} className="text-[9px] font-black uppercase tracking-widest text-red-400 underline shrink-0">Dismiss</button>
-          </div>
-        )}
+      // Photo first (fail-soft — a bad photo never blocks the update).
+      let photoUrl: string | null = null;
+      let photoError: string | undefined;
+      if (hasPhoto) {
+        const up = await uploadTicketPhotoFromDataUrl(tenantId, ticketId, body.photoData);
+        photoUrl = up.url; photoError = up.error;
+      }
 
-        {state === 'loading' && (
-          <div className="rounded-3xl bg-white border-2 p-8 text-center">
-            <div className="mx-auto h-8 w-8 rounded-full border-4 border-slate-200 border-t-slate-900 animate-spin" />
-          </div>
-        )}
+      const update: any = { at: nowIso, by: worker.name, byType: 'tech' };
+      if (note) update.note = note;
+      if (status) update.status = status;
+      if (photoUrl) update.photoUrl = photoUrl;
+      const patch: any = {
+        updates: [...(t.updates || []), update],
+        updatedAt: nowIso,
+        // A tech touching an unassigned ticket claims it — no dispatcher needed.
+        assigneeId: t.assigneeId || worker.id,
+        assigneeName: t.assigneeName || worker.name,
+      };
+      if (photoUrl) patch.photoUrls = [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), photoUrl];
 
-        {state === 'denied' && (
-          <div className="rounded-3xl bg-white border-2 p-6 text-center space-y-3">
-            <div className="space-y-1">
-              <p className="text-sm font-black text-slate-900">Can't open the queue</p>
-              <p className="text-xs font-bold text-slate-500">{error}</p>
-            </div>
-            <button onClick={() => { setState('loading'); setError(''); load(); }}
-              className="h-10 px-5 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">
-              Try again
-            </button>
-          </div>
-        )}
+      // Deadline move: end of the chosen day, never into the past.
+      if (dueDate && !status) {
+        const newDue = `${dueDate}T23:59:59.000Z`;
+        if (newDue > nowIso) {
+          patch.dueAt = newDue;
+          update.note = [update.note, `Deadline moved to ${dueDate}`].filter(Boolean).join(' · ');
+        }
+      }
 
-        {state === 'ready' && tickets.length === 0 && (
-          <div className="rounded-3xl bg-white border-2 p-8 text-center">
-            <p className="text-sm font-black text-slate-900">Queue is clear</p>
-            <p className="text-xs font-bold text-slate-500 mt-1">Nothing open right now — new tickets will appear here and you'll get a text.</p>
-          </div>
-        )}
+      // Costs at resolution → real money records, attributed to the ticket
+      // (and its station) so maintenance spend is analyzable. Materials
+      // become a ledger expense.
+      //
+      // LABOR IS NOT SELF-PRICED. Techs submit HOURS; the dollar amount is
+      // computed HERE from the hourly rate the OWNER set on their worker
+      // profile. Any dollar figure a client sends is ignored, so a tech
+      // cannot invent their own pay. No rate on file → nothing accrues and
+      // the tech is told to ask the studio. Hours are capped at 24/job.
+      const costCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.costCents) || 0)) : 0;
+      // WHO PAID for the materials decides WHEN it's an expense:
+      // 'studio' — studio money already left (studio card / cash given) →
+      //            ledger expense now; the bank feed's near-match will
+      //            reconcile the card line to it, no double count.
+      // 'tech'   — the tech fronted their own money → the studio owes a
+      //            REIMBURSEMENT. Nothing hits the ledger yet; it accrues
+      //            on the worker's balance and books at payout, when the
+      //            studio's cash actually moves.
+      const paidBy: 'studio' | 'tech' = body.paidBy === 'tech' ? 'tech' : 'studio';
+      const laborHours = status === 'resolved' ? Math.min(24, Math.max(0, Number(body.laborHours) || 0)) : 0;
+      const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
+      const laborCents = laborHours > 0 && rateCents > 0 && worker.payType !== 'payroll'
+        ? Math.round(laborHours * rateCents) : 0;
 
-        {state === 'ready' && tickets.map((t) => {
-          const due = dueChip(t);
-          const expanded = openId === t.id;
-          return (
-            <div key={t.id} className={`rounded-3xl bg-white border-2 border-l-4 overflow-hidden shadow-sm ${PRIORITY_RAIL[t.priority] || PRIORITY_RAIL.normal} ${due?.late ? 'border-red-200' : ''}`}>
-              <button onClick={() => { setOpenId(expanded ? null : t.id); setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); }} className="w-full text-left p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-black text-slate-900 leading-snug">{t.title}</p>
-                    <p className="text-[10px] font-bold text-muted-foreground mt-0.5">
-                      {[[t.boothName, t.resourceName].filter(Boolean).join(' · ') || null,
-                        t.category, `by ${t.reporterName}`, fmtWhen(t.createdAt)].filter(Boolean).join(' · ')}
-                    </p>
-                    <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                      {due && <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${due.late ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{due.label}</span>}
-                      {!t.assignedToMe && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-indigo-100 text-indigo-700">Open to claim</span>}
-                      {t.quoteRequested && !t.quote && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote needed</span>}
-                      {t.quote?.status === 'pending' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">Quote sent</span>}
-                      {t.quote?.status === 'approved' && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-emerald-100 text-emerald-700">Quote approved</span>}
-                      {(t.openRequests || []).some((r: any) => r.status === 'open') && <span className="text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 bg-violet-100 text-violet-700">Request pending</span>}
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${PRIORITY_TONE[t.priority] || PRIORITY_TONE.normal}`}>{t.priority}</span>
-                    <span className={`text-[8px] font-black uppercase tracking-widest rounded-full px-2 py-0.5 ${STATUS_TONE[t.status] || ''}`}>{t.status === 'in_progress' ? 'In progress' : t.status}</span>
-                  </div>
-                </div>
-              </button>
+      // Mileage: miles × the studio's per-mile rate (0 rate = no mileage).
+      let rules: any = { mileageRateCents: 0 };
+      if (status === 'resolved') {
+        try { rules = normalizeRules(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules); } catch { /* rules off */ }
+      }
+      const miles = status === 'resolved' ? Math.min(500, Math.max(0, Number(body.miles) || 0)) : 0;
+      const mileageCents = miles > 0 && (rules.mileageRateCents || 0) > 0 ? Math.round(miles * rules.mileageRateCents) : 0;
 
-              {expanded && (
-                <div className="border-t px-4 py-3 space-y-3">
-                  {t.description && <p className="text-xs font-medium text-slate-600 whitespace-pre-wrap">{t.description}</p>}
-                  {Array.isArray(t.photoUrls) && t.photoUrls.length > 0 && (
-                    <div className="flex gap-2 overflow-x-auto pb-1">
-                      {t.photoUrls.map((u: string, i: number) => (
-                        <a key={i} href={u} target="_blank" rel="noreferrer" className="shrink-0">
-                          <img src={u} alt="" className="h-16 w-16 rounded-xl object-cover border-2" />
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                  {(t.updates || []).length > 0 && (
-                    <div className="space-y-1.5">
-                      {(t.updates || []).slice(-5).map((u: any, i: number) => (
-                        <div key={i} className="text-[11px] font-medium text-slate-500">
-                          <span className="font-black text-slate-700">{u.by}</span>
-                          {u.status ? ` → ${u.status === 'in_progress' ? 'in progress' : u.status}` : ''}
-                          {u.note ? ` — ${u.note}` : ''}
-                          <span className="text-slate-400"> · {fmtWhen(u.at)}</span>
-                          {u.photoUrl && (
-                            <a href={u.photoUrl} target="_blank" rel="noreferrer" className="block mt-1">
-                              <img src={u.photoUrl} alt="" className="h-14 w-14 rounded-lg object-cover border-2" />
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* ── JOB CLOCK — tap when the wrench comes out ── */}
-                  {['open', 'in_progress'].includes(t.status) && (() => {
-                    const running = (t.workSessions || []).some((s: any) => !s.endAt);
-                    const ms = timedMs(t, Date.now());
-                    const total = Math.round(ms / 60000);
-                    return (
-                      <div className={`rounded-xl border-2 p-3 flex items-center gap-3 ${running ? 'border-emerald-400 bg-emerald-50' : ''}`}>
-                        <button onClick={() => toggleClock(t)} disabled={busy}
-                          className={`h-12 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest disabled:opacity-40 shrink-0 ${running ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>
-                          {running ? 'Stop' : total > 0 ? 'Resume' : 'Start clock'}
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          {running ? (
-                            <p className="text-2xl font-black tabular-nums text-emerald-700 leading-none flex items-center gap-2">
-                              {fmtStopwatch(ms)}
-                              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                            </p>
-                          ) : (
-                            <p className="text-sm font-black text-slate-700">{total > 0 ? `${fmtMin(total)} on this job` : 'Not started'}</p>
-                          )}
-                          <p className="text-[9px] font-bold text-muted-foreground mt-1">
-                            {(t.workSessions || []).length > 0 ? `${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'} on the record` : 'Times your work and fills in your hours at the end'}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                  {/* ── QUOTE — price it before you start ── */}
-                  {t.quoteRequested && !t.quote && (
-                    <p className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-2.5 text-[11px] font-bold text-indigo-700">
-                      The studio wants a quote before work starts — tap Send quote below.
-                    </p>
-                  )}
-                  {t.quote && (
-                    <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
-                      <p className="text-[9px] font-black uppercase tracking-widest">
-                        {t.quote.status === 'approved' ? (t.quote.countered ? 'Deal agreed (studio adjusted the terms) — go ahead' : 'Quote approved — this is the deal') : t.quote.status === 'declined' ? 'Quote declined — hold off' : 'Quote sent — waiting on the studio'}
-                      </p>
-                      {t.quote.status === 'approved' && (t.quote.hours || 0) > 0 && timedMin(t, Date.now()) > t.quote.hours * 60 && (
-                        <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mt-1">
-                          You're past the agreed {t.quote.hours}h ({fmtMin(timedMin(t, Date.now()))} timed) — the studio has been notified. Talk before going further.
-                        </p>
-                      )}
-                      <p className="text-xs font-bold mt-0.5">
-                        {[(t.quote.hours || 0) > 0 ? `${t.quote.hours}h` : null,
-                          (t.quote.materialsCents || 0) > 0 ? `$${(t.quote.materialsCents / 100).toFixed(2)} materials` : null]
-                          .filter(Boolean).join(' + ')} {(t.quote.totalCents || 0) > 0 ? `= $${(t.quote.totalCents / 100).toFixed(2)}` : ''}
-                      </p>
-                      {t.quote.note && <p className="text-[11px] font-medium text-slate-600 mt-0.5">{t.quote.note}</p>}
-                    </div>
-                  )}
-                  {['open', 'in_progress'].includes(t.status) && (!t.quote || t.quote.status === 'declined') && (
-                    quoteFor === t.id ? (
-                      <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-2.5 space-y-2">
-                        <div className="flex gap-3 items-center flex-wrap">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-indigo-700">Est. hours</span>
-                            <input type="number" inputMode="decimal" min={0} step={0.5} value={qHours} onChange={(e) => setQHours(e.target.value)}
-                              placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[9px] font-black uppercase tracking-widest text-indigo-700">Materials $</span>
-                            <input type="number" inputMode="decimal" min={0} value={qMaterials} onChange={(e) => setQMaterials(e.target.value)}
-                              placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
-                          </div>
-                        </div>
-                        {(worker?.hourlyRateCents || 0) > 0 && worker?.payType !== 'payroll' && (Number(qHours) > 0 || Number(qMaterials) > 0) && (
-                          <p className="text-[10px] font-bold text-indigo-700">
-                            Comes to ${(((Number(qHours) || 0) * (worker.hourlyRateCents || 0) + (Number(qMaterials) || 0) * 100) / 100).toFixed(2)} at your ${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr rate.
-                          </p>
-                        )}
-                        {(rules?.autoApproveUnderCents || 0) > 0 && (
-                          <p className="text-[10px] font-bold text-indigo-600">Quotes at or under ${((rules.autoApproveUnderCents || 0) / 100).toFixed(0)} approve instantly — no waiting.</p>
-                        )}
-                        <input value={qNote} onChange={(e) => setQNote(e.target.value)} placeholder="What the price covers, options, caveats…"
-                          className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
-                        <div className="flex gap-2">
-                          <button onClick={() => submitQuote(t.id)} disabled={busy}
-                            className="flex-1 h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">Send quote</button>
-                          <button onClick={() => setQuoteFor(null)} className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => { setQuoteFor(t.id); setQHours(''); setQMaterials(''); setQNote(''); }}
-                        className={`h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest ${t.quoteRequested ? 'border-indigo-400 text-indigo-700 bg-indigo-50' : 'text-slate-600'}`}>
-                        {t.quote?.status === 'declined' ? 'Send a new quote' : 'Send quote'}
-                      </button>
-                    )
-                  )}
-                  <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
-                    placeholder="Progress note — parts ordered, what you found, what's next…"
-                    className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
-                  <div className="flex gap-2 items-center">
-                    <label className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center cursor-pointer">
-                      {photoData ? `Photo: ${photoName.slice(0, 16)}` : 'Attach photo / receipt'}
-                      <input type="file" accept="image/*" capture="environment" className="hidden"
-                        onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
-                    </label>
-                    {photoData && <button onClick={() => { setPhotoData(null); setPhotoName(''); }} className="text-[9px] font-black uppercase tracking-widest text-red-500 underline">Remove</button>}
-                  </div>
-                  <div className="flex gap-3 items-center flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Materials $</span>
-                      <input type="number" inputMode="decimal" min={0} value={costDollars} onChange={(e) => setCostDollars(e.target.value)}
-                        placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Hours worked</span>
-                      <input type="number" inputMode="decimal" min={0} max={24} step={0.25} value={hoursDraft} onChange={(e) => setHoursDraft(e.target.value)}
-                        placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
-                    </div>
-                    {timedMin(t, Date.now()) > 0 && (
-                      <button onClick={() => setHoursDraft(String(Math.max(0.25, Math.round((timedMin(t, Date.now()) / 60) * 4) / 4)))}
-                        className="h-10 px-3 rounded-xl border-2 border-emerald-300 text-emerald-700 font-black uppercase text-[9px] tracking-widest">
-                        Use timed · {fmtMin(timedMin(t, Date.now()))}
-                      </button>
-                    )}
-                    {(rules?.mileageRateCents || 0) > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Miles</span>
-                        <input type="number" inputMode="decimal" min={0} max={500} value={milesDraft} onChange={(e) => setMilesDraft(e.target.value)}
-                          placeholder="0" className="w-16 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
-                        {Number(milesDraft) > 0 && (
-                          <span className="text-[9px] font-bold text-emerald-700">= ${((Number(milesDraft) * (rules.mileageRateCents || 0)) / 100).toFixed(2)}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  {Number(costDollars) > 0 && (
-                    <div className="flex gap-1.5 items-center flex-wrap -mt-0.5">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Who paid?</span>
-                      {([
-                        { v: 'studio' as const, label: 'Studio money' },
-                        { v: 'tech' as const, label: 'My own money' },
-                      ]).map((o) => (
-                        <button key={o.v} onClick={() => setPaidBy(o.v)}
-                          className={`h-8 px-3 rounded-full text-[9px] font-black uppercase tracking-widest ${paidBy === o.v ? 'bg-slate-900 text-white' : 'border-2 text-slate-500'}`}>
-                          {o.label}
-                        </button>
-                      ))}
-                      <span className="text-[9px] font-bold text-slate-400 w-full">
-                        {paidBy === 'tech'
-                          ? 'You get reimbursed — it adds to your payout balance and the studio pays it with your labor.'
-                          : 'Studio card or studio cash — it books to their ledger right away.'}
-                      </span>
-                    </div>
-                  )}
-                  <p className="text-[9px] font-bold text-slate-400 -mt-1.5">
-                    Both save when you mark resolved. Materials (attach the receipt photo) go to the studio's books.
-                    {worker?.payType === 'payroll'
-                      ? ' Hours are logged for the record — pay comes through your wages.'
-                      : (worker?.hourlyRateCents || 0) > 0
-                        ? ` Labor pays at the studio's rate: $${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr${Number(hoursDraft) > 0 ? ` × ${Math.min(24, Number(hoursDraft))}h = $${((Math.min(24, Number(hoursDraft)) * (worker.hourlyRateCents || 0)) / 100).toFixed(2)}` : ''}.`
-                        : ' No hourly rate is on file yet — hours are logged, but ask the studio to set your rate so labor can accrue.'}
-                  </p>
-                  {/* The studio's own rules, surfaced BEFORE the server
-                      rejects — no one finds out at the last tap. */}
-                  {(() => {
-                    const mat = Math.round((Number(costDollars) || 0) * 100);
-                    const lab = worker?.payType !== 'payroll' ? Math.round(Math.min(24, Number(hoursDraft) || 0) * (worker?.hourlyRateCents || 0)) : 0;
-                    const warns: string[] = [];
-                    if ((rules?.requireQuoteOverCents || 0) > 0 && (mat + lab) > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
-                      warns.push(`Jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)} need an approved quote first — send one above before resolving.`);
-                    }
-                    if ((rules?.receiptRequiredOverCents || 0) > 0 && mat > rules.receiptRequiredOverCents && !photoData && !(Array.isArray(t.photoUrls) && t.photoUrls.length > 0)) {
-                      warns.push(`Materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)} need the receipt photo attached.`);
-                    }
-                    return warns.length > 0 ? (
-                      <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-2.5 space-y-1">
-                        {warns.map((w, i) => <p key={i} className="text-[11px] font-bold text-amber-700">{w}</p>)}
-                      </div>
-                    ) : null;
-                  })()}
-                  <div className="flex gap-2 items-center">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 shrink-0">Move deadline</span>
-                    <input type="date" value={deadlineDraft} onChange={(e) => setDeadlineDraft(e.target.value)}
-                      min={new Date().toISOString().slice(0, 10)}
-                      className="h-10 rounded-xl border-2 px-2 text-sm font-bold bg-white" />
-                    <button onClick={() => deadlineDraft && act(t.id, undefined, deadlineDraft)} disabled={busy || !deadlineDraft}
-                      className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-700 disabled:opacity-40">Set</button>
-                    <button onClick={() => printTicket(t)} className="ml-auto h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Print</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {t.status === 'open' && (
-                      <button onClick={() => act(t.id, 'in_progress')} disabled={busy}
-                        className="h-12 rounded-2xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                        {t.assignedToMe ? 'Start work' : 'Claim & start'}
-                      </button>
-                    )}
-                    <button onClick={() => act(t.id, 'resolved')} disabled={busy}
-                      className="h-12 rounded-2xl bg-emerald-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                      Mark resolved
-                    </button>
-                    <button onClick={() => act(t.id)} disabled={busy || (!note.trim() && !photoData)}
-                      className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest text-slate-700 disabled:opacity-40 ${t.status === 'open' ? 'col-span-2' : ''}`}>
-                      Save note / photo
-                    </button>
-                  </div>
-                  {error && <p className="text-[11px] font-bold text-red-600">{error}</p>}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      // ── THE BUSINESS'S OWN APPROVAL RULES, enforced at the gate ───────
+      // The portal warns early, but this is the wall: a resolve that
+      // violates the studio's thresholds is rejected with the reason.
+      if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
+        const actual = costCents + laborCents;
+        if (rules.requireQuoteOverCents > 0 && actual > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
+          return NextResponse.json({ ok: false, error: `This studio requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)} — send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
+        }
+        const hasAnyPhoto = !!photoUrl || (Array.isArray(t.photoUrls) && t.photoUrls.length > 0);
+        if (rules.receiptRequiredOverCents > 0 && costCents > rules.receiptRequiredOverCents && !hasAnyPhoto) {
+          return NextResponse.json({ ok: false, error: `This studio requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)} — attach the receipt and resolve again.` }, { status: 422 });
+        }
+      }
+      if (status) {
+        patch.status = status;
+        if (status === 'resolved') {
+          patch.resolvedAt = nowIso;
+          if (costCents > 0) { patch.costCents = costCents; patch.materialsPaidBy = paidBy; }
+          if (laborHours > 0) patch.laborHours = laborHours;
+          if (laborCents > 0) patch.laborCents = laborCents;
+          if (miles > 0) { patch.mileage = miles; if (mileageCents > 0) patch.mileageCents = mileageCents; }
+          // Auto-stop a running clock — resolving IS stopping work.
+          const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
+          const openIdx = sessions.findIndex((s) => !s.endAt);
+          if (openIdx >= 0) {
+            sessions[openIdx] = { ...sessions[openIdx], endAt: nowIso };
+            patch.workSessions = sessions;
+          }
+        }
+      }
+      await ref.set(patch, { merge: true });
 
-        {/* ── REQUEST SOMETHING — structured enough to decide from a phone:
-            what kind, how many, by when, roughly how much, for which job,
-            and which staff member is affected. ── */}
-        {state === 'ready' && (
-          <div className={`rounded-3xl bg-white border-2 overflow-hidden shadow-sm ${requestOpen ? 'border-indigo-300' : ''}`}>
-            <button onClick={() => setRequestOpen(o => !o)} className="w-full text-left p-4 flex items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-black text-slate-900">Need something?</p>
-                <p className="text-[10px] font-bold text-muted-foreground mt-0.5">Materials, tools, keys, backup — tracked with a paper trail, answered with a text.</p>
-              </div>
-              <span className={`h-8 w-8 rounded-xl flex items-center justify-center text-lg font-black shrink-0 ${requestOpen ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>+</span>
-            </button>
-            {requestOpen && (
-              <div className="border-t px-4 py-3 space-y-2.5">
-                {/* What KIND — one tap sets the shape of the request */}
-                <div className="flex gap-1.5 flex-wrap">
-                  {REQ_KINDS.map((k) => (
-                    <button key={k.value} onClick={() => setReqKind(k.value)}
-                      className={`h-8 px-3 rounded-full text-[9px] font-black uppercase tracking-widest ${reqKind === k.value ? 'bg-indigo-600 text-white' : 'border-2 text-slate-500'}`}>
-                      {k.label}
-                    </button>
-                  ))}
-                </div>
-                <input value={reqTitle} onChange={(e) => setReqTitle(e.target.value)}
-                  placeholder={reqKind === 'materials' ? 'What exactly? e.g. Silicone caulk, white *' : reqKind === 'tool' ? 'What tool? e.g. 6ft ladder *' : reqKind === 'access' ? 'Access to what? e.g. supply closet key *' : reqKind === 'help' ? 'What do you need help with? *' : 'What do you need? *'}
-                  className="w-full h-11 rounded-xl border-2 px-3 text-sm font-medium" />
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Quantity / size</p>
-                    <input value={reqQty} onChange={(e) => setReqQty(e.target.value)} placeholder="e.g. 3 tubes"
-                      className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
-                  </div>
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Est. cost $</p>
-                    <input type="number" inputMode="decimal" min={0} value={reqEstCost} onChange={(e) => setReqEstCost(e.target.value)} placeholder="optional"
-                      className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
-                  </div>
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Needed by</p>
-                    <input type="date" value={reqNeededBy} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setReqNeededBy(e.target.value)}
-                      className="w-full h-10 rounded-xl border-2 px-2 text-sm font-medium bg-white" />
-                  </div>
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">For which job</p>
-                    <select value={reqRelated} onChange={(e) => setReqRelated(e.target.value)}
-                      className="w-full h-10 rounded-xl border-2 px-2 text-xs font-bold bg-white">
-                      <option value="">Not job-specific</option>
-                      {tickets.map((t) => <option key={t.id} value={t.id}>{t.title.slice(0, 40)}</option>)}
-                    </select>
-                  </div>
-                </div>
-                {reqRelated && (
-                  <p className="text-[10px] font-bold text-indigo-600">Goes onto that job's work order thread — one job, one record.</p>
-                )}
-                {staffNames.length > 0 && (
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 mb-1 px-1">Who's affected (tap names)</p>
-                    <div className="flex gap-1.5 flex-wrap">
-                      {staffNames.map((n) => (
-                        <button key={n} onClick={() => setReqForStaff(s => s.includes(n) ? s.filter(x => x !== n) : [...s, n])}
-                          className={`h-8 px-3 rounded-full text-[10px] font-bold ${reqForStaff.includes(n) ? 'bg-slate-900 text-white' : 'border-2 text-slate-500'}`}>
-                          {n}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <textarea value={reqDetail} onChange={(e) => setReqDetail(e.target.value)} rows={2}
-                  placeholder="Anything else — brand, link, which room, why it matters…"
-                  className="w-full rounded-xl border-2 px-3 py-2 text-sm font-medium" />
-                <div className="flex gap-2 items-center">
-                  <label className="h-11 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-600 flex items-center cursor-pointer shrink-0">
-                    {photoData ? `Photo ✓` : 'Photo'}
-                    <input type="file" accept="image/*" capture="environment" className="hidden"
-                      onChange={(e) => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} />
-                  </label>
-                  <button onClick={submitRequest} disabled={busy || !reqTitle.trim()}
-                    className="flex-1 h-11 rounded-xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">
-                    Send request
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+      let laborNote: string | null = null;
+      if (laborHours > 0 && worker.payType === 'payroll') {
+        laborNote = `${laborHours}h logged — covered by wages (payroll)`;
+      } else if (laborHours > 0 && rateCents <= 0) {
+        laborNote = `${laborHours}h logged — no hourly rate on file, nothing accrued`;
+      } else if (laborCents > 0) {
+        try {
+          const { FieldValue } = await import('firebase-admin/firestore');
+          await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+            { unpaidLaborCents: FieldValue.increment(laborCents) }, { merge: true });
+          laborNote = `${laborHours}h × $${(rateCents / 100).toFixed(2)}/hr = $${(laborCents / 100).toFixed(2)} to ${worker.name}'s payout balance`;
+        } catch { laborNote = 'could not accrue — log it manually'; }
+      }
+      // Mileage reimbursement rides the same payout balance (payroll
+      // workers' mileage is flagged for their next paycheck instead).
+      let mileageNote: string | null = null;
+      if (mileageCents > 0) {
+        if (worker.payType === 'payroll') {
+          mileageNote = `${miles} mi = $${(mileageCents / 100).toFixed(2)} — add to their next payroll run`;
+        } else {
+          try {
+            const { FieldValue } = await import('firebase-admin/firestore');
+            await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+              { unpaidLaborCents: FieldValue.increment(mileageCents) }, { merge: true });
+            mileageNote = `${miles} mi × $${(rules.mileageRateCents / 100).toFixed(2)} = $${(mileageCents / 100).toFixed(2)} to the payout balance`;
+          } catch { mileageNote = `${miles} mi — could not accrue, log manually`; }
+        }
+      } else if (miles > 0) {
+        mileageNote = `${miles} mi logged — no mileage rate set in Rules`;
+      }
+      // Agreement check at the finish line: resolving past the approved
+      // quote is allowed (reality happens) but never silent.
+      const overAgreement = t.quote?.status === 'approved' && (t.quote.totalCents || 0) > 0
+        && (costCents + laborCents) > t.quote.totalCents;
 
-        {/* ── MY HISTORY — the jobs already done, reprintable on site ── */}
-        {state === 'ready' && history.length > 0 && (
-          <div className="rounded-3xl bg-white border-2 overflow-hidden">
-            <button onClick={() => setShowHistory(o => !o)} className="w-full text-left p-4 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-black text-slate-900">My finished jobs</p>
-                <p className="text-[10px] font-bold text-muted-foreground mt-0.5">{history.length} on record — tap one to reprint its work order.</p>
-              </div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{showHistory ? 'Hide' : 'Show'}</span>
-            </button>
-            {showHistory && (
-              <div className="border-t divide-y">
-                {history.map((h) => (
-                  <div key={h.id} className="px-4 py-2.5 flex items-center gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-black truncate">{h.title}</p>
-                      <p className="text-[10px] font-bold text-muted-foreground truncate">
-                        {[h.boothName, h.resourceName, `done ${fmtWhen(h.resolvedAt)}`,
-                          (h.costCents || 0) > 0 ? `$${(h.costCents / 100).toFixed(0)} materials` : null,
-                          (h.laborHours || 0) > 0 ? `${h.laborHours}h` : null].filter(Boolean).join(' · ')}
-                      </p>
-                    </div>
-                    <button onClick={() => printTicket(h)} className="h-8 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0">Print</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+      let materialsNote: string | null = null;
+      if (costCents > 0 && paidBy === 'studio') {
+        // Studio money already left → real expense, book it now.
+        try {
+          const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+          await txnRef.set({
+            id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+            amount: costCents / 100, category: 'Maintenance & Repairs',
+            description: `Maintenance — ${t.title}${t.boothName ? ` (${t.boothName})` : ''} · resolved by ${worker.name}`,
+            clientOrVendor: worker.name, date: nowIso, paymentMethod: 'See receipt',
+            // A photo attached alongside a costed resolution IS the receipt —
+            // it rides the ledger entry, so tax time is a click, not a hunt.
+            hasReceipt: !!photoUrl, receiptUrl: photoUrl || null,
+            sourceId: ticketId, tenantId, createdAt: nowIso,
+          });
+          materialsNote = `$${(costCents / 100).toFixed(2)} studio-paid (logged to ledger)`;
+        } catch { materialsNote = `$${(costCents / 100).toFixed(2)} — ledger write failed, log manually`; }
+      } else if (costCents > 0 && paidBy === 'tech') {
+        // Tech fronted it → a debt, not an expense. Accrues until payout.
+        try {
+          const { FieldValue } = await import('firebase-admin/firestore');
+          await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+            { unpaidMaterialsCents: FieldValue.increment(costCents) }, { merge: true });
+          materialsNote = `$${(costCents / 100).toFixed(2)} fronted by ${worker.name} — reimbursement owed, books at payout`;
+        } catch { materialsNote = `$${(costCents / 100).toFixed(2)} fronted — could not accrue, note it manually`; }
+      }
 
-        {state === 'ready' && (
-          <p className="text-center text-[10px] font-medium text-slate-400">
-            Notes and status changes are visible to the studio and the person who reported the issue.
-          </p>
-        )}
-      </div>
-    </div>
-  );
+      await syncBoothFromTickets(db, tenantId, t.boothId);
+      await notifyOwner(db, tenantId,
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${materialsNote ? ` · materials: ${materialsNote}` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · OVER THE AGREED QUOTE ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
+      // Keep the reporter in the loop automatically.
+      if (t.reporter?.phone && smsConfigured() && status) {
+        await sendTenantSms(db, tenantId, t.reporter.phone,
+          `Update on your maintenance request "${t.title}": ${TICKET_STATUS_LABELS[status as keyof typeof TICKET_STATUS_LABELS]}${note ? ` — ${note.slice(0, 120)}` : ''}`);
+      }
+      await logAuditAdmin(db, tenantId, {
+        action: 'maintenance.ticket_updated', targetType: 'ticket', targetId: ticketId,
+        summary: `${worker.name} (tech) ${status ? `→ ${status}` : 'noted'} on "${t.title}"${costCents > 0 ? ` · $${(costCents / 100).toFixed(2)}` : ''}`,
+        ...(costCents > 0 ? { amount: costCents / 100 } : {}),
+        actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
+      });
+      return NextResponse.json({ ok: true, photoUrl, photoError });
+    }
+
+    // ── Automation: text the assigned tech their ticket ───────────────
+    if (action === 'notify-assign') {
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (!t.assigneeId) return NextResponse.json({ ok: false, error: 'Ticket has no assignee.' }, { status: 400 });
+      if (t.assignNotifiedFor === t.assigneeId) return NextResponse.json({ ok: true, already: true });
+      const wSnap = await db.doc(`tenants/${tenantId}/maintenanceWorkers/${t.assigneeId}`).get();
+      const w = wSnap.exists ? (wSnap.data() as any) : null;
+      let sent = false;
+      if (w?.phone && smsConfigured()) {
+        // Permanent domain, automatically: manual override → Vercel's
+        // production-domain env var → the caller's origin as last resort
+        // (a preview URL that would die on the next deploy).
+        let base = '';
+        try { base = String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.publicOrigin || '').replace(/\/+$/, ''); } catch { /* fall back */ }
+        if (!base && process.env.VERCEL_PROJECT_PRODUCTION_URL) base = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+        if (!base) base = String(body.origin || '').replace(/\/+$/, '');
+        const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
+        const r = await sendTenantSms(db, tenantId, w.phone,
+          `New ${t.priority} ticket: "${t.title}"${t.boothName ? ` at ${t.boothName}` : ''}.${link}`);
+        sent = r.ok;
+      }
+      await ref.set({ assignNotifiedFor: t.assigneeId }, { merge: true });
+      return NextResponse.json({ ok: true, sent });
+    }
+
+    // ── Automation: tell the reporter where their ticket stands ───────
+    if (action === 'notify-reporter') {
+      const { ticketId } = body;
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (t.lastReporterNotifyStatus === t.status) return NextResponse.json({ ok: true, already: true });
+      let sent = false;
+      // Renters hear about their reported issues; techs hear about their
+      // filed requests ("approved & bought" = resolved). Same loop-closer.
+      if (t.reporter?.phone && ['renter', 'tech'].includes(t.reporter?.type) && smsConfigured()) {
+        const r = await sendTenantSms(db, tenantId, t.reporter.phone,
+          `Update on your ${t.category === 'request' ? 'request' : 'maintenance request'} "${t.title}": ${TICKET_STATUS_LABELS[t.status as keyof typeof TICKET_STATUS_LABELS] || t.status}.`);
+        sent = r.ok;
+      }
+      await ref.set({ lastReporterNotifyStatus: t.status }, { merge: true });
+      return NextResponse.json({ ok: true, sent });
+    }
+
+    return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
+  } catch (err) {
+    console.error('[maintenance] POST failed', err);
+    return NextResponse.json({ ok: false, error: 'Something went wrong — try again.' }, { status: 500 });
+  }
 }
-
-export default MaintenancePortalPage;
