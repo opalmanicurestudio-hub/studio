@@ -52,6 +52,10 @@ export interface Ticket {
   dueAt: string;                       // SLA deadline, derived from priority
   resolvedAt?: string | null;
   costCents?: number | null;           // materials, filled at resolution
+  // Who paid for the materials: 'studio' = expense booked immediately
+  // (studio money already left); 'tech' = the tech fronted it — accrues
+  // as a reimbursement owed, ledger entry happens at payout.
+  materialsPaidBy?: 'studio' | 'tech' | null;
   laborHours?: number | null;          // hours the tech logged at resolution
   laborCents?: number | null;          // laborHours × the OWNER-set hourly rate
   overdueNotifiedAt?: string | null;   // cron stamp — one nag, not nightly spam
@@ -123,8 +127,15 @@ export interface MaintenanceWorker {
   // Set by the OWNER. Techs log hours; the server prices them at this rate.
   // 0 / unset = hours are recorded but no labor money accrues.
   hourlyRateCents?: number;
+  // Two SEPARATE balances, because they're different money:
+  // - unpaidLaborCents: earned labor + mileage → pays out as Contract Labor
+  // - unpaidMaterialsCents: materials the tech FRONTED from their own
+  //   pocket → a reimbursement liability, NOT an expense until paid.
+  //   Pays out as Maintenance & Repairs. Booking it at resolve would put
+  //   an expense in the ledger before any studio cash moved.
   unpaidLaborCents?: number;
-  laborPayments?: { at: string; amountCents: number; method?: string }[];
+  unpaidMaterialsCents?: number;
+  laborPayments?: { at: string; amountCents: number; method?: string; laborCents?: number; materialsCents?: number }[];
   // Round-robin cursor — auto-rotation assigns the least-recently-assigned
   // active worker. Bumped on every assignment (manual or automatic).
   lastAssignedAt?: string | null;
