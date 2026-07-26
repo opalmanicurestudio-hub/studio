@@ -125,9 +125,25 @@ export async function uploadTicketPhotoFromDataUrl(
       } catch (err) { lastErr = err; }
     }
     console.error('[maintenance] photo upload failed on every bucket candidate', lastErr);
-    return { url: null, error: 'Photo upload is not available right now — the rest of your update was saved.' };
+    return { url: null, error: describeUploadError(lastErr) };
   } catch (err: any) {
     console.error('[maintenance] photo upload failed', err);
-    return { url: null, error: 'Photo upload is not available right now — the rest of your update was saved.' };
+    return { url: null, error: describeUploadError(err) };
   }
+}
+
+// Turn opaque storage failures into a message that tells the OWNER what to
+// fix (techs just relay it). The three real-world causes, in order of how
+// often they happen: Storage was never enabled in the Firebase console, the
+// service account lacks storage permission, or the bucket name is wrong.
+function describeUploadError(err: any): string {
+  const msg = String(err?.message || err || '');
+  const code = Number((err as any)?.code) || 0;
+  if (code === 404 || /not exist|notfound|not found/i.test(msg)) {
+    return 'Photo not saved: no storage bucket exists — in the Firebase console, open Storage and click "Get started", then try again.';
+  }
+  if (code === 403 || /permission|forbidden|unauthorized/i.test(msg)) {
+    return 'Photo not saved: the server is not allowed to write to storage — give the Firebase service account the "Storage Admin" role.';
+  }
+  return 'Photo not saved — the rest of your update went through. (Ask the studio to check the maintenance function logs.)';
 }
