@@ -51,9 +51,12 @@ export async function autoAssignTicket(
     try {
       const { smsConfigured, sendTenantSms } = await import('./sms');
       if (pick.phone && smsConfigured()) {
-        // Prefer the tenant's permanent domain — links built on a request's
-        // deployment-specific origin die on the next deploy.
-        const base = String((t.data() as any)?.publicOrigin || origin || '').replace(/\/+$/, '');
+        // Permanent domain, automatically: manual override → Vercel's
+        // production-domain env var → the request's origin as last resort.
+        const base = String(
+          (t.data() as any)?.publicOrigin
+          || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+          || origin || '').replace(/\/+$/, '');
         const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${pick.token}` : '';
         await sendTenantSms(db, tenantId, pick.phone,
           `New ${ticket.priority || 'normal'} ticket assigned to you: "${ticket.title}"${ticket.boothName ? ` at ${ticket.boothName}` : ''}.${link}`);
