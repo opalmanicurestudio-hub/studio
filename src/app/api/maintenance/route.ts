@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
-import { ticketBlocksBooth, TICKET_STATUS_LABELS } from '@/lib/maintenance';
+import { ticketBlocksBooth, TICKET_STATUS_LABELS, normalizeRules } from '@/lib/maintenance';
 import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
 
 async function findWorker(db: FirebaseFirestore.Firestore, tenantId: string, token: string) {
@@ -94,13 +94,15 @@ export async function POST(req: NextRequest) {
         .sort((a, b) => (b.resolvedAt || '').localeCompare(a.resolvedAt || ''))
         .slice(0, 20);
       let studioName = 'The studio';
+      let rules: any = { autoApproveUnderCents: 0, requireQuoteOverCents: 0, receiptRequiredOverCents: 0 };
       try {
         const t = await db.doc(`tenants/${tenantId}`).get();
         studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
+        rules = normalizeRules((t.data() as any)?.maintenanceRules);
       } catch { /* cosmetic */ }
       // Minimal reporter exposure: name only — techs don't need contacts.
       return NextResponse.json({
-        ok: true, studioName,
+        ok: true, studioName, rules,
         worker: {
           id: worker.id, name: worker.name,
           payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
@@ -198,24 +200,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'Give the quote some substance — hours or materials.' }, { status: 400 });
       }
       const nowIso = new Date().toISOString();
+      // The BUSINESS'S OWN RULE: quotes at/under their threshold skip the
+      // owner entirely — small jobs get an instant green light.
+      let rules: any = {};
+      try { rules = normalizeRules(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules); } catch { /* rules off */ }
+      const autoApproved = rules.autoApproveUnderCents > 0 && totalCents <= rules.autoApproveUnderCents;
       await ref.set({
-        quote: { hours, materialsCents, laborCents, totalCents, note: note || null, by: worker.name, at: nowIso, status: 'pending', decidedAt: null },
+        quote: { hours, materialsCents, laborCents, totalCents, note: note || null, by: worker.name, at: nowIso, status: autoApproved ? 'approved' : 'pending', decidedAt: autoApproved ? nowIso : null },
         quoteRequested: false,
         // A tech quoting an unassigned ticket claims it, same as touching it.
         assigneeId: t.assigneeId || worker.id,
         assigneeName: t.assigneeName || worker.name,
-        updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Quoted: ${hours > 0 ? `${hours}h` : ''}${hours > 0 && materialsCents > 0 ? ' + ' : ''}${materialsCents > 0 ? `$${(materialsCents / 100).toFixed(2)} materials` : ''}${laborCents > 0 ? ` = $${(totalCents / 100).toFixed(2)} total` : ''}${note ? ` — ${note}` : ''}` }],
+        updates: [...(t.updates || []),
+          { at: nowIso, by: worker.name, byType: 'tech', note: `Quoted: ${hours > 0 ? `${hours}h` : ''}${hours > 0 && materialsCents > 0 ? ' + ' : ''}${materialsCents > 0 ? `$${(materialsCents / 100).toFixed(2)} materials` : ''}${laborCents > 0 ? ` = $${(totalCents / 100).toFixed(2)} total` : ''}${note ? ` — ${note}` : ''}` },
+          ...(autoApproved ? [{ at: nowIso, by: 'Rules', byType: 'system', note: `Auto-approved — under the studio's $${(rules.autoApproveUnderCents / 100).toFixed(0)} threshold` }] : []),
+        ],
         updatedAt: nowIso,
       }, { merge: true });
-      await notifyOwner(db, tenantId,
-        `Quote from ${worker.name} on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: $${(totalCents / 100).toFixed(2)}${hours > 0 ? ` (${hours}h${materialsCents > 0 ? ` + $${(materialsCents / 100).toFixed(2)} materials` : ''})` : ''} — approve or decline in Maintenance.`);
+      await notifyOwner(db, tenantId, autoApproved
+        ? `Quote auto-approved (your under-$${(rules.autoApproveUnderCents / 100).toFixed(0)} rule): ${worker.name} on "${t.title}" — $${(totalCents / 100).toFixed(2)}.`
+        : `Quote from ${worker.name} on "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}: $${(totalCents / 100).toFixed(2)}${hours > 0 ? ` (${hours}h${materialsCents > 0 ? ` + $${(materialsCents / 100).toFixed(2)} materials` : ''})` : ''} — approve or decline in Maintenance.`);
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.quote_submitted', targetType: 'ticket', targetId: ticketId,
         summary: `${worker.name} quoted $${(totalCents / 100).toFixed(2)} on "${t.title}"`,
         amount: totalCents / 100,
         actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
-      return NextResponse.json({ ok: true, laborCents, totalCents });
+      return NextResponse.json({ ok: true, laborCents, totalCents, autoApproved });
     }
 
     // ── Automation: tell the tech the quote verdict ────────────────────
@@ -325,6 +336,22 @@ export async function POST(req: NextRequest) {
       const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
       const laborCents = laborHours > 0 && rateCents > 0 && worker.payType !== 'payroll'
         ? Math.round(laborHours * rateCents) : 0;
+
+      // ── THE BUSINESS'S OWN APPROVAL RULES, enforced at the gate ───────
+      // The portal warns early, but this is the wall: a resolve that
+      // violates the studio's thresholds is rejected with the reason.
+      if (status === 'resolved' && (costCents > 0 || laborCents > 0)) {
+        let rules: any = {};
+        try { rules = normalizeRules(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.maintenanceRules); } catch { /* rules off */ }
+        const actual = costCents + laborCents;
+        if (rules.requireQuoteOverCents > 0 && actual > rules.requireQuoteOverCents && t.quote?.status !== 'approved') {
+          return NextResponse.json({ ok: false, error: `This studio requires an approved quote for jobs over $${(rules.requireQuoteOverCents / 100).toFixed(0)} — send a quote and wait for approval before resolving at $${(actual / 100).toFixed(2)}.` }, { status: 422 });
+        }
+        const hasAnyPhoto = !!photoUrl || (Array.isArray(t.photoUrls) && t.photoUrls.length > 0);
+        if (rules.receiptRequiredOverCents > 0 && costCents > rules.receiptRequiredOverCents && !hasAnyPhoto) {
+          return NextResponse.json({ ok: false, error: `This studio requires a receipt photo for materials over $${(rules.receiptRequiredOverCents / 100).toFixed(0)} — attach the receipt and resolve again.` }, { status: 422 });
+        }
+      }
       if (status) {
         patch.status = status;
         if (status === 'resolved') {
