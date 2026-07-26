@@ -236,11 +236,86 @@ export function MaintenanceSection({
       const safe = file.name.replace(/[^\w.\-]+/g, '_').slice(0, 60);
       const snap = await uploadBytes(storageRef(storage, `tenants/${tenantId}/tickets/owner/${Date.now()}-${safe}`), file);
       return await getDownloadURL(snap.ref);
-    } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try a smaller image.' }); return null; }
+    } catch (e: any) {
+      const code = String(e?.code || e?.message || '');
+      toast({ variant: 'destructive', title: 'Upload failed', description:
+        /unauthorized|permission|403/i.test(code)
+          ? 'Firebase Storage rules are blocking this path — allow signed-in writes under tenants/{tenantId}/tickets/.'
+          : 'Try a smaller image or check your connection.' });
+      return null;
+    }
     finally { setUploading(false); }
   };
 
   const activeWorkers = useMemo(() => workers.filter((w: any) => w.active !== false), [workers]);
+
+  // ── RUNNING COSTS — always visible, not buried in the ledger ─────────
+  // This month vs all-time, split materials/labor, plus how much unpaid
+  // labor is waiting to be paid out. Computed straight from the tickets,
+  // so it always matches what the techs actually logged.
+  const spend = useMemo(() => {
+    const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+    const mIso = monthStart.toISOString();
+    const s = { monthMaterials: 0, monthLabor: 0, monthJobs: 0, allMaterials: 0, allLabor: 0, receipts: 0, owedLabor: 0 };
+    for (const t of tickets) {
+      if (t.status !== 'resolved') continue;
+      const mat = Math.max(0, Math.round(Number(t.costCents) || 0));
+      const lab = Math.max(0, Math.round(Number(t.laborCents) || 0));
+      s.allMaterials += mat; s.allLabor += lab;
+      if (mat > 0 && Array.isArray(t.photoUrls) && t.photoUrls.length > 0) s.receipts += 1;
+      if ((t.resolvedAt || '') >= mIso) { s.monthMaterials += mat; s.monthLabor += lab; s.monthJobs += 1; }
+    }
+    s.owedLabor = workers.reduce((a: number, w: any) => a + Math.max(0, Math.round(Number(w.unpaidLaborCents) || 0)), 0);
+    return s;
+  }, [tickets, workers]);
+
+  // ── PRINTABLE WORK ORDER — the paper trail for any single job ────────
+  // Full details, the whole timeline, money, photos, and sign-off lines.
+  // Opens the browser's print dialog → paper or Save as PDF.
+  const printTicket = (t: any) => {
+    try {
+      const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const rows = (t.updates || []).map((u: any) =>
+        `<tr><td>${esc(fmtWhen(u.at))}</td><td>${esc(u.by)} <span style="color:#888">${esc(u.byType || '')}</span>${u.status ? ` → ${esc(TICKET_STATUS_LABELS[u.status as TicketStatus] || u.status)}` : ''}</td><td>${esc(u.note || '')}${u.photoUrl ? ' (photo)' : ''}</td></tr>`).join('');
+      const photos = (Array.isArray(t.photoUrls) ? t.photoUrls : []).map((u: string) =>
+        `<img src="${esc(u)}" style="height:120px;border:1px solid #ccc;border-radius:8px;margin:4px" />`).join('');
+      const money = [
+        (t.costCents || 0) > 0 ? `Materials: $${(t.costCents / 100).toFixed(2)}` : null,
+        (t.laborCents || 0) > 0 ? `Labor: $${(t.laborCents / 100).toFixed(2)}` : null,
+      ].filter(Boolean).join(' · ');
+      const w = window.open('', '_blank');
+      if (!w) { toast({ variant: 'destructive', title: 'Allow pop-ups to print' }); return; }
+      w.document.write(`<!doctype html><html><head><title>Work order — ${esc(t.title)}</title><style>
+        body{font-family:-apple-system,system-ui,sans-serif;padding:24px;color:#111;max-width:720px;margin:0 auto}
+        h1{font-size:20px;margin:0 0 2px} .sub{color:#555;font-size:12px;margin-bottom:16px}
+        table{width:100%;border-collapse:collapse;font-size:12px;margin:8px 0} td,th{border:1px solid #ddd;padding:6px;text-align:left;vertical-align:top}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:13px;margin:12px 0}
+        .lbl{color:#666;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+        .money{font-size:14px;font-weight:700;margin:8px 0}
+        .sig{margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:24px}
+        .sig div{border-top:1px solid #111;padding-top:4px;font-size:11px;color:#555}
+        @media print{.noprint{display:none}}</style></head><body>
+        <h1>Work order — ${esc(t.title)}</h1>
+        <p class="sub">Ticket ${esc(String(t.id).slice(0, 8).toUpperCase())}</p>
+        <div class="grid">
+          <div><span class="lbl">Location</span><br/>${esc([t.boothName, t.resourceName].filter(Boolean).join(' · ') || '—')}</div>
+          <div><span class="lbl">Category / priority</span><br/>${esc(t.category)} · ${esc(t.priority)}</div>
+          <div><span class="lbl">Reported by</span><br/>${esc(t.reporter?.name || '—')} on ${esc(fmtWhen(t.createdAt))}</div>
+          <div><span class="lbl">Assigned to</span><br/>${esc(t.assigneeName || 'Unassigned')}</div>
+          <div><span class="lbl">Status</span><br/>${esc(TICKET_STATUS_LABELS[t.status as TicketStatus] || t.status)}</div>
+          <div><span class="lbl">Due / resolved</span><br/>${esc(t.resolvedAt ? `Resolved ${fmtWhen(t.resolvedAt)}` : t.dueAt ? `Due ${fmtWhen(t.dueAt)}` : '—')}</div>
+        </div>
+        ${t.description ? `<p style="font-size:13px;white-space:pre-wrap">${esc(t.description)}</p>` : ''}
+        ${money ? `<p class="money">${money}</p>` : ''}
+        <table><tr><th>When</th><th>Who</th><th>Update</th></tr>${rows || '<tr><td colspan=3>No updates yet</td></tr>'}</table>
+        ${photos ? `<div>${photos}</div>` : ''}
+        <div class="sig"><div>Completed by / date</div><div>Approved by / date</div></div>
+        <p class="noprint" style="margin-top:24px"><button onclick="window.print()" style="padding:10px 18px;font-weight:700">Print</button></p>
+        <script>setTimeout(function(){ try { window.print(); } catch (e) {} }, 300)</script>
+      </body></html>`);
+      w.document.close();
+    } catch { toast({ variant: 'destructive', title: 'Could not open the print view' }); }
+  };
   const sorted = useMemo(() => {
     const RANK: Record<string, number> = { open: 0, in_progress: 1, resolved: 2, cancelled: 3 };
     const PR: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -514,6 +589,23 @@ export function MaintenanceSection({
         </div>
       </div>
 
+      {/* Running costs — what maintenance is actually costing, live */}
+      {(spend.allMaterials > 0 || spend.allLabor > 0 || spend.owedLabor > 0) && (
+        <div className="rounded-2xl border-2 bg-white p-3 flex gap-4 overflow-x-auto">
+          {[
+            { label: 'This month', value: `$${((spend.monthMaterials + spend.monthLabor) / 100).toFixed(0)}`, sub: `${spend.monthJobs} job${spend.monthJobs === 1 ? '' : 's'} · $${(spend.monthMaterials / 100).toFixed(0)} materials · $${(spend.monthLabor / 100).toFixed(0)} labor` },
+            { label: 'All time', value: `$${((spend.allMaterials + spend.allLabor) / 100).toFixed(0)}`, sub: `$${(spend.allMaterials / 100).toFixed(0)} materials · $${(spend.allLabor / 100).toFixed(0)} labor · ${spend.receipts} receipt${spend.receipts === 1 ? '' : 's'}` },
+            ...(spend.owedLabor > 0 ? [{ label: 'Owed to workers', value: `$${(spend.owedLabor / 100).toFixed(0)}`, sub: 'pay out from their profiles', tone: 'text-amber-600' }] : []),
+          ].map((k: any) => (
+            <div key={k.label} className="shrink-0 min-w-[130px]">
+              <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{k.label}</p>
+              <p className={`text-lg font-black leading-tight ${k.tone || ''}`}>{k.value}</p>
+              <p className="text-[9px] font-bold text-muted-foreground">{k.sub}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {shown.length === 0 ? (
         <p className="text-xs text-muted-foreground py-2">
           Nothing open. Issues reported by renters (their portal), from the floor (tap a station → Report an issue), or logged here all land in this one queue.
@@ -555,9 +647,15 @@ export function MaintenanceSection({
                         ))}
                       </div>
                     )}
-                    {typeof t.costCents === 'number' && t.costCents > 0 && (
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Cost ${(t.costCents / 100).toFixed(2)} · logged to ledger</p>
+                    {((t.costCents || 0) > 0 || (t.laborCents || 0) > 0) && (
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        {[(t.costCents || 0) > 0 ? `Materials $${(t.costCents / 100).toFixed(2)} · in ledger` : null,
+                          (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}` : null].filter(Boolean).join(' · ')}
+                      </p>
                     )}
+                    <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
+                      Print work order
+                    </button>
                     {(t.updates || []).length > 0 && (
                       <div className="space-y-1">
                         {(t.updates || []).slice(-6).map((u: any, i: number) => (
