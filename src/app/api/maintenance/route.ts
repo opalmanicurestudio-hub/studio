@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
-import { ticketBlocksBooth, TICKET_STATUS_LABELS, normalizeRules } from '@/lib/maintenance';
+import { ticketBlocksBooth, TICKET_STATUS_LABELS, normalizeRules, timedMinutesOf, fmtMinutes } from '@/lib/maintenance';
 import { uploadTicketPhotoFromDataUrl } from '@/lib/maintenance-server';
 
 async function findWorker(db: FirebaseFirestore.Firestore, tenantId: string, token: string) {
@@ -130,6 +130,7 @@ export async function POST(req: NextRequest) {
           quote: t.quote || null,
           quoteRequested: !!t.quoteRequested,
           requestMeta: t.requestMeta || null,
+          workSessions: Array.isArray(t.workSessions) ? t.workSessions : [],
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
           updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         })),
@@ -216,6 +217,54 @@ export async function POST(req: NextRequest) {
         actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
       return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
+    }
+
+    // ── Tech portal: THE JOB CLOCK ─────────────────────────────────────
+    // Start when the wrench comes out, stop when it goes away. Sessions
+    // stack on the ticket; every start/stop lands on the thread; starting
+    // claims the ticket and moves it to in-progress. The timer is evidence
+    // for the hours claimed at resolve — not a leash.
+    if (action === 'worker-timer') {
+      const worker = await findWorker(db, tenantId, body.token);
+      if (!worker) return NextResponse.json({ ok: false, error: 'Invalid or revoked link.' }, { status: 401 });
+      const { ticketId } = body;
+      const op = body.op === 'stop' ? 'stop' : 'start';
+      if (!ticketId) return NextResponse.json({ ok: false, error: 'Missing ticketId.' }, { status: 400 });
+      const ref = db.doc(`tenants/${tenantId}/tickets/${ticketId}`);
+      const snap = await ref.get();
+      if (!snap.exists) return NextResponse.json({ ok: false, error: 'Ticket not found.' }, { status: 404 });
+      const t = snap.data() as any;
+      if (t.assigneeId && t.assigneeId !== worker.id) {
+        return NextResponse.json({ ok: false, error: 'This ticket is assigned to someone else.' }, { status: 403 });
+      }
+      const nowIso = new Date().toISOString();
+      const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
+      const openIdx = sessions.findIndex((s) => !s.endAt);
+      if (op === 'start') {
+        if (openIdx >= 0) return NextResponse.json({ ok: true, already: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
+        sessions.push({ startAt: nowIso, by: worker.name });
+        await ref.set({
+          workSessions: sessions,
+          assigneeId: t.assigneeId || worker.id,
+          assigneeName: t.assigneeName || worker.name,
+          ...(t.status === 'open' ? { status: 'in_progress' } : {}),
+          updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: 'Clock started', ...(t.status === 'open' ? { status: 'in_progress' } : {}) }],
+          updatedAt: nowIso,
+        }, { merge: true });
+        if (t.status === 'open') await syncBoothFromTickets(db, tenantId, t.boothId);
+        return NextResponse.json({ ok: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
+      }
+      // stop
+      if (openIdx < 0) return NextResponse.json({ ok: true, already: true, timedMinutes: timedMinutesOf({ workSessions: sessions }, Date.now()) });
+      sessions[openIdx] = { ...sessions[openIdx], endAt: nowIso };
+      const sessionMin = Math.max(1, Math.round((new Date(nowIso).getTime() - new Date(sessions[openIdx].startAt).getTime()) / 60000));
+      const totalMin = timedMinutesOf({ workSessions: sessions }, Date.now());
+      await ref.set({
+        workSessions: sessions,
+        updates: [...(t.updates || []), { at: nowIso, by: worker.name, byType: 'tech', note: `Clock stopped — ${fmtMinutes(sessionMin)} this session · ${fmtMinutes(totalMin)} total on the job` }],
+        updatedAt: nowIso,
+      }, { merge: true });
+      return NextResponse.json({ ok: true, timedMinutes: totalMin });
     }
 
     // ── Tech portal: SUBMIT A QUOTE ────────────────────────────────────
@@ -404,6 +453,13 @@ export async function POST(req: NextRequest) {
           if (costCents > 0) patch.costCents = costCents;
           if (laborHours > 0) patch.laborHours = laborHours;
           if (laborCents > 0) patch.laborCents = laborCents;
+          // Auto-stop a running clock — resolving IS stopping work.
+          const sessions: any[] = Array.isArray(t.workSessions) ? [...t.workSessions] : [];
+          const openIdx = sessions.findIndex((s) => !s.endAt);
+          if (openIdx >= 0) {
+            sessions[openIdx] = { ...sessions[openIdx], endAt: nowIso };
+            patch.workSessions = sessions;
+          }
         }
       }
       await ref.set(patch, { merge: true });
