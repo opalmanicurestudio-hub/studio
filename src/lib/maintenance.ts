@@ -70,6 +70,18 @@ export interface Ticket {
   // in Rules). Reimbursement rides the same payout balance as labor.
   mileage?: number | null;
   mileageCents?: number | null;
+  // REQUESTS FILED AGAINST THIS JOB — they live on this work order's
+  // thread, never as a separate ticket. Owner marks them handled.
+  openRequests?: {
+    id: string; kind: string; kindLabel: string; title: string;
+    qty?: string | null; neededBy?: string | null; estCostCents?: number;
+    forStaff?: string[]; by: string; at: string;
+    status: 'open' | 'handled';
+  }[];
+  // MID-JOB PURCHASES logged by the owner from this ticket — already in
+  // the ledger (one txn each). Kept separate from resolve-time costCents
+  // so nothing is counted twice.
+  purchasedCents?: number | null;
   // One-shot stamp: owner notified that timed work passed the agreement.
   agreementOverNotified?: boolean;
   // QUOTES — for jobs big enough to price before work starts. The tech
