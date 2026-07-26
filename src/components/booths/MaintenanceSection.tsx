@@ -351,10 +351,13 @@ export function MaintenanceSection({
       const mat = Math.max(0, Number(t.costCents) || 0);
       const lab = Math.max(0, Number(t.laborCents) || 0);
       const hrs = Math.max(0, Number(t.laborHours) || 0);
+      const q = t.quote && t.quote.status === 'approved' ? t.quote : null;
       const costRows = [
+        q ? `<tr><td>Approved quote <span class="who">(${[q.hours ? `${q.hours}h est.` : null, (q.materialsCents || 0) > 0 ? `$${(q.materialsCents / 100).toFixed(2)} materials est.` : null].filter(Boolean).join(' + ') || 'agreed price'}${q.by ? ` · by ${esc(q.by)}` : ''})</span></td><td class="amt">$${((q.totalCents || 0) / 100).toFixed(2)}</td></tr>` : '',
         mat > 0 ? `<tr><td>Materials &amp; parts${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' <span class="who">(receipt on file)</span>' : ''}</td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
         lab > 0 ? `<tr><td>Labor${hrs > 0 ? ` <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} @ $${((lab / hrs) / 100).toFixed(2)}/hr)</span>` : ''}</td><td class="amt">$${(lab / 100).toFixed(2)}</td></tr>` : '',
         hrs > 0 && lab === 0 ? `<tr><td>Labor <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} logged — no rate on file)</span></td><td class="amt">—</td></tr>` : '',
+        q && (mat + lab) > 0 ? `<tr><td><span class="who">${(mat + lab) > (q.totalCents || 0) ? `Over quote by $${(((mat + lab) - (q.totalCents || 0)) / 100).toFixed(2)}` : 'Delivered on or under quote'}</span></td><td class="amt"></td></tr>` : '',
       ].join('');
       const w = window.open('', '_blank');
       if (!w) { toast({ variant: 'destructive', title: 'Allow pop-ups to print' }); return; }
@@ -521,6 +524,24 @@ export function MaintenanceSection({
       try { await updateDoc(doc(firestore, 'tenants', tenantId, 'maintenanceWorkers', w.id), { lastAssignedAt: new Date().toISOString() }); } catch { /* rotation cursor is best-effort */ }
       fireAndForget('notify-assign', t.id);
       toast({ title: `Assigned to ${w.name}`, description: w.phone ? 'They\'ll get a text with the details.' : 'No phone on file — share their portal link directly.' });
+    }
+  };
+
+  // ── QUOTES — price agreed before work starts ─────────────────────────
+  const requestQuote = async (t: any) => {
+    if (await patchTicket(t, { quoteRequested: true, quoteRequestNotified: null }, { note: 'Quote requested before work starts' })) {
+      fireAndForget('notify-quote', t.id);
+      toast({ title: 'Quote requested', description: t.assigneeName ? `${t.assigneeName} will be texted to price it before starting.` : 'Assign a worker so someone gets the request.' });
+    }
+  };
+  const decideQuote = async (t: any, approved: boolean) => {
+    if (!t.quote) return;
+    const status = approved ? 'approved' : 'declined';
+    if (await patchTicket(t,
+      { quote: { ...t.quote, status, decidedAt: new Date().toISOString() } },
+      { note: approved ? `Quote approved — $${((t.quote.totalCents || 0) / 100).toFixed(2)}` : 'Quote declined' })) {
+      fireAndForget('notify-quote', t.id);
+      toast({ title: approved ? 'Quote approved' : 'Quote declined', description: approved ? 'The tech gets a green-light text.' : 'The tech is told to hold off — they can send a new quote.' });
     }
   };
 
@@ -773,6 +794,32 @@ export function MaintenanceSection({
                         ))}
                       </div>
                     )}
+                    {/* Quote card — pending gets decision buttons; decided
+                        shows the verdict; resolved shows quoted vs actual */}
+                    {t.quote && (
+                      <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-slate-200 bg-slate-50' : 'border-amber-300 bg-amber-50'}`}>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">
+                          Quote from {t.quote.by} · {t.quote.status === 'pending' ? 'awaiting your decision' : t.quote.status}
+                        </p>
+                        <p className="text-sm font-black mt-0.5">
+                          ${((t.quote.totalCents || 0) / 100).toFixed(2)}
+                          <span className="text-[10px] font-bold text-muted-foreground"> {[(t.quote.hours || 0) > 0 ? `${t.quote.hours}h labor` : null, (t.quote.materialsCents || 0) > 0 ? `$${(t.quote.materialsCents / 100).toFixed(0)} materials` : null].filter(Boolean).join(' + ')}</span>
+                        </p>
+                        {t.quote.note && <p className="text-[11px] font-medium text-slate-600 mt-0.5">{t.quote.note}</p>}
+                        {t.quote.status === 'pending' && (
+                          <div className="flex gap-2 mt-2">
+                            <button onClick={() => decideQuote(t, true)} className="flex-1 h-9 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Approve · ${((t.quote.totalCents || 0) / 100).toFixed(0)}</button>
+                            <button onClick={() => decideQuote(t, false)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Decline</button>
+                          </div>
+                        )}
+                        {t.quote.status === 'approved' && t.status === 'resolved' && ((t.costCents || 0) + (t.laborCents || 0)) > 0 && (
+                          <p className={`text-[10px] font-black uppercase tracking-widest mt-1 ${((t.costCents || 0) + (t.laborCents || 0)) > (t.quote.totalCents || 0) ? 'text-amber-600' : 'text-emerald-700'}`}>
+                            Actual ${(((t.costCents || 0) + (t.laborCents || 0)) / 100).toFixed(2)} vs quoted ${((t.quote.totalCents || 0) / 100).toFixed(2)}
+                            {((t.costCents || 0) + (t.laborCents || 0)) > (t.quote.totalCents || 0) ? ` · $${((((t.costCents || 0) + (t.laborCents || 0)) - (t.quote.totalCents || 0)) / 100).toFixed(2)} over` : ' · on or under'}
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {((t.costCents || 0) > 0 || (t.laborCents || 0) > 0 || (t.laborHours || 0) > 0) && (
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">
                         {[(t.costCents || 0) > 0 ? `Materials $${(t.costCents / 100).toFixed(2)} · in ledger` : null,
@@ -810,6 +857,12 @@ export function MaintenanceSection({
                           </select>
                           {t.status === 'open' && (
                             <button onClick={() => setStatus(t, 'in_progress')} className="h-9 px-3 rounded-xl bg-indigo-600 text-white font-black uppercase text-[9px] tracking-widest">Start</button>
+                          )}
+                          {!t.quote && !t.quoteRequested && t.assigneeId && (
+                            <button onClick={() => requestQuote(t)} className="h-9 px-3 rounded-xl border-2 border-indigo-300 text-indigo-700 font-black uppercase text-[9px] tracking-widest">Request quote</button>
+                          )}
+                          {t.quoteRequested && !t.quote && (
+                            <span className="text-[9px] font-black uppercase tracking-widest text-indigo-600 self-center">Quote requested…</span>
                           )}
                           <button onClick={() => { setResolveForId(resolveForId === t.id ? null : t.id); setCostDraft(''); setLaborDraft(''); setReceiptUrl(null); }}
                             className="h-9 px-3 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest">Resolve</button>
