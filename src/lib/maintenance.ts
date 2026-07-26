@@ -51,7 +51,9 @@ export interface Ticket {
   updatedAt: string;
   dueAt: string;                       // SLA deadline, derived from priority
   resolvedAt?: string | null;
-  costCents?: number | null;           // filled at resolution if there was a cost
+  costCents?: number | null;           // materials, filled at resolution
+  laborHours?: number | null;          // hours the tech logged at resolution
+  laborCents?: number | null;          // laborHours × the OWNER-set hourly rate
   overdueNotifiedAt?: string | null;   // cron stamp — one nag, not nightly spam
 }
 
@@ -71,6 +73,9 @@ export interface MaintenanceWorker {
   //              accrues to unpaidLaborCents until the owner pays it out
   //              (one tap → 'Contract Labor' expense in the ledger).
   payType?: 'payroll' | 'per_job';
+  // Set by the OWNER. Techs log hours; the server prices them at this rate.
+  // 0 / unset = hours are recorded but no labor money accrues.
+  hourlyRateCents?: number;
   unpaidLaborCents?: number;
   laborPayments?: { at: string; amountCents: number; method?: string }[];
   // Round-robin cursor — auto-rotation assigns the least-recently-assigned
