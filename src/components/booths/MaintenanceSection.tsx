@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Wrench, Plus, Users, CalendarClock, BookUser, Phone, Mail, MessageCircle, FileClock, Shield } from 'lucide-react';
 import {
   dueAtFor, ticketBlocksBooth, isTicketOverdue, addDaysISO, PLAN_INTERVALS, pickRotationWorker,
+  timedMinutesOf, fmtMinutes,
   TICKET_STATUS_LABELS, TICKET_STATUS_TONES, TICKET_PRIORITY_LABELS, TICKET_PRIORITY_TONES, TICKET_CATEGORIES,
   type TicketPriority, type TicketStatus,
 } from '@/lib/maintenance';
@@ -363,6 +364,7 @@ export function MaintenanceSection({
         mat > 0 ? `<tr><td>Materials &amp; parts${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' <span class="who">(receipt on file)</span>' : ''}</td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
         lab > 0 ? `<tr><td>Labor${hrs > 0 ? ` <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} @ $${((lab / hrs) / 100).toFixed(2)}/hr)</span>` : ''}</td><td class="amt">$${(lab / 100).toFixed(2)}</td></tr>` : '',
         hrs > 0 && lab === 0 ? `<tr><td>Labor <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} logged — no rate on file)</span></td><td class="amt">—</td></tr>` : '',
+        (t.workSessions || []).length > 0 ? `<tr><td><span class="who">Job clock: ${esc(fmtMinutes(timedMinutesOf(t, Date.now())))} recorded across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}</span></td><td class="amt"></td></tr>` : '',
         q && (mat + lab) > 0 ? `<tr><td><span class="who">${(mat + lab) > (q.totalCents || 0) ? `Over quote by $${(((mat + lab) - (q.totalCents || 0)) / 100).toFixed(2)}` : 'Delivered on or under quote'}</span></td><td class="amt"></td></tr>` : '',
       ].join('');
       const w = window.open('', '_blank');
@@ -894,6 +896,20 @@ export function MaintenanceSection({
                           (t.laborCents || 0) > 0 ? `Labor $${(t.laborCents / 100).toFixed(2)}${(t.laborHours || 0) > 0 ? ` (${t.laborHours}h)` : ''}` : (t.laborHours || 0) > 0 ? `${t.laborHours}h logged · no rate set` : null].filter(Boolean).join(' · ')}
                       </p>
                     )}
+                    {/* Job clock read-out: live when running; timed-vs-claimed
+                        check once resolved (amber when claimed runs 25%+ hot) */}
+                    {(t.workSessions || []).length > 0 && (() => {
+                      const tm = timedMinutesOf(t, Date.now());
+                      const running = (t.workSessions || []).some((s: any) => !s.endAt);
+                      const claimedMin = (Number(t.laborHours) || 0) * 60;
+                      const hot = t.status === 'resolved' && claimedMin > 0 && tm > 0 && claimedMin > tm * 1.25;
+                      return (
+                        <p className={`text-[10px] font-black uppercase tracking-widest ${running ? 'text-emerald-600' : hot ? 'text-amber-600' : 'text-slate-400'}`}>
+                          {running ? `Clock running · ${fmtMinutes(tm)} so far` : `Timer: ${fmtMinutes(tm)} across ${(t.workSessions || []).length} session${(t.workSessions || []).length === 1 ? '' : 's'}`}
+                          {hot ? ` · claimed ${t.laborHours}h — ${fmtMinutes(Math.round(claimedMin - tm))} more than timed` : ''}
+                        </p>
+                      );
+                    })()}
                     <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
                       Print work order
                     </button>
