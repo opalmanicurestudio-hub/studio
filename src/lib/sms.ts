@@ -77,6 +77,12 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
 // Tenant-branded send: prefixes the studio name and honors a tenant's own
 // number/messaging service if they've been given one. Also logs the send
 // to the tenant's smsLog for an auditable communication trail.
+//
+// PRODUCTION COMPLIANCE, automatic: the FIRST message this tenant ever
+// sends to a given number carries "Reply STOP to opt out." — exactly what
+// the A2P registration promises carriers. Later messages in the ongoing
+// relationship stay clean (the disclosure requirement is first-contact,
+// and Twilio enforces STOP at the carrier level regardless).
 export async function sendTenantSms(db: any, tenantId: string, to: string, body: string): Promise<SmsResult> {
   let studioName = '';
   let from: string | undefined;
@@ -88,7 +94,20 @@ export async function sendTenantSms(db: any, tenantId: string, to: string, body:
     from = data?.sms?.fromNumber || undefined;
     messagingServiceSid = data?.sms?.messagingServiceSid || undefined;
   } catch { /* branding is best-effort */ }
-  const branded = studioName ? `${studioName}: ${body}` : body;
+  const e164 = toE164(to);
+  let firstContact = false;
+  if (e164) {
+    try {
+      const rRef = db.doc(`tenants/${tenantId}/private/smsRecipients`);
+      const seen = ((await rRef.get()).data() as any) || {};
+      const key = e164.replace(/[^\d]/g, '');
+      if (!seen[key]) {
+        firstContact = true;
+        await rRef.set({ [key]: new Date().toISOString() }, { merge: true });
+      }
+    } catch { /* opt-out line is best-effort; carrier STOP still protects */ }
+  }
+  const branded = `${studioName ? `${studioName}: ` : ''}${body}${firstContact ? ' Reply STOP to opt out.' : ''}`;
   const result = await sendSms(to, branded, { from, messagingServiceSid });
   try {
     const ref = db.collection(`tenants/${tenantId}/private`).doc('smsLog')
