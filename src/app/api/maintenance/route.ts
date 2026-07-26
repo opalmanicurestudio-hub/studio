@@ -256,10 +256,12 @@ export async function POST(req: NextRequest) {
       const w = wSnap.exists ? (wSnap.data() as any) : null;
       let sent = false;
       if (w?.phone && smsConfigured()) {
-        // Tenant's permanent domain first — the caller's origin may be a
-        // deployment-specific preview URL that dies on the next deploy.
+        // Permanent domain, automatically: manual override → Vercel's
+        // production-domain env var → the caller's origin as last resort
+        // (a preview URL that would die on the next deploy).
         let base = '';
         try { base = String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.publicOrigin || '').replace(/\/+$/, ''); } catch { /* fall back */ }
+        if (!base && process.env.VERCEL_PROJECT_PRODUCTION_URL) base = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
         if (!base) base = String(body.origin || '').replace(/\/+$/, '');
         const link = base ? ` Details: ${base}/maintain/${tenantId}?t=${w.token}` : '';
         const r = await sendTenantSms(db, tenantId, w.phone,
