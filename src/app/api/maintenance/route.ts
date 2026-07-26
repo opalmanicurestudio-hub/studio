@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
           id: worker.id, name: worker.name,
           payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
           unpaidLaborCents: Math.max(0, Math.round(Number(worker.unpaidLaborCents) || 0)),
+          unpaidMaterialsCents: Math.max(0, Math.round(Number(worker.unpaidMaterialsCents) || 0)),
           hourlyRateCents: Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0)),
         },
         tickets: tickets.map((t) => ({
@@ -476,6 +477,15 @@ export async function POST(req: NextRequest) {
       // cannot invent their own pay. No rate on file → nothing accrues and
       // the tech is told to ask the studio. Hours are capped at 24/job.
       const costCents = status === 'resolved' ? Math.max(0, Math.round(Number(body.costCents) || 0)) : 0;
+      // WHO PAID for the materials decides WHEN it's an expense:
+      // 'studio' — studio money already left (studio card / cash given) →
+      //            ledger expense now; the bank feed's near-match will
+      //            reconcile the card line to it, no double count.
+      // 'tech'   — the tech fronted their own money → the studio owes a
+      //            REIMBURSEMENT. Nothing hits the ledger yet; it accrues
+      //            on the worker's balance and books at payout, when the
+      //            studio's cash actually moves.
+      const paidBy: 'studio' | 'tech' = body.paidBy === 'tech' ? 'tech' : 'studio';
       const laborHours = status === 'resolved' ? Math.min(24, Math.max(0, Number(body.laborHours) || 0)) : 0;
       const rateCents = Math.max(0, Math.round(Number(worker.hourlyRateCents) || 0));
       const laborCents = laborHours > 0 && rateCents > 0 && worker.payType !== 'payroll'
@@ -506,7 +516,7 @@ export async function POST(req: NextRequest) {
         patch.status = status;
         if (status === 'resolved') {
           patch.resolvedAt = nowIso;
-          if (costCents > 0) patch.costCents = costCents;
+          if (costCents > 0) { patch.costCents = costCents; patch.materialsPaidBy = paidBy; }
           if (laborHours > 0) patch.laborHours = laborHours;
           if (laborCents > 0) patch.laborCents = laborCents;
           if (miles > 0) { patch.mileage = miles; if (mileageCents > 0) patch.mileageCents = mileageCents; }
@@ -556,7 +566,9 @@ export async function POST(req: NextRequest) {
       const overAgreement = t.quote?.status === 'approved' && (t.quote.totalCents || 0) > 0
         && (costCents + laborCents) > t.quote.totalCents;
 
-      if (costCents > 0) {
+      let materialsNote: string | null = null;
+      if (costCents > 0 && paidBy === 'studio') {
+        // Studio money already left → real expense, book it now.
         try {
           const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
           await txnRef.set({
@@ -569,12 +581,21 @@ export async function POST(req: NextRequest) {
             hasReceipt: !!photoUrl, receiptUrl: photoUrl || null,
             sourceId: ticketId, tenantId, createdAt: nowIso,
           });
-        } catch { /* the resolution stands; the owner can log the expense manually */ }
+          materialsNote = `$${(costCents / 100).toFixed(2)} studio-paid (logged to ledger)`;
+        } catch { materialsNote = `$${(costCents / 100).toFixed(2)} — ledger write failed, log manually`; }
+      } else if (costCents > 0 && paidBy === 'tech') {
+        // Tech fronted it → a debt, not an expense. Accrues until payout.
+        try {
+          const { FieldValue } = await import('firebase-admin/firestore');
+          await db.doc(`tenants/${tenantId}/maintenanceWorkers/${worker.id}`).set(
+            { unpaidMaterialsCents: FieldValue.increment(costCents) }, { merge: true });
+          materialsNote = `$${(costCents / 100).toFixed(2)} fronted by ${worker.name} — reimbursement owed, books at payout`;
+        } catch { materialsNote = `$${(costCents / 100).toFixed(2)} fronted — could not accrue, note it manually`; }
       }
 
       await syncBoothFromTickets(db, tenantId, t.boothId);
       await notifyOwner(db, tenantId,
-        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${costCents > 0 ? ` · materials $${(costCents / 100).toFixed(2)} (logged to ledger)` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · OVER THE AGREED QUOTE ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
+        `Maintenance: ${worker.name} ${status === 'resolved' ? 'RESOLVED' : status === 'in_progress' ? 'started' : dueDate && !status ? `moved the deadline on` : 'updated'} "${t.title}"${t.boothName ? ` (${t.boothName})` : ''}${materialsNote ? ` · materials: ${materialsNote}` : ''}${laborNote ? ` · labor: ${laborNote}` : ''}${mileageNote ? ` · mileage: ${mileageNote}` : ''}${overAgreement ? ` · OVER THE AGREED QUOTE ($${(((costCents + laborCents) - (t.quote.totalCents || 0)) / 100).toFixed(2)} above $${((t.quote.totalCents || 0) / 100).toFixed(2)})` : ''}${note ? ` — "${note.slice(0, 100)}"` : ''}${photoUrl ? ' · photo attached' : ''}`);
       // Keep the reporter in the loop automatically.
       if (t.reporter?.phone && smsConfigured() && status) {
         await sendTenantSms(db, tenantId, t.reporter.phone,
