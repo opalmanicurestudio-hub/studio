@@ -6157,6 +6157,7 @@ export default function BoothsPage() {
               autoAssign={(selectedTenant as any)?.maintenanceAutoAssign === 'rotate'}
               publicOrigin={(selectedTenant as any)?.publicOrigin || null}
               studioName={(selectedTenant as any)?.name || ''}
+              rules={(selectedTenant as any)?.maintenanceRules || null}
             />
           </div>
 
