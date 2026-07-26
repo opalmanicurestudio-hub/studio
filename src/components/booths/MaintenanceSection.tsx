@@ -148,7 +148,7 @@ export function MaintenanceSection({
       await setDoc(txnRef, {
         id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
         amount: cents / 100, category: 'Contract Labor',
-        description: `Maintenance labor payout — ${w.name}`,
+        description: `Maintenance payout — ${w.name} (settles labor + mileage accrued to date)`,
         clientOrVendor: w.name, date: nowIso, paymentMethod: payoutMethod,
         hasReceipt: false, sourceId: w.id, tenantId, createdAt: nowIso,
       });
@@ -372,9 +372,11 @@ export function MaintenanceSection({
       const lab = Math.max(0, Number(t.laborCents) || 0);
       const hrs = Math.max(0, Number(t.laborHours) || 0);
       const q = t.quote && t.quote.status === 'approved' ? t.quote : null;
+      const purchased = Math.max(0, Number(t.purchasedCents) || 0);
       const costRows = [
         q ? `<tr><td>Approved quote <span class="who">(${[q.hours ? `${q.hours}h est.` : null, (q.materialsCents || 0) > 0 ? `$${(q.materialsCents / 100).toFixed(2)} materials est.` : null].filter(Boolean).join(' + ') || 'agreed price'}${q.by ? ` · by ${esc(q.by)}` : ''})</span></td><td class="amt">$${((q.totalCents || 0) / 100).toFixed(2)}</td></tr>` : '',
-        mat > 0 ? `<tr><td>Materials &amp; parts${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' <span class="who">(receipt on file)</span>' : ''}</td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
+        purchased > 0 ? `<tr><td>Purchases during the job <span class="who">(each already in the ledger with its receipt)</span></td><td class="amt">$${(purchased / 100).toFixed(2)}</td></tr>` : '',
+        mat > 0 ? `<tr><td>Materials at completion${(Array.isArray(t.photoUrls) && t.photoUrls.length > 0) ? ' <span class="who">(receipt on file)</span>' : ''}</td><td class="amt">$${(mat / 100).toFixed(2)}</td></tr>` : '',
         lab > 0 ? `<tr><td>Labor${hrs > 0 ? ` <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} @ $${((lab / hrs) / 100).toFixed(2)}/hr)</span>` : ''}</td><td class="amt">$${(lab / 100).toFixed(2)}</td></tr>` : '',
         hrs > 0 && lab === 0 ? `<tr><td>Labor <span class="who">(${hrs} hr${hrs === 1 ? '' : 's'} logged — no rate on file)</span></td><td class="amt">—</td></tr>` : '',
         (t.mileage || 0) > 0 ? `<tr><td>Mileage <span class="who">(${t.mileage} mi)</span></td><td class="amt">${(t.mileageCents || 0) > 0 ? `$${((t.mileageCents || 0) / 100).toFixed(2)}` : '—'}</td></tr>` : '',
@@ -437,7 +439,7 @@ export function MaintenanceSection({
           <div><span class="lbl">${t.resolvedAt ? 'Resolved' : 'Due'}</span>${esc(t.resolvedAt ? fmtWhen(t.resolvedAt) : t.dueAt ? fmtWhen(t.dueAt) : '—')}</div>
         </div>
         ${t.description ? `<p class="desc">${esc(t.description)}</p>` : ''}
-        ${costRows ? `<h2>Cost breakdown</h2><table><tr><th>Item</th><th style="text-align:right">Amount</th></tr>${costRows}<tr class="total"><td>Total</td><td class="amt">$${(((mat + lab)) / 100).toFixed(2)}</td></tr></table>` : ''}
+        ${costRows ? `<h2>Cost breakdown</h2><table><tr><th>Item</th><th style="text-align:right">Amount</th></tr>${costRows}<tr class="total"><td>Total job cost</td><td class="amt">$${((purchased + mat + lab + Math.max(0, Number(t.mileageCents) || 0)) / 100).toFixed(2)}</td></tr></table>` : ''}
         <h2>Activity log</h2>
         <table><tr><th>When</th><th>Who</th><th>Update</th></tr>${rows || '<tr><td colspan="3">No updates yet</td></tr>'}</table>
         ${photos ? `<h2>Photo record</h2><div class="photos">${photos}</div>` : ''}
@@ -574,6 +576,54 @@ export function MaintenanceSection({
       setRulesOpen(false);
     } catch { toast({ variant: 'destructive', title: 'Could not save rules' }); }
     finally { setRulesSaving(false); }
+  };
+
+  // ── REQUESTS ON THE THREAD — mark handled without leaving the job ────
+  const markRequestHandled = async (t: any, reqId: string) => {
+    const reqs = (t.openRequests || []).map((r: any) => r.id === reqId ? { ...r, status: 'handled' } : r);
+    const req = (t.openRequests || []).find((r: any) => r.id === reqId);
+    if (await patchTicket(t, { openRequests: reqs }, { note: `Request handled: "${req?.title || 'request'}"` })) {
+      fireAndForget('notify-reporter', t.id);
+      toast({ title: 'Marked handled', description: 'It stays on the thread for the record. If you bought something, log the purchase below so the ledger has it.' });
+    }
+  };
+
+  // ── MID-JOB PURCHASES — money spent BEFORE resolve, recorded the
+  // moment it happens. One ledger transaction per purchase (receipt
+  // attached), accumulated on the ticket as purchasedCents so the
+  // resolve step can't double-count it.
+  const [purchaseForId, setPurchaseForId] = useState<string | null>(null);
+  const [purchaseDraft, setPurchaseDraft] = useState('');
+  const [purchaseDesc, setPurchaseDesc] = useState('');
+  const [purchaseReceipt, setPurchaseReceipt] = useState<string | null>(null);
+  const logPurchase = async (t: any) => {
+    const cents = Math.round(Number(purchaseDraft) * 100) || 0;
+    if (!(cents > 0)) { toast({ variant: 'destructive', title: 'Enter the amount' }); return; }
+    try {
+      const nowIso = new Date().toISOString();
+      const txnRef = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
+      await setDoc(txnRef, {
+        id: txnRef.id, type: 'expense', context: 'Business', taxBucket: 'operating_cost',
+        amount: cents / 100, category: 'Maintenance & Repairs',
+        description: `Maintenance purchase — ${purchaseDesc.trim() || t.title}${t.boothName ? ` (${t.boothName})` : ''}`,
+        clientOrVendor: t.assigneeName || 'Maintenance', date: nowIso, paymentMethod: 'See receipt',
+        hasReceipt: !!purchaseReceipt, receiptUrl: purchaseReceipt || null,
+        sourceId: t.id, tenantId, createdAt: nowIso,
+      });
+      const aRef = doc(collection(firestore, 'tenants', tenantId, 'auditLogs'));
+      await setDoc(aRef, { id: aRef.id, ...auditEntry({
+        action: 'maintenance.purchase_logged', targetType: 'ticket', targetId: t.id,
+        summary: `Purchase $${(cents / 100).toFixed(2)} for "${t.title}"${purchaseDesc.trim() ? ` — ${purchaseDesc.trim()}` : ''}`,
+        amount: cents / 100, actor: { type: 'user', name: me },
+      }) });
+      const entry: any = { note: `Purchase logged — $${(cents / 100).toFixed(2)}${purchaseDesc.trim() ? ` (${purchaseDesc.trim()})` : ''} · in the ledger${purchaseReceipt ? ' with receipt' : ''}` };
+      if (purchaseReceipt) entry.photoUrl = purchaseReceipt;
+      const patch: any = { purchasedCents: (Math.max(0, Number(t.purchasedCents) || 0)) + cents };
+      if (purchaseReceipt) patch.photoUrls = [...(Array.isArray(t.photoUrls) ? t.photoUrls : []), purchaseReceipt];
+      await patchTicket(t, patch, entry);
+      toast({ title: 'Purchase in the books', description: `$${(cents / 100).toFixed(2)} under Maintenance & Repairs${purchaseReceipt ? ' with the receipt attached' : ''}.` });
+      setPurchaseForId(null); setPurchaseDraft(''); setPurchaseDesc(''); setPurchaseReceipt(null);
+    } catch { toast({ variant: 'destructive', title: 'Purchase not logged', description: 'Nothing was saved — try again.' }); }
   };
 
   // ── QUOTES — price agreed before work starts ─────────────────────────
@@ -888,6 +938,23 @@ export function MaintenanceSection({
                         <p className="col-span-2 text-[10px] font-bold text-violet-600">Bought it? Resolve with the Materials $ and receipt — the purchase logs to the ledger and {t.reporter?.name || 'the tech'} gets a text.</p>
                       </div>
                     )}
+                    {/* Requests filed against THIS job — on this thread,
+                        handled here, never a second work order */}
+                    {(t.openRequests || []).filter((r: any) => r.status === 'open').map((r: any) => (
+                      <div key={r.id} className="rounded-xl border-2 border-amber-300 bg-amber-50 p-2.5 flex items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">{r.kindLabel} · {r.by}</p>
+                          <p className="text-xs font-black mt-0.5">{r.title}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground">
+                            {[r.qty ? `qty ${r.qty}` : null, r.neededBy ? `by ${r.neededBy}` : null,
+                              (r.estCostCents || 0) > 0 ? `est. $${(r.estCostCents / 100).toFixed(0)}` : null,
+                              r.forStaff?.length ? `for ${r.forStaff.join(', ')}` : null].filter(Boolean).join(' · ') || fmtWhen(r.at)}
+                          </p>
+                        </div>
+                        <button onClick={() => markRequestHandled(t, r.id)}
+                          className="h-8 px-2.5 rounded-lg bg-amber-600 text-white font-black uppercase text-[9px] tracking-widest shrink-0">Handled</button>
+                      </div>
+                    ))}
                     {t.description && <p className="text-xs font-medium text-slate-600 whitespace-pre-wrap">{t.description}</p>}
                     {Array.isArray(t.photoUrls) && t.photoUrls.length > 0 && (
                       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -968,9 +1035,43 @@ export function MaintenanceSection({
                         Mileage {t.mileage} mi{(t.mileageCents || 0) > 0 ? ` · $${((t.mileageCents || 0) / 100).toFixed(2)} reimbursed via payout balance` : ''}
                       </p>
                     )}
-                    <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
-                      Print work order
-                    </button>
+                    {(t.purchasedCents || 0) > 0 && (
+                      <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                        Purchases logged so far ${((t.purchasedCents || 0) / 100).toFixed(2)} · already in the ledger
+                      </p>
+                    )}
+                    <div className="flex gap-3 items-center flex-wrap">
+                      {['open', 'in_progress'].includes(t.status) && (
+                        <button onClick={() => { setPurchaseForId(purchaseForId === t.id ? null : t.id); setPurchaseDraft(''); setPurchaseDesc(''); setPurchaseReceipt(null); }}
+                          className="text-[9px] font-black uppercase tracking-widest text-emerald-700 underline underline-offset-2">
+                          Log purchase
+                        </button>
+                      )}
+                      <button onClick={() => printTicket(t)} className="text-[9px] font-black uppercase tracking-widest text-slate-400 underline underline-offset-2">
+                        Print work order
+                      </button>
+                    </div>
+                    {purchaseForId === t.id && (
+                      <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2.5 space-y-2">
+                        <div className="flex gap-2 items-center flex-wrap">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700">Purchase $</span>
+                          <input type="number" inputMode="decimal" min={0} value={purchaseDraft} onChange={(e) => setPurchaseDraft(e.target.value)}
+                            autoFocus placeholder="0" className="w-24 h-9 rounded-xl border-2 px-2 text-sm font-bold" />
+                          <label className={`h-9 px-2.5 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest flex items-center cursor-pointer shrink-0 bg-white ${purchaseReceipt ? 'border-emerald-400 text-emerald-700' : 'text-slate-500'}`}>
+                            {uploading ? '…' : purchaseReceipt ? 'Receipt ✓' : 'Receipt'}
+                            <input type="file" accept="image/*" className="hidden"
+                              onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) { const url = await uploadPhoto(f); if (url) setPurchaseReceipt(url); } }} />
+                          </label>
+                        </div>
+                        <input value={purchaseDesc} onChange={(e) => setPurchaseDesc(e.target.value)} placeholder="What was bought — e.g. 2× compression valve, Home Depot"
+                          className="w-full h-9 rounded-xl border-2 px-3 text-sm font-medium" />
+                        <button onClick={() => logPurchase(t)} disabled={uploading || !(Number(purchaseDraft) > 0)}
+                          className="w-full h-10 rounded-xl bg-emerald-600 text-white font-black uppercase text-[9px] tracking-widest disabled:opacity-40">
+                          Log to ledger now{Number(purchaseDraft) > 0 ? ` · $${Number(purchaseDraft).toFixed(2)}` : ''}
+                        </button>
+                        <p className="text-[9px] font-bold text-emerald-700/70">Goes straight to Maintenance &amp; Repairs — the resolve step won't count it again.</p>
+                      </div>
+                    )}
                     {(t.updates || []).length > 0 && (
                       <div className="space-y-1">
                         {(t.updates || []).slice(-6).map((u: any, i: number) => (
@@ -1012,6 +1113,11 @@ export function MaintenanceSection({
                         </div>
                         {resolveForId === t.id && (
                           <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-2.5 space-y-2">
+                            {(t.purchasedCents || 0) > 0 && (
+                              <p className="text-[10px] font-black text-amber-700">
+                                ${((t.purchasedCents || 0) / 100).toFixed(2)} of purchases are ALREADY in the ledger from this job — enter only materials not yet logged, or 0.
+                              </p>
+                            )}
                             <div className="flex gap-2 items-center flex-wrap">
                               <span className="text-[9px] font-black uppercase tracking-widest text-emerald-700 w-20">Materials $</span>
                               <input type="number" inputMode="decimal" min={0} value={costDraft} onChange={(e) => setCostDraft(e.target.value)}
@@ -1508,6 +1614,9 @@ export function MaintenanceSection({
                         )}
                         {Array.isArray(w.laborPayments) && w.laborPayments.length > 0 && (
                           <div className="space-y-0.5 pt-1 border-t">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-600">
+                              Paid out to date: ${(w.laborPayments.reduce((a: number, p: any) => a + (Number(p.amountCents) || 0), 0) / 100).toFixed(2)} across {w.laborPayments.length} payout{w.laborPayments.length === 1 ? '' : 's'}
+                            </p>
                             {w.laborPayments.slice(-3).reverse().map((p: any, i: number) => (
                               <p key={i} className="text-[10px] font-bold text-muted-foreground">Paid ${(p.amountCents / 100).toFixed(2)}{p.method ? ` · ${p.method}` : ''} · {fmtWhen(p.at)}</p>
                             ))}
