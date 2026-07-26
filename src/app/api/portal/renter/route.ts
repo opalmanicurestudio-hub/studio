@@ -279,6 +279,42 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: entry.name || null });
     }
 
+    // ═══ token-login — the renter's MAGIC LINK ════════════════════════════
+    // The owner shares /rent/{tenantId}?rt=TOKEN from the renter's profile;
+    // opening it signs the renter straight in — no code, no SMS required.
+    // This is what makes the portal usable BEFORE Twilio is set up (and
+    // easier after). The token lives on the renter doc; the owner clears or
+    // regenerates it to revoke. Same rate-limit pool as code attempts, so
+    // token guessing burns the same budget as code guessing.
+    if (action === 'token-login') {
+      const tok = String(body.magicToken || '').trim();
+      if (!tok || tok.length < 12) {
+        return NextResponse.json({ ok: false, error: 'This link is incomplete — ask the studio to resend it.' }, { status: 400 });
+      }
+      if (await slidingWindow(db, tenantId, 'failedAt', MAX_VERIFY_FAILS)) {
+        return NextResponse.json({ ok: false, error: 'Too many attempts — try again in 15 minutes.' }, { status: 423 });
+      }
+      const rs = await db.collection(`tenants/${tenantId}/renters`).where('portalToken', '==', tok).limit(1).get();
+      if (rs.empty) {
+        await recordStamp(db, tenantId, 'failedAt');
+        return NextResponse.json({ ok: false, error: 'This link is no longer valid — ask the studio for a fresh one.' }, { status: 401 });
+      }
+      const r = { id: rs.docs[0].id, ...(rs.docs[0].data() as any) };
+      const key = normContact(String(r.phone || r.email || ''));
+      if (!key) {
+        return NextResponse.json({ ok: false, error: 'No phone or email on your renter record — the studio needs to add one.' }, { status: 400 });
+      }
+      await recordStamp(db, tenantId, 'failedAt', true);
+      const session = await createSession(db, tenantId, key, r.name || null, r.id);
+      await logAuditAdmin(db, tenantId, {
+        action: 'portal.renter_login',
+        targetType: 'renter', targetId: r.id,
+        summary: `${r.name || 'A renter'} signed in to the renter portal via their personal link`,
+        actor: { type: 'user', name: r.name || null, role: 'renter', via: 'renter-portal-magic-link' },
+      });
+      return NextResponse.json({ ok: true, token: session.token, expiresAt: session.expiresAt, name: r.name || null });
+    }
+
     // ═══ Everything below requires a session ══════════════════════════════
     const session = await resolveSession(db, tenantId, body.token);
     if (!session) {
