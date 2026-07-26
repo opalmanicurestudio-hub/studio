@@ -72,13 +72,22 @@ export function MaintenancePortalPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'worker-view', tenantId, token }),
       });
-      const d = await res.json();
-      if (!d.ok) { setState('denied'); setError(d.error || 'Access denied.'); return; }
+      // Surface the REAL failure — a generic "network error" hides whether
+      // the API route is missing (404), crashed (500), or rejected the token.
+      let d: any = null;
+      try { d = await res.json(); } catch { /* non-JSON body (error page) */ }
+      if (!res.ok || !d?.ok) {
+        setState('denied');
+        if (res.status === 404) setError('The portal service is not on this deployment (404). The app needs src/app/api/maintenance/route.ts deployed — then this link will work.');
+        else if (res.status >= 500) setError(`The portal service hit an error (${res.status})${d?.error ? ` — ${d.error}` : ''}. The studio can check the /api/maintenance function logs.`);
+        else setError(d?.error || `Access denied (${res.status}). Ask the studio to resend your link.`);
+        return;
+      }
       setStudioName(d.studioName || 'The studio');
       setWorker(d.worker);
       setTickets(d.tickets || []);
       setState('ready');
-    } catch { setState('denied'); setError('Network error — pull to refresh.'); }
+    } catch { setState('denied'); setError('No connection to the server — check your signal and tap Try again.'); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [tenantId, token]);
 
@@ -127,9 +136,15 @@ export function MaintenancePortalPage() {
         )}
 
         {state === 'denied' && (
-          <div className="rounded-3xl bg-white border-2 p-6 text-center space-y-1">
-            <p className="text-sm font-black text-slate-900">Can't open the queue</p>
-            <p className="text-xs font-bold text-slate-500">{error}</p>
+          <div className="rounded-3xl bg-white border-2 p-6 text-center space-y-3">
+            <div className="space-y-1">
+              <p className="text-sm font-black text-slate-900">Can't open the queue</p>
+              <p className="text-xs font-bold text-slate-500">{error}</p>
+            </div>
+            <button onClick={() => { setState('loading'); setError(''); load(); }}
+              className="h-10 px-5 rounded-xl bg-slate-900 text-white font-black uppercase text-[9px] tracking-widest">
+              Try again
+            </button>
           </div>
         )}
 
