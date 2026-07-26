@@ -69,6 +69,14 @@ export async function autoAssignTicket(
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024; // 3 MB decoded — phone photos compress well below this
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
+// NOTE on buckets: the admin SDK only knows its default bucket when the
+// app was initialized with { storageBucket } — many setups aren't, and
+// getStorage().bucket() then throws "Bucket name not specified", which
+// used to surface as "photo upload is not available". The uploader below
+// therefore tries every plausible bucket in order: the app default, the
+// server env, the client env (always present — it's in the web config),
+// and both Firebase bucket-naming conventions derived from the project id.
+
 export interface PhotoUploadResult { url: string | null; error?: string }
 
 // dataUrl: "data:image/jpeg;base64,...."
@@ -90,18 +98,34 @@ export async function uploadTicketPhotoFromDataUrl(
     const ext = mime === 'image/jpeg' ? 'jpg' : mime.split('/')[1];
     const path = `tenants/${tenantId}/tickets/${ticketId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
-    // Default bucket from the admin app's options. A token in the URL makes
-    // the file readable via the standard Firebase download URL WITHOUT
-    // opening Storage rules — the same mechanism client getDownloadURL uses.
-    const bucket = getStorage().bucket();
+    // A token in the URL makes the file readable via the standard Firebase
+    // download URL WITHOUT opening Storage rules — the same mechanism
+    // client getDownloadURL uses. Both bucket-naming conventions are tried:
+    // older projects use {id}.appspot.com, newer ones {id}.firebasestorage.app.
     const token = (globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    const file = bucket.file(path);
-    await file.save(buf, {
-      contentType: mime,
-      metadata: { metadata: { firebaseStorageDownloadTokens: token } },
-    });
-    const url = `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}`;
-    return { url };
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || '';
+    const names: (string | null)[] = [null, // null = the app's default bucket
+      process.env.FIREBASE_STORAGE_BUCKET || null,
+      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || null,
+      projectId ? `${projectId}.firebasestorage.app` : null,
+      projectId ? `${projectId}.appspot.com` : null,
+    ];
+    const tried = new Set<string>();
+    let lastErr: any = null;
+    for (const name of names) {
+      if (name !== null && tried.has(name)) continue;
+      if (name !== null) tried.add(name);
+      try {
+        const bucket = name === null ? getStorage().bucket() : getStorage().bucket(name);
+        await bucket.file(path).save(buf, {
+          contentType: mime,
+          metadata: { metadata: { firebaseStorageDownloadTokens: token } },
+        });
+        return { url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(path)}?alt=media&token=${token}` };
+      } catch (err) { lastErr = err; }
+    }
+    console.error('[maintenance] photo upload failed on every bucket candidate', lastErr);
+    return { url: null, error: 'Photo upload is not available right now — the rest of your update was saved.' };
   } catch (err: any) {
     console.error('[maintenance] photo upload failed', err);
     return { url: null, error: 'Photo upload is not available right now — the rest of your update was saved.' };
