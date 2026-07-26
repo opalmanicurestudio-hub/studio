@@ -100,9 +100,20 @@ export async function POST(req: NextRequest) {
         studioName = (t.data() as any)?.name || (t.data() as any)?.businessName || studioName;
         rules = normalizeRules((t.data() as any)?.maintenanceRules);
       } catch { /* cosmetic */ }
+      // Staff first names only — so a request can say WHO has the problem
+      // ("blow dryer at Maya's chair") without exposing contact details.
+      let staffNames: string[] = [];
+      try {
+        const sSnap = await db.collection(`tenants/${tenantId}/staff`).get();
+        staffNames = sSnap.docs
+          .map((d) => (d.data() as any))
+          .filter((s) => (s.name || '').trim() && s.active !== false && !s.archived)
+          .map((s) => String(s.name).trim())
+          .sort();
+      } catch { /* names are a nicety */ }
       // Minimal reporter exposure: name only — techs don't need contacts.
       return NextResponse.json({
-        ok: true, studioName, rules,
+        ok: true, studioName, rules, staffNames,
         worker: {
           id: worker.id, name: worker.name,
           payType: worker.payType === 'payroll' ? 'payroll' : 'per_job',
@@ -118,6 +129,7 @@ export async function POST(req: NextRequest) {
           assignedToMe: t.assigneeId === worker.id,
           quote: t.quote || null,
           quoteRequested: !!t.quoteRequested,
+          requestMeta: t.requestMeta || null,
           photoUrls: Array.isArray(t.photoUrls) ? t.photoUrls : [],
           updates: (t.updates || []).map((u: any) => ({ at: u.at, by: u.by, byType: u.byType, note: u.note || null, status: u.status || null, photoUrl: u.photoUrl || null })),
         })),
@@ -145,6 +157,29 @@ export async function POST(req: NextRequest) {
       const title = String(body.title || '').trim().slice(0, 140);
       const detail = String(body.detail || '').trim().slice(0, 1000);
       if (!title) return NextResponse.json({ ok: false, error: 'Say what you need in a few words.' }, { status: 400 });
+      // STRUCTURED context — the difference between "need caulk" and a
+      // decision the owner can make from their phone in five seconds:
+      // what kind, how many, by when, roughly how much, for which job,
+      // and which staff member is affected.
+      const kind = ['materials', 'tool', 'access', 'help', 'other'].includes(body.kind) ? body.kind : 'other';
+      const qty = String(body.qty || '').trim().slice(0, 60);
+      const neededBy = /^\d{4}-\d{2}-\d{2}$/.test(String(body.neededBy || '')) ? String(body.neededBy) : null;
+      const estCostCents = Math.min(5_000_000, Math.max(0, Math.round(Number(body.estCostCents) || 0)));
+      const forStaff = Array.isArray(body.forStaff) ? body.forStaff.map((s: any) => String(s).slice(0, 60)).slice(0, 8) : [];
+      let relatedTicketId: string | null = null;
+      let relatedTicketTitle: string | null = null;
+      let relatedBoothId: string | null = null;
+      let relatedBoothName: string | null = null;
+      if (body.relatedTicketId) {
+        try {
+          const rt = await db.doc(`tenants/${tenantId}/tickets/${String(body.relatedTicketId)}`).get();
+          if (rt.exists) {
+            const rd = rt.data() as any;
+            relatedTicketId = rt.id; relatedTicketTitle = rd.title || null;
+            relatedBoothId = rd.boothId || null; relatedBoothName = rd.boothName || null;
+          }
+        } catch { /* linkage is a bonus */ }
+      }
       const nowIso = new Date().toISOString();
       const ref = db.collection(`tenants/${tenantId}/tickets`).doc();
       let photoUrl: string | null = null;
@@ -154,20 +189,30 @@ export async function POST(req: NextRequest) {
         photoUrl = up.url; photoError = up.error;
       }
       const { dueAtFor } = await import('@/lib/maintenance');
+      const kindLabel = ({ materials: 'Materials / parts', tool: 'Tool / equipment', access: 'Access / keys', help: 'Extra hands', other: 'Request' } as any)[kind];
+      const metaBits = [
+        qty ? `qty: ${qty}` : null,
+        neededBy ? `needed by ${neededBy}` : null,
+        estCostCents > 0 ? `est. $${(estCostCents / 100).toFixed(2)}` : null,
+        forStaff.length ? `for ${forStaff.join(', ')}` : null,
+        relatedTicketTitle ? `job: "${relatedTicketTitle}"` : null,
+      ].filter(Boolean).join(' · ');
       await ref.set({
         id: ref.id, tenantId, locationId: null,
-        title, description: detail, category: 'request', priority: 'normal', status: 'open',
-        boothId: null, boothName: null, resourceId: null, resourceName: null,
+        title, description: detail, category: 'request', priority: neededBy && neededBy <= nowIso.slice(0, 10) ? 'high' : 'normal', status: 'open',
+        boothId: relatedBoothId, boothName: relatedBoothName, resourceId: null, resourceName: null,
+        requestMeta: { kind, kindLabel, qty: qty || null, neededBy, estCostCents, forStaff, relatedTicketId, relatedTicketTitle },
         photoUrls: photoUrl ? [photoUrl] : [],
         reporter: { type: 'tech', name: worker.name, phone: worker.phone || '' },
         assigneeId: null, assigneeName: null,
-        updates: [{ at: nowIso, by: worker.name, byType: 'tech', note: 'Request filed from the portal', status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
-        createdAt: nowIso, updatedAt: nowIso, dueAt: dueAtFor('normal'), resolvedAt: null,
+        updates: [{ at: nowIso, by: worker.name, byType: 'tech', note: `${kindLabel} request${metaBits ? ` — ${metaBits}` : ''}`, status: 'open', ...(photoUrl ? { photoUrl } : {}) }],
+        createdAt: nowIso, updatedAt: nowIso, dueAt: neededBy ? `${neededBy}T23:59:59.000Z` : dueAtFor('normal'), resolvedAt: null,
       });
-      await notifyOwner(db, tenantId, `Request from ${worker.name}: "${title}"${detail ? ` — ${detail.slice(0, 100)}` : ''}${photoUrl ? ' · photo attached' : ''}`);
+      await notifyOwner(db, tenantId, `${kindLabel} request from ${worker.name}: "${title}"${metaBits ? ` (${metaBits})` : ''}${photoUrl ? ' · photo attached' : ''}`);
       await logAuditAdmin(db, tenantId, {
         action: 'maintenance.request_filed', targetType: 'ticket', targetId: ref.id,
-        summary: `${worker.name} (tech) requested: "${title}"`,
+        summary: `${worker.name} (tech) requested: "${title}"${estCostCents > 0 ? ` · est. $${(estCostCents / 100).toFixed(2)}` : ''}`,
+        ...(estCostCents > 0 ? { amount: estCostCents / 100 } : {}),
         actor: { type: 'user', name: worker.name, role: 'tech', via: 'maintenance-portal' },
       });
       return NextResponse.json({ ok: true, ticketId: ref.id, photoError });
