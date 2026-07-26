@@ -55,6 +55,11 @@ export function MaintenancePortalPage() {
   const [requestOpen, setRequestOpen] = useState(false);
   const [reqTitle, setReqTitle] = useState('');
   const [reqDetail, setReqDetail] = useState('');
+  // Quotes — price the job before starting it
+  const [quoteFor, setQuoteFor] = useState<string | null>(null);
+  const [qHours, setQHours] = useState('');
+  const [qMaterials, setQMaterials] = useState('');
+  const [qNote, setQNote] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -126,6 +131,27 @@ export function MaintenancePortalPage() {
         setNote(''); setPhotoData(null); setPhotoName(''); setCostDollars(''); setHoursDraft(''); setDeadlineDraft(''); setOpenId(null);
         await load();
       } else setError(d.error || 'Could not save — try again.');
+    } catch { setError('Network error — try again.'); }
+    finally { setBusy(false); }
+  };
+
+  const submitQuote = async (ticketId: string) => {
+    if (busy) return;
+    if (!(Number(qHours) > 0) && !(Number(qMaterials) > 0)) { setError('Give the quote hours or materials.'); return; }
+    setBusy(true);
+    try {
+      const res = await fetch('/api/maintenance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'worker-quote', tenantId, token, ticketId,
+          hours: Number(qHours) || 0,
+          materialsCents: Math.round((Number(qMaterials) || 0) * 100),
+          note: qNote.trim() || undefined,
+        }),
+      });
+      const d = await res.json();
+      if (d.ok) { setQuoteFor(null); setQHours(''); setQMaterials(''); setQNote(''); await load(); }
+      else setError(d.error || 'Could not send the quote — try again.');
     } catch { setError('Network error — try again.'); }
     finally { setBusy(false); }
   };
@@ -331,6 +357,60 @@ export function MaintenancePortalPage() {
                         </div>
                       ))}
                     </div>
+                  )}
+                  {/* ── QUOTE — price it before you start ── */}
+                  {t.quoteRequested && !t.quote && (
+                    <p className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-2.5 text-[11px] font-bold text-indigo-700">
+                      The studio wants a quote before work starts — tap Send quote below.
+                    </p>
+                  )}
+                  {t.quote && (
+                    <div className={`rounded-xl border-2 p-2.5 ${t.quote.status === 'approved' ? 'border-emerald-200 bg-emerald-50' : t.quote.status === 'declined' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+                      <p className="text-[9px] font-black uppercase tracking-widest">
+                        {t.quote.status === 'approved' ? 'Quote approved — go ahead' : t.quote.status === 'declined' ? 'Quote declined — hold off' : 'Quote sent — waiting on the studio'}
+                      </p>
+                      <p className="text-xs font-bold mt-0.5">
+                        {[(t.quote.hours || 0) > 0 ? `${t.quote.hours}h` : null,
+                          (t.quote.materialsCents || 0) > 0 ? `$${(t.quote.materialsCents / 100).toFixed(2)} materials` : null]
+                          .filter(Boolean).join(' + ')} {(t.quote.totalCents || 0) > 0 ? `= $${(t.quote.totalCents / 100).toFixed(2)}` : ''}
+                      </p>
+                      {t.quote.note && <p className="text-[11px] font-medium text-slate-600 mt-0.5">{t.quote.note}</p>}
+                    </div>
+                  )}
+                  {['open', 'in_progress'].includes(t.status) && (!t.quote || t.quote.status === 'declined') && (
+                    quoteFor === t.id ? (
+                      <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50 p-2.5 space-y-2">
+                        <div className="flex gap-3 items-center flex-wrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-indigo-700">Est. hours</span>
+                            <input type="number" inputMode="decimal" min={0} step={0.5} value={qHours} onChange={(e) => setQHours(e.target.value)}
+                              placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-indigo-700">Materials $</span>
+                            <input type="number" inputMode="decimal" min={0} value={qMaterials} onChange={(e) => setQMaterials(e.target.value)}
+                              placeholder="0" className="w-20 h-10 rounded-xl border-2 px-2 text-sm font-bold" />
+                          </div>
+                        </div>
+                        {(worker?.hourlyRateCents || 0) > 0 && worker?.payType !== 'payroll' && (Number(qHours) > 0 || Number(qMaterials) > 0) && (
+                          <p className="text-[10px] font-bold text-indigo-700">
+                            Comes to ${(((Number(qHours) || 0) * (worker.hourlyRateCents || 0) + (Number(qMaterials) || 0) * 100) / 100).toFixed(2)} at your ${((worker.hourlyRateCents || 0) / 100).toFixed(2)}/hr rate.
+                          </p>
+                        )}
+                        <input value={qNote} onChange={(e) => setQNote(e.target.value)} placeholder="What the price covers, options, caveats…"
+                          className="w-full h-10 rounded-xl border-2 px-3 text-sm font-medium" />
+                        <div className="flex gap-2">
+                          <button onClick={() => submitQuote(t.id)} disabled={busy}
+                            className="flex-1 h-10 rounded-xl bg-indigo-600 text-white font-black uppercase text-[10px] tracking-widest disabled:opacity-40">Send quote</button>
+                          <button onClick={() => setQuoteFor(null)} className="h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-slate-500">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => { setQuoteFor(t.id); setQHours(''); setQMaterials(''); setQNote(''); }}
+                        className={`h-10 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest ${t.quoteRequested ? 'border-indigo-400 text-indigo-700 bg-indigo-50' : 'text-slate-600'}`}>
+                        {t.quote?.status === 'declined' ? 'Send a new quote' : 'Send quote'}
+                      </button>
+                    )
                   )}
                   <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2}
                     placeholder="Progress note — parts ordered, what you found, what's next…"
