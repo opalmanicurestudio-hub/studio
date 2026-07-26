@@ -112,6 +112,16 @@ export async function uploadTicketPhotoFromDataUrl(
     // source (not env) have NONE of the NEXT_PUBLIC_* vars server-side,
     // which is why "no storage bucket exists" fired even though the
     // bucket is right there.
+    // GROUND TRUTH FIRST: the tenant doc carries the bucket's real name,
+    // recorded automatically by the Booth Hub from the browser's Firebase
+    // config (the browser has always known it — that's why client uploads
+    // work). Everything after this is fallback guessing.
+    let tenantBucket: string | null = null;
+    try {
+      const { getAdminDb } = await import('./firebase-admin');
+      const tSnap = await getAdminDb().doc(`tenants/${tenantId}`).get();
+      tenantBucket = String((tSnap.data() as any)?.storageBucket || '') || null;
+    } catch { /* keep hunting */ }
     let projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
       || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
     let appBucket: string | null = null;
@@ -127,7 +137,9 @@ export async function uploadTicketPhotoFromDataUrl(
         if (sa.project_id) projectId = sa.project_id;
       } catch { /* not JSON — fine */ }
     }
-    const names: (string | null)[] = [null, // null = the app's default bucket
+    const names: (string | null)[] = [
+      tenantBucket, // ground truth, self-recorded from the working client
+      null, // the app's default bucket
       process.env.FIREBASE_STORAGE_BUCKET || null,
       process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || null,
       appBucket,
@@ -167,7 +179,7 @@ function describeUploadError(err: any): string {
   const msg = String(err?.message || err || '');
   const code = Number((err as any)?.code) || 0;
   if (code === 404 || /not exist|notfound|not found/i.test(msg)) {
-    return 'Photo not saved: the server could not find the storage bucket — the studio should add NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET (the storageBucket value from the Firebase web config) to the Vercel environment variables and redeploy.';
+    return 'Photo not saved: the server could not find the storage bucket. Fix: the studio opens their Booth Hub once (it records the bucket automatically), then try again.';
   }
   if (code === 403 || /permission|forbidden|unauthorized/i.test(msg)) {
     return 'Photo not saved: the server is not allowed to write to storage — give the Firebase service account the "Storage Admin" role.';
