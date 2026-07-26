@@ -3845,6 +3845,15 @@ export default function BoothsPage() {
     finally { setSellSaving(false); }
   };
 
+  // ── THE address every shared link is built on ────────────────────────
+  // window.location.origin is a trap on Vercel: each deployment gets its
+  // own frozen URL (r4k-…, r08-…), so a link generated while browsing a
+  // preview snapshot 404s forever once you ship new code. Set the REAL
+  // domain once (tenants/{id}.publicOrigin, editable in Quick links) and
+  // every portal/kiosk/card link is built on it instead.
+  const shareOrigin = (String((selectedTenant as any)?.publicOrigin || '').trim().replace(/\/+$/, ''))
+    || (typeof window !== 'undefined' ? window.location.origin : '');
+
   // ── Card on file for every renter ────────────────────────────────────
   // Generates the Stripe hosted setup link, then opens a SEND dialog: text
   // it, email it, copy it, or open it here (hand them your phone). On
@@ -3859,7 +3868,7 @@ export default function BoothsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         // Return to the PUBLIC confirmation page — the renter completes this
         // on their own phone and must never land on the admin dashboard.
-        body: JSON.stringify({ tenantId, renterId: rt.id, returnUrl: `${window.location.origin}/card-setup/${tenantId}` }),
+        body: JSON.stringify({ tenantId, renterId: rt.id, returnUrl: `${shareOrigin}/card-setup/${tenantId}` }),
       });
       const d = await res.json();
       if (d.ok && d.url) setCardLink({ url: d.url, renter: rt });
@@ -5739,16 +5748,38 @@ export default function BoothsPage() {
               to copy. No more hunting through profiles and dialogs when a
               renter asks "where do I log in?" ── */}
           <div className="rounded-2xl border-2 bg-white p-4 space-y-2.5">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
-              <Link2 className="h-3.5 w-3.5" /> Quick links
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="flex-1 text-[10px] font-black uppercase tracking-widest text-slate-700 flex items-center gap-1.5">
+                <Link2 className="h-3.5 w-3.5" /> Quick links
+              </p>
+              {/* Vercel preview URLs (r4k-…, r08-…) are frozen snapshots — a
+                  link built on one 404s after the next deploy. Lock links to
+                  the real domain once and they survive every deploy. */}
+              <button onClick={async () => {
+                  const cur = String((selectedTenant as any)?.publicOrigin || '');
+                  const v = window.prompt('Links are built on this address. Enter your app\'s permanent domain (e.g. https://your-app.vercel.app) — leave empty to use whatever address you\'re browsing on:', cur);
+                  if (v === null) return;
+                  const cleaned = v.trim().replace(/\/+$/, '');
+                  if (cleaned && !/^https?:\/\/[^ ]+\.[^ ]+$/.test(cleaned)) { toast({ variant: 'destructive', title: 'That doesn\'t look like a URL', description: 'Include https:// — e.g. https://your-app.vercel.app' }); return; }
+                  try {
+                    await updateDoc(doc(firestore, 'tenants', tenantId), { publicOrigin: cleaned || null });
+                    toast({ title: cleaned ? 'Link domain saved' : 'Link domain cleared', description: cleaned ? `All shared links now use ${cleaned}.` : 'Links use the address you\'re browsing on.' });
+                  } catch { toast({ variant: 'destructive', title: 'Could not save' }); }
+                }}
+                className="h-7 px-2.5 rounded-lg border-2 font-black uppercase text-[9px] tracking-widest text-slate-500 shrink-0">
+                {(selectedTenant as any)?.publicOrigin ? 'Domain ✓' : 'Set domain'}
+              </button>
+            </div>
+            {!(selectedTenant as any)?.publicOrigin && shareOrigin && /-[a-z0-9]{2,}-.*vercel\.app$/i.test(shareOrigin.replace(/^https?:\/\//, '')) && (
+              <p className="text-[10px] font-bold text-amber-600">You're browsing a deployment-specific address — links copied now may break after your next deploy. Tap Set domain and enter your permanent URL.</p>
+            )}
             {([
               { label: 'Renter portal', desc: 'Renters sign in with their phone or email — rent, receipts, report issues, card on file.',
-                url: `${typeof window !== 'undefined' ? window.location.origin : ''}${(selectedTenant as any)?.renterPortalPath || '/rent'}/${tenantId}` },
+                url: `${shareOrigin}${(selectedTenant as any)?.renterPortalPath || '/rent'}/${tenantId}` },
               { label: 'Booking kiosk', desc: 'Public page for day and hourly bookings.',
-                url: `${typeof window !== 'undefined' ? window.location.origin : ''}/kiosk/${tenantId}` },
+                url: `${shareOrigin}/kiosk/${tenantId}` },
               { label: 'Tour booking', desc: 'Prospects pick a tour time.',
-                url: `${typeof window !== 'undefined' ? window.location.origin : ''}/tour/${tenantId}` },
+                url: `${shareOrigin}/tour/${tenantId}` },
             ] as const).map((l) => (
               <div key={l.label} className="flex items-center gap-2">
                 <div className="flex-1 min-w-0">
@@ -6099,6 +6130,7 @@ export default function BoothsPage() {
               plans={maintPlans}
               ownerName={(selectedTenant as any)?.name ? `${(selectedTenant as any).name} team` : 'Owner'}
               autoAssign={(selectedTenant as any)?.maintenanceAutoAssign === 'rotate'}
+              publicOrigin={(selectedTenant as any)?.publicOrigin || null}
             />
           </div>
 
@@ -6210,16 +6242,26 @@ export default function BoothsPage() {
                               { label: 'Edit renter', onClick: () => openEditRenter(rtLinked) },
                               {
                                 label: 'Send portal link',
-                                onClick: () => {
-                                  // Their portal: sign in with their phone/email, a one-time
-                                  // code arrives (SMS if configured, else via you). Path is
-                                  // configurable per tenant if your portal lives elsewhere —
-                                  // the app's page is src/app/rent/[tenantId], i.e. /rent.
+                                onClick: async () => {
+                                  // Their PERSONAL magic link: opening it signs them straight
+                                  // in — no code, no SMS needed (the no-Twilio path). The
+                                  // token lives on their renter record; resending reuses it.
+                                  // Portal page: src/app/rent/[tenantId] (/rent), or set
+                                  // renterPortalPath on the tenant if yours lives elsewhere.
                                   const path = (selectedTenant as any)?.renterPortalPath || '/rent';
-                                  const link = `${window.location.origin}${path}/${tenantId}`;
-                                  const msg = `Your renter portal for ${(selectedTenant as any)?.name || 'the studio'} — pay rent, get receipts, report issues, manage your card: ${link}`;
+                                  let tok = (rtLinked as any).portalToken as string | undefined;
+                                  if (!tok || String(tok).length < 12) {
+                                    tok = (typeof crypto !== 'undefined' && (crypto as any).randomUUID)
+                                      ? (crypto as any).randomUUID().replace(/-/g, '')
+                                      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+                                    try { await updateDoc(doc(firestore, 'tenants', tenantId, 'renters', rtLinked.id), { portalToken: tok }); }
+                                    catch { toast({ variant: 'destructive', title: 'Could not create their link', description: 'Try again.' }); return; }
+                                  }
+                                  const link = `${shareOrigin}${path}/${tenantId}?rt=${tok}`;
+                                  const msg = `Your renter portal for ${(selectedTenant as any)?.name || 'the studio'} — pay rent, get receipts, report issues, manage your card. This link signs you in: ${link}`;
+                                  try { await navigator.clipboard.writeText(link); toast({ title: 'Personal sign-in link copied', description: `Opening it logs ${g.name || 'them'} straight in — paste it into any text or email.` }); }
+                                  catch { window.prompt('Copy this link', link); }
                                   if (g.phone) window.location.href = `sms:${g.phone}?&body=${encodeURIComponent(msg)}`;
-                                  else { try { navigator.clipboard.writeText(link); toast({ title: 'Portal link copied' }); } catch { /* field select */ } }
                                 },
                               },
                               ...(lease
