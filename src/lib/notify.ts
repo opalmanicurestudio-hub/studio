@@ -45,6 +45,12 @@ export type NotifyInput = {
   appointmentId?: string | null;
   clientId?: string | null;
   clientName?: string | null;
+  // v17 — who is this for? Enables the Message Log screen to group sends
+  // by audience (clients / staff / renters / maintenance). When omitted,
+  // clientId implies 'client'; texts are auto-matched by phone number.
+  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'other';
+  recipientId?: string | null;
+  recipientName?: string | null;
 };
 
 export type NotifyResult = {
@@ -111,13 +117,22 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     }
   } else {
     // SMS — wired through the tenant-branded Twilio layer (with its
-    // built-in first-contact opt-out and private smsLog).
+    // built-in first-contact opt-out and private smsLog). sendTenantSms
+    // writes the messageLog entry itself (with recipient linkage and the
+    // msgIndex mapping for delivery tracking), so this branch skips the
+    // duplicate write below.
     try {
       const { smsConfigured, sendTenantSms } = await import('./sms');
       if (!smsConfigured()) {
         result = { ok: false, status: 'skipped_no_provider', error: 'SMS provider not configured' };
       } else {
-        const r = await sendTenantSms(db, tenantId, to, input.text || '');
+        const r = await sendTenantSms(db, tenantId, to, input.text || '', undefined, {
+          kind,
+          appointmentId: input.appointmentId || null,
+          recipientType: input.recipientType || (input.clientId ? 'client' : undefined),
+          recipientId: input.recipientId || input.clientId || null,
+          recipientName: input.recipientName || input.clientName || null,
+        });
         result = r.ok
           ? { ok: true, status: 'sent', providerId: r.sid || null }
           : { ok: false, status: 'failed', error: r.error || 'SMS failed' };
@@ -128,7 +143,10 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
   }
 
   // ── The auditable trail: every attempt, whatever the outcome ──
+  // (SMS sends are logged inside sendTenantSms with recipient linkage —
+  // only email logs here, to avoid duplicate entries.)
   try {
+    if (channel === 'email') {
     const logRef = db.collection(`tenants/${tenantId}/messageLog`).doc();
     await logRef.set({
       id: logRef.id,
@@ -146,6 +164,10 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       appointmentId: input.appointmentId || null,
       clientId: input.clientId || null,
       clientName: input.clientName || null,
+      // v17 — audience linkage for the Message Log screen
+      recipientType: input.recipientType || (input.clientId ? 'client' : 'other'),
+      recipientId: input.recipientId || input.clientId || null,
+      recipientName: input.recipientName || input.clientName || null,
       sentAt: new Date().toISOString(),
       // Journey fields — filled in later by the provider webhooks
       // (/api/webhooks/resend for email, /api/sms/status for texts).
@@ -161,10 +183,11 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
         });
       } catch { /* tracking is best-effort */ }
     }
+    }
     await logAuditAdmin(db, tenantId, {
       action: `notify.${result.status}`,
-      targetType: 'message', targetId: logRef.id,
-      summary: `${kind.replace(/_/g, ' ')} ${channel} to ${input.clientName || mask(to)} — ${
+      targetType: 'message', targetId: result.providerId || 'message',
+      summary: `${kind.replace(/_/g, ' ')} ${channel} to ${input.recipientName || input.clientName || mask(to)} — ${
         result.status === 'sent' ? 'sent' : result.status === 'failed' ? `FAILED (${result.error})` : 'skipped (no provider configured)'
       }`,
       actor: { type: 'system', name: 'notifications' },
