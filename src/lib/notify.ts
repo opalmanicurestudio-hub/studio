@@ -57,6 +57,23 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       result = { ok: false, status: 'skipped_no_provider', error: 'RESEND_API_KEY not set' };
     } else {
       try {
+        // EVERY email wears the brand. Callers that pass no custom html get
+        // the branded template automatically — masthead, card, CTA button —
+        // so a booking confirmation and a sign-in code look like siblings.
+        let html = input.html;
+        if (!html) {
+          let studioName = 'Your studio';
+          try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
+          const { brandedEmailHtml } = await import('./email-template');
+          const text = input.text || '';
+          const linkMatch = text.match(/https?:\/\/\S+/);
+          html = brandedEmailHtml({
+            studioName,
+            title: input.subject || 'A note from your studio',
+            bodyLines: [linkMatch ? text.replace(linkMatch[0], '').replace(/\s{2,}/g, ' ').trim() : text],
+            cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,
+          });
+        }
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
@@ -64,7 +81,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
             from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
             to: [to],
             subject: input.subject || 'A note from your studio',
-            html: input.html || `<p>${input.text || ''}</p>`,
+            html,
             ...(input.text ? { text: input.text } : {}),
           }),
         });
@@ -77,8 +94,21 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       }
     }
   } else {
-    // SMS — no provider wired yet; recorded honestly so timelines never lie.
-    result = { ok: false, status: 'skipped_no_provider', error: 'SMS provider not configured' };
+    // SMS — wired through the tenant-branded Twilio layer (with its
+    // built-in first-contact opt-out and private smsLog).
+    try {
+      const { smsConfigured, sendTenantSms } = await import('./sms');
+      if (!smsConfigured()) {
+        result = { ok: false, status: 'skipped_no_provider', error: 'SMS provider not configured' };
+      } else {
+        const r = await sendTenantSms(db, tenantId, to, input.text || '');
+        result = r.ok
+          ? { ok: true, status: 'sent', providerId: r.sid || null }
+          : { ok: false, status: 'failed', error: r.error || 'SMS failed' };
+      }
+    } catch (e: any) {
+      result = { ok: false, status: 'failed', error: String(e?.message || e).slice(0, 200) };
+    }
   }
 
   // ── The auditable trail: every attempt, whatever the outcome ──
