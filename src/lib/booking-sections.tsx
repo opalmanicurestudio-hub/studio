@@ -88,7 +88,24 @@ interface SectionProps {
   config: Record<string, any>; style: StyleConfig; data: PageData;
   isPreview: boolean; sectionId: string; onFieldTap?: (s: string, f: string) => void;
 }
-interface PageData { tenant: any; services: any[]; staff: any[]; events: any[]; tenantId: string; }
+// `events` is the studio's marketing events shown on the page. The optional
+// fields below are the availability context the booking sheet needs so the
+// slots it offers match what the booking route will actually accept — they are
+// optional so a preview or an older caller can still pass the four basics.
+interface PageData {
+  tenant: any; services: any[]; staff: any[]; events: any[]; tenantId: string;
+  appointments?: any[];
+  scheduleProfiles?: any[];
+  shifts?: any[];
+  staffBlocks?: any[];
+  dayOffBlocks?: any[];
+  resources?: any[];
+  tickets?: any[];
+  maintenancePlans?: any[];
+  calendarEvents?: any[];
+  pricingTiers?: any[];
+  consentForms?: any[];
+}
 
 const DS: StyleConfig = {
   accentColor: '#000000', bgColor: '#ffffff', headingFont: 'josefin',
