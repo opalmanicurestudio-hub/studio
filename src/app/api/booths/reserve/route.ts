@@ -29,6 +29,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { resolveIncidentalPolicy, validateIncidental } from '@/lib/incidentals';
 import { resolveDayUseAgreement, buildSignedRecord } from '@/lib/esign';
 import { recognizeContact, resolveRenterDayDiscount } from '@/lib/booth-recognition';
+import { sendReservationConfirmation } from '@/lib/reservation-notify';
 
 // The owner's custom booking terms, if they wrote any, from the booking-page
 // config. A miss is fine — resolveDayUseAgreement falls back to the built-in
@@ -529,6 +530,10 @@ export async function POST(req: NextRequest) {
           summary: `${resData.name} booked ${resData.boothName} with a day pass (${passDaysNeeded} day${passDaysNeeded === 1 ? '' : 's'} used, ${daysLeft} left)`,
           actor: { type: 'system', name: 'booth-pass' },
         });
+        // v18 — appointment-standard confirmation: branded email with
+        // Manage + Add-to-calendar buttons, plus a text with the manage
+        // link. Best-effort — the reservation is already confirmed.
+        await sendReservationConfirmation(db, tenantId, passRef.id, resData, { originFallback: String(returnUrl).split('?')[0] });
         return NextResponse.json({ ok: true, passUsed: true, reservationId: passRef.id, boothName: resData.boothName, startDate, endDate, passDaysLeft: daysLeft });
       }
     } catch (err) {
@@ -872,6 +877,10 @@ export async function GET(req: NextRequest) {
       summary: `Booking paid via Stripe: ${r.name || 'guest'} · ${r.boothName || 'space'} (${r.startDate}${r.endDate !== r.startDate ? ` → ${r.endDate}` : ''})${(r.creditAppliedCents || 0) > 0 ? ` · $${((r.creditAppliedCents || 0) / 100).toFixed(2)} credit applied` : ''}`,
       amount: (r.amountCents || 0) / 100, actor: { type: 'system', name: 'booth-checkout' },
     });
+    // v18 — appointment-standard confirmation (branded email w/ Manage +
+    // Add-to-calendar, plus text). Idempotent: the helper stamps the
+    // reservation so a success-page refresh never double-sends.
+    await sendReservationConfirmation(db, tenantId, reservationId, r, { originFallback: new URL(req.url).origin });
     return NextResponse.json({ ok: true, confirmed: true, boothName: r.boothName, startDate: r.startDate, endDate: r.endDate });
   } catch (err) {
     console.error('[booth-reserve] GET failed', err);
