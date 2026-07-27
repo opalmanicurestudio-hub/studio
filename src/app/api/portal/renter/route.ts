@@ -129,14 +129,24 @@ async function deliverCode(db: any, tenantId: string, contact: string, code: str
   const contactIsEmail = /@/.test(contact);
   if ((contactIsEmail || fallbackEmail) && process.env.RESEND_API_KEY) {
     try {
+      let studioName = 'The studio';
+      try { studioName = ((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.name || studioName; } catch { /* cosmetic */ }
+      const { brandedEmailHtml } = await import('@/lib/email-template');
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
         body: JSON.stringify({
           from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
           to: [contactIsEmail ? contact.trim() : fallbackEmail],
-          subject: 'Your sign-in code',
+          subject: `Your sign-in code — ${studioName}`,
           text: `Your renter portal sign-in code is ${code}. It expires in 10 minutes. Didn't request this? Ignore it.`,
+          html: brandedEmailHtml({
+            studioName,
+            title: 'Your sign-in code',
+            bodyLines: ['Use this code to sign in to your renter portal. It expires in 10 minutes.'],
+            bigCode: code,
+            footerNote: `Didn't request this? You can safely ignore it. Sent by ${studioName}.`,
+          }),
         }),
       });
       if (res.ok) {
