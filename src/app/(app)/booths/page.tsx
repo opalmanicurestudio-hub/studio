@@ -86,7 +86,7 @@ import {
   PIPELINE_STAGES, stageLabel, stageTone, contactKey as boothContactKey,
   ensureBoothContact, setContactPipeline, scheduleContactFollowUp,
   markContactLost, reengageContact, setContactNote, linkContactRenter,
-  setContactPhoto, logContactTouch, logContactEvent,
+  setContactPhoto, logContactTouch, logContactEvent, contactDocId,
 } from '@/lib/booth-contacts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1621,6 +1621,17 @@ function ContactProfileDrawer({
             {contact.email && <p className="text-xs font-bold">{contact.email}</p>}
             {contact.firstDate && contact.firstDate !== '9999' && <p className="text-[10px] font-bold text-muted-foreground">First seen {contact.firstDate}</p>}
           </div>
+
+          {/* v17 — every email/text the PLATFORM sent this person, with the
+              delivery journey. Matches by record id AND by their phone/email,
+              so reservation confirmations land here even for guests whose
+              contact record was created after the message went out. */}
+          <CommsTrail
+            recipientType="contact"
+            recipientId={contactDocId(contact.key || '')}
+            contactPhone={contact.phone || undefined}
+            contactEmail={contact.email || undefined}
+          />
 
           {/* ── Journey: where this lead is + what to do next ── */}
           <div className="rounded-2xl border-2 p-4 space-y-3">
