@@ -672,20 +672,30 @@ function PlannerPageContent() {
     const batch = writeBatch(firestore);
     const sanitizedCheckoutState = sanitizeForFirestore(checkoutState);
 
+    // Promote the technician's checkout note to a PERMANENT field on the
+    // appointment. It is also kept inside checkoutState for the checkout screen,
+    // but checkoutState gets rewritten wholesale on every hand-off, so anything
+    // that needs to survive has to live at the top level. This is the field the
+    // appointment drawer reads and lets you edit afterwards.
+    const reviewNote = typeof checkoutState.reviewNotes === 'string' ? checkoutState.reviewNotes.trim() : '';
+    const notePromotion = reviewNote
+      ? { serviceNotes: reviewNote, serviceNotesRecordedAt: new Date().toISOString() }
+      : {};
+
     if (checkoutState.saveAsCustomFormula && checkoutState.customFormulaName && apt.clientId) {
         const newFormula: CustomFormula = { id: nanoid(), name: checkoutState.customFormulaName, date: new Date().toISOString(), items: checkoutState.formula || [], notes: checkoutState.reviewNotes };
         batch.update(doc(firestore, 'tenants', tenantId, 'clients', apt.clientId), { customFormulas: arrayUnion(sanitizeForFirestore(newFormula)) });
     }
 
     if (allComplete) {
-        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({ status: 'ready_for_checkout', checkoutState: sanitizedCheckoutState, actualEndTime: new Date().toISOString() }));
+        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({ status: 'ready_for_checkout', checkoutState: sanitizedCheckoutState, actualEndTime: new Date().toISOString(), ...notePromotion }));
         if (apt.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', apt.checkInToken), sanitizeForFirestore({ status: 'ready_for_checkout', tenantId }));
         const involvedIds = new Set<string>();
         if (apt.staffId) involvedIds.add(apt.staffId);
         if (checkoutState.serviceStaffOverrides) Object.values(checkoutState.serviceStaffOverrides).forEach((id: any) => { if (id && typeof id === 'string') involvedIds.add(id); });
         involvedIds.forEach(sid => batch.set(doc(firestore, 'tenants', tenantId, 'staff', sid), { status: 'idle' }, { merge: true }));
     } else {
-        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({ checkoutState: sanitizedCheckoutState }));
+        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({ checkoutState: sanitizedCheckoutState, ...notePromotion }));
         const overrides = checkoutState.serviceStaffOverrides || {};
         const involvedStaffIdsSet = new Set<string>();
         if (apt.staffId) involvedStaffIdsSet.add(apt.staffId);
