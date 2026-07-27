@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * useSmartAvailability — v3
+ * useSmartAvailability — v4
  * ─────────────────────────────────────────────────────────────────────────────
  * This hook no longer contains an availability engine. It is now a thin React
  * wrapper over `src/lib/availability.ts`, which is the single source of truth
@@ -34,17 +34,33 @@
  * capability is an OPTIONAL parameter, so nothing breaks by omission — it just
  * stays as approximate as it was until the extra data is passed in.
  *
- * TO GET FULL CORRECTNESS AT A CALL SITE, add three props:
+ * TO GET FULL CORRECTNESS AT A CALL SITE, pass what you have:
  *
- *     events:           events,            // blocked time, classes, closures
+ *     events:           events,            // blocked time, meetings, closures
  *     scheduleProfiles: scheduleProfiles,  // the studio's real open hours
  *     tenant:           tenant,            // slot interval + smart toggles
+ *     shifts:           shifts,            // the published roster
+ *     staffBlocks:      staffBlocks,       // add-on handoff holds
+ *     dayOffBlocks:     shiftDayOffBlocks, // approved time off
+ *     resources:        resources,         // chairs, tables, rooms
+ *     tickets:          tickets,           // urgent repairs take a station down
+ *     maintenancePlans: maintenancePlans,  // scheduled downtime
+ *
+ * EVERY ONE IS OPTIONAL. Pass none and you get exactly the old behavior: a
+ * constraint you do not supply is simply not applied. So this file can land
+ * before every screen has been wired up, and each screen gets more accurate as
+ * its data arrives — no flag day.
  *
  * Without `scheduleProfiles`, per-staff hours are still honored; only staff
  * with no schedule of their own fall back to a window. Without `events`,
  * blocked time is invisible. Without `tenant`, tight scheduling / morning
  * anchor / flash yield stay off and the slot interval falls back to config
  * defaults.
+ *
+ * ONE DELIBERATE ASYMMETRY: the front desk should pass NO lead time, so a
+ * receptionist can book the person standing in front of them for right now.
+ * Public booking pages are the ones that should pass `minLeadMinutes` (or let
+ * the tenant's bookingLeadHours apply).
  *
  * FALLBACK WINDOW: when a staff member has no schedule AND no profile exists,
  * this hook falls back to 8:00 AM – 8:00 PM, matching v2 exactly. That keeps
@@ -101,6 +117,36 @@ export type SmartAvailabilityParams = {
   ignoreHeuristics?: boolean;
   /** Injectable clock — tests only. */
   now?: Date;
+
+  // ── The rest of the blocking sources. All optional. ────────────────────────
+  /** Published roster. When a date has shifts, only rostered staff are offered. */
+  shifts?: any[];
+  /** Add-on handoff holds written by the staff portal. */
+  staffBlocks?: any[];
+  /** shiftDayOffBlocks — approved time off removes that person for the day. */
+  dayOffBlocks?: any[];
+  /** Chairs, tables, rooms — with `capacity` meaning simultaneous capacity. */
+  resources?: any[];
+  /** Maintenance tickets. Open + urgent/high takes its station out of service. */
+  tickets?: any[];
+  /** Preventive maintenance plans. A plan due today takes its station down. */
+  maintenancePlans?: any[];
+
+  // ── Policy switches. ──────────────────────────────────────────────────────
+  /** Required notice in minutes. Front desk: leave this off. */
+  minLeadMinutes?: number;
+  /** Refuse dates further out than this many days. */
+  maxHorizonDays?: number;
+  /** Book someone who is not on the published roster (front desk override). */
+  ignoreShifts?: boolean;
+  /** Treat a PENDING day-off request as blocking. Default false. */
+  blockPendingDayOff?: boolean;
+  /** Only offer staff with acceptingWalkIns !== false. */
+  requireAcceptingWalkIns?: boolean;
+  /** Narrow which event types occupy a person. */
+  blockingEventTypes?: string[];
+  /** Skip the station-capacity check even when resources are supplied. */
+  ignoreResources?: boolean;
 };
 
 export type SmartAvailabilityResult = {
@@ -153,12 +199,26 @@ export function useSmartAvailability(
     slotIntervalMinutes,
     ignoreHeuristics,
     now,
+    shifts,
+    staffBlocks,
+    dayOffBlocks,
+    resources,
+    tickets,
+    maintenancePlans,
+    minLeadMinutes,
+    maxHorizonDays,
+    ignoreShifts,
+    blockPendingDayOff,
+    requireAcceptingWalkIns,
+    blockingEventTypes,
+    ignoreResources,
   } = params;
 
   // `addOnIds` is usually a fresh array each render; key the memo on its
   // contents so we recompute when the selection actually changes, not on
   // every keystroke elsewhere in the form.
   const addOnKey = (addOnIds || []).join(',');
+  const eventTypeKey = (params.blockingEventTypes || []).join(',');
 
   return useMemo(() => {
     if (!date || !serviceId) return EMPTY;
@@ -182,6 +242,19 @@ export function useSmartAvailability(
         ignoreHeuristics,
         fallbackHours: LEGACY_FALLBACK_HOURS,
         includeUnavailable: true,
+        shifts,
+        staffBlocks,
+        dayOffBlocks,
+        resources,
+        tickets,
+        maintenancePlans,
+        minLeadMinutes,
+        maxHorizonDays,
+        ignoreShifts,
+        blockPendingDayOff,
+        requireAcceptingWalkIns,
+        blockingEventTypes,
+        ignoreResources,
       });
 
       return {
@@ -221,6 +294,19 @@ export function useSmartAvailability(
     slotIntervalMinutes,
     ignoreHeuristics,
     now,
+    shifts,
+    staffBlocks,
+    dayOffBlocks,
+    resources,
+    tickets,
+    maintenancePlans,
+    minLeadMinutes,
+    maxHorizonDays,
+    ignoreShifts,
+    blockPendingDayOff,
+    requireAcceptingWalkIns,
+    eventTypeKey,
+    ignoreResources,
   ]);
 }
 
