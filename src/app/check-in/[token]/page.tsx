@@ -1722,13 +1722,22 @@ const CancelGateView = ({
 
     useEffect(() => {
         if (!tenantId || !appointmentId) return;
+        // v9 — truthful errors: tell the difference between "the studio's
+        // cancellation service isn't deployed" and "this appointment can't
+        // be cancelled" instead of one vague message for everything.
         fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}`)
-            .then(res => res.json())
-            .then(data => {
+            .then(async (res) => {
+                let data: any = null;
+                try { data = await res.json(); } catch {
+                    setError(res.status === 404
+                        ? 'Online cancellation isn\'t available right now — call or text the studio and we\'ll take care of it.'
+                        : `Something went wrong on our end (${res.status}) — try again in a moment, or call the studio.`);
+                    return;
+                }
                 if (!data.ok) { setError(data.error || 'This appointment could not be found.'); setDetails(data); return; }
                 setDetails(data);
             })
-            .catch(() => setError('Something went wrong loading your appointment.'))
+            .catch(() => setError('No connection — check your signal and try again.'))
             .finally(() => setIsLoading(false));
     }, [tenantId, appointmentId]);
 
@@ -1765,7 +1774,7 @@ const CancelGateView = ({
     if (error && !result) {
         return (
             <ViewContainer>
-                <ViewHeader title="Can't Cancel Online" subtitle="This link is no longer actionable" icon={AlertTriangle} />
+                <ViewHeader title="Can't Cancel Online" subtitle="Here's what happened" icon={AlertTriangle} />
                 <CardContent className="p-10 md:p-16 text-center space-y-8">
                     <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
                         <AlertTriangle className="w-12 h-12 text-destructive" />
@@ -1992,7 +2001,10 @@ const RescheduleGateView = ({
         );
     }
 
-    const canChange = info?.policy?.canChange !== false;
+    // v19 — reschedule uses its OWN short cutoff (default 2h), separate
+    // from the cancellation fee window: a reschedule keeps the booking.
+    const canChange = (info?.policy?.canReschedule ?? info?.policy?.canChange) !== false;
+    const cutoffHours = info?.policy?.rescheduleCutoffHours ?? info?.policy?.cancelHours;
 
     return (
         <ViewContainer>
@@ -2013,7 +2025,7 @@ const RescheduleGateView = ({
                     <div className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                         <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                            Online changes close {info?.policy?.cancelHours}h before your appointment — call the studio and we'll move it for you.
+                            Online rescheduling closes {cutoffHours}h before your appointment — call the studio and we'll move it for you.
                         </p>
                     </div>
                 ) : (
