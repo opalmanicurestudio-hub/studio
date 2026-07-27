@@ -77,10 +77,12 @@ export async function POST(req: NextRequest) {
       || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
       || req.nextUrl.origin,
     ).replace(/\/$/, '');
+    // v18 — ONE portal for clients: the master check-in link carries
+    // everything (arrival, running-late, concierge, forms/deposit, the
+    // studio's cancellation flow). manageToken lives on only as the key
+    // for the .ics calendar download (served by /api/appt GET).
     const k = await ensureApptToken(db, tenantId, appointmentId);
-    const manageUrl = k ? `${base}/appt/${tenantId}/${appointmentId}?k=${k}` : null;
-    // Same token, GET → .ics file. iOS/Android/Outlook all open it as an
-    // "add this event" sheet.
+    const portalUrl = apt.checkInToken ? `${base}/check-in/${apt.checkInToken}` : null;
     const calendarUrl = k
       ? `${base}/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentId)}&k=${encodeURIComponent(k)}`
       : null;
@@ -99,9 +101,9 @@ export async function POST(req: NextRequest) {
           code ? 'Show the code below when you arrive to check in.' : '',
         ].filter(Boolean),
         bigCode: code || undefined,
-        cta: manageUrl ? { label: 'Manage appointment', url: manageUrl } : null,
+        cta: portalUrl ? { label: 'Check in / manage my visit', url: portalUrl } : null,
         secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
-        footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the buttons above any time. Sent by ${studioName}.`,
+        footerNote: `Running late, need to cancel, or want anything during your visit? It's all behind the button above. Sent by ${studioName}.`,
       });
       const er = await sendNotification(db, {
         tenantId, channel: 'email', to: email,
@@ -117,7 +119,7 @@ export async function POST(req: NextRequest) {
       // with delivery tracking, exactly like the email above.
       const sr = await sendNotification(db, {
         tenantId, channel: 'sms', to: phone,
-        text: `You're confirmed — ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
+        text: `You're confirmed — ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${portalUrl ? ` Details & check-in: ${portalUrl}` : ''}`,
         kind: 'booking_confirmation',
         appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
       });
