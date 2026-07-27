@@ -84,6 +84,12 @@ export async function POST(req: NextRequest) {
       patch.bouncedAt = at;
       patch.failureDetail = String(evt?.data?.bounce?.message || evt?.data?.bounce?.subType || 'Bounced — address may be wrong').slice(0, 300);
     }
+    if (type === 'email.failed') {
+      // Failed = Resend couldn't send it at all (vs. bounced = the
+      // receiving server rejected it). Same red treatment either way.
+      patch.bouncedAt = at;
+      patch.failureDetail = String(evt?.data?.failed?.reason || evt?.data?.reason || 'Send failed at the provider').slice(0, 300);
+    }
     if (type === 'email.complained') {
       patch.complainedAt = at;
       patch.failureDetail = 'Recipient marked the email as spam.';
@@ -92,16 +98,16 @@ export async function POST(req: NextRequest) {
 
     await db.doc(`tenants/${tenantId}/messageLog/${logId}`).set(patch, { merge: true });
 
-    // A bounce is worth a bell — the owner should fix the address NOW,
-    // while the client is still expecting their confirmation.
-    if (type === 'email.bounced' || type === 'email.complained') {
+    // A bounce/failure is worth a bell — the owner should fix the address
+    // NOW, while the client is still expecting their confirmation.
+    if (type === 'email.bounced' || type === 'email.complained' || type === 'email.failed') {
       try {
         const log = ((await db.doc(`tenants/${tenantId}/messageLog/${logId}`).get()).data() as any) || {};
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         await nRef.set({
           id: nRef.id, type: 'message', read: false, createdAt: new Date().toISOString(),
           link: '/planner',
-          message: `Email to ${log.clientName || log.to || 'a client'} ${type === 'email.bounced' ? 'BOUNCED' : 'was marked spam'} (${log.kind || 'message'}) — check the address and resend from the appointment.`,
+          message: `Email to ${log.clientName || log.to || 'a client'} ${type === 'email.complained' ? 'was marked spam' : type === 'email.failed' ? 'FAILED to send' : 'BOUNCED'} (${log.kind || 'message'}) — check the address and resend from the appointment.`,
         });
       } catch { /* bell is a bonus */ }
     }
