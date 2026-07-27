@@ -124,10 +124,51 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
 // the A2P registration promises carriers. Later messages in the ongoing
 // relationship stay clean (the disclosure requirement is first-contact,
 // and Twilio enforces STOP at the carrier level regardless).
+// v17 — WHO got this message? Every text (or its email fallback) lands in
+// tenants/{id}/messageLog with the recipient identified, so staff texts,
+// renter rent reminders, and maintenance job alerts all show the same
+// journey trail clients get. When the caller doesn't say who the number
+// belongs to, we look it up — same digit-matching the inbound SMS webhook
+// uses (staff → maintenance workers → renters → clients).
+export type SmsMeta = {
+  kind?: string;                       // 'rent_reminder' | 'job_assigned' | ...
+  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'other';
+  recipientId?: string | null;
+  recipientName?: string | null;
+  appointmentId?: string | null;
+  skipMessageLog?: boolean;            // notify.ts email path logs its own
+};
+
+async function resolveRecipient(db: any, tenantId: string, e164: string | null) {
+  if (!e164) return null;
+  const target = e164.replace(/\D/g, '').slice(-10);
+  if (target.length < 10) return null;
+  const pools = [
+    { coll: 'staff', type: 'staff' as const },
+    { coll: 'maintenanceWorkers', type: 'maintenance' as const },
+    { coll: 'renters', type: 'renter' as const },
+    { coll: 'clients', type: 'client' as const },
+  ];
+  for (const p of pools) {
+    try {
+      const snap = await db.collection(`tenants/${tenantId}/${p.coll}`).get();
+      for (const d of snap.docs) {
+        const data = d.data() as any;
+        const digits = String(data.phone || '').replace(/\D/g, '').slice(-10);
+        if (digits && digits === target) {
+          return { recipientType: p.type, recipientId: d.id, recipientName: data.name || null };
+        }
+      }
+    } catch { /* keep hunting */ }
+  }
+  return null;
+}
+
 export async function sendTenantSms(
   db: any, tenantId: string, to: string, body: string,
   // Secondary method: pass an email and the message survives SMS failure.
   fallback?: { email?: string | null; subject?: string },
+  meta?: SmsMeta,
 ): Promise<SmsResult> {
   let studioName = '';
   let from: string | undefined;
@@ -172,5 +213,45 @@ export async function sendTenantSms(
       at: new Date().toISOString(),
     });
   } catch { /* the log never blocks the message */ }
+
+  // v17 — the shared journey log (what the Message Log screen and the
+  // appointment Communications panel read), with recipient linkage.
+  if (!meta?.skipMessageLog) {
+    try {
+      const who = (meta && (meta.recipientType || meta.recipientId))
+        ? { recipientType: meta.recipientType || 'other', recipientId: meta.recipientId || null, recipientName: meta.recipientName || null }
+        : (await resolveRecipient(db, tenantId, e164))
+          || { recipientType: 'other' as const, recipientId: null, recipientName: meta?.recipientName || null };
+      const logRef = db.collection(`tenants/${tenantId}/messageLog`).doc();
+      await logRef.set({
+        id: logRef.id,
+        channel: result.via === 'email' ? 'email' : 'sms',
+        kind: meta?.kind || 'text',
+        to: result.via === 'email' ? (fallback?.email || '') : (e164 || String(to).slice(0, 30)),
+        subject: null,
+        preview: body.slice(0, 140),
+        status: result.ok ? 'sent' : 'failed',
+        error: result.ok ? null : (result.error || null),
+        providerId: result.sid || null,
+        appointmentId: meta?.appointmentId || null,
+        clientId: who.recipientType === 'client' ? who.recipientId : null,
+        clientName: who.recipientType === 'client' ? who.recipientName : null,
+        recipientType: who.recipientType,
+        recipientId: who.recipientId,
+        recipientName: who.recipientName,
+        sentAt: new Date().toISOString(),
+        deliveredAt: null, openedAt: null, clickedAt: null,
+        bouncedAt: null, failureDetail: null,
+      });
+      // Delivery tracking: Twilio's status callback finds this entry by sid.
+      if (result.sid) {
+        try {
+          await db.doc(`msgIndex/${result.sid}`).set({
+            tenantId, logId: logRef.id, channel: 'sms', at: new Date().toISOString(),
+          });
+        } catch { /* tracking is best-effort */ }
+      }
+    } catch { /* the log never blocks the message */ }
+  }
   return result;
 }
