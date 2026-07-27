@@ -81,7 +81,11 @@ export default function MessageLogPage() {
   const STEPS = ['Sent', 'Delivered', 'Opened', 'Clicked'];
 
   return (
-    <div className="p-3 sm:p-6 max-w-4xl mx-auto space-y-3 sm:space-y-4"
+    // min-w-0 + overflow-x-clip: the app shell's content pane is a flex
+    // child — without these, any wide row inflates the WHOLE page past the
+    // phone's edge (the "broken screen" bug). Chips WRAP instead of
+    // scrolling sideways for the same reason.
+    <div className="p-3 sm:p-6 w-full max-w-4xl mx-auto space-y-3 sm:space-y-4 min-w-0 overflow-x-clip"
       style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
       {/* Header */}
       <div className="rounded-3xl bg-slate-900 text-white p-4 sm:p-6 shadow-xl">
@@ -89,7 +93,7 @@ export default function MessageLogPage() {
           <Send className="w-3.5 h-3.5" /> Communications
         </p>
         <h1 className="text-xl sm:text-2xl font-black tracking-tight mt-1">Message Log</h1>
-        <p className="text-[11px] sm:text-xs font-bold text-slate-300 mt-1.5">
+        <p className="text-[11px] sm:text-xs font-bold text-slate-300 mt-1.5 break-words">
           Every email and text the platform sends — clients, staff, renters, maintenance — with delivery, opens, and failures.
         </p>
         {attentionCount > 0 && (
@@ -100,15 +104,16 @@ export default function MessageLogPage() {
         )}
       </div>
 
-      {/* Filters */}
+      {/* Filters — chips WRAP (never sideways-scroll) so the page can
+          never be forced wider than the phone. */}
       <div className="space-y-2">
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="flex flex-wrap gap-1.5">
           {AUDIENCES.map((a) => {
             const Icon = a.icon;
             return (
               <button key={a.key} onClick={() => setAudience(a.key)}
                 className={cn(
-                  'shrink-0 h-9 px-3.5 rounded-full border-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1.5 transition-colors',
+                  'h-9 px-3 rounded-full border-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-1.5 transition-colors',
                   audience === a.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600',
                 )}>
                 <Icon className="w-3 h-3" /> {a.label}
@@ -116,13 +121,11 @@ export default function MessageLogPage() {
             );
           })}
         </div>
-        {/* Channel + attention chips scroll on phones; search gets its own
-            full-width row so it's a comfortable thumb target. */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="flex flex-wrap gap-1.5">
           {(['all', 'email', 'sms'] as const).map((c) => (
             <button key={c} onClick={() => setChannel(c)}
               className={cn(
-                'shrink-0 h-9 px-3.5 rounded-full border-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-1.5',
+                'h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-1.5',
                 channel === c ? 'bg-slate-100 border-slate-300 text-slate-900' : 'bg-white text-slate-400',
               )}>
               {c === 'email' ? <Mail className="w-3 h-3" /> : c === 'sms' ? <MessageSquare className="w-3 h-3" /> : null}
@@ -131,7 +134,7 @@ export default function MessageLogPage() {
           ))}
           <button onClick={() => setNeedsAttention((v) => !v)}
             className={cn(
-              'shrink-0 h-9 px-3.5 rounded-full border-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-1.5',
+              'h-9 px-3 rounded-full border-2 text-[9px] font-black uppercase tracking-widest inline-flex items-center gap-1.5',
               needsAttention ? 'bg-red-50 border-red-300 text-red-700' : 'bg-white text-slate-400',
             )}>
             <AlertCircle className="w-3 h-3" /> Needs attention
