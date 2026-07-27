@@ -588,24 +588,38 @@ const SessionNotePanel = ({
 // the wrong box, or needs correcting after the fact, this is where somebody
 // looking at the appointment will try to fix it.
 //
-// The checkout note is deliberately READ-ONLY. It lives inside checkoutState,
-// which the checkout flow rewrites wholesale; editing one field from here would
-// be silently overwritten the next time checkout ran. It's shown, clearly
-// labelled, and left alone.
+// The checkout note is editable too, but NOT at its original address. It was
+// written inside checkoutState, which the checkout flow rewrites wholesale on
+// every hand-off — a field edited there would be silently overwritten. So
+// checkout now also promotes it to appointment.serviceNotes (a permanent,
+// top-level field) and that is what this panel reads and writes. Appointments
+// checked out before that change still show their note via a read of the old
+// location, and editing one migrates it forward.
 const NOTE_TONES = {
-  booking:  { label: 'Booking note',  icon: MessageSquare, hint: 'What was typed when this was booked. The client can see this.', ring: 'border-primary/15 bg-primary/[0.02]', dot: 'text-primary/50' },
-  internal: { label: 'Internal note', icon: Lock,          hint: 'Staff only. Never shown to the client.',                        ring: 'border-amber-300/40 bg-amber-50/40', dot: 'text-amber-600/70' },
+  booking:  { label: 'Booking note',  icon: MessageSquare, hint: 'What was typed when this was booked. The client can see this.', ring: 'border-primary/15 bg-primary/[0.02]', dot: 'text-primary/50', dashed: 'border-primary/15' },
+  internal: { label: 'Internal note', icon: Lock,          hint: 'Staff only. Never shown to the client.',                        ring: 'border-amber-300/40 bg-amber-50/40', dot: 'text-amber-600/70', dashed: 'border-amber-300/40' },
+  service:  { label: 'Service note',  icon: Receipt,       hint: 'What happened during the service. Staff only — starts from the note typed at checkout.', ring: 'border-emerald-300/40 bg-emerald-50/40', dot: 'text-emerald-700/60', dashed: 'border-emerald-300/40' },
 } as const;
 
+type NoteKind = keyof typeof NOTE_TONES;
+
+const NOTE_FIELD: Record<NoteKind, string> = {
+  booking: 'notes',
+  internal: 'internalNotes',
+  service: 'serviceNotes',
+};
+
 const EditableNoteRow = ({
-  kind, value, appointment, tenantId, firestore,
+  kind, value, appointment, tenantId, firestore, provenance,
 }: {
-  kind: 'booking' | 'internal';
+  kind: NoteKind;
   value: string;
   appointment: any; tenantId: string; firestore: any;
+  /** Small line under the heading, e.g. "From checkout · Jul 24". */
+  provenance?: string | null;
 }) => {
   const tone = NOTE_TONES[kind];
-  const field = kind === 'booking' ? 'notes' : 'internalNotes';
+  const field = NOTE_FIELD[kind];
   const Icon = tone.icon;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || '');
@@ -646,7 +660,11 @@ const EditableNoteRow = ({
         <Textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
-          placeholder={kind === 'booking' ? 'What the client asked for, parking notes, anything they should see…' : 'Anything the team needs to know that the client should not see…'}
+          placeholder={
+            kind === 'booking' ? 'What the client asked for, parking notes, anything they should see…'
+            : kind === 'service' ? 'What was done, what to watch for next time, product used…'
+            : 'Anything the team needs to know that the client should not see…'
+          }
           className="min-h-[76px] rounded-xl text-[11px] resize-none"
           autoFocus
         />
@@ -667,7 +685,7 @@ const EditableNoteRow = ({
   if (!value) {
     return (
       <button onClick={() => setEditing(true)}
-        className={cn('w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed transition-all text-left min-h-[44px] hover:bg-muted/20', kind === 'booking' ? 'border-primary/15' : 'border-amber-300/40')}>
+        className={cn('w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed transition-all text-left min-h-[44px] hover:bg-muted/20', tone.dashed)}>
         <PenLine className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
         <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50">Add {tone.label.toLowerCase()}</span>
       </button>
@@ -677,9 +695,16 @@ const EditableNoteRow = ({
   return (
     <div className={cn('rounded-2xl border-2 p-4 space-y-2', tone.ring)}>
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
-          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate">{tone.label}</span>
+        <div className="flex items-start gap-2 min-w-0">
+          <Icon className={cn('w-3.5 h-3.5 shrink-0 mt-px', tone.dot)} />
+          {/* Label and provenance stack rather than sharing one line — on a
+              phone "Service note · From checkout · Jul 25" truncated. */}
+          <div className="min-w-0">
+            <span className="block text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate">{tone.label}</span>
+            {provenance && (
+              <span className="block text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 truncate">{provenance}</span>
+            )}
+          </div>
         </div>
         {/* h-8 keeps the row visually tight; the -inset-2 pseudo-element gives
             it a ~48px touch target on a phone without growing the layout. */}
@@ -698,31 +723,30 @@ const AppointmentNotesPanel = ({
 }: { appointment: any; tenantId: string; firestore: any; currentUser: any; staff: any[] }) => {
   const bookingNote = typeof appointment?.notes === 'string' ? appointment.notes.trim() : '';
   const internalNote = typeof appointment?.internalNotes === 'string' ? appointment.internalNotes.trim() : '';
-  const checkoutNote = typeof appointment?.checkoutState?.reviewNotes === 'string'
-    ? appointment.checkoutState.reviewNotes.trim() : '';
   const resolutionNote = typeof appointment?.resolutionNotes === 'string' ? appointment.resolutionNotes.trim() : '';
+
+  // The service note is PERMANENT and editable. Checkout promotes whatever the
+  // technician typed into appointment.serviceNotes (see handleSendToFrontDesk),
+  // so it survives checkoutState being rewritten on the next hand-off.
+  //
+  // The fallback to checkoutState.reviewNotes is for appointments that were
+  // already checked out BEFORE that promotion existed — their note only lives
+  // inside checkoutState. Showing it here means no historical note disappears,
+  // and the first time somebody edits one it gets written to serviceNotes,
+  // quietly migrating itself.
+  const promotedNote = typeof appointment?.serviceNotes === 'string' ? appointment.serviceNotes.trim() : '';
+  const legacyNote = typeof appointment?.checkoutState?.reviewNotes === 'string'
+    ? appointment.checkoutState.reviewNotes.trim() : '';
+  const serviceNote = promotedNote || legacyNote;
+  const serviceNoteAt = appointment?.serviceNotesRecordedAt || appointment?.actualEndTime;
+  const serviceProvenance = serviceNote && serviceNoteAt ? `From checkout · ${fmtDT(serviceNoteAt, 'MMM d')}` : null;
 
   return (
     <div className="space-y-2">
       <EditableNoteRow kind="booking" value={bookingNote} appointment={appointment} tenantId={tenantId} firestore={firestore} />
       <EditableNoteRow kind="internal" value={internalNote} appointment={appointment} tenantId={tenantId} firestore={firestore} />
-
-      {/* Read-only: owned by the checkout flow (see the note above). */}
-      {checkoutNote && (
-        <div className="rounded-2xl border-2 border-emerald-300/40 bg-emerald-50/40 p-4 space-y-2">
-          <div className="flex items-center gap-2">
-            <Receipt className="w-3.5 h-3.5 text-emerald-700/60 shrink-0" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-              From checkout
-              {appointment?.actualEndTime && ` · ${fmtDT(appointment.actualEndTime, 'MMM d')}`}
-            </span>
-          </div>
-          <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5 whitespace-pre-wrap break-words">{checkoutNote}</p>
-          <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 pl-5">
-            Recorded at checkout — edit it from the checkout screen
-          </p>
-        </div>
-      )}
+      <EditableNoteRow kind="service" value={serviceNote} appointment={appointment} tenantId={tenantId} firestore={firestore}
+        provenance={serviceProvenance} />
 
       {/* Escalation resolution — was rendered far down the drawer, well away
           from every other note. Repeated here so one place answers "what do we
