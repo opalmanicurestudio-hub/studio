@@ -1481,7 +1481,50 @@ export function QuickBookForm({
     }) : 0);
   }, 0);
 
-  const depositCents = primaryDepositCents + legDepositCents;
+  // v20 — PARTY GUESTS COUNT. Until now a party of five collected exactly one
+  // deposit — the organizer's — and the other four appointments carried no
+  // deposit fields at all, so nobody chased them and nothing showed as owed.
+  // Four fifths of a party's no-show risk was uncovered. Guests are now priced
+  // and deposited like anyone else, on the card that is standing at the desk.
+  const guestLines = React.useMemo(() => {
+    if (!isGroup) return [] as Array<{ id: string; name: string; serviceName: string; price: number; depositCents: number }>;
+    return groupGuests
+      .filter((g) => g.name?.trim() && g.serviceId)
+      .map((g) => {
+        const gSvc = services.find((s: any) => s.id === g.serviceId);
+        const gStaff = staff.find((s: any) => s.id === g.staffId);
+        const gAddOnTotal = (g.addOnIds || []).reduce((acc: number, id: string) => {
+          const a = services.find((s: any) => s.id === id);
+          return acc + (a ? getServicePrice(a, gStaff) : 0);
+        }, 0);
+        const price = (gSvc ? getServicePrice(gSvc, gStaff) : 0) + gAddOnTotal;
+        return {
+          id: g.id,
+          name: g.name.trim(),
+          serviceName: gSvc?.name || 'Service',
+          price,
+          depositCents: gSvc
+            ? computeDepositCents({
+              service: gSvc,
+              price: gSvc ? getServicePrice(gSvc, gStaff) : 0,
+              depositsLive: tenant?.depositsLive === true,
+            })
+            : 0,
+        };
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGroup, groupGuests, services, staff, tenant?.depositsLive]);
+
+  const guestsTotal = guestLines.reduce((acc, g) => acc + g.price, 0);
+  const guestDepositCents = guestLines.reduce((acc, g) => acc + g.depositCents, 0);
+  /** guest id -> deposit in cents, so the write below can stamp each guest doc. */
+  const guestDepositById = React.useMemo(() => {
+    const m: Record<string, number> = {};
+    guestLines.forEach((g) => { m[g.id] = g.depositCents; });
+    return m;
+  }, [guestLines]);
+
+  const depositCents = primaryDepositCents + legDepositCents + guestDepositCents;
 
   const discountCents = promoDiscount
     ? promoDiscount.type === 'pct'
@@ -1490,7 +1533,7 @@ export function QuickBookForm({
     : 0;
   const effectiveDepositCents = Math.max(0, depositCents - discountCents);
 
-  const grandTotal = svcPrice + addOnTotal + legsTotal;
+  const grandTotal = svcPrice + addOnTotal + legsTotal + guestsTotal;
 
   const liveCallerName = selectedClient?.name || newClientName.trim() || 'New caller';
   const liveServiceLabel = selectedSvc?.name
@@ -2723,8 +2766,18 @@ export function QuickBookForm({
         notes: clientNotes.trim() || undefined,
         internalNotes: internalNotes.trim() || undefined,
         groupBookingId: groupBookingId || undefined,
+        // v20 — the organizer is flagged and the party size recorded, so
+        // anything that needs ONE contact for the whole party (reminders,
+        // cancellations, the calendar badge) can find it without a second
+        // query. Before this, every consumer treated a party of five as five
+        // unrelated strangers who happened to book the same minute.
+        isPrimaryGroup: groupBookingId ? true : undefined,
+        groupSize: groupBookingId ? groupGuests.length + 1 : undefined,
+        groupOrganizerClientId: groupBookingId ? clientId : undefined,
+        groupOrganizerName: groupBookingId ? clientName : undefined,
         multiProviderGroupId: multiProviderGroupId || undefined,
         sequenceIndex: multiProviderGroupId ? 0 : undefined,
+        multiProviderLegCount: multiProviderGroupId ? scheduledLegs.length + 1 : undefined,
         recurrenceId: recurrenceId || undefined,
         promoCode: promoDiscount ? promoCode.trim() : undefined,
         promoDiscountCents: discountCents > 0 ? discountCents : undefined,
@@ -2753,6 +2806,7 @@ export function QuickBookForm({
 
       batch.set(doc(firestore, `tenants/${tenantId}/appointments`, aptId), aptDoc);
       batch.set(doc(firestore, 'appointmentCheckIns', checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
+      batch.set(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, checkInToken), sanitizeForFirestore({ ...aptDoc, tenantId }));
 
       batch.set(doc(firestore, `tenants/${tenantId}/clients`, clientId), sanitizeForFirestore({
         lastServiceId: selectedService,
@@ -2810,7 +2864,7 @@ export function QuickBookForm({
             sequenceIndex: idx + 1,
             internalNotes: internalNotes.trim() || undefined,
           }));
-          batch.set(doc(firestore, 'appointmentCheckIns', legToken), sanitizeForFirestore({
+          const legMirror = {
             id: legId, tenantId, clientId, clientName,
             serviceId: leg.serviceId,
             staffId: legStaffId,
@@ -2821,7 +2875,11 @@ export function QuickBookForm({
             endTime: leg.endTime.toISOString(),
             multiProviderGroupId,
             sequenceIndex: idx + 1,
-          }));
+          };
+          batch.set(doc(firestore, 'appointmentCheckIns', legToken), sanitizeForFirestore(legMirror));
+          // Scoped copy too, matching /api/checkins and /api/appointments/book,
+          // so the legacy root collection can be retired without breaking legs.
+          batch.set(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, legToken), sanitizeForFirestore(legMirror));
         });
       }
 
@@ -2878,7 +2936,8 @@ export function QuickBookForm({
             }));
           }
 
-          batch.set(doc(firestore, `tenants/${tenantId}/appointments`, gAptId), sanitizeForFirestore({
+          const gDepositCents = guestDepositById[guest.id] || 0;
+          const gApptDoc = {
             id: gAptId, tenantId,
             clientId: gClientId,
             clientName: guest.name,
@@ -2896,7 +2955,27 @@ export function QuickBookForm({
             autoCancelledNoShow: false,
             groupBookingId,
             isPrimaryGroup: false,
-          }));
+            // v20 — the guest's share of the deposit, recorded so it shows as
+            // collected (or owed) instead of vanishing. Paid state follows the
+            // organizer's charge, because that is the card it came off.
+            depositAmountCents: gDepositCents,
+            depositStatus: gDepositCents > 0
+              ? (chargeResultForLedger ? 'paid' : 'pending')
+              : 'none',
+            ...(gDepositCents > 0 && chargeResultForLedger ? { depositPaidAt: now } : {}),
+            // Who to actually talk to. Every guest doc points back at the
+            // organizer so nothing has to guess when it needs one contact for
+            // the whole party.
+            groupOrganizerClientId: clientId,
+            groupOrganizerName: clientName,
+            groupSize: groupGuests.length + 1,
+          };
+          batch.set(doc(firestore, `tenants/${tenantId}/appointments`, gAptId), sanitizeForFirestore(gApptDoc));
+          // The mirror the /check-in page actually reads. Without it every
+          // guest's reminder link pointed at a document that did not exist,
+          // so the link opened to nothing.
+          batch.set(doc(firestore, 'appointmentCheckIns', gToken), sanitizeForFirestore(gApptDoc));
+          batch.set(doc(firestore, `tenants/${tenantId}/appointmentCheckIns`, gToken), sanitizeForFirestore(gApptDoc));
         }
       }
 
@@ -4221,6 +4300,15 @@ export function QuickBookForm({
               <span className="text-slate-900">{groupGuests.length + 1} guests</span>
             </div>
           )}
+          {/* Each guest, priced. The party total used to show only the
+              organizer's service, which made a party of five look like a $45
+              ticket at the desk. */}
+          {guestLines.map(g => (
+            <div key={g.id} className="flex justify-between text-xs pl-3 border-l border-slate-100 gap-2">
+              <span className="text-slate-400 truncate">+ {g.name.split(' ')[0]} · {g.serviceName}</span>
+              <span className="text-slate-700 shrink-0">${g.price.toFixed(2)}</span>
+            </div>
+          ))}
           {promoDiscount && (
             <div className="flex justify-between text-xs text-green-700">
               <span>Promo ({promoDiscount.label})</span>
@@ -4233,7 +4321,10 @@ export function QuickBookForm({
           <div className="text-right">
             <p className="text-3xl font-semibold text-slate-900 tracking-tight">${grandTotal.toFixed(2)}</p>
             {effectiveDepositCents > 0 && (
-              <p className="text-[11px] text-slate-400 mt-0.5">${(effectiveDepositCents / 100).toFixed(2)} deposit due now</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                ${(effectiveDepositCents / 100).toFixed(2)} deposit due now
+                {guestDepositCents > 0 ? ` · covers all ${groupGuests.length + 1}` : ''}
+              </p>
             )}
           </div>
         </div>
