@@ -541,6 +541,43 @@ function PlannerPageContent() {
 
     batch.update(appointmentRef, sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, cancellationFeeApplied: data.feeAmount, cancellationPaymentStatus: data.paymentMethod === 'card_on_file' ? 'paid' : (data.paymentMethod === 'waived' ? 'waived' : 'unpaid') }));
     if (selectedAppointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }));
+    if (selectedAppointment.checkInToken) batch.set(doc(firestore, 'tenants', tenantId, 'appointmentCheckIns', selectedAppointment.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }), { merge: true });
+
+    // ── SIBLINGS OF THE SAME VISIT ──────────────────────────────────────────
+    // A multi-provider visit is one appointment row per leg: colour with Ana,
+    // then cut with Bea. Voiding one leg used to leave the others on the books,
+    // so a client who cancelled still showed up as expected for her cut, her
+    // chair stayed held, and her tech's day never freed up. The legs are one
+    // visit and cancel together.
+    //
+    // A party is one row per guest. Those are different PEOPLE, so a guest
+    // cancelling never touches anyone else — but voiding the ORGANIZER's row
+    // voids the party, because that is what "cancel the party of five" means.
+    // Nothing here is silent: the toast says exactly how many rows were voided.
+    const siblingVisitId = (selectedAppointment as any).multiProviderGroupId || null;
+    const partyId = (selectedAppointment as any).isPrimaryGroup ? ((selectedAppointment as any).groupBookingId || null) : null;
+    const siblings = (siblingVisitId || partyId)
+        ? (appointments || []).filter((s: any) => {
+            if (s.id === selectedAppointment.id) return false;
+            if (['cancelled', 'canceled', 'completed', 'no_show'].includes(String(s.status || ''))) return false;
+            if (siblingVisitId && s.multiProviderGroupId === siblingVisitId) return true;
+            if (partyId && s.groupBookingId === partyId) return true;
+            return false;
+        })
+        : [];
+    siblings.forEach((s: any) => {
+        batch.update(doc(firestore, 'tenants', tenantId, 'appointments', s.id), sanitizeForFirestore({
+            status: 'cancelled',
+            cancellationReason: data.reason,
+            cancelledWithAppointmentId: selectedAppointment.id,
+        }));
+        // set-with-merge, not update: a mirror that was never written would
+        // fail the whole batch and take the real cancellation down with it.
+        if (s.checkInToken) {
+            batch.set(doc(firestore, 'appointmentCheckIns', s.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }), { merge: true });
+            batch.set(doc(firestore, 'tenants', tenantId, 'appointmentCheckIns', s.checkInToken), sanitizeForFirestore({ status: 'cancelled', cancellationReason: data.reason, tenantId }), { merge: true });
+        }
+    });
 
     if (data.chargeFee && data.feeAmount > 0) {
         if (data.paymentMethod === 'card_on_file') {
@@ -575,7 +612,12 @@ function PlannerPageContent() {
 
     try {
         await batch.commit();
-        toast({ title: "Policy Enforced", description: "Appointment voided and logic reconciled." });
+        toast({
+            title: "Policy Enforced",
+            description: siblings.length > 0
+                ? `Appointment voided along with ${siblings.length} linked ${siblings.length === 1 ? 'booking' : 'bookings'} on the same visit.`
+                : "Appointment voided and logic reconciled.",
+        });
     } catch (e) {
         toast({ variant: 'destructive', title: "Process Error" });
     }
