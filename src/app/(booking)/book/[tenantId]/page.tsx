@@ -69,6 +69,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
   const [scheduleProfiles,setScheduleProfiles]= useState<any[]>([]);
   const [pricingTiers,    setPricingTiers]    = useState<any[]>([]);
   const [consentForms,    setConsentForms]    = useState<any[]>([]);
+  // The blocking sources. `events` above is the studio's marketing events on
+  // the page itself — these are the calendar blocks, a different collection.
+  const [shifts,          setShifts]          = useState<any[]>([]);
+  const [staffBlocks,     setStaffBlocks]     = useState<any[]>([]);
+  const [dayOffBlocks,    setDayOffBlocks]    = useState<any[]>([]);
+  const [resources,       setResources]       = useState<any[]>([]);
+  const [maintTickets,    setMaintTickets]    = useState<any[]>([]);
+  const [maintenancePlans,setMaintenancePlans]= useState<any[]>([]);
+  const [calendarEvents,  setCalendarEvents]  = useState<any[]>([]);
   const [savedConfig,     setSavedConfig]     = useState<PageBuilderConfig|null>(null);
   const [configReady,     setConfigReady]     = useState(false);
   const [dialogOpen,      setDialogOpen]      = useState(false);
@@ -136,7 +145,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     const run = async () => {
       const db = getDb(); if (!db) return;
       try {
-        const [svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap] = await Promise.all([
+        const [svSnap,stSnap,evSnap,aptSnap,spSnap,ptSnap,cfSnap,shSnap,sbSnap,doSnap,rsSnap,tkSnap,mpSnap,ceSnap] = await Promise.all([
           getDocs(collection(db, `tenants/${tenantId}/services`)),
           getDocs(collection(db, `tenants/${tenantId}/staff`)),
           getDocs(query(collection(db, `tenants/${tenantId}/studioEvents`), orderBy('date','asc'))).catch(() => getDocs(collection(db, `tenants/${tenantId}/studioEvents`))),
@@ -144,6 +153,19 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           getDocs(collection(db, `tenants/${tenantId}/scheduleProfiles`)).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/pricingTiers`)).catch(() => ({ docs: [] })),
           getDocs(collection(db, `tenants/${tenantId}/consentForms`)).catch(() => ({ docs: [] })),
+          // v21 — the other seven blocking sources. Without these the public
+          // page only knew about other appointments, so it happily offered a
+          // slot on an approved day off, outside the published roster, or in a
+          // pedicure chair with an urgent maintenance ticket on it. The booking
+          // route checks all of them, so every one of those offers came back
+          // refused at the last step. Same inputs on both sides, same answer.
+          getDocs(query(collection(db, `tenants/${tenantId}/shifts`), where('date', '>=', new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/staffBlocks`), where('startTime', '>=', new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/shiftDayOffBlocks`), where('date', '>=', new Date().toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
+          getDocs(collection(db, `tenants/${tenantId}/resources`)).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/tickets`), where('status', 'in', ['open', 'in_progress']))).catch(() => ({ docs: [] })),
+          getDocs(collection(db, `tenants/${tenantId}/maintenancePlans`)).catch(() => ({ docs: [] })),
+          getDocs(query(collection(db, `tenants/${tenantId}/events`), where('startTime', '>=', new Date(Date.now() - 31 * 86400000).toISOString().split('T')[0]))).catch(() => ({ docs: [] })),
         ]);
         if (!cancelled) {
           setServices(svSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter((s: any) => s.isActive !== false));
@@ -153,6 +175,13 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           setScheduleProfiles((spSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
           setPricingTiers((ptSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
           setConsentForms((cfSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setShifts((shSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setStaffBlocks((sbSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setDayOffBlocks((doSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setResources((rsSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setMaintTickets((tkSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setMaintenancePlans((mpSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
+          setCalendarEvents((ceSnap as any).docs.map((d: any) => ({ id: d.id, ...d.data() })));
         }
       } catch (e) { console.warn('[booking:data]', e); }
     };
@@ -197,7 +226,15 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     try { root.style.setProperty('--primary', hexToHsl(resolvedStyle.accentColor)); } catch {}
   }, [resolvedStyle]);
 
-  const data: PageData = { tenant, services, staff, events, tenantId };
+  const data: PageData = {
+    tenant, services, staff, events, tenantId,
+    // Everything the booking sheet needs to reach the same verdict as the
+    // server. Passed through in one object so there is exactly one place to
+    // keep in step when a new blocking source is added.
+    appointments, scheduleProfiles, shifts, staffBlocks, dayOffBlocks,
+    resources, tickets: maintTickets, maintenancePlans, calendarEvents,
+    pricingTiers, consentForms,
+  };
 
   // Loading spinner
   if (!configReady) {
@@ -264,13 +301,24 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
                 setStep('confirmation');
                 return { requiresPayment: false };
               }
-              if (bookRes.status === 409) {
-                // Someone genuinely took the slot mid-checkout — honest retry.
-                return { requiresPayment: true, error: out?.error || 'That time was just taken — pick another slot.' };
-              }
+              // v21 — ANY answered refusal is final. This used to return only
+              // on 409 and fall through to the unchecked legacy write for
+              // every other status, so when the server said "that's outside
+              // working hours" or "that chair is out of service" the page
+              // wrote the appointment anyway — a booking the studio could not
+              // honour, with no conflict check behind it. The route is the
+              // authority now; the only reason to fall through is that it
+              // isn't there (404) or the network never reached it.
+              return {
+                requiresPayment: true,
+                error: out?.error
+                  || (bookRes.status === 409
+                    ? 'That time was just taken — pick another slot.'
+                    : 'We could not hold that time. Please pick another slot.'),
+              };
             }
           }
-        } catch { /* fall through to the legacy write */ }
+        } catch { /* network never reached the route — fall through to the legacy write */ }
 
         const aptRef = doc(collection(db, `tenants/${tenantId}/appointments`));
         await setDoc(aptRef, sanitizeForFirestore({
