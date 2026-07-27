@@ -78,6 +78,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useLocation } from '@/context/LocationContext';
 import { LocationSwitcher } from '@/components/shared/LocationSwitcher';
 import { AppHeader } from '@/components/shared/AppHeader';
+import { CommsTrail } from '@/components/shared/CommsTrail';
 import { TourManagerDialog } from '@/components/booths/TourManagerDialog';
 import { DEFAULT_TOUR_PRINTOUT_CONFIG } from '@/lib/tour-printouts';
 import { AGREEMENT_TEMPLATES, fillTemplate } from '@/lib/esign';
@@ -1410,6 +1411,12 @@ function DetailPanel({
               {RENTER_STATUS_LABELS[renter.status] ?? renter.status ?? '—'}
             </span>
           </div>
+        )}
+
+        {/* v17 — every email/text this renter was sent, with delivery
+            journey — same treatment appointments get. */}
+        {renter && (renter as any).id && (
+          <CommsTrail recipientType="renter" recipientId={(renter as any).id} />
         )}
 
         {lease && (
