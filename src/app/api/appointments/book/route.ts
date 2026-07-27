@@ -265,17 +265,18 @@ export async function POST(req: NextRequest) {
       actor: { type: 'user', name: r.clientName || null, role: 'client', via: source },
     });
 
-    // ── v15 — AUTO-CONFIRMATION. Because every surface books through this
-    // one engine, sending here means Quick Book, the public page, the
-    // kiosk, and the portal ALL confirm automatically — text AND email,
-    // with the self-serve Manage link (cancel / reschedule / running late)
-    // baked in. Best-effort by design: a failed send NEVER fails the
-    // booking (the appointment is already safely written), it just comes
-    // back as sendStatus:false so the front desk sees "not sent" and can
-    // hit Resend. holdOnly bookings skip this — they aren't confirmed
-    // until payment clears.
+    // ── v16 — EVERY booking messages the client immediately. Confirmed
+    // bookings get the confirmation (code + Manage + Add to calendar).
+    // Bookings still owing something (holdOnly / pending_payment) get an
+    // "almost booked — finish up" message carrying the check-in link where
+    // they pay the deposit and sign forms — because a client who books and
+    // hears NOTHING is a front-desk bottleneck waiting to happen. Sends
+    // are best-effort: a failure never breaks the booking, it just shows
+    // as not-sent so staff can fix the address and resend. Every send —
+    // and its delivery/opened/clicked journey via the provider webhooks —
+    // lands in messageLog for the appointment timeline.
     const sendStatus = { smsSent: false, emailSent: false };
-    if (!body.holdOnly) {
+    {
       try {
         const clientDoc = r.clientId
           ? ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() as any) || {}
@@ -299,42 +300,65 @@ export async function POST(req: NextRequest) {
         const { ensureApptToken, sendNotification } = await import('@/lib/notify');
         const k = await ensureApptToken(db, tenantId, r.aptId);
         const manageUrl = k ? `${base}/appt/${tenantId}/${r.aptId}?k=${k}` : null;
+        // Same token, GET → .ics file — opens as "add this event" on
+        // iOS/Android/Outlook.
+        const calendarUrl = k
+          ? `${base}/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(r.aptId)}&k=${encodeURIComponent(k)}`
+          : null;
         const firstName = String(r.clientName || '').split(' ')[0] || 'there';
+        const isHold = !!body.holdOnly;
+        const checkInUrl = `${base}/check-in/${r.token}`;
+        const svcLabel = svc.name || 'appointment';
 
-        // Email — the branded confirmation with the self-serve button.
+        // Email — branded either way; the CONTENT matches the state.
         if (email.includes('@')) {
           const { brandedEmailHtml } = await import('@/lib/email-template');
-          const html = brandedEmailHtml({
-            studioName,
-            title: "You're confirmed",
-            bodyLines: [
-              `Hi ${firstName} — your ${svc.name || 'appointment'}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
-              'Show the code below when you arrive to check in.',
-            ],
-            bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
-            cta: manageUrl ? { label: 'Manage appointment', url: manageUrl } : null,
-            footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the button above any time. Sent by ${studioName}.`,
-          });
+          const html = isHold
+            ? brandedEmailHtml({
+              studioName,
+              title: 'Almost booked — one more step',
+              bodyLines: [
+                `Hi ${firstName} — we're holding ${whenStr} for your ${svcLabel}${staffName ? ` with ${staffName}` : ''}.`,
+                'Tap below to finish up (deposit and any forms) and lock it in. Your confirmation follows the moment it\'s done.',
+              ],
+              cta: { label: 'Finish my booking', url: checkInUrl },
+              footerNote: `Your spot is held for a limited time. Questions? Just reply or call — ${studioName}.`,
+            })
+            : brandedEmailHtml({
+              studioName,
+              title: "You're confirmed",
+              bodyLines: [
+                `Hi ${firstName} — your ${svcLabel}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
+                'Show the code below when you arrive to check in.',
+              ],
+              bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
+              cta: manageUrl ? { label: 'Manage appointment', url: manageUrl } : null,
+              secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
+              footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the buttons above any time. Sent by ${studioName}.`,
+            });
           const er = await sendNotification(db, {
             tenantId, channel: 'email', to: email,
-            subject: `Confirmed: ${svc.name || 'your appointment'} — ${whenStr}`,
-            html, kind: 'booking_confirmation',
+            subject: isHold
+              ? `Action needed: finish booking your ${svcLabel}`
+              : `Confirmed: ${svcLabel} — ${whenStr}`,
+            html, kind: isHold ? 'booking_hold' : 'booking_confirmation',
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
           sendStatus.emailSent = !!er.ok;
         }
 
-        // Text — short, with the manage link. No email fallback here: if the
-        // client has an email we already sent the branded version above.
+        // Text — short, matching the state. Routed through sendNotification
+        // so it lands in messageLog with delivery tracking, same as email.
         if (phone) {
-          const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
-          if (smsConfigured()) {
-            const sr = await sendTenantSms(
-              db, tenantId, phone,
-              `You're confirmed — ${svc.name || 'appointment'}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
-            );
-            sendStatus.smsSent = !!(sr.ok && sr.via !== 'email');
-          }
+          const sr = await sendNotification(db, {
+            tenantId, channel: 'sms', to: phone,
+            text: isHold
+              ? `We're holding ${whenStr} for your ${svcLabel}. Finish up here to lock it in: ${checkInUrl}`
+              : `You're confirmed — ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
+            kind: isHold ? 'booking_hold' : 'booking_confirmation',
+            appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
+          });
+          sendStatus.smsSent = !!sr.ok;
         }
       } catch (e) {
         console.error('[appointments/book] confirmation send failed (booking is safe)', e);
