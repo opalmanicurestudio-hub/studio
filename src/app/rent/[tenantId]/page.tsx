@@ -295,6 +295,8 @@ export default function RenterPortalPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [credBusy, setCredBusy] = useState<'license' | 'insurance' | null>(null);
+  const [credDone, setCredDone] = useState<'license' | 'insurance' | null>(null);
 
   const saveSession = (s: { token: string; expiresAt: number; name: string | null } | null) => {
     if (s) localStorage.setItem(STORE(tenantId), JSON.stringify(s));
@@ -521,6 +523,36 @@ export default function RenterPortalPage() {
                   Book Another Visit <ChevronRight className="w-4 h-4" />
                 </a>
               )}
+            </section>
+
+            {/* Documents — self-serve credential renewals. The expiry text
+                points here; uploading clears the nag and notifies the studio. */}
+            <section className="space-y-3">
+              <SectionTitle icon={Receipt}>Documents</SectionTitle>
+              <div className="rounded-3xl bg-white border-2 border-slate-100 p-4 space-y-2.5">
+                <p className="text-[11px] font-bold text-slate-500">License or insurance renewed? Upload the new one here — the studio is notified automatically.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['license', 'insurance'] as const).map((kind) => (
+                    <label key={kind} className={`h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest flex items-center justify-center cursor-pointer ${credBusy === kind ? 'opacity-50' : 'text-slate-700'}`}>
+                      {credBusy === kind ? 'Uploading…' : credDone === kind ? `${kind} ✓` : `Upload ${kind}`}
+                      <input type="file" accept="image/*" className="hidden" disabled={!!credBusy}
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0]; e.target.value = '';
+                          if (!f || !session) return;
+                          if (f.size > 2_800_000) { toast({ variant: 'destructive', title: 'Photo too large', description: 'Keep it under 3 MB.' }); return; }
+                          setCredBusy(kind);
+                          try {
+                            const dataUrl: string = await new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result || '')); rd.onerror = rej; rd.readAsDataURL(f); });
+                            const d = await api({ action: 'upload-credential', tenantId, token: session.token, kind, photoData: dataUrl });
+                            if (d.ok) { setCredDone(kind); toast({ title: 'Uploaded ✓', description: 'The studio has been notified — you\'re all set.' }); }
+                            else toast({ variant: 'destructive', title: 'Upload failed', description: d.error || 'Try again.' });
+                          } catch { toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again.' }); }
+                          finally { setCredBusy(null); }
+                        }} />
+                    </label>
+                  ))}
+                </div>
+              </div>
             </section>
 
             {/* Payments */}
