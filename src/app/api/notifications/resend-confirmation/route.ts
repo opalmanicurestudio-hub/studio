@@ -22,7 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { sendNotification, ensureApptToken } from '@/lib/notify';
 import { brandedEmailHtml } from '@/lib/email-template';
-import { smsConfigured, sendTenantSms } from '@/lib/sms';
+import { smsConfigured } from '@/lib/sms';
 
 export async function POST(req: NextRequest) {
   try {
@@ -79,6 +79,11 @@ export async function POST(req: NextRequest) {
     ).replace(/\/$/, '');
     const k = await ensureApptToken(db, tenantId, appointmentId);
     const manageUrl = k ? `${base}/appt/${tenantId}/${appointmentId}?k=${k}` : null;
+    // Same token, GET → .ics file. iOS/Android/Outlook all open it as an
+    // "add this event" sheet.
+    const calendarUrl = k
+      ? `${base}/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentId)}&k=${encodeURIComponent(k)}`
+      : null;
     const code = apt.shortCode ? String(apt.shortCode).toUpperCase() : null;
     const firstName = String(apt.clientName || '').split(' ')[0] || 'there';
 
@@ -95,7 +100,8 @@ export async function POST(req: NextRequest) {
         ].filter(Boolean),
         bigCode: code || undefined,
         cta: manageUrl ? { label: 'Manage appointment', url: manageUrl } : null,
-        footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the button above any time. Sent by ${studioName}.`,
+        secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
+        footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the buttons above any time. Sent by ${studioName}.`,
       });
       const er = await sendNotification(db, {
         tenantId, channel: 'email', to: email,
@@ -107,13 +113,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (phone && smsConfigured()) {
-      // No email fallback here — if the client has an email, the branded
-      // version above already went out.
-      const sr = await sendTenantSms(
-        db, tenantId, phone,
-        `You're confirmed — ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
-      );
-      smsSent = !!(sr.ok && sr.via !== 'email');
+      // Routed through sendNotification so the text lands in messageLog
+      // with delivery tracking, exactly like the email above.
+      const sr = await sendNotification(db, {
+        tenantId, channel: 'sms', to: phone,
+        text: `You're confirmed — ${serviceName}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
+        kind: 'booking_confirmation',
+        appointmentId, clientId: apt.clientId || null, clientName: apt.clientName || null,
+      });
+      smsSent = !!sr.ok;
     }
 
     return NextResponse.json({
