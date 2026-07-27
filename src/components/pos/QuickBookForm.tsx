@@ -2874,6 +2874,35 @@ export function QuickBookForm({
         } catch { /* non-fatal */ }
       }
 
+      // v15 — AUTO-CONFIRMATION. Quick Book books client-side (its own
+      // Firestore transaction), so it never passes through the server
+      // booking engine that sends confirmations for the other surfaces.
+      // This call is that engine's send step, invoked explicitly: branded
+      // email (check-in code + Manage button) and a text with the manage
+      // link. Best-effort — a failed send never fails the booking; it just
+      // shows as "not sent" on the confirmation screen so the front desk
+      // can hit Resend.
+      try {
+        const cr = await fetch('/api/notifications/resend-confirmation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId,
+            appointmentId: aptId,
+            clientEmail: clientEmail.trim(),
+            clientPhone: selectedClient?.phone || newClientPhone || '',
+          }),
+        });
+        const cj = await cr.json().catch(() => null);
+        if (cj) {
+          sendStatus = {
+            ...(sendStatus || {}),
+            smsSent: !!sendStatus?.smsSent || !!cj.smsSent,
+            emailSent: !!sendStatus?.emailSent || !!cj.emailSent,
+          };
+        }
+      } catch { /* non-fatal — booking is already committed */ }
+
       if (anyAssignedStaffIds.length > 0) {
         try {
           const turnBatch = writeBatch(firestore);
