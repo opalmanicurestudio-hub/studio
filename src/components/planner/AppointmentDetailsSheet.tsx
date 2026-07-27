@@ -1384,6 +1384,58 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     messages,
   }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff, messages]);
 
+  // v18 — STATUS AT A GLANCE. The four questions the front desk asks about
+  // every appointment, answered without opening a single drawer. Color is
+  // the language: red = act now, amber = waiting on the client, green =
+  // settled, slate = nothing to do.
+  const glance = useMemo(() => {
+    const a: any = appointment || {};
+    const msgs: any[] = messages || [];
+    const failedMsgs = msgs.filter((m) => m.bouncedAt || m.status === 'failed').length;
+
+    const depCents = Number(a.depositAmountCents) || 0;
+    const deposit = depCents <= 0
+      ? { label: 'Not required', tone: 'slate' as const, hint: '' }
+      : a.depositStatus === 'paid'
+        ? { label: `Paid $${(depCents / 100).toFixed(0)}`, tone: 'green' as const, hint: '' }
+        : { label: `Owed $${(depCents / 100).toFixed(0)}`, tone: 'amber' as const, hint: 'Collect below or resend the link' };
+
+    const reqs = a.requirementsCompletedAt
+      ? { label: 'All submitted', tone: 'green' as const, hint: '' }
+      : a.completionConsentsAt
+        ? { label: 'Partially done', tone: 'amber' as const, hint: 'Forms in — something still open' }
+        : a.completionLinkFirstViewedAt
+          ? { label: 'Opened, not done', tone: 'amber' as const, hint: 'They saw it — may need a nudge' }
+          : a.lastRequirementsRequestedAt
+            ? { label: 'Sent, unopened', tone: 'amber' as const, hint: 'Consider a reminder' }
+            : { label: 'None requested', tone: 'slate' as const, hint: '' };
+
+    const comms = failedMsgs > 0
+      ? { label: `${failedMsgs} not delivered`, tone: 'red' as const, hint: 'Fix contact info & resend below' }
+      : msgs.length === 0
+        ? { label: 'Nothing sent yet', tone: 'slate' as const, hint: '' }
+        : msgs.some((m) => m.openedAt || m.clickedAt)
+          ? { label: 'Seen by client', tone: 'green' as const, hint: '' }
+          : msgs.some((m) => m.deliveredAt)
+            ? { label: 'Delivered', tone: 'green' as const, hint: '' }
+            : { label: 'Sent', tone: 'slate' as const, hint: '' };
+
+    const st = String(a.status || 'confirmed');
+    const visit = st === 'cancelled'
+      ? { label: 'Cancelled', tone: 'red' as const, hint: '' }
+      : st === 'completed'
+        ? { label: 'Completed', tone: 'green' as const, hint: '' }
+        : st === 'servicing'
+          ? { label: 'In service', tone: 'green' as const, hint: '' }
+          : a.checkInStatus === 'arrived'
+            ? { label: 'Arrived', tone: 'green' as const, hint: '' }
+            : a.clientRunningLateAt
+              ? { label: 'Running late', tone: 'amber' as const, hint: 'Client tapped "running late"' }
+              : { label: 'Booked', tone: 'slate' as const, hint: '' };
+
+    return { deposit, reqs, comms, visit };
+  }, [appointment, messages]);
+
   // v16 — fix-and-resend: editable destination for the confirmation, so a
   // typo'd email is corrected HERE (client record included) and resent in
   // one motion.
@@ -2541,6 +2593,34 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             </div>
           </div>
         )}
+
+        {/* ── v18 STATUS AT A GLANCE — always visible, never in a drawer.
+            Red = act now · amber = waiting on client · green = settled. ── */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {([
+            ['Visit', glance.visit],
+            ['Deposit', glance.deposit],
+            ['Forms & docs', glance.reqs],
+            ['Notifications', glance.comms],
+          ] as const).map(([label, g]) => {
+            const TONES: Record<string, string> = {
+              red: 'border-red-200 bg-red-50',
+              amber: 'border-amber-200 bg-amber-50',
+              green: 'border-emerald-200 bg-emerald-50',
+              slate: 'border-slate-200 bg-white',
+            };
+            const TEXT: Record<string, string> = {
+              red: 'text-red-700', amber: 'text-amber-700', green: 'text-emerald-700', slate: 'text-slate-600',
+            };
+            return (
+              <div key={label} className={cn('rounded-2xl border-2 px-3 py-2.5', TONES[g.tone])}>
+                <p className="text-[8px] font-black uppercase tracking-[0.18em] text-slate-400">{label}</p>
+                <p className={cn('text-[11px] font-black uppercase tracking-tight mt-0.5', TEXT[g.tone])}>{g.label}</p>
+                {g.hint && <p className="text-[8px] font-bold text-slate-500 mt-0.5 leading-snug">{g.hint}</p>}
+              </div>
+            );
+          })}
+        </div>
 
         {/* ── Activity timeline ────────────────────────────────────────────── */}
         <Accordion type="single" collapsible className="w-full">
