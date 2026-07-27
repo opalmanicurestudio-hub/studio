@@ -37,16 +37,105 @@
 //   the caller confirms after payment (or a cleanup pass releases stale
 //   holds after 30 min — see PENDING_HOLD_MS).
 
+// ─── v17 — THE AVAILABILITY CHECK NOW COMES FROM THE SHARED ENGINE ──────────
+//
+// Everything below the client-resolution step is unchanged. What changed is the
+// guard: this route used to carry its own overlap math, which meant it enforced
+// LESS than the screens that call it. It checked appointments and nothing else —
+// no business hours, no roster, no approved time off, no blocked events, no
+// station capacity, no maintenance downtime. So it would happily accept a
+// booking at 11 PM, on a tech's approved day off, or into a pedicure chair that
+// is out of service, while the UI that offered the slot was applying all of
+// those rules. Client and server disagreeing is exactly the bug this endpoint
+// was created to end.
+//
+// It now calls verifyBookable() from src/lib/availability.ts — the same
+// function the QuickBook form and the booking grid use — inside the same
+// transaction, on appointments it just read. One set of rules, one answer.
+//
+// TIMEZONES. The engine compares wall-clock times ('10:00' working hours) with
+// instants (appointment.startTime). On Vercel this process runs in UTC, so
+// everything is shifted into a single frame before the engine sees it: local
+// wall clock is read as-is, and every stored instant has the studio's offset
+// added. The offset comes from the caller's `tzOffsetMinutes`, else the
+// tenant's clientNotify.tzOffsetMinutes (the field the reminder cron already
+// uses), else tenant.timezone, else -300 to match the rest of the app.
+//
+// DEGRADING SAFELY. Each context collection is read with its own catch. If
+// `resources` cannot be read, station capacity simply is not enforced — that
+// constraint drops out rather than turning every booking into a 500. Anything
+// that dropped comes back as `checksSkipped` on the response so it is visible
+// instead of silent.
+//
+// NEW OPTIONAL BODY FIELDS (all safe to omit):
+//   tzOffsetMinutes  — minutes local is AHEAD of UTC. Overrides tenant config.
+//   minLeadMinutes   — required notice. Ignored for in-studio sources.
+//   maxHorizonDays   — how far out bookings are accepted. Ignored in-studio.
+//   ignoreShifts     — book someone who is not on the published roster.
+//   requireAcceptingWalkIns — walk-in queue only offers opted-in staff.
+//
+// ONE THING TO EXPECT. This route now enforces the same rules the screens do,
+// which means a surface that has NOT been wired up with the full context yet
+// can get a 409 it did not get before — for example a page that offers a slot
+// without looking at the published roster. That is the server being right and
+// the page being behind, and the fix is to pass that page the same data.
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
 import { generateShortCode } from '@/lib/short-code';
 import { nanoid } from 'nanoid';
+import { verifyBookable } from '@/lib/availability';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const PENDING_HOLD_MS = 30 * 60 * 1000;
 const MAX_FIELD = 300;
 
-const overlaps = (aS: number, aE: number, bS: number, bE: number) => aS < bE && bS < aE;
+/**
+ * Front-desk and in-studio surfaces. These get no required-notice and no
+ * booking-horizon limit, because a receptionist must be able to book the person
+ * standing in front of them for right now, and to take a booking for next year
+ * if the client asks. Public surfaces get the tenant's policy applied.
+ */
+const IN_STUDIO_SOURCES = [
+  'pos', 'pos_quick_book', 'quick_book', 'kiosk', 'walkin', 'walk_in',
+  'staff', 'staff_portal', 'admin', 'front_desk', 'add_appointment',
+];
+
+/**
+ * The same fallback window `useSmartAvailability` uses when a studio has no
+ * schedule profile and a staff member has no hours of their own. It MUST match,
+ * or an unconfigured studio gets slots offered on screen and refused here.
+ */
+const LEGACY_FALLBACK_HOURS = { start: '08:00', end: '20:00' };
+
+/** 'yyyy-MM-dd' plus n days, calendar-safe. */
+function shiftDateStr(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Minutes local time is AHEAD of UTC for an IANA zone on a given instant. */
+function offsetMinutesForZone(timeZone: string, at: Date): number | null {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(at).reduce((acc: any, p) => { acc[p.type] = p.value; return acc; }, {});
+    const asUtc = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second),
+    );
+    if (!Number.isFinite(asUtc)) return null;
+    return Math.round((asUtc - at.getTime()) / 60000);
+  } catch {
+    return null;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -66,24 +155,31 @@ export async function POST(req: NextRequest) {
 
     const db = getAdminDb();
 
-    // ── Service + duration (add-ons included) — server-authoritative ──
-    const svcSnap = await db.doc(`tenants/${tenantId}/services/${serviceId}`).get();
-    if (!svcSnap.exists) return NextResponse.json({ ok: false, error: 'Service not found.' }, { status: 404 });
-    const svc = svcSnap.data() as any;
+    // ── Catalog, roster, tenant: the three things nothing can proceed without.
+    //    Read together, and the add-on durations come out of the catalog we
+    //    already have instead of one extra round trip per add-on.
+    const [svcListSnap, staffSnap, tenantSnap] = await Promise.all([
+      db.collection(`tenants/${tenantId}/services`).get(),
+      db.collection(`tenants/${tenantId}/staff`).get(),
+      db.doc(`tenants/${tenantId}`).get(),
+    ]);
+    const services = svcListSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+    const roster = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+    const tenant = ((tenantSnap.data() as any) || {}) as any;
+
+    const svc = services.find((s: any) => s.id === serviceId);
+    if (!svc) return NextResponse.json({ ok: false, error: 'Service not found.' }, { status: 404 });
+
     const addOnIds: string[] = Array.isArray(body.addOnIds) ? body.addOnIds.slice(0, 10).map(String) : [];
     let addOnMinutes = 0;
     for (const id of addOnIds) {
-      const a = await db.doc(`tenants/${tenantId}/services/${id}`).get();
-      if (a.exists) addOnMinutes += Number((a.data() as any).duration) || 0;
+      const a = services.find((s: any) => s.id === id);
+      if (a) addOnMinutes += Number((a as any).duration) || 0;
     }
     const duration = (Number(svc.duration) || 60) + addOnMinutes;
     const padBefore = Number(svc.padBefore) || 0;
     const padAfter = Number(svc.padAfter) || 0;
-    const end = new Date(start.getTime() + duration * 60000);
 
-    // ── Staff roster (once, outside the transaction) ──
-    const staffSnap = await db.collection(`tenants/${tenantId}/staff`).get();
-    const roster = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
     const certified: string[] | undefined = Array.isArray(svc.certifiedStaffIds) && svc.certifiedStaffIds.length > 0
       ? svc.certifiedStaffIds : undefined;
     const requestedStaffId = String(body.staffId || 'any');
@@ -95,79 +191,189 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── ONE TIME FRAME ────────────────────────────────────────────────────────
+    // The engine compares wall-clock strings ("we open at 10:00") against
+    // instants (an appointment's startTime). This process runs in UTC, so both
+    // are moved into the studio's local frame before the engine sees them: every
+    // instant gets the offset added, and wall clock is then read straight off it.
+    const tzOffset = (() => {
+      if (Number.isFinite(Number(body.tzOffsetMinutes))) return Number(body.tzOffsetMinutes);
+      const cfg = (tenant.clientNotify || {}) as any;
+      if (Number.isFinite(Number(cfg.tzOffsetMinutes))) return Number(cfg.tzOffsetMinutes);
+      if (tenant.timezone) {
+        const z = offsetMinutesForZone(String(tenant.timezone), start);
+        if (z !== null) return z;
+      }
+      return -300;
+    })();
+    const shiftMs = tzOffset * 60000;
+    /** An instant, re-expressed as the studio's local wall clock. */
+    const toLocalIso = (v: any): string | null => {
+      if (v === null || v === undefined || v === '') return null;
+      const d = v instanceof Date ? v : new Date(String(v));
+      if (Number.isNaN(d.getTime())) return null;
+      return new Date(d.getTime() + shiftMs).toISOString();
+    };
+    const localStartIso = new Date(start.getTime() + shiftMs).toISOString();
+    const dateStr = localStartIso.slice(0, 10);
+    const nowLocal = new Date(Date.now() + shiftMs);
+
+    // ── Every other blocking source, loaded ONCE outside the transaction.
+    //    Each read carries its own catch. If `resources` cannot be read, station
+    //    capacity is simply not enforced for this booking — that one constraint
+    //    drops out instead of turning the whole request into a 500. Bounded
+    //    windows use a DATE-PREFIX range, not an ISO-instant range: documents
+    //    written with an offset suffix ("...T10:00:00-05:00") sort differently
+    //    from ones written with "Z", and a plain instant range silently misses
+    //    them — which is exactly how a conflicting appointment becomes invisible.
+    const prevDay = shiftDateStr(dateStr, -1);
+    const nextDayEnd = `${shiftDateStr(dateStr, 1)}`;
+    const dropped: string[] = [];
+    const safeRead = async (label: string, q: any): Promise<any[]> => {
+      try {
+        const snap = await q.get();
+        return snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+      } catch (e) {
+        console.warn(`[appointments/book] could not read ${label} — that check was skipped`, e);
+        dropped.push(label);
+        return [];
+      }
+    };
+    const col = (name: string) => db.collection(`tenants/${tenantId}/${name}`);
+
+    const [rawEvents, rawShifts, rawStaffBlocks, dayOffBlocks, resources, rawTickets, maintenancePlans, scheduleProfiles] =
+      await Promise.all([
+        // 31 days back so a month-long closure that straddles this date is seen.
+        safeRead('events', col('events')
+          .where('startTime', '>=', shiftDateStr(dateStr, -31))
+          .where('startTime', '<=', nextDayEnd)),
+        safeRead('shifts', col('shifts').where('date', '>=', prevDay).where('date', '<=', nextDayEnd)),
+        safeRead('staffBlocks', col('staffBlocks')
+          .where('startTime', '>=', prevDay).where('startTime', '<=', nextDayEnd)),
+        safeRead('shiftDayOffBlocks', col('shiftDayOffBlocks')
+          .where('date', '>=', prevDay).where('date', '<=', nextDayEnd)),
+        safeRead('resources', col('resources')),
+        safeRead('tickets', col('tickets').where('status', 'in', ['open', 'in_progress'])),
+        safeRead('maintenancePlans', col('maintenancePlans')),
+        safeRead('scheduleProfiles', col('scheduleProfiles')),
+      ]);
+
+    // Shifts are stored as wall-clock 'HH:mm' already, so they are NOT shifted.
+    // Everything holding a real instant is.
+    const events = rawEvents.map((e: any) => ({
+      ...e,
+      startTime: toLocalIso(e.startTime) ?? e.startTime,
+      endTime: toLocalIso(e.endTime) ?? e.endTime,
+    }));
+    const staffBlocks = rawStaffBlocks.map((b: any) => ({
+      ...b,
+      startTime: toLocalIso(b.startTime) ?? b.startTime,
+      endTime: toLocalIso(b.endTime) ?? b.endTime,
+    }));
+    const tickets = rawTickets.map((t: any) => ({ ...t, createdAt: toLocalIso(t.createdAt) ?? t.createdAt }));
+
+    /**
+     * In-studio surfaces get no required-notice and no horizon cap, and the
+     * tight-scheduling / morning-anchor preferences are treated as suggestions —
+     * the front desk must always be able to book the person standing there.
+     * Public surfaces get the tenant's policy applied in full.
+     */
+    const inStudio = IN_STUDIO_SOURCES.includes(source.toLowerCase());
+
     // ── The race-proof core: check + write in ONE transaction ──
-    const dayStartIso = new Date(start.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    const dayEndIso = new Date(end.getTime() + 24 * 60 * 60 * 1000).toISOString();
     const aptsRef = db.collection(`tenants/${tenantId}/appointments`);
 
     const result = await db.runTransaction(async (tx: any) => {
       const nearby = await tx.get(
-        aptsRef.where('startTime', '>=', dayStartIso).where('startTime', '<=', dayEndIso),
+        aptsRef.where('startTime', '>=', prevDay).where('startTime', '<=', nextDayEnd),
       );
-      const now = Date.now();
-      const busyByStaff = new Map<string, { s: number; e: number }[]>();
+      const liveAppointments: any[] = [];
       for (const d of nearby.docs) {
         const a = d.data() as any;
-        if (!a.staffId || a.status === 'cancelled') continue;
-        // stale unpaid holds don't block the chair
-        if (a.status === 'pending_payment' && a.createdAt && now - new Date(a.createdAt).getTime() > PENDING_HOLD_MS) continue;
-        const aS = new Date(a.startTime).getTime();
-        const aE = new Date(a.endTime || a.startTime).getTime();
-        if (Number.isNaN(aS) || Number.isNaN(aE)) continue;
-        const aPadB = (Number(a.padBefore) || 0) * 60000;
-        const aPadA = (Number(a.padAfter) || 0) * 60000;
-        const list = busyByStaff.get(a.staffId) || [];
-        list.push({ s: aS - aPadB, e: aE + aPadA });
-        busyByStaff.set(a.staffId, list);
+        const status = String(a.status || '').toLowerCase();
+        // Both spellings — the app has written 'cancelled' and 'canceled'.
+        if (status === 'cancelled' || status === 'canceled') continue;
+        const s = toLocalIso(a.startTime);
+        if (!s) continue;
+        liveAppointments.push({
+          ...a,
+          id: a.id || d.id,
+          startTime: s,
+          endTime: toLocalIso(a.endTime) ?? s,
+          createdAt: toLocalIso(a.createdAt) ?? a.createdAt,
+        });
       }
-      const isFreeAt = (sid: string, s0: number, e0: number) =>
-        !(busyByStaff.get(sid) || []).some((b) => overlaps(s0 - padBefore * 60000, e0 + padAfter * 60000, b.s, b.e));
 
-      // v12 — FLEXIBLE mode (the walk-in "auto-turn"): when the requested
-      // time doesn't work, search forward in 15-min steps for the EARLIEST
-      // opening within flexWindowMin. The walk-in kiosk sends startTime=now
-      // + flexible:true and gets back "Dana at 1:15" — the fairness sort
-      // below IS the turn rotation, shared with every other surface.
+      // v12 — FLEXIBLE mode (the walk-in "auto-turn"): when the requested time
+      // doesn't work, search forward in 15-min steps for the EARLIEST opening
+      // within flexWindowMin. The walk-in kiosk sends startTime=now +
+      // flexible:true and gets back "Dana at 1:15". The rotation that picks
+      // "Dana" now lives in the engine, shared with every other surface.
       const flexible = body.flexible === true;
       const flexWindowMin = Math.min(Math.max(Number(body.flexWindowMin) || 240, 0), 480);
-      const stepMs = 15 * 60000;
-      const durMs = duration * 60000;
-      const fairSort = (a: any, b: any) => {
-        const aL = a.lastBookingAssignedAt ? new Date(a.lastBookingAssignedAt).getTime() : 0;
-        const bL = b.lastBookingAssignedAt ? new Date(b.lastBookingAssignedAt).getTime() : 0;
-        return aL - bL;
+
+      const engineContext = {
+        serviceId,
+        addOnIds,
+        staffId: requestedStaffId,
+        services,
+        staff: roster,
+        appointments: liveAppointments,
+        events,
+        scheduleProfiles,
+        tenant,
+        shifts: rawShifts,
+        staffBlocks,
+        dayOffBlocks,
+        resources,
+        tickets,
+        maintenancePlans,
+        now: nowLocal,
+        fallbackHours: LEGACY_FALLBACK_HOURS,
+        ignoreHeuristics: inStudio,
+        ignoreShifts: body.ignoreShifts === true,
+        minLeadMinutes: inStudio
+          ? 0
+          : (Number.isFinite(Number(body.minLeadMinutes)) ? Number(body.minLeadMinutes) : undefined),
+        maxHorizonDays: inStudio
+          ? 3650
+          : (Number.isFinite(Number(body.maxHorizonDays)) ? Number(body.maxHorizonDays) : undefined),
+        requireAcceptingWalkIns: body.requireAcceptingWalkIns === true,
       };
-      const baseline = roster
-        .filter((s: any) => s.active !== false)
-        .filter((s: any) => !certified || certified.includes(s.id))
-        .sort(fairSort);
-      const candidates = requestedStaffId === 'any'
-        ? baseline
-        : baseline.filter((s: any) => s.id === requestedStaffId);
 
       let staffId: string | null = null;
       let placedStartMs = start.getTime();
-      const maxOffsetMs = flexible ? flexWindowMin * 60000 : 0;
-      for (let off = 0; off <= maxOffsetMs; off += stepMs) {
-        const s0 = start.getTime() + off;
-        const hit = candidates.find((s: any) => isFreeAt(s.id, s0, s0 + durMs));
-        if (hit) { staffId = hit.id; placedStartMs = s0; break; }
+      let firstReason = '';
+      const maxOffsetMin = flexible ? flexWindowMin : 0;
+      for (let off = 0; off <= maxOffsetMin; off += 15) {
+        const candidateMs = start.getTime() + off * 60000;
+        const localIso = new Date(candidateMs + shiftMs).toISOString();
+        const attempt = verifyBookable({
+          ...engineContext,
+          date: localIso.slice(0, 10),
+          time: localIso.slice(11, 16),
+          requireStaffId: requestedStaffId !== 'any' ? requestedStaffId : undefined,
+        });
+        if (attempt.ok) { staffId = attempt.staffId; placedStartMs = candidateMs; break; }
+        if (!firstReason) firstReason = attempt.error;
         if (!flexible) break;
       }
       if (!staffId) {
         const hours = Math.max(1, Math.round(flexWindowMin / 60));
-        if (requestedStaffId !== 'any') {
-          const who = roster.find((s: any) => s.id === requestedStaffId)?.name?.split(' ')[0] || 'That provider';
-          return { conflict: flexible
+        const who = requestedStaffId !== 'any'
+          ? (roster.find((s: any) => s.id === requestedStaffId)?.name?.split(' ')[0] || 'That provider')
+          : null;
+        if (flexible) {
+          return { conflict: who
             ? `${who} has no opening in the next ${hours} hours — see the front desk.`
-            : `${who} was just booked for that time — pick another slot.` };
+            : `Everyone's booked for the next ${hours} hours — see the front desk.` };
         }
-        return { conflict: flexible
-          ? `Everyone's booked for the next ${hours} hours — see the front desk.`
-          : 'No provider is free for that time — pick another slot.' };
+        // The engine's own sentence is more useful than a generic one: it says
+        // whether it was hours, time off, the roster, or a station.
+        return { conflict: firstReason || 'No provider is free for that time — pick another slot.' };
       }
       const placedStart = new Date(placedStartMs);
-      const placedEnd = new Date(placedStartMs + durMs);
+      const placedEnd = new Date(placedStartMs + duration * 60000);
 
       // ── Client: existing id, or match-by-contact, or create ──
       let clientId = String(body?.client?.id || '');
@@ -224,6 +430,10 @@ export async function POST(req: NextRequest) {
         startTime: placedStart.toISOString(),
         endTime: placedEnd.toISOString(),
         padBefore, padAfter,
+        // Written onto the appointment so the station-capacity check keeps
+        // working for this booking even if the service definition changes later.
+        requiredResourceIds: Array.isArray(svc.requiredResourceIds) && svc.requiredResourceIds.length > 0
+          ? svc.requiredResourceIds : null,
         status: body.holdOnly ? 'pending_payment' : 'confirmed',
         source,
         checkInToken: token, shortCode,
@@ -284,10 +494,10 @@ export async function POST(req: NextRequest) {
         const phone = String(body?.client?.phone || clientDoc.phone || '').trim();
         const email = String(body?.client?.email || clientDoc.email || '').trim();
 
-        const tData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+        // The tenant doc was already read above for the timezone — reuse it
+        // rather than paying for the same document twice on every booking.
+        const tData = tenant;
         const studioName = tData.name || tData.businessName || 'Your studio';
-        const cfg = tData.clientNotify || {};
-        const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
         const local = new Date(new Date(r.placedStartIso).getTime() + tzOffset * 60000);
         const whenStr = `${local.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })} at ${local.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
 
@@ -379,6 +589,10 @@ export async function POST(req: NextRequest) {
       startTime: r.placedStartIso,
       endTime: r.placedEndIso,
       sendStatus,
+      // Non-empty only when a context collection could not be read, so a
+      // support conversation can tell "we didn't check stations" apart from
+      // "we checked and it was fine." Callers can ignore it.
+      ...(dropped.length > 0 ? { checksSkipped: dropped } : {}),
     });
   } catch (err) {
     console.error('[appointments/book] failed', err);
