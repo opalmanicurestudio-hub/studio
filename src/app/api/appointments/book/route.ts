@@ -265,6 +265,82 @@ export async function POST(req: NextRequest) {
       actor: { type: 'user', name: r.clientName || null, role: 'client', via: source },
     });
 
+    // ── v15 — AUTO-CONFIRMATION. Because every surface books through this
+    // one engine, sending here means Quick Book, the public page, the
+    // kiosk, and the portal ALL confirm automatically — text AND email,
+    // with the self-serve Manage link (cancel / reschedule / running late)
+    // baked in. Best-effort by design: a failed send NEVER fails the
+    // booking (the appointment is already safely written), it just comes
+    // back as sendStatus:false so the front desk sees "not sent" and can
+    // hit Resend. holdOnly bookings skip this — they aren't confirmed
+    // until payment clears.
+    const sendStatus = { smsSent: false, emailSent: false };
+    if (!body.holdOnly) {
+      try {
+        const clientDoc = r.clientId
+          ? ((await db.doc(`tenants/${tenantId}/clients/${r.clientId}`).get()).data() as any) || {}
+          : {};
+        const phone = String(body?.client?.phone || clientDoc.phone || '').trim();
+        const email = String(body?.client?.email || clientDoc.email || '').trim();
+
+        const tData = ((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {};
+        const studioName = tData.name || tData.businessName || 'Your studio';
+        const cfg = tData.clientNotify || {};
+        const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
+        const local = new Date(new Date(r.placedStartIso).getTime() + tzOffset * 60000);
+        const whenStr = `${local.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' })} at ${local.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
+
+        // Links live on the PERMANENT domain, never a frozen preview URL.
+        const base = String(
+          tData.publicOrigin
+          || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
+          || req.nextUrl.origin,
+        ).replace(/\/$/, '');
+        const { ensureApptToken, sendNotification } = await import('@/lib/notify');
+        const k = await ensureApptToken(db, tenantId, r.aptId);
+        const manageUrl = k ? `${base}/appt/${tenantId}/${r.aptId}?k=${k}` : null;
+        const firstName = String(r.clientName || '').split(' ')[0] || 'there';
+
+        // Email — the branded confirmation with the self-serve button.
+        if (email.includes('@')) {
+          const { brandedEmailHtml } = await import('@/lib/email-template');
+          const html = brandedEmailHtml({
+            studioName,
+            title: "You're confirmed",
+            bodyLines: [
+              `Hi ${firstName} — your ${svc.name || 'appointment'}${staffName ? ` with ${staffName}` : ''} is booked for ${whenStr}.`,
+              'Show the code below when you arrive to check in.',
+            ],
+            bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
+            cta: manageUrl ? { label: 'Manage appointment', url: manageUrl } : null,
+            footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the button above any time. Sent by ${studioName}.`,
+          });
+          const er = await sendNotification(db, {
+            tenantId, channel: 'email', to: email,
+            subject: `Confirmed: ${svc.name || 'your appointment'} — ${whenStr}`,
+            html, kind: 'booking_confirmation',
+            appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
+          });
+          sendStatus.emailSent = !!er.ok;
+        }
+
+        // Text — short, with the manage link. No email fallback here: if the
+        // client has an email we already sent the branded version above.
+        if (phone) {
+          const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+          if (smsConfigured()) {
+            const sr = await sendTenantSms(
+              db, tenantId, phone,
+              `You're confirmed — ${svc.name || 'appointment'}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
+            );
+            sendStatus.smsSent = !!(sr.ok && sr.via !== 'email');
+          }
+        }
+      } catch (e) {
+        console.error('[appointments/book] confirmation send failed (booking is safe)', e);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       appointmentId: r.aptId,
@@ -275,6 +351,7 @@ export async function POST(req: NextRequest) {
       clientId: r.clientId,
       startTime: r.placedStartIso,
       endTime: r.placedEndIso,
+      sendStatus,
     });
   } catch (err) {
     console.error('[appointments/book] failed', err);
