@@ -420,6 +420,37 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, ticketId: ref.id, photoError, assignedTo: assigned?.assigneeName || null });
     }
 
+    // ═══ upload-credential — paperwork renews ITSELF ══════════════════════
+    // The expiry text says "upload the renewed one in your portal"; this is
+    // where that lands. Photo goes up with admin credentials, the renter
+    // record updates, the expiry-nag stamp clears, and the owner gets a
+    // "Maya uploaded her renewed license" notification instead of a chore.
+    if (action === 'upload-credential') {
+      if (!session.renterId) return NextResponse.json({ ok: false, error: 'Your account isn\'t linked to a renter record — ask the studio to update it.' }, { status: 403 });
+      const kind = body.kind === 'insurance' ? 'insurance' : 'license';
+      if (typeof body.photoData !== 'string' || !body.photoData.startsWith('data:image')) {
+        return NextResponse.json({ ok: false, error: 'Attach a photo of the document.' }, { status: 400 });
+      }
+      const up = await uploadTicketPhotoFromDataUrl(tenantId, `credential-${session.renterId}`, body.photoData);
+      if (!up.url) return NextResponse.json({ ok: false, error: up.error || 'Upload failed — try again.' }, { status: 500 });
+      const expiry = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiry || '')) ? String(body.expiry) : null;
+      const patch: any = kind === 'license'
+        ? { licenseDocUrl: up.url, ...(expiry ? { licenseExpiry: expiry } : {}), credNotified_licenseExpiry: null }
+        : { insuranceDocUrl: up.url, ...(expiry ? { insuranceExpiry: expiry } : {}), credNotified_insuranceExpiry: null };
+      await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).set(patch, { merge: true });
+      const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+      await nRef.set({
+        id: nRef.id, type: 'credential', read: false, createdAt: new Date().toISOString(), link: '/booths',
+        message: `${session.name || 'A renter'} uploaded a renewed ${kind}${expiry ? ` (expires ${expiry})` : ''} — it's on their profile.`,
+      });
+      await logAuditAdmin(db, tenantId, {
+        action: 'renter.credential_uploaded', targetType: 'renter', targetId: session.renterId,
+        summary: `${session.name || 'Renter'} self-uploaded renewed ${kind}${expiry ? ` (exp ${expiry})` : ''}`,
+        actor: { type: 'user', name: session.name || 'Renter', role: 'renter', via: 'renter-portal' },
+      });
+      return NextResponse.json({ ok: true, url: up.url });
+    }
+
     if (action === 'my-tickets') {
       const snap = await db.collection(`tenants/${tenantId}/tickets`).get();
       const mine = snap.docs
