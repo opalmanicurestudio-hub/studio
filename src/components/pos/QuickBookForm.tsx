@@ -156,6 +156,9 @@ import {
 
 import { useClientIntelligence } from '@/hooks/useClientIntelligence';
 import { useSmartAvailability } from '@/hooks/useSmartAvailability';
+// The same rotation the booking API uses, so the provider the desk shows is the
+// provider the server accepts.
+import { pickStaffForSlot } from '@/lib/availability';
 import { ClientIntelligencePanel } from '@/components/pos/ClientIntelligencePanel';
 import { SmartAvailabilityGrid } from '@/components/pos/SmartAvailabilityGrid';
 import {
@@ -1363,6 +1366,27 @@ export function QuickBookForm({
 
   const [shifts, setShifts] = React.useState<any[]>([]);
 
+  // v10 — everything else that can make a time unbookable. Each of these was
+  // already being written somewhere in the app and read nowhere by booking,
+  // which is how the front desk ended up offering times that were not free:
+  // a staff meeting on the calendar, a tech's add-on handoff hold, an approved
+  // day off, or the only pedicure chair being out for repair.
+  const [calendarEvents, setCalendarEvents] = React.useState<any[]>([]);
+  const [scheduleProfiles, setScheduleProfiles] = React.useState<any[]>([]);
+  const [staffBlocks, setStaffBlocks] = React.useState<any[]>([]);
+  const [dayOffBlocks, setDayOffBlocks] = React.useState<any[]>([]);
+  const [resources, setResources] = React.useState<any[]>([]);
+  const [maintTickets, setMaintTickets] = React.useState<any[]>([]);
+  const [maintenancePlans, setMaintenancePlans] = React.useState<any[]>([]);
+  /**
+   * Front-desk override: book a tech onto a day they are not rostered for.
+   * This is a normal thing to do — someone comes in on their day off to take a
+   * regular client — so it is one click, not a settings change. It only relaxes
+   * the roster; appointments, blocked time and station capacity still apply,
+   * because those are physical facts rather than a plan.
+   */
+  const [rosterOverride, setRosterOverride] = React.useState(false);
+
   const searchRef = React.useRef<HTMLInputElement>(null);
 
   const lastVisitByClientId = React.useMemo(() => {
@@ -1657,7 +1681,21 @@ export function QuickBookForm({
     return days > 0 ? `in ${unit}` : `${unit} ago`;
   }, [aptDate, todayStr]);
   const nowTimeStr = format(addMinutes(new Date(), 5), 'HH:mm');
-  const { slots, addOnUpsells } = useSmartAvailability({
+  // v10 — the availability engine now gets every source of "not free" this app
+  // records, not just appointments. `allSlots` carries the rejected candidates
+  // with a reason, which is what lets the empty-grid message say WHY instead of
+  // just "no times available".
+  //
+  // Two switches are deliberately NOT passed here, and that is the front desk's
+  // whole advantage over the public page:
+  //   • no minLeadMinutes — a receptionist must be able to book the person
+  //     standing at the counter for right now;
+  //   • no maxHorizonDays — the desk books a wedding party six months out.
+  // `ignoreShifts` stays off so the roster is respected by default, and the
+  // override button below turns it on per booking.
+  const {
+    slots, addOnUpsells, allSlots, warnings: availabilityWarnings,
+  } = useSmartAvailability({
     date: aptDate,
     serviceId: selectedService,
     staffId: selectedStaff,
@@ -1665,8 +1703,40 @@ export function QuickBookForm({
     allServices: services,
     allStaff: staff,
     skipSlotsBefore: aptDate === todayStr ? nowTimeStr : undefined,
+    tenant,
+    events: calendarEvents,
+    scheduleProfiles,
+    shifts,
+    staffBlocks,
+    dayOffBlocks,
+    resources,
+    tickets: maintTickets,
+    maintenancePlans,
+    ignoreShifts: rosterOverride,
+    // The front desk is a human making a judgment call, so the owner's
+    // gap-optimization rules (tight scheduling, morning anchor) do not gate it.
+    // Those exist to shape ONLINE booking; a person on the phone outranks them.
+    ignoreHeuristics: true,
   });
   const hasNoSlots = selectedService && slots.length === 0;
+
+  /**
+   * When the grid is empty, the reason the engine gave most often. The front
+   * desk's first question is always "why can't I book this?", and the answer
+   * used to require opening three other screens.
+   */
+  const noSlotsReason = React.useMemo(() => {
+    if (!hasNoSlots) return null;
+    const tally: Record<string, number> = {};
+    (allSlots || []).forEach((s: any) => {
+      if (s.available || !s.reason) return;
+      tally[s.reason] = (tally[s.reason] || 0) + 1;
+    });
+    const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    if (top) return top[0];
+    if (availabilityWarnings && availabilityWarnings.length > 0) return availabilityWarnings[0];
+    return 'No one is scheduled to work at a time this service would fit.';
+  }, [hasNoSlots, allSlots, availabilityWarnings]);
 
   const displaySlots = React.useMemo(() => {
     if (selectedStaff !== 'any') return slots;
@@ -1699,11 +1769,66 @@ export function QuickBookForm({
 
   const activeStaff = staff.filter((s: any) => s.active);
 
+  /**
+   * Who gets the booking when the desk picks "Any available".
+   *
+   * When we know the TIME and the SERVICE, this asks the shared engine — the
+   * exact same function the booking API calls — so the name shown at the desk
+   * is the name the server accepts. That check honours everything: published
+   * roster, approved days off, blocked events, handoff holds, station capacity
+   * and maintenance downtime.
+   *
+   * When the time is not known yet (or the engine has nothing to offer because
+   * the studio's data is in an odd state), it falls back to the original
+   * rotation below so the desk is never hard-blocked.
+   */
   const resolveAnyStaffId = React.useCallback((
     dateStr: string,
     exclude: string[] = [],
     eligibleStaffIds?: string[],
+    opts?: { time?: string; serviceId?: string; addOnIds?: string[] },
   ): string | null => {
+    const askEngine = (pool: any[]): string | null => {
+      if (!opts?.time || !opts?.serviceId || pool.length === 0) return null;
+      try {
+        const pick = pickStaffForSlot({
+          date: dateStr,
+          time: opts.time,
+          serviceId: opts.serviceId,
+          staffId: 'any',
+          addOnIds: opts.addOnIds,
+          services,
+          staff: pool,
+          appointments,
+          events: calendarEvents,
+          scheduleProfiles,
+          tenant,
+          shifts,
+          staffBlocks,
+          dayOffBlocks,
+          resources,
+          tickets: maintTickets,
+          maintenancePlans,
+          ignoreShifts: rosterOverride,
+          // The front desk outranks gap-optimization rules and never needs
+          // advance notice — the client is standing right there.
+          ignoreHeuristics: true,
+        });
+        return pick.ok ? pick.staffId : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const bookable = staff.filter((s: any) => s.active && !exclude.includes(s.id));
+    // Try the narrowed pool first (the people the grid said were free), then
+    // everyone, so a stale eligibility list can't strand the booking.
+    const narrowed = eligibleStaffIds
+      ? bookable.filter((s: any) => eligibleStaffIds.includes(s.id))
+      : [];
+    const engineChoice = askEngine(narrowed) ?? askEngine(bookable);
+    if (engineChoice) return engineChoice;
+
     const onShiftIds = new Set(
       shifts
         .filter((s: any) => s.date === dateStr && s.status !== 'cancelled' && s.status !== 'draft')
@@ -1729,10 +1854,18 @@ export function QuickBookForm({
       return aLast - bLast;
     });
     return sorted[0]?.id || null;
-  }, [staff, shifts]);
+  }, [
+    staff, shifts, services, appointments, calendarEvents, scheduleProfiles,
+    tenant, staffBlocks, dayOffBlocks, resources, maintTickets,
+    maintenancePlans, rosterOverride,
+  ]);
 
   const anyAvailablePreviewStaffId = selectedStaff === 'any' && aptTime
-    ? resolveAnyStaffId(aptDate, [], eligibleStaffIdsForAptTime)
+    ? resolveAnyStaffId(aptDate, [], eligibleStaffIdsForAptTime, {
+        time: aptTime,
+        serviceId: selectedService,
+        addOnIds,
+      })
     : null;
   const anyAvailablePreviewName = anyAvailablePreviewStaffId
     ? staff.find((s: any) => s.id === anyAvailablePreviewStaffId)?.name
@@ -1855,6 +1988,48 @@ export function QuickBookForm({
     );
     return () => unsubscribe();
   }, [firestore, tenantId]);
+
+  // v10 — the remaining blocking sources, in one effect so there is one place
+  // to look. Every listener is non-fatal on purpose: if a collection can't be
+  // read (rules, offline, doesn't exist yet) that single constraint is simply
+  // not applied and booking keeps working exactly as it did before, rather than
+  // the form dying or, worse, refusing every slot.
+  React.useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const t = `tenants/${tenantId}`;
+    const quiet = () => { /* non-fatal — constraint not applied */ };
+
+    const sub = (path: string, set: (list: any[]) => void, q?: any) =>
+      onSnapshot(
+        q ?? collection(firestore, path),
+        (snap: any) => {
+          const list: any[] = [];
+          snap.forEach((d: any) => list.push({ id: d.id, ...(d.data() as any) }));
+          set(list);
+        },
+        quiet,
+      );
+
+    const unsubs = [
+      // Calendar events: meetings, personal time, closures, classes.
+      sub(`${t}/events`, setCalendarEvents),
+      // The studio's real open hours.
+      sub(`${t}/scheduleProfiles`, setScheduleProfiles),
+      // Add-on handoff holds written by the staff portal.
+      sub(`${t}/staffBlocks`, setStaffBlocks),
+      // Time-off requests. Only approved ones block.
+      sub(`${t}/shiftDayOffBlocks`, setDayOffBlocks),
+      // Chairs, tables, rooms — `capacity` is simultaneous capacity.
+      sub(`${t}/resources`, setResources),
+      // Open repair tickets at urgent/high priority take a station down.
+      sub(`${t}/tickets`, setMaintTickets),
+      // Preventive maintenance due today takes a station down.
+      sub(`${t}/maintenancePlans`, setMaintenancePlans),
+    ];
+
+    return () => unsubs.forEach(u => { try { u(); } catch { /* already gone */ } });
+  }, [firestore, tenantId]);
+
   const buildSnapshot = React.useCallback(() => ({
     clientSearch, selectedService, addOnIds, durationOffset, selectedStaff,
     aptDate, aptTime, isGroup, groupGuests, isMultiProvider, providerLegs,
@@ -2256,7 +2431,11 @@ export function QuickBookForm({
       const providersSummary: { name: string; detail: string }[] = [];
       const resolvedStaffId =
         selectedStaff === 'any'
-          ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, eligibleStaffIdsForAptTime)
+          ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, eligibleStaffIdsForAptTime, {
+              time: aptTime,
+              serviceId: selectedService,
+              addOnIds,
+            })
           : selectedStaff;
       if (selectedStaff === 'any' && resolvedStaffId) anyAssignedStaffIds.push(resolvedStaffId);
       const resolvedPrimaryStaffMember = staff.find((s: any) => s.id === resolvedStaffId);
@@ -2348,8 +2527,12 @@ export function QuickBookForm({
               setIsSubmitting(false);
               return;
             }
-            // together + any: legacy loose pick so an odd data state never hard-blocks the desk
-            const gPick = resolveAnyStaffId(aptDate, party.map((p) => p.staffId));
+            // together + any: last-resort pick so an odd data state never hard-blocks the desk
+            const gPick = resolveAnyStaffId(aptDate, party.map((p) => p.staffId), undefined, {
+              time: aptTime,
+              serviceId: guest.serviceId,
+              addOnIds: guest.addOnIds,
+            });
             if (gPick) placed = { staffId: gPick, start: startTime };
           }
           if (placed) {
@@ -2574,7 +2757,12 @@ export function QuickBookForm({
       if (multiProviderGroupId && scheduledLegs.length > 0) {
         scheduledLegs.forEach((leg, idx) => {
           const legSvc = services.find((s: any) => s.id === leg.serviceId);
-          const legStaffId = leg.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : leg.staffId;
+          const legStaffId = leg.staffId === 'any'
+            ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, undefined, {
+                time: format(leg.startTime, 'HH:mm'),
+                serviceId: leg.serviceId,
+              })
+            : leg.staffId;
           if (leg.staffId === 'any' && legStaffId) anyAssignedStaffIds.push(legStaffId);
           const legStaffMemberForSummary = staff.find((s: any) => s.id === legStaffId);
           providersSummary.push({
@@ -2630,7 +2818,13 @@ export function QuickBookForm({
           const gSvc = services.find((s: any) => s.id === guest.serviceId);
           const gAssign = guestAssignments.get(guest.id);
           const gStaffId = gAssign?.staffId
-            || (guest.staffId === 'any' ? resolveAnyStaffId(aptDate, anyAssignedStaffIds) : guest.staffId);
+            || (guest.staffId === 'any'
+              ? resolveAnyStaffId(aptDate, anyAssignedStaffIds, undefined, {
+                  time: aptTime,
+                  serviceId: guest.serviceId,
+                  addOnIds: guest.addOnIds,
+                })
+              : guest.staffId);
           const gStart = gAssign?.start || startTime;
           if (guest.staffId === 'any' && gStaffId && !anyAssignedStaffIds.includes(gStaffId)) anyAssignedStaffIds.push(gStaffId);
           const gStaffMemberForSummary = staff.find((s: any) => s.id === gStaffId);
@@ -2766,7 +2960,11 @@ export function QuickBookForm({
             const occEnd = addMinutes(occStart, totalDuration);
             const occDateStr = format(occStart, 'yyyy-MM-dd');
             const occStaffId = selectedStaff === 'any'
-              ? resolveAnyStaffId(occDateStr, [], undefined)
+              ? resolveAnyStaffId(occDateStr, [], undefined, {
+                  time: aptTime,
+                  serviceId: selectedService,
+                  addOnIds,
+                })
               : selectedStaff;
             const occId = _nanoid();
             const occToken = _nanoid();
@@ -3628,6 +3826,36 @@ export function QuickBookForm({
           </div>
         </div>
 
+        {rosterOverride && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs text-amber-800">
+                Showing times for staff who aren&apos;t on today&apos;s schedule. Existing
+                appointments, blocked time and station limits still apply.
+              </p>
+              <button
+                type="button"
+                onClick={() => setRosterOverride(false)}
+                className="text-[11px] font-medium text-amber-800 underline decoration-dotted mt-1"
+              >
+                Back to the schedule
+              </button>
+            </div>
+          </div>
+        )}
+
+        {selectedService && availabilityWarnings.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 space-y-1">
+            {availabilityWarnings.slice(0, 2).map((w: string) => (
+              <p key={w} className="text-[11px] text-slate-500 flex items-start gap-1.5">
+                <AlertCircle className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                <span className="min-w-0">{w}</span>
+              </p>
+            ))}
+          </div>
+        )}
+
         {selectedService && !hasNoSlots && (
           <SmartAvailabilityGrid
             slots={displaySlots}
@@ -3732,9 +3960,14 @@ export function QuickBookForm({
             <CalendarOff className="w-7 h-7 text-slate-300 mx-auto" />
             <div>
               <p className="text-sm font-medium text-slate-600">No availability on {format(new Date(aptDate), 'EEE MMM d')}</p>
+              {/* Say WHY. This is the difference between the front desk trusting
+                  the screen and the front desk overriding it out of suspicion. */}
+              {noSlotsReason && (
+                <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{noSlotsReason}</p>
+              )}
               <p className="text-xs text-slate-400 mt-1">Try a different date or add {selectedClient?.name?.split(' ')[0] || 'the client'} to the waitlist.</p>
             </div>
-            <div className="flex gap-2 justify-center">
+            <div className="flex flex-wrap gap-2 justify-center">
               <Button
                 variant="outline"
                 size="sm"
@@ -3748,6 +3981,18 @@ export function QuickBookForm({
                 </Button>
               )}
             </div>
+            {/* The roster is a plan, not a physical fact — so it is overridable
+                right here. Appointments, blocked time and station capacity are
+                not, and stay enforced. */}
+            {shifts.length > 0 && !rosterOverride && (
+              <button
+                type="button"
+                onClick={() => setRosterOverride(true)}
+                className="text-[11px] font-medium text-blue-700 hover:text-blue-900 underline decoration-dotted"
+              >
+                Book someone who isn&apos;t on the schedule today
+              </button>
+            )}
           </div>
         )}
 
