@@ -550,8 +550,42 @@ export const AddAppointmentDialog: React.FC<any> = ({ open, onOpenChange, client
     try {
         await batch.commit();
         setStep('success');
+
+        // v15 — AUTO-NOTIFY on the legacy/direct-write paths too. The
+        // server booking engine sends its own confirmations, but bookings
+        // that land HERE (remote-payment deposits, or the fallback when
+        // the engine call fails) used to send NOTHING. Best-effort — a
+        // failed send never affects the booking.
+        const contactEmail = String((data.clientId === 'new' ? data.newClientEmail : selectedClient?.email) || '').trim();
+        const contactPhone = String((data.clientId === 'new' ? data.newClientPhone : selectedClient?.phone) || '').trim();
         if (isRemotePayment) {
-            toast({ title: 'Payment link ready', description: 'Send the check-in link so they can pay the deposit.' });
+            // Not confirmed yet — send the pay-your-deposit / check-in link,
+            // not a "you're confirmed" message.
+            try {
+                await fetch('/api/notifications/send-completion-link', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        link: `${window.location.origin}/check-in/${token}`,
+                        clientName: finalClientName,
+                        clientEmail: contactEmail,
+                        clientPhone: contactPhone,
+                        studioName: selectedTenant?.name,
+                    }),
+                });
+            } catch { /* non-fatal */ }
+            toast({ title: 'Payment link sent', description: 'The client got the check-in link to pay their deposit. You can also copy it from the success screen.' });
+        } else {
+            try {
+                await fetch('/api/notifications/resend-confirmation', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tenantId,
+                        appointmentId: aptId,
+                        clientEmail: contactEmail,
+                        clientPhone: contactPhone,
+                    }),
+                });
+            } catch { /* non-fatal */ }
         }
     } catch (e) {
         toast({ variant: 'destructive', title: 'Booking failed', description: 'Nothing was saved — try again.' });
