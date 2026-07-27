@@ -416,7 +416,14 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      {/* Booking sheet */}
+      {/*
+        Booking sheet.
+        `events` is the studio's MARKETING list, rendered on the page.
+        `calendarEvents` is real occupancy — that is what the scheduling engine
+        means by events. The seven props after `tenant` are the availability
+        context; without them the sheet would offer times the booking route
+        then refuses, which the guest just experiences as a failure.
+      */}
       {dialogOpen && dialogService && (
         <BookingSheet
           open={dialogOpen}
@@ -430,6 +437,13 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
           services={services}
           consentForms={consentForms}
           tenant={tenant}
+          shifts={shifts}
+          staffBlocks={staffBlocks}
+          dayOffBlocks={dayOffBlocks}
+          resources={resources}
+          tickets={maintTickets}
+          maintenancePlans={maintenancePlans}
+          calendarEvents={calendarEvents}
           onConfirm={handleConfirm}
         />
       )}
