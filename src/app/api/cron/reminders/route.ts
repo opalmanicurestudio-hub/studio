@@ -19,7 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { smsConfigured, sendTenantSms } from '@/lib/sms';
-import { sendNotification, ensureApptToken } from '@/lib/notify';
+import { sendNotification } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -82,10 +82,11 @@ export async function GET(req: NextRequest) {
 
           const when = `${aptLocal.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })} at ${aptLocal.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' })}`;
           const withWho = a.staffName ? ` with ${a.staffName}` : '';
-          // The self-serve buttons live behind this link — reschedule,
-          // cancel, running-late, add-to-calendar. No phone tag.
-          const token = await ensureApptToken(db, tid, aDoc.id);
-          const manage = token && base ? ` Manage (reschedule/cancel): ${base}/appt/${tid}/${aDoc.id}?k=${token}` : '';
+          // v18 — ONE portal for clients: the master check-in link
+          // (/check-in/{token}) — arrival, running-late, concierge,
+          // forms/deposit, and the studio's real cancellation flow all
+          // live there. The old /appt manage page is retired from links.
+          const manage = a.checkInToken && base ? ` Details & check-in: ${base}/check-in/${a.checkInToken}` : '';
           const msg = daysBefore === 0
             ? `Reminder — your appointment is today, ${when}${withWho}.${manage}`
             : `Reminder — your appointment is ${when}${withWho}.${manage}`;
