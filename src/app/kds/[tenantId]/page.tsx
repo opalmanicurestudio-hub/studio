@@ -1,2960 +1,1057 @@
 'use client';
 
-/**
- * /check-in/[token] — v2
- *
- * v2 — UNIFICATION: this used to be one of TWO separate client-facing
- * links for the same appointment. QuickBookForm minted a second,
- * independent token for a "completion" link (forms, card-on-file,
- * deposit) that pointed at a completely different page
- * (/complete/[tenantId]/[token]) with its own visual style. Clients could
- * receive two different URLs about the same booking.
- *
- * Now there is exactly one token (checkInToken) and one link
- * (/check-in/{checkInToken}). This page gates on completion requirements
- * BEFORE the arrival flow: if the appointment has an associated
- * `bookingCompletions` record with outstanding requirements (unsigned
- * consent forms, no card on file, unpaid deposit, missing file uploads),
- * the client sees that first — restyled to match this page's existing
- * ViewContainer/ViewHeader visual language rather than pasted in from the
- * old page's different design. Once resolved (or if nothing was ever
- * required), the client falls straight into the existing arrival ->
- * concierge -> review flow, completely unchanged from v1.
- *
- * Render order:
- *   loading -> not found -> cancelled -> completed ->
- *   [NEW] completion pending -> arrived/servicing (concierge) ->
- *   day-of arrival (Hello + status buttons)
- */
-
-import React, { useState, useMemo, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import React, {
+  useState, useMemo, useEffect, useRef, Suspense, useCallback,
+} from 'react';
+import { useParams } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import { 
-    Clock, 
-    MapPin, 
-    Check, 
-    Loader, 
-    CheckCircle2, 
-    Sparkles, 
-    Calendar as CalendarIcon, 
-    Fingerprint, 
-    Wifi, 
-    Coffee,
-    Activity,
-    ArrowRight,
-    Plus,
-    Minus,
-    Info,
-    ChevronDown,
-    ChevronUp,
-    XCircle,
-    Car,
-    AlertTriangle,
-    Users,
-    Lock,
-    Star,
-    Zap,
-    Award,
-    Smartphone,
-    Headphones,
-    Moon,
-    VolumeX,
-    Ear,
-    SunDim,
-    Gamepad2,
-    Trash2,
-    MessageSquare,
-    Heart,
-    Undo2,
-    ArrowLeft,
-    Repeat,
-    User,
-    LayoutDashboard,
-    Maximize2,
-    Sofa,
-    FileSignature,
-    CreditCard,
-    ShieldCheck,
-    Upload,
-    Image as ImageIcon,
-    Ban,
-    Phone,
-    Camera,
-    Bell,
+import { Button } from '@/components/ui/button';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Coffee, CheckCircle2, Loader, MapPin, Star, ArrowRight, XCircle,
+  Eye, ChefHat, Zap, Volume2, VolumeX, Timer, User, Bell, Activity,
+  TrendingUp, Printer, LogOut, RefreshCw, Delete, Utensils, Settings,
+  Wifi, Monitor,
 } from 'lucide-react';
-import { format, parseISO, subMonths, isAfter, subYears, isBefore, startOfMonth, differenceInHours, isSameDay, startOfDay, addMonths, isToday } from 'date-fns';
-import { type Appointment, type Client, type Service, type Tenant, type Staff, type InventoryItem, type Resource, type Membership, type RefreshmentRequest, type Review } from '@/lib/data';
-import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, addDoc, setDoc } from 'firebase/firestore';
-import { useToast } from '@/hooks/use-toast';
+import { useFirebase, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import {
+  collection, doc, writeBatch, increment, arrayUnion, query, where, updateDoc,
+} from 'firebase/firestore';
 import { cn, safeNumber } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
+import { format, differenceInSeconds } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
 import Image from 'next/image';
-import Link from 'next/link';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
-import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
-import { loadStripe } from '@stripe/stripe-js';
-import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
+import { type InventoryItem, type Tenant, type Staff } from '@/lib/data';
 
-const safeDate = (val: any): Date => {
-    if (!val) return new Date();
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-    return new Date(val);
-};
+// ─── Constants ────────────────────────────────────────────────────────────────
+const INACTIVITY_MS = 30 * 60 * 1000;
+const FIFO_BADGES = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩'];
 
-const ViewContainer = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-    <motion.div 
-        initial={{ opacity: 0, scale: 0.98, y: 20 }} 
-        animate={{ opacity: 1, scale: 1, y: 0 }} 
-        className={cn("w-full max-w-2xl px-2 sm:px-0 text-left", className)}
-    >
-        <Card className="border-4 rounded-[2.5rem] md:rounded-[3rem] shadow-3xl overflow-hidden bg-white/90 backdrop-blur-xl">
-            {children}
-        </Card>
-    </motion.div>
-);
+type TicketSource = 'refreshment' | 'event';
 
-const ViewHeader = ({ title, subtitle, icon: Icon }: { title: string, subtitle: string, icon?: any }) => (
-    <CardHeader className="p-6 md:p-10 pb-4 border-b bg-muted/5 text-left">
-        <div className="flex items-center gap-3 mb-2">
-            {Icon ? <Icon className="w-5 h-5 text-primary" /> : <Sparkles className="w-5 h-5 text-primary" />}
-            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-60">Studio Portal</span>
-        </div>
-        <CardTitle className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 leading-none">{title}</CardTitle>
-        <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-2">{subtitle}</CardDescription>
-    </CardHeader>
-);
+const getTicketSource = (r: any): TicketSource =>
+  r.source === 'event' ? 'event' : 'refreshment';
 
-// v15 — CancelledView now optionally shows a self-service payment prompt
-// when bookingCompletions.status === 'fee_owed' (set by log-call-intent's
-// voice-verified-but-no-card cancellation path). Reuses the EXISTING
-// /api/stripe/completion route and EmbeddedCheckout pattern already proven
-// in CompletionGateView — same payload shape, same component, just a
-// different framing ("Cancellation Fee" instead of "Finish Your Booking").
-// No new payment endpoint; this is the same money-collection mechanism
-// already used everywhere else in this file.
-const CancelledView = ({
-    reason,
-    tenantId,
-    token,
-    completion,
-    firestore,
-}: {
-    reason?: string;
-    tenantId?: string;
-    token?: string;
-    completion?: any;
-    firestore?: any;
-}) => {
-    const [clientSecret, setClientSecret] = useState<string | null>(null);
-    const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
-    const [isStartingPayment, setIsStartingPayment] = useState(false);
-    const [paymentError, setPaymentError] = useState<string | null>(null);
-    const [feeSettled, setFeeSettled] = useState(false);
+const getCollection = (r: any) =>
+  getTicketSource(r) === 'event' ? 'kdsTickets' : 'refreshmentRequests';
 
-    const owesFee = completion?.status === 'fee_owed' && !feeSettled;
-    const feeAmount = (completion?.depositAmountCents || 0) / 100;
-
-    const stripePromise = useMemo(() => {
-        const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-        if (!pk || !stripeAccountId) return null;
-        return loadStripe(pk, { stripeAccount: stripeAccountId });
-    }, [stripeAccountId]);
-
-    const handleStartPayment = async () => {
-        setIsStartingPayment(true);
-        setPaymentError(null);
-        try {
-            const res = await fetch('/api/stripe/completion', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId, completionToken: token,
-                    appointmentId: completion?.owedFeeAppointmentId,
-                    clientId: completion?.clientId,
-                    clientName: completion?.clientName,
-                    clientEmail: completion?.clientEmail,
-                    depositAmount: feeAmount,
-                    serviceName: completion?.serviceName,
-                }),
-            });
-            const out = await res.json().catch(() => null);
-            if (out?.clientSecret) {
-                setStripeAccountId(out.stripeAccountId || null);
-                setClientSecret(out.clientSecret);
-            } else {
-                setPaymentError(out?.error || 'Could not start checkout. Please contact the studio.');
-            }
-        } catch (e: any) {
-            setPaymentError(e.message || 'Something went wrong. Please try again.');
-        } finally {
-            setIsStartingPayment(false);
-        }
-    };
-
-    const handleFeePaid = async () => {
-        // Best-effort settlement — mirrors the shape written when a fee is
-        // parked as owed, just reversed. The Stripe payment itself is the
-        // source of truth; this just keeps the client-facing status and
-        // ledger-adjacent records in sync so staff don't see a stale
-        // "still owed" balance after it's genuinely been paid.
-        setFeeSettled(true);
-        if (!firestore || !tenantId || !token) return;
-        try {
-            await setDoc(doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), { status: 'fee_paid' }, { merge: true });
-            if (completion?.clientId) {
-                await setDoc(
-                    doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                    { feePaidViaLinkAt: new Date().toISOString() },
-                    { merge: true },
-                );
-            }
-            // Owner-visible audit trail — the client settled this themselves.
-            try {
-                await addDoc(collection(firestore, `tenants/${tenantId}/auditLogs`), {
-                    action: 'checkin.fee_paid',
-                    targetType: 'bookingCompletion',
-                    targetId: token,
-                    summary: `${completion?.clientName || 'Client'} paid the $${((completion?.depositAmountCents || 0) / 100).toFixed(2)} cancellation fee via self-service link`,
-                    amount: (completion?.depositAmountCents || 0) / 100,
-                    actor: { type: 'user', id: completion?.clientId || null, name: completion?.clientName || null, role: 'client', via: 'check-in-link' },
-                    at: new Date().toISOString(),
-                });
-            } catch { /* audit failures are non-fatal */ }
-        } catch {
-            // The Stripe payment itself DID succeed — only the status sync
-            // failed. Say so instead of failing silently.
-            setPaymentError('Your payment went through, but our records may take a moment to update. No further action is needed.');
-        }
-    };
-
-    return (
-        <ViewContainer>
-            <ViewHeader title="Session Void" subtitle="Protocol cancellation finalized" icon={XCircle} />
-            <CardContent className="p-10 md:p-16 text-center space-y-8">
-                <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                    <XCircle className="w-12 h-12 text-destructive" />
-                </div>
-                <div className="space-y-2 text-center">
-                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Record Voided</h3>
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                        This appointment is no longer active. Reason: <strong>{reason?.replace(/_/g, ' ') || 'Protocol Change'}</strong>.
-                    </p>
-                </div>
-
-                {owesFee && (
-                    <div className="p-6 md:p-8 rounded-[2rem] border-4 border-amber-200 bg-amber-50 space-y-5 text-left">
-                        <div className="text-center space-y-1">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Cancellation Fee Due</p>
-                            <p className="text-3xl font-black text-amber-700 font-mono tracking-tighter">${feeAmount.toFixed(2)}</p>
-                        </div>
-                        {clientSecret && stripePromise ? (
-                            <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: handleFeePaid }}>
-                                <EmbeddedCheckout />
-                            </EmbeddedCheckoutProvider>
-                        ) : (
-                            <>
-                                {paymentError && <p className="text-xs font-bold text-destructive text-center">{paymentError}</p>}
-                                <Button
-                                    onClick={handleStartPayment}
-                                    disabled={isStartingPayment}
-                                    className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl bg-amber-600 hover:bg-amber-700"
-                                >
-                                    {isStartingPayment ? <Loader className="w-4 h-4 animate-spin" /> : 'Pay Cancellation Fee'}
-                                </Button>
-                            </>
-                        )}
-                    </div>
-                )}
-                {feeSettled && (
-                    <div className="p-4 rounded-2xl bg-green-50 border-2 border-green-200">
-                        <p className="text-xs font-black uppercase text-green-700">Fee paid — thank you</p>
-                    </div>
-                )}
-
-                <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                    <Link href="/">Browse Availability</Link>
-                </Button>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-// v8 — NEW: lets a client control how and when they're notified. Seeded
-// from client.notificationPreferences, defaulting to whatever the
-// existing system-wide defaults are today (both channels for
-// confirmations, voice for reminders — preserving current behavior for
-// every client who hasn't touched this) so an unset preference is
-// indistinguishable from "I'm fine with the defaults."
-const REMINDER_HOUR_OPTIONS = [
-    { value: 1, label: '1 hour before' },
-    { value: 24, label: '24 hours before' },
-    { value: 48, label: '48 hours before' },
-    { value: 72, label: '72 hours before' },
-];
-
-const NotificationPreferencesView = ({
-    tenantId,
-    client,
-    onBack,
-}: {
-    tenantId: string;
-    client: Client;
-    onBack: () => void;
-}) => {
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
-    const prefs = client.notificationPreferences || {};
-    const [confirmationChannel, setConfirmationChannel] = useState(prefs.confirmationChannel || 'both');
-    const [reminderChannel, setReminderChannel] = useState(prefs.reminderChannel || 'voice');
-    const [reminderHoursBefore, setReminderHoursBefore] = useState(prefs.reminderHoursBefore || 48);
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
-
-    const handleSave = async () => {
-        if (!firestore || !tenantId || !client.id) return;
-        setSaving(true);
-        try {
-            await setDoc(
-                doc(firestore, `tenants/${tenantId}/clients`, client.id),
-                { notificationPreferences: { confirmationChannel, reminderChannel, reminderHoursBefore } },
-                { merge: true },
-            );
-            setSaved(true);
-            toast({ title: 'Preferences saved' });
-            setTimeout(() => setSaved(false), 2000);
-        } catch {
-            toast({ variant: 'destructive', title: 'Could not save', description: 'Please try again.' });
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    const channelOption = (value: string, label: string, current: string, onChange: (v: string) => void) => (
-        <button
-            key={value}
-            type="button"
-            onClick={() => onChange(value)}
-            className={cn(
-                'flex-1 h-12 rounded-xl border-2 text-[10px] font-black uppercase tracking-wide transition-colors',
-                current === value ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500',
-            )}
-        >
-            {label}
-        </button>
-    );
-
-    return (
-        <ViewContainer>
-            <ViewHeader title="Notification Settings" subtitle="How and when we reach you" icon={Bell} />
-            <CardContent className="p-8 md:p-12 space-y-10 text-left">
-                <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Booking confirmations</Label>
-                    <div className="flex gap-2 flex-wrap">
-                        {channelOption('sms', 'Text', confirmationChannel, setConfirmationChannel)}
-                        {channelOption('email', 'Email', confirmationChannel, setConfirmationChannel)}
-                        {channelOption('both', 'Both', confirmationChannel, setConfirmationChannel)}
-                        {channelOption('none', 'Off', confirmationChannel, setConfirmationChannel)}
-                    </div>
-                </div>
-
-                <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Appointment reminders</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                        {channelOption('voice', 'Phone call', reminderChannel, setReminderChannel)}
-                        {channelOption('sms', 'Text', reminderChannel, setReminderChannel)}
-                        {channelOption('email', 'Email', reminderChannel, setReminderChannel)}
-                        {channelOption('none', 'Off', reminderChannel, setReminderChannel)}
-                    </div>
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 px-1">
-                        "Phone call" means a friendly reminder call — you can reschedule or cancel right there if plans change.
-                    </p>
-                </div>
-
-                {reminderChannel !== 'none' && (
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Remind me</Label>
-                        <select
-                            value={reminderHoursBefore}
-                            onChange={e => setReminderHoursBefore(Number(e.target.value))}
-                            className="w-full h-12 rounded-xl border-2 px-4 text-sm font-bold bg-white shadow-inner"
-                        >
-                            {REMINDER_HOUR_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
-                )}
-
-                <Button onClick={handleSave} disabled={saving} className="w-full h-14 rounded-2xl font-black uppercase text-sm tracking-widest shadow-xl shadow-primary/20">
-                    {saving ? <Loader className="w-4 h-4 animate-spin" /> : saved ? <><Check className="w-4 h-4 mr-2" /> Saved</> : 'Save Preferences'}
-                </Button>
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-
-// resolution — never checked in, never explicitly cancelled, never marked
-// completed or no-show. Previously a stale link like this fell straight
-// through to the normal arrival flow ("Hello! I Have Arrived / En Route /
-// Running Late"), which is wrong and mildly harmful: tapping "I Have
-// Arrived" on a week-old appointment would falsely flag it as arrived
-// TODAY, corrupting whatever no-show/attendance reporting reads that
-// field. This is a read-only, dead-end view — it doesn't write anything,
-// just stops the client from taking an action that no longer makes sense.
-const StaleAppointmentView = ({ tenantName, tenantPhone }: { tenantName?: string; tenantPhone?: string }) => (
-    <ViewContainer>
-        <ViewHeader title="Appointment Has Passed" subtitle="This link is no longer actionable" icon={Clock} />
-        <CardContent className="p-10 md:p-16 text-center space-y-8">
-            <div className="w-24 h-24 bg-muted/40 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-60">
-                <Clock className="w-12 h-12 text-muted-foreground" />
-            </div>
-            <div className="space-y-2 text-center">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">This appointment time has passed</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    If you still need this service, please book a new time{tenantName ? ` with ${tenantName}` : ''} or give us a call.
-                </p>
-            </div>
-            <div className="space-y-3">
-                <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                    <Link href="/">Browse Availability</Link>
-                </Button>
-                {tenantPhone && (
-                    <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white shadow-sm">
-                        <a href={`tel:${tenantPhone}`}><Phone className="w-4 h-4 mr-2" /> Call {tenantPhone}</a>
-                    </Button>
-                )}
-            </div>
-        </CardContent>
-    </ViewContainer>
-);
-
-// v8 — NEW: the mirror image of StaleAppointmentView. Nothing previously
-// stopped a client from tapping "I Have Arrived" days before their actual
-// appointment date — the arrival buttons showed regardless of how far out
-// the booking was. Same read-only, dead-end pattern: doesn't write
-// anything, just replaces the arrival flow with a clear "come back on the
-// day" message whenever the appointment isn't today. Same-day arrivals are
-// never blocked here regardless of how many hours early — someone showing
-// up 3 hours before a 2pm slot is normal and shouldn't be stopped.
-// v9 — the pre-day gate is no longer a dead end: BEFORE the visit day is
-// exactly when clients reschedule and cancel, so those actions (and
-// add-to-calendar) live right here. The studio's change-window and
-// cancellation-fee policies are enforced by the flows these open — this
-// screen just gets clients to them.
-const TooEarlyView = ({
-    startTime, serviceName, onReschedule, onCancel, calendarUrl,
-}: {
-    startTime: string; serviceName?: string;
-    onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
-}) => (
-    <ViewContainer>
-        <ViewHeader title="Not Quite Yet" subtitle="Check-in opens on the day of your visit" icon={CalendarIcon} />
-        <CardContent className="p-10 md:p-16 text-center space-y-8">
-            <div className="w-24 h-24 bg-primary/5 rounded-[2.5rem] flex items-center justify-center mx-auto">
-                <CalendarIcon className="w-12 h-12 text-primary opacity-60" />
-            </div>
-            <div className="space-y-2 text-center">
-                <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">You're all set</h3>
-                <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-xs mx-auto text-center">
-                    {serviceName ? `${serviceName} is` : 'Your appointment is'} scheduled for{' '}
-                    <strong className="text-slate-900">{format(safeDate(startTime), 'EEEE, MMMM d')}</strong>.
-                    Come back to this link on the day to check in.
-                </p>
-            </div>
-            <div className="space-y-3 max-w-sm mx-auto">
-                {calendarUrl && (
-                    <Button asChild className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                        <a href={calendarUrl}><CalendarIcon className="w-4 h-4 mr-2" /> Add to calendar</a>
-                    </Button>
-                )}
-                {onReschedule && (
-                    <button
-                        type="button"
-                        onClick={onReschedule}
-                        className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                    >
-                        Need a different time? Reschedule
-                    </button>
-                )}
-                {onCancel && (
-                    <button
-                        type="button"
-                        onClick={onCancel}
-                        className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
-                    >
-                        Can't make it? Cancel appointment
-                    </button>
-                )}
-            </div>
-        </CardContent>
-    </ViewContainer>
-);
-
-const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenant | null, client: Client | null, appointment: Appointment, service: Service | null, staff: Staff | null }) => {
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
-    const [rating, setRating] = useState(0);
-    const [reviewText, setReviewText] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitted, setSubmitted] = useState(!!appointment.reviewSubmittedAt);
-
-    const handleReviewSubmit = async () => {
-        if (rating === 0 || !firestore || !tenant || !client) return;
-        setIsSubmitting(true);
-        try {
-            const reviewId = nanoid();
-            const review: Review = {
-                id: reviewId,
-                tenantId: tenant.id,
-                clientId: client.id,
-                clientName: client.name,
-                clientAvatarUrl: client.avatarUrl,
-                staffId: appointment.staffId || '',
-                serviceId: appointment.serviceId,
-                serviceName: service?.name || 'Treatment',
-                rating,
-                text: reviewText,
-                isPublic: false,
-                isFeatured: false,
-                createdAt: new Date().toISOString()
-            };
-            await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/reviews`, reviewId), review, {});
-            // v7 — FIX: previously nothing recorded that a review had been
-            // submitted anywhere the appointment itself could be checked —
-            // `submitted` was pure local component state. Reopening the
-            // same link later always re-showed the rating form, with no
-            // guard against submitting a second (or third) review for the
-            // same visit. This timestamp is checked on load below.
-            try {
-                await setDoc(
-                    doc(firestore, `tenants/${tenant.id}/appointments/${appointment.id}`),
-                    { reviewSubmittedAt: new Date().toISOString() },
-                    { merge: true },
-                );
-            } catch { /* best-effort — the review doc above is the record of truth */ }
-            toast({ title: "Feedback Archived", description: "Thank you for sharing your story." });
-            setSubmitted(true);
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Submission Failed" });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <ViewContainer>
-            <ViewHeader title="Session Finalized" subtitle="Thank you for visiting us" icon={CheckCircle2} />
-            <CardContent className="p-0">
-                <AnimatePresence mode="wait">
-                    {!submitted ? (
-                        <motion.div key="review-form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 md:p-12 space-y-10">
-                            <div className="text-center space-y-4">
-                                <div className="w-20 h-20 bg-primary/10 rounded-[2rem] flex items-center justify-center mx-auto shadow-2xl shadow-primary/5 rotate-6">
-                                    <Heart className="w-10 h-10 text-primary -rotate-6" />
-                                </div>
-                                <div className="space-y-1 text-center">
-                                    <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900 text-center">Rate your protocol</h3>
-                                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest opacity-60 text-center">Your data helps us maintain excellence</p>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-center gap-2">
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                    <button 
-                                        key={star} 
-                                        onClick={() => setRating(star)}
-                                        className={cn(
-                                            "p-2 transition-all active:scale-90",
-                                            rating >= star ? "text-amber-400" : "text-muted-foreground opacity-20 hover:opacity-40"
-                                        )}
-                                    >
-                                        <Star className={cn("w-10 h-10 md:w-14 md:h-14", rating >= star && "fill-current")} />
-                                    </button>
-                                ))}
-                            </div>
-
-                            <div className="space-y-3 text-left">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Session Narrative</Label>
-                                <Textarea 
-                                    placeholder="Briefly describe your experience..." 
-                                    value={reviewText}
-                                    onChange={e => setReviewText(e.target.value)}
-                                    className="rounded-[2rem] border-2 bg-muted/5 p-6 font-medium leading-relaxed min-h-[120px] focus-visible:ring-primary/20"
-                                />
-                            </div>
-
-                            <Button 
-                                onClick={handleReviewSubmit} 
-                                disabled={rating === 0 || isSubmitting}
-                                className="w-full h-16 rounded-[2rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 group"
-                            >
-                                {isSubmitting ? <Loader className="animate-spin" /> : <>Archive Feedback <ArrowRight className="ml-2 w-5 h-5 transition-transform group-hover:translate-x-1" /></>}
-                            </Button>
-                        </motion.div>
-                    ) : (
-                        <motion.div key="success" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="p-12 md:p-20 text-center space-y-8">
-                            <div className="w-20 h-20 md:w-24 md:h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                                <CheckCircle2 className="w-12 h-12 text-green-500" />
-                            </div>
-                            <div className="space-y-2 text-center">
-                                <h3 className="text-2xl font-black uppercase tracking-tighter text-center leading-none">Feedback Certified</h3>
-                                <p className="text-sm font-medium text-slate-500 uppercase tracking-tight max-w-xs mx-auto text-center leading-relaxed">Your story has been established in our archive. We look forward to your next visit.</p>
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                <div className="p-8 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
-                            <Link href={`/book/${tenant?.id}`}>
-                                <Repeat className="w-4 h-4 mr-2" /> Book New Session
-                            </Link>
-                        </Button>
-                        <Button asChild variant="outline" className="h-14 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] bg-white shadow-sm">
-                            <Link href={`/portal/${tenant?.id}/${client?.id}`}>
-                                <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
-                                Access Dashboard
-                            </Link>
-                        </Button>
-                    </div>
-                </div>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-// ── Lounge amenity shape ─────────────────────────────────────────────────────
-// What /api/guest-lounge hands back for each orderable item. Deliberately
-// narrower than InventoryItem: a guest never receives cost, supplier, margin or
-// stock counts, only whether the thing can be ordered and up to what quantity.
-type LoungeAmenity = {
-    id: string;
-    name: string;
-    description?: string;
-    category?: string;
-    price?: number;
-    imageUrl?: string;
-    isMembersOnly?: boolean;
-    maxQty?: number;
-};
-
-// What the same endpoint returns for "here is what else this studio does".
-type LoungeUpsell = {
-    id: string;
-    name: string;
-    description?: string;
-    category?: string;
-    price?: number;
-    duration?: number;
-};
-
-/**
- * Fallback path only. A guest's browser cannot read `inventory`
- * (firestore.rules: get, list: if isStaff) so for them `inventory` is always an
- * empty array and the menu comes from the API. But if a signed-in staff member
- * opens the same link on a studio device, the collection DOES resolve — this
- * maps it into the same shape so the screen works either way.
- */
-const toAmenity = (i: InventoryItem): LoungeAmenity => ({
-    id: i.id,
-    name: i.name,
-    description: (i as any).description || '',
-    category: i.category || '',
-    price: safeNumber((i as any).price),
-    imageUrl: (i as any).imageUrl || '',
-    isMembersOnly: (i as any).isMembersOnly === true,
-    maxQty: Math.max(1, Math.min(6, Math.floor(safeNumber(i.totalStock)) || 1)),
+const normaliseTicket = (r: any) => ({
+  ...r,
+  _displayName:    r.clientName    || r.guestName    || 'Guest',
+  _displayItem:    r.itemName      || r.menuItemName || 'Item',
+  _displayStation: r.stationName
+    || (r.tableNumber
+      ? `Table ${r.tableNumber}${r.seatNumber ? ` · Seat ${r.seatNumber}` : ''}`
+      : 'Lounge'),
+  _itemId:         r.itemId        || r.menuItemId   || null,
+  _quantity:       safeNumber(r.quantity) || 1,
+  _source:         getTicketSource(r),
 });
 
-const RefreshmentCard = ({
-    item,
-    qty,
-    onQtyChange,
-    onRequest,
-    isRequesting,
-    hasPendingRequest,
-    isPerkDefinition,
-    remainingPerkUses,
-}: {
-    item: LoungeAmenity,
-    qty: number,
-    onQtyChange: (delta: number) => void,
-    onRequest: () => void,
-    isRequesting: boolean,
-    hasPendingRequest: boolean,
-    /** True when this item is one of the client's membership inclusions. */
-    isPerkDefinition: boolean,
-    remainingPerkUses: number
-}) => {
-    const maxQty = Math.max(1, Math.floor(safeNumber(item.maxQty)) || 1);
-    const isPerkAvailableNow = isPerkDefinition && remainingPerkUses >= qty;
-    const price = safeNumber(item.price);
-
-    const getDynamicIcon = (name: string) => {
-        const n = (name || '').toLowerCase();
-        if (n.includes('charger') || n.includes('stand') || n.includes('power')) return Smartphone;
-        if (n.includes('headphone') || n.includes('noise')) return Headphones;
-        if (n.includes('blanket') || n.includes('pillow')) return Moon;
-        if (n.includes('quiet') || n.includes('silent')) return VolumeX;
-        if (n.includes('light')) return SunDim;
-        if (n.includes('game') || n.includes('tablet')) return Gamepad2;
-        return Coffee;
-    };
-
-    const Icon = getDynamicIcon(item.name);
-
-    // Rendered in one of two places depending on whether there is a photo, so
-    // the wording stays identical either way.
-    const priceLabel = isPerkAvailableNow ? (
-        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
-    ) : price > 0 ? (
-        <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${price.toFixed(2)}</p>
-    ) : (
-        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
-    );
-
-    return (
-        <motion.div
-            whileTap={{ scale: 0.98 }}
-            className="shrink-0 w-[240px] md:w-72 h-full py-4 text-left"
-        >
-            <Card className={cn(
-                "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
-                hasPendingRequest ? "opacity-40" : "border-primary/5 hover:border-primary/30",
-                isPerkAvailableNow && "border-indigo-500/20 ring-1 ring-indigo-500/10",
-                item.isMembersOnly && "border-indigo-500/30"
-            )}>
-                {/* A full square is right when there is a real photo. With no photo
-                    it was 240px of empty grey holding one small icon, which made
-                    every card ~450px tall and the menu an endless scroll on a
-                    phone. No photo gets a short band instead. */}
-                <div className={cn(
-                    "relative w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b",
-                    item.imageUrl ? "aspect-square" : "h-32 md:h-36"
-                )}>
-                    {item.imageUrl ? (
-                        <div className="relative w-full h-full">
-                            <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
-                        </div>
-                    ) : (
-                        <Icon className="w-12 h-12 md:w-16 md:h-16 text-primary opacity-20" />
-                    )}
-
-                    <div className="absolute top-4 left-4 flex flex-col gap-1.5">
-                        {item.isMembersOnly && (
-                            <Badge className="bg-indigo-600 text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
-                                <Award className="w-3 md:w-3 mr-1" /> Club Only
-                            </Badge>
-                        )}
-                        {isPerkDefinition && (
-                            <Badge className={cn(
-                                "border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl",
-                                remainingPerkUses > 0 ? "bg-primary text-white" : "bg-muted text-muted-foreground opacity-60"
-                            )}>
-                                <Star className={cn("w-3 md:w-3 mr-1", remainingPerkUses > 0 && "fill-current")} />
-                                {remainingPerkUses > 0 ? `Perk` : "Exhausted"}
-                            </Badge>
-                        )}
-                    </div>
-
-                    {/* A price chip floated over a photo needs the frosted panel to
-                        stay readable. Over the short no-photo band it collided
-                        with the icon, so there it moves inline under the name. */}
-                    {item.imageUrl && (
-                        <div className="absolute bottom-4 right-4">
-                            <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
-                                {priceLabel}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                <CardContent className="p-5 md:p-6 flex-1 flex flex-col justify-between space-y-4 text-left">
-                    <div className="space-y-1.5">
-                        {/* Not `truncate`: at 390px the card is 240px wide and a
-                            real name like "Warm Almond Croissant" lost its last
-                            word to an ellipsis. Wrapping to two lines instead. */}
-                        <h4 className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight break-words line-clamp-2">{item.name}</h4>
-                        {!item.imageUrl && <div className="pt-0.5">{priceLabel}</div>}
-                        {item.description && (
-                            <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic">
-                                &quot;{item.description}&quot;
-                            </p>
-                        )}
-                    </div>
-
-                    <div className="pt-4 border-t border-dashed space-y-4">
-                        {/* Stacked on a phone, side by side from md up. Side by side
-                            at 240px forced the minus/plus buttons down to 32px of
-                            tappable height, which is under the 44px thumb minimum. */}
-                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div className="flex items-center justify-center gap-2 bg-muted/50 rounded-xl px-1 h-12 border shadow-inner md:justify-start">
-                                <button aria-label="One fewer" onClick={() => onQtyChange(-1)} disabled={hasPendingRequest} className="flex min-h-[44px] w-11 items-center justify-center rounded-lg hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
-                                <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
-                                <button aria-label="One more" onClick={() => onQtyChange(1)} disabled={hasPendingRequest || qty >= maxQty} className="flex min-h-[44px] w-11 items-center justify-center rounded-lg hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
-                            </div>
-                            <Button
-                                disabled={isRequesting || hasPendingRequest}
-                                onClick={onRequest}
-                                className="w-full md:w-auto min-h-[44px] h-12 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
-                            >
-                                {hasPendingRequest ? 'On Its Way' : isRequesting ? 'Sending' : 'Request'}
-                            </Button>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-        </motion.div>
-    );
+const safeDate = (val: any): Date => {
+  if (!val) return new Date();
+  if (val instanceof Date) return val;
+  if (typeof val?.toDate === 'function') return val.toDate();
+  if (typeof val === 'string') return new Date(val);
+  return new Date(val);
 };
 
-/**
- * ── While You Wait ──────────────────────────────────────────────────────────
- * The band under the hero used to be empty. On the live site it rendered
- * `<div className="space-y-16 py-8">` with two possible children, both of which
- * were conditional and both of which were empty for a guest (the amenity list
- * came back empty because `inventory` is staff-only), leaving roughly 220px of
- * white space and nothing to read.
- *
- * This is the part that is always there: what is happening right now, who is
- * looking after them, and when it should wrap up. Every value is read from the
- * real appointment record — nothing here is invented, and any field that is
- * missing simply does not render rather than showing a placeholder.
- */
-const WhileYouWaitPanel = ({
-    isWaiting, stationName, staffName, serviceName, startTime, endTime, guestName, isMember, membershipName, perkTotal,
-}: {
-    isWaiting: boolean;
-    stationName: string;
-    staffName?: string | null;
-    serviceName?: string | null;
-    startTime?: string | null;
-    endTime?: string | null;
-    guestName?: string | null;
-    isMember: boolean;
-    membershipName?: string | null;
-    /** Total club perks still available this cycle, across every item. */
-    perkTotal: number;
-}) => {
-    const rows: { label: string; value: string; icon: any }[] = [];
+const sanitize = (obj: any): any => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitize);
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, sanitize(v)])
+  );
+};
 
-    if (serviceName) rows.push({ label: 'Today', value: serviceName, icon: Sparkles });
-    if (staffName) rows.push({ label: isWaiting ? 'Your technician' : 'With', value: staffName, icon: User });
-    rows.push({ label: isWaiting ? 'Waiting in' : 'Seated at', value: stationName, icon: MapPin });
-    if (endTime) {
-        rows.push({ label: 'Should wrap around', value: format(safeDate(endTime), 'h:mm a'), icon: Clock });
-    } else if (startTime) {
-        rows.push({ label: 'Started', value: format(safeDate(startTime), 'h:mm a'), icon: Clock });
+function formatElapsed(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
+function urgencyLevel(s: number): 'fresh' | 'warm' | 'hot' | 'critical' {
+  if (s < 120) return 'fresh';
+  if (s < 300) return 'warm';
+  if (s < 480) return 'hot';
+  return 'critical';
+}
+
+const URGENCY = {
+  fresh:    { bar: 'bg-emerald-400', border: 'border-slate-200',  glow: '',                                                     label: 'bg-emerald-100 text-emerald-700' },
+  warm:     { bar: 'bg-amber-400',   border: 'border-amber-300',  glow: '',                                                     label: 'bg-amber-100 text-amber-700'     },
+  hot:      { bar: 'bg-orange-500',  border: 'border-orange-400', glow: 'shadow-[0_0_20px_rgba(249,115,22,0.25)]',              label: 'bg-orange-100 text-orange-700'   },
+  critical: { bar: 'bg-red-500',     border: 'border-red-500',    glow: 'shadow-[0_0_30px_rgba(239,68,68,0.35)] animate-pulse', label: 'bg-red-100 text-red-700'         },
+};
+
+function getInitials(name?: string | null): string {
+  if (!name) return '??';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// ─── Printer config ───────────────────────────────────────────────────────────
+type PrinterMode = 'network' | 'browser';
+
+type PrinterConfig = {
+  mode: PrinterMode;
+  ip:   string;
+  port: number;
+};
+
+const DEFAULT_PRINTER_CONFIG: PrinterConfig = { mode: 'browser', ip: '', port: 9100 };
+
+function loadPrinterConfig(): PrinterConfig {
+  if (typeof window === 'undefined') return DEFAULT_PRINTER_CONFIG;
+  try {
+    const raw = localStorage.getItem('kds_printer_config');
+    if (raw) return { ...DEFAULT_PRINTER_CONFIG, ...JSON.parse(raw) };
+  } catch {}
+  return DEFAULT_PRINTER_CONFIG;
+}
+
+function savePrinterConfig(cfg: PrinterConfig) {
+  try { localStorage.setItem('kds_printer_config', JSON.stringify(cfg)); } catch {}
+}
+
+// ─── Label types ──────────────────────────────────────────────────────────────
+type LabelLine = {
+  content:  string;
+  size?:    'normal' | 'large' | 'wide';
+  bold?:    boolean;
+  align?:   'left' | 'center' | 'right';
+  divider?: boolean;
+};
+
+type LabelPayload = {
+  lines: LabelLine[];
+  cut?:  boolean;
+};
+
+// ─── Build label ──────────────────────────────────────────────────────────────
+function buildLabel(
+  request: any,
+  staff: Staff,
+  fifoIndex: number,
+  ingredients: { name: string; totalNeeded: string; unit: string }[],
+): LabelPayload {
+  const orderId   = (request.id ?? '').slice(-6).toUpperCase();
+  const guestName = (request._displayName   ?? 'Guest').toUpperCase();
+  const itemName  = (request._displayItem   ?? 'Item').toUpperCase();
+  const qty       = request._quantity || 1;
+  const station   = (request._displayStation || 'Lounge').toUpperCase();
+  const initials  = getInitials(staff.name);
+  const timeStr   = format(safeDate(request.requestedAt || request.createdAt), 'h:mm a');
+
+  const lines: LabelLine[] = [
+    { content: `#${fifoIndex + 1}  ${itemName}`, size: 'large',  bold: true,  align: 'left' },
+    { content: `x${qty}  ${guestName}`,            size: 'wide',   bold: true,  align: 'left' },
+    { content: `${station}  ${timeStr}`,            size: 'normal', bold: false, align: 'left' },
+    { divider: true },
+  ];
+
+  if (ingredients.length > 0) {
+    lines.push({ content: 'INGREDIENTS:', size: 'normal', bold: true, align: 'left' });
+    ingredients.slice(0, 4).forEach(f => {
+      lines.push({ content: `  ${f.totalNeeded}${f.unit}  ${(f.name ?? '').toUpperCase()}`, size: 'normal', bold: false, align: 'left' });
+    });
+    lines.push({ divider: true });
+  }
+
+  lines.push({ content: `STAFF: ${initials}   ORDER: ${orderId}`, size: 'normal', bold: false, align: 'left' });
+  return { lines, cut: true };
+}
+
+// ─── Network print ────────────────────────────────────────────────────────────
+async function networkPrint(payload: LabelPayload, cfg: PrinterConfig): Promise<void> {
+  const res = await fetch('/api/thermal-print', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, printerIp: cfg.ip, printerPort: cfg.port }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Print relay error: ${res.status}`);
+  }
+}
+
+// ─── Browser print ────────────────────────────────────────────────────────────
+function buildPrintHtml(payload: LabelPayload): string {
+  const lines = payload.lines.map(line => {
+    if (line.divider) return `<hr style="border:none;border-top:1px dashed #aaa;margin:5px 0;">`;
+    const size    = line.size === 'large' ? '18px' : line.size === 'wide' ? '14px' : '11px';
+    const weight  = line.bold ? '900' : '400';
+    const spacing = line.size === 'wide' ? 'letter-spacing:1px;' : '';
+    const align   = line.align === 'center' ? 'text-align:center;' : '';
+    return `<div style="font-size:${size};font-weight:${weight};${spacing}${align}line-height:1.4;margin:1px 0;">${line.content}</div>`;
+  }).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Label</title>
+<style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:'Courier New',monospace;width:72mm;padding:4px 6px;background:#fff;color:#000;}
+@media print{@page{margin:0;size:80mm auto;}body{width:80mm;}}</style>
+</head><body>${lines}<div style="height:16px"></div></body></html>`;
+}
+
+function browserPrint(payload: LabelPayload): void {
+  const html = buildPrintHtml(payload);
+  const w = window.open('', '_blank', 'width=420,height=520,toolbar=0,menubar=0,location=0');
+  if (!w) { alert('Please allow popups for this page to use browser printing.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.onload = () => { w.focus(); w.print(); w.close(); };
+}
+
+// ─── Audio helper ─────────────────────────────────────────────────────────────
+function initAudioContext(ref: React.MutableRefObject<AudioContext | null>) {
+  try {
+    if (!ref.current) {
+      ref.current = new AudioContext();
+    } else if (ref.current.state === 'suspended') {
+      ref.current.resume().catch(() => {});
     }
+  } catch (_) {}
+}
 
-    return (
-        <div className="px-6 md:px-8 space-y-4">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-40 flex items-center gap-2">
-                <Info className="w-3 h-3" />
-                {guestName ? `${guestName}, here's where things stand` : 'Where things stand'}
-            </h3>
+// ─── Printer Settings Dialog ──────────────────────────────────────────────────
+const PrinterSettingsDialog = ({
+  open, onOpenChange, config, onSave,
+}: {
+  open: boolean; onOpenChange: (v: boolean) => void;
+  config: PrinterConfig; onSave: (cfg: PrinterConfig) => void;
+}) => {
+  const [mode, setMode] = useState<PrinterMode>(config.mode);
+  const [ip,   setIp]   = useState(config.ip);
+  const [port, setPort] = useState(String(config.port));
 
-            <div className="rounded-[2rem] border-2 bg-white shadow-lg overflow-hidden">
-                {/* One row per known fact. A two-column grid on a phone would
-                    squeeze a station name like "Pedicure Suite 2" into an
-                    ellipsis, so this stacks and lets the value wrap. */}
-                <div className="divide-y divide-dashed">
-                    {rows.map(row => {
-                        const RowIcon = row.icon;
-                        return (
-                            <div key={row.label} className="flex items-start gap-4 p-4 md:p-5">
-                                <div className="p-2 bg-primary/10 rounded-xl text-primary shadow-inner shrink-0">
-                                    <RowIcon className="w-4 h-4" />
-                                </div>
-                                <div className="min-w-0 flex-1 text-left">
-                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-40">{row.label}</p>
-                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 leading-snug break-words">{row.value}</p>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+  useEffect(() => {
+    if (open) { setMode(config.mode); setIp(config.ip); setPort(String(config.port)); }
+  }, [open, config]);
 
-                {isMember && (
-                    <div className="flex items-center gap-4 p-4 md:p-5 bg-indigo-50/60 border-t-2 border-indigo-200/50">
-                        <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-inner shrink-0">
-                            <Award className="w-4 h-4" />
-                        </div>
-                        <div className="min-w-0 flex-1 text-left">
-                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-700 opacity-70">{membershipName || 'Club member'}</p>
-                            <p className="font-black text-sm uppercase tracking-tight text-indigo-900 leading-snug">
-                                {perkTotal > 0
-                                    ? `${perkTotal} club ${perkTotal === 1 ? 'perk' : 'perks'} left this cycle`
-                                    : 'Perks used for this cycle'}
-                            </p>
-                        </div>
-                    </div>
-                )}
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b bg-muted/5 text-left">
+          <div className="flex items-center gap-2 mb-1">
+            <Printer className="w-4 h-4 text-primary" />
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Thermal Printer</span>
+          </div>
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900">Printer Setup</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+            Stored on this device only. Each KDS device can have its own printer.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
+          <div className="space-y-3">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Print Method</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setMode('browser')} className={cn('flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all', mode === 'browser' ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20')}>
+                <Monitor className={cn('w-6 h-6', mode === 'browser' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Browser</span>
+                <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-center leading-tight">USB · Bluetooth · Any local printer</span>
+              </button>
+              <button onClick={() => setMode('network')} className={cn('flex flex-col items-center gap-2 p-4 rounded-2xl border-2 transition-all', mode === 'network' ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-background hover:border-primary/20')}>
+                <Wifi className={cn('w-6 h-6', mode === 'network' ? 'text-primary' : 'text-muted-foreground opacity-40')} />
+                <span className="text-[10px] font-black uppercase tracking-widest">Network</span>
+                <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60 text-center leading-tight">LAN IP · Direct TCP · Port 9100</span>
+              </button>
             </div>
+          </div>
+          {mode === 'browser' && (
+            <div className="p-4 rounded-2xl bg-blue-50 border-2 border-blue-100 space-y-1.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-blue-700">How it works</p>
+              <p className="text-[10px] font-bold text-blue-600 leading-relaxed">Opens your OS print dialog. Select your thermal printer from the list — works with USB, Bluetooth, and any network printer added to your OS.</p>
+            </div>
+          )}
+          {mode === 'network' && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-100 space-y-1.5">
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">How it works</p>
+                <p className="text-[10px] font-bold text-amber-600 leading-relaxed">Sends ESC/POS directly to your printer over your local network. Print a test page from the printer to find its IP address.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="printer-ip" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Printer IP Address</Label>
+                <Input id="printer-ip" value={ip} onChange={e => setIp(e.target.value)} placeholder="192.168.1.xxx" className="h-12 rounded-2xl border-2 font-mono font-black text-sm" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="printer-port" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Port (default 9100)</Label>
+                <Input id="printer-port" value={port} onChange={e => setPort(e.target.value)} placeholder="9100" className="h-12 rounded-2xl border-2 font-mono font-black text-sm" />
+              </div>
+            </div>
+          )}
         </div>
-    );
+        <DialogFooter className="flex-shrink-0 p-6 pt-4 border-t bg-muted/5">
+          <div className="grid grid-cols-2 gap-3 w-full">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} className="h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button onClick={() => { onSave({ mode, ip: ip.trim(), port: Number(port) || 9100 }); onOpenChange(false); }} className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">Save Settings</Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 };
 
-/**
- * ── Explore More ────────────────────────────────────────────────────────────
- * The upsell touch point. Services are the one collection a guest genuinely can
- * read (firestore.rules allows `get, list: if true` on services), so this is
- * real data — the list is the studio's own active service menu with today's
- * service filtered out.
- *
- * "Ask about this today" does NOT book anything and does NOT take money. It
- * sends a notification to the assigned technician and to every owner/admin, and
- * stamps the appointment so the interest is still visible at checkout. That is
- * the honest version of an in-chair upsell: the guest raises their hand, a human
- * closes it.
- */
-const ExploreServicesPanel = ({
-    services, onAsk, askedIds, pendingId, tenantId,
+// ─── Label Preview Dialog ─────────────────────────────────────────────────────
+const LabelPreviewDialog = ({
+  open, onOpenChange, payload, onConfirm, isPrinting, printerConfig,
 }: {
-    services: LoungeUpsell[];
-    onAsk: (svc: LoungeUpsell) => void;
-    askedIds: string[];
-    pendingId: string | null;
-    tenantId?: string | null;
+  open: boolean; onOpenChange: (v: boolean) => void;
+  payload: LabelPayload | null; onConfirm: () => void;
+  isPrinting: boolean; printerConfig: PrinterConfig;
 }) => {
-    if (!services.length) return null;
-
-    return (
-        <section className="space-y-4">
-            <div className="px-6 md:px-8 space-y-1">
-                <h3 className="text-[11px] md:text-sm font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
-                    <Sparkles className="w-4 h-4" />
-                    While You&apos;re Here
-                </h3>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 leading-relaxed">
-                    Tap anything you&apos;d like to hear about — we&apos;ll mention it before you go
-                </p>
+  if (!payload) return null;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 p-0 overflow-hidden flex flex-col max-h-[90dvh]">
+        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b bg-muted/5 text-left">
+          <div className="flex items-center gap-2 mb-1">
+            <Printer className="w-4 h-4 text-primary" />
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-muted-foreground">Label Preview</span>
+          </div>
+          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-slate-900">Review Before Printing</DialogTitle>
+          <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
+            {printerConfig.mode === 'network'
+              ? `Network · ${printerConfig.ip || 'No IP set'}:${printerConfig.port}`
+              : 'Browser · OS print dialog'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 min-h-0 overflow-y-auto p-6">
+          <div className="mx-auto bg-white border-2 border-dashed border-slate-200 rounded-xl p-4 shadow-inner" style={{ fontFamily: "'Courier New', monospace", maxWidth: '280px' }}>
+            <div className="flex justify-between mb-3">
+              {[...Array(8)].map((_, i) => <div key={i} className="w-2 h-2 rounded-full bg-slate-200" />)}
             </div>
-
-            <ScrollArea className="w-full">
-                <div className="flex gap-4 px-6 md:px-8 pb-6">
-                    {services.map((svc, idx) => {
-                        const asked = askedIds.includes(svc.id);
-                        const price = safeNumber(svc.price);
-                        const mins = Math.floor(safeNumber(svc.duration));
-                        return (
-                            <motion.div
-                                key={svc.id}
-                                initial={{ opacity: 0, y: 12 }}
-                                whileInView={{ opacity: 1, y: 0 }}
-                                transition={{ delay: idx * 0.05 }}
-                                viewport={{ once: true }}
-                                className="shrink-0 w-[230px] md:w-64"
-                            >
-                                <Card className="rounded-[2rem] border-2 h-full flex flex-col bg-white shadow-lg overflow-hidden">
-                                    <CardContent className="p-5 md:p-6 flex-1 flex flex-col justify-between gap-4 text-left">
-                                        <div className="space-y-2">
-                                            {svc.category && (
-                                                <p className="text-[8px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-40 truncate">{svc.category}</p>
-                                            )}
-                                            <h4 className="font-black text-sm md:text-base uppercase tracking-tight text-slate-900 leading-snug break-words">{svc.name}</h4>
-                                            <div className="flex items-center gap-3 flex-wrap">
-                                                {price > 0 && (
-                                                    <span className="font-black font-mono text-base tracking-tighter text-slate-900">${price.toFixed(2)}</span>
-                                                )}
-                                                {mins > 0 && (
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50 flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" /> {mins} min
-                                                    </span>
-                                                )}
-                                            </div>
-                                            {svc.description && (
-                                                <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-3">{svc.description}</p>
-                                            )}
-                                        </div>
-
-                                        <Button
-                                            variant={asked ? 'outline' : 'default'}
-                                            disabled={asked || pendingId === svc.id}
-                                            onClick={() => onAsk(svc)}
-                                            className="w-full min-h-[44px] h-11 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] shadow-sm"
-                                        >
-                                            {asked ? (
-                                                <><Check className="w-3.5 h-3.5 mr-1.5" /> We&apos;ll Mention It</>
-                                            ) : pendingId === svc.id ? (
-                                                <><Loader className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Sending</>
-                                            ) : (
-                                                <>Ask About This <ArrowRight className="w-3.5 h-3.5 ml-1.5" /></>
-                                            )}
-                                        </Button>
-                                    </CardContent>
-                                </Card>
-                            </motion.div>
-                        );
-                    })}
+            {payload.lines.map((line, i) => {
+              if (line.divider) return <div key={i} className="border-t-2 border-dashed border-slate-300 my-2" />;
+              return (
+                <div key={i} className={cn('leading-tight py-0.5', line.align === 'center' && 'text-center', line.bold && 'font-black', line.size === 'large' && 'text-xl font-black', line.size === 'wide' && 'text-base font-black tracking-wide', (!line.size || line.size === 'normal') && 'text-xs')}>
+                  {line.content}
                 </div>
-                <ScrollBar orientation="horizontal" className="hidden" />
-            </ScrollArea>
-
-            {tenantId && (
-                <div className="px-6 md:px-8">
-                    <Button asChild variant="outline" className="w-full min-h-[44px] h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-[0.2em] bg-white shadow-sm">
-                        <Link href={`/book/${tenantId}`}>
-                            <CalendarIcon className="w-4 h-4 mr-2 opacity-40" />
-                            Book Your Next Visit
-                        </Link>
-                    </Button>
-                </div>
-            )}
-        </section>
-    );
-};
-
-const ConciergeExperienceView = ({
-    tenant,
-    client,
-    inventory,
-    activeRequests,
-    appointment,
-    staff,
-    resources,
-    memberships,
-    isWaiting = false,
-    token,
-    lounge,
-    loungeError = false,
-    onRefresh,
-}: {
-    tenant: Tenant | null,
-    client: Client | null,
-    inventory: InventoryItem[],
-    activeRequests: any[],
-    appointment: Appointment | null,
-    staff: Staff | null,
-    resources: Resource[],
-    memberships: Membership[],
-    isWaiting?: boolean,
-    /** The check-in token — every write goes through /api/guest-lounge with it. */
-    token: string,
-    /** Payload from /api/guest-lounge, or null while it loads. */
-    lounge: any,
-    loungeError?: boolean,
-    onRefresh: () => void,
-}) => {
-    const { toast } = useToast();
-    const [isRequesting, setIsRequesting] = useState(false);
-    const [quantities, setQuantities] = useState<Record<string, number>>({});
-    const [askedServiceIds, setAskedServiceIds] = useState<string[]>([]);
-    const [askingId, setAskingId] = useState<string | null>(null);
-    const [recallingId, setRecallingId] = useState<string | null>(null);
-
-    // A guest is not signed in, so `client` is null for them and the API is the
-    // only source of truth about membership. On a staff device the client
-    // document does resolve, so fall back to it.
-    const isMember = lounge
-        ? lounge.guest?.isMember === true
-        : !!(client?.activeMembershipId && client?.subscription?.status === 'active');
-
-    const activeMembership = useMemo(() => {
-        if (!client?.activeMembershipId || !memberships) return null;
-        return memberships.find(m => m.id === client.activeMembershipId) || null;
-    }, [client, memberships]);
-
-    const perkMap: Record<string, number> = (lounge?.perks && typeof lounge.perks === 'object') ? lounge.perks : {};
-
-    const isPerkDefinition = (itemId: string) => {
-        if (lounge) return Object.prototype.hasOwnProperty.call(perkMap, itemId);
-        return !!activeMembership?.includedProducts?.some(p => p.id === itemId);
-    };
-
-    const getRemainingPerkUses = (itemId: string) => {
-        // Server-computed for guests — the browser cannot read `memberships`.
-        if (lounge) return Math.max(0, safeNumber(perkMap[itemId]));
-
-        if (!isMember || !activeMembership || !client?.subscription) return 0;
-        const perkDef = activeMembership.includedProducts?.find(p => p.id === itemId);
-        if (!perkDef) return 0;
-
-        const limit = safeNumber(perkDef.quantity);
-        const nextBilling = safeDate(client.subscription.nextBillingDate);
-        const cycleStart = startOfMonth(activeMembership.interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
-
-        const totalCycleUsage = activeRequests
-            .filter(r => r.itemId === itemId && r.status !== 'cancelled' && isAfter(safeDate(r.requestedAt), cycleStart))
-            .reduce((sum, r) => sum + safeNumber(r.quantity), 0);
-
-        return Math.max(0, limit - totalCycleUsage);
-    };
-
-    const perkTotal = useMemo(
-        () => Object.keys(perkMap).reduce((sum, k) => sum + Math.max(0, safeNumber(perkMap[k])), 0),
-        [lounge],
-    );
-
-    // The menu. API first (the only path that works for a guest), the live
-    // collection second (works when a staff member opens this on a studio
-    // device, where `inventory` is actually readable).
-    const amenities: LoungeAmenity[] = useMemo(() => {
-        if (Array.isArray(lounge?.amenities) && lounge.amenities.length) {
-            return lounge.amenities as LoungeAmenity[];
-        }
-        return (inventory || [])
-            .filter(item =>
-                item.type === 'refreshment' &&
-                (item as any).showInConcierge !== false &&
-                safeNumber(item.totalStock) > 0 &&
-                (!(item as any).isMembersOnly || isMember)
-            )
-            .map(toAmenity);
-    }, [lounge, inventory, isMember]);
-
-    const amenitiesByCategory = useMemo(() => {
-        const grouped: Record<string, LoungeAmenity[]> = {};
-        const exclusiveKey = 'Club Exclusive Selection';
-        const comfortKey = 'Comfort & Environment';
-
-        amenities.forEach(item => {
-            let cat = item.category || 'Standard Selection';
-            if (item.isMembersOnly) {
-                cat = exclusiveKey;
-            } else if (cat.toLowerCase().includes('comfort') || cat.toLowerCase().includes('amenity')) {
-                cat = comfortKey;
-            }
-            if (!grouped[cat]) grouped[cat] = [];
-            grouped[cat].push(item);
-        });
-
-        const orderedGrouped: Record<string, LoungeAmenity[]> = {};
-        if (grouped[exclusiveKey]) orderedGrouped[exclusiveKey] = grouped[exclusiveKey];
-        if (grouped[comfortKey]) orderedGrouped[comfortKey] = grouped[comfortKey];
-        Object.keys(grouped).sort().forEach(key => {
-            if (key !== exclusiveKey && key !== comfortKey) orderedGrouped[key] = grouped[key];
-        });
-        return orderedGrouped;
-    }, [amenities]);
-
-    const upsellServices: LoungeUpsell[] = Array.isArray(lounge?.upsell) ? lounge.upsell : [];
-
-    const stationName = useMemo(() => {
-        if (isWaiting) return 'Lounge Area';
-        if (!appointment?.requiredResourceIds?.length || !resources) return 'Station';
-        const res = resources.find(r => r.id === appointment.requiredResourceIds![0]);
-        return res?.name || 'Station';
-    }, [appointment, resources, isWaiting]);
-
-    /**
-     * Ordering goes through /api/guest-lounge rather than writing to Firestore
-     * from here. The old code hard-returned on `!client`, and `client` is always
-     * null for a guest, so on the live site nothing was ever sent. The API also
-     * re-checks the stock, the members-only flag, the per-session complimentary
-     * limit and the perk balance server-side, none of which a browser can be
-     * trusted with.
-     */
-    const handleRequest = async (item: LoungeAmenity) => {
-        if (!token || isRequesting) return;
-        const qty = quantities[item.id] || 1;
-        setIsRequesting(true);
-        try {
-            const res = await fetch('/api/guest-lounge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, action: 'request', itemId: item.id, quantity: qty }),
-            });
-            const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) {
-                toast({ variant: 'destructive', title: 'Not sent', description: d?.error || 'Please let your technician know instead.' });
-                return;
-            }
-            toast({
-                title: d.request?.isRedemption ? 'Perk redeemed' : 'Request sent',
-                description: 'The team has been notified.',
-            });
-            setQuantities(prev => ({ ...prev, [item.id]: 1 }));
-            onRefresh();
-        } catch {
-            toast({ variant: 'destructive', title: 'Not sent', description: 'Please let your technician know instead.' });
-        } finally {
-            setIsRequesting(false);
-        }
-    };
-
-    /**
-     * Also server-side: `refreshmentRequests` allows `update` only for staff, so
-     * a guest tapping Recall in the browser used to fail silently and the item
-     * stayed on the list.
-     */
-    const handleCancelRequest = async (requestId: string) => {
-        if (!token || recallingId) return;
-        setRecallingId(requestId);
-        try {
-            const res = await fetch('/api/guest-lounge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, action: 'recall', requestId }),
-            });
-            const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) {
-                toast({ variant: 'destructive', title: 'Could not recall', description: d?.error || 'Please ask your technician.' });
-                return;
-            }
-            toast({ title: 'Recalled' });
-            onRefresh();
-        } catch {
-            toast({ variant: 'destructive', title: 'Could not recall', description: 'Please ask your technician.' });
-        } finally {
-            setRecallingId(null);
-        }
-    };
-
-    /** Raises the guest's hand about another service. Books nothing, charges nothing. */
-    const handleAskAboutService = async (svc: LoungeUpsell) => {
-        if (!token || askingId) return;
-        setAskingId(svc.id);
-        try {
-            const res = await fetch('/api/guest-lounge', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, action: 'interest', serviceId: svc.id }),
-            });
-            const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) {
-                toast({ variant: 'destructive', title: 'Could not send', description: d?.error || 'Just mention it to your technician.' });
-                return;
-            }
-            setAskedServiceIds(prev => prev.includes(svc.id) ? prev : [...prev, svc.id]);
-            toast({ title: 'Noted', description: `We'll talk to you about ${svc.name}.` });
-        } catch {
-            toast({ variant: 'destructive', title: 'Could not send', description: 'Just mention it to your technician.' });
-        } finally {
-            setAskingId(null);
-        }
-    };
-
-    // Live from the browser's own listener — `refreshmentRequests` is one of the
-    // few collections a guest CAN read, so this stays in sync when the back of
-    // house changes a status. (The API also returns a snapshot of these, used
-    // only as a cross-check on load.)
-    const pendingRequestsForThisSession = activeRequests.filter(r => r.appointmentId === appointment?.id && r.status === 'pending');
-    const hasActiveRequest = pendingRequestsForThisSession.length > 0;
-
-    const guestFirstName = lounge?.guest?.firstName || (client?.name ? String(client.name).split(/\s+/)[0] : '');
-    const portalClientId = client?.id || lounge?.guest?.id || '';
-    const loungeLoading = !lounge && !loungeError;
-    const menuIsEmpty = !loungeLoading && amenities.length === 0;
-
-    return (
-        <ViewContainer className="max-w-4xl">
-            <ViewHeader
-                title={isWaiting ? "Lounge Experience" : "Boutique Experience"}
-                subtitle={isWaiting ? "Please make yourself at home" : "Your session is live"}
-                icon={isWaiting ? Sofa : Clock}
-            />
-            <CardContent className="p-0 space-y-8">
-                <div className="p-6 md:p-10 text-center space-y-5 bg-primary/5 border-b-2 border-primary/10 shadow-inner relative overflow-hidden group">
-                    <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Sparkles className="w-32 h-32 text-primary" /></div>
-                    <div className="w-20 h-20 md:w-24 md:h-24 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6 relative z-10">
-                        {isWaiting ? <Sofa className="w-10 h-10 md:w-12 md:h-12 text-primary -rotate-6" /> : <Activity className="w-10 h-10 md:w-12 md:h-12 text-primary -rotate-6" />}
-                    </div>
-                    <div className="space-y-2 relative z-10">
-                        <p className="font-black text-2xl md:text-4xl uppercase tracking-tighter text-slate-900 leading-none">
-                            {isWaiting ? "Comfort First" : "In Service Flow"}
-                        </p>
-                        <p className="text-[10px] md:text-sm font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
-                            {isWaiting
-                                ? "Settle in. Anything below comes straight to you."
-                                : `Assigned to ${stationName}. Relax and enjoy your treatment.`
-                            }
-                        </p>
-                    </div>
-                </div>
-
-                {/* The band that used to be blank. py-8 + space-y-16 gave roughly
-                    220px of padding around two conditional children that were
-                    both empty for a guest; it is now tighter and always has
-                    something real in it. */}
-                <div className="space-y-10 pb-2">
-                    <WhileYouWaitPanel
-                        isWaiting={isWaiting}
-                        stationName={stationName}
-                        staffName={staff?.name || lounge?.session?.staffName || null}
-                        serviceName={lounge?.session?.serviceName || null}
-                        startTime={lounge?.session?.startTime || (appointment as any)?.startTime || null}
-                        endTime={lounge?.session?.endTime || (appointment as any)?.endTime || null}
-                        guestName={guestFirstName || null}
-                        isMember={isMember}
-                        membershipName={lounge?.guest?.membershipName || activeMembership?.name || null}
-                        perkTotal={perkTotal}
-                    />
-
-                    {hasActiveRequest && (
-                        <div className="px-6 md:px-8 space-y-4">
-                            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
-                                <Activity className="w-3 h-3 animate-pulse" />
-                                On Its Way
-                            </h3>
-                            <div className="grid gap-3">
-                                {pendingRequestsForThisSession.map(req => (
-                                    <div key={req.id} className="flex items-center justify-between gap-3 p-4 rounded-[1.5rem] border-2 bg-primary/5 border-primary/10 shadow-sm">
-                                        <div className="flex items-center gap-4 min-w-0">
-                                            <div className="p-2 bg-white rounded-xl shadow-inner shrink-0"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
-                                            <div className="text-left min-w-0">
-                                                <p className="text-xs font-black uppercase text-slate-900 leading-none mb-1 truncate">{req.itemName}</p>
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty {safeNumber(req.quantity || 1)}</p>
-                                                    {req.isRedemption && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase shadow-sm">Club Perk</Badge>}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => handleCancelRequest(req.id)}
-                                            disabled={recallingId === req.id}
-                                            className="min-h-[44px] h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/10 transition-all shrink-0 disabled:opacity-40"
-                                        >
-                                            {recallingId === req.id ? 'Wait' : 'Recall'}
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {loungeLoading && (
-                        <div className="px-6 md:px-8">
-                            <div className="rounded-[2rem] border-2 border-dashed bg-muted/10 p-8 text-center space-y-3">
-                                <Loader className="w-5 h-5 mx-auto animate-spin text-primary opacity-60" />
-                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-40">Loading the menu</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {Object.entries(amenitiesByCategory).map(([category, items], catIdx) => {
-                        const isExclusive = category === 'Club Exclusive Selection';
-                        const isComfort = category === 'Comfort & Environment';
-
-                        return (
-                            <section key={category} className="space-y-4">
-                                <div className="flex items-center justify-between px-6 md:px-8">
-                                    <h3 className={cn(
-                                        "text-[11px] md:text-sm font-black uppercase tracking-[0.3em] leading-snug",
-                                        isExclusive ? "text-indigo-600" : isComfort ? "text-primary" : "text-muted-foreground opacity-40"
-                                    )}>
-                                        {isExclusive && <Award className="inline-block w-4 h-4 mr-2 -mt-1" />}
-                                        {isComfort && <Zap className="inline-block w-4 h-4 mr-2 -mt-1" />}
-                                        {category}
-                                    </h3>
-                                </div>
-
-                                <ScrollArea className="w-full">
-                                    <div className="flex gap-6 px-6 md:px-8 pb-6">
-                                        {items.map((item, idx) => {
-                                            const hasPendingRequest = pendingRequestsForThisSession.some(r => r.itemId === item.id);
-                                            return (
-                                                <motion.div
-                                                    key={item.id}
-                                                    initial={{ opacity: 0, x: 20 }}
-                                                    whileInView={{ opacity: 1, x: 0 }}
-                                                    transition={{ delay: (catIdx * 0.1) + (idx * 0.05) }}
-                                                    viewport={{ once: true }}
-                                                >
-                                                    <RefreshmentCard
-                                                        item={item}
-                                                        qty={quantities[item.id] || 1}
-                                                        onQtyChange={(delta) => {
-                                                            const current = quantities[item.id] || 1;
-                                                            const cap = Math.max(1, Math.floor(safeNumber(item.maxQty)) || 1);
-                                                            setQuantities(p => ({ ...p, [item.id]: Math.max(1, Math.min(cap, current + delta)) }));
-                                                        }}
-                                                        onRequest={() => handleRequest(item)}
-                                                        isRequesting={isRequesting}
-                                                        hasPendingRequest={hasPendingRequest}
-                                                        isPerkDefinition={isPerkDefinition(item.id)}
-                                                        remainingPerkUses={getRemainingPerkUses(item.id)}
-                                                    />
-                                                </motion.div>
-                                            )
-                                        })}
-                                    </div>
-                                    <ScrollBar orientation="horizontal" className="hidden" />
-                                </ScrollArea>
-                            </section>
-                        );
-                    })}
-
-                    {/* Honest empty state. The old code was a bare .map with no
-                        fallback, which is why an empty menu rendered as nothing
-                        at all rather than as an explanation. */}
-                    {menuIsEmpty && (
-                        <div className="px-6 md:px-8">
-                            <div className="rounded-[2rem] border-2 border-dashed bg-muted/10 p-8 text-center space-y-3">
-                                <Coffee className="w-8 h-8 mx-auto text-primary opacity-20" />
-                                <p className="text-xs font-black uppercase tracking-tight text-slate-900">
-                                    {loungeError ? 'Menu unavailable right now' : 'Nothing on the menu just yet'}
-                                </p>
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 leading-relaxed max-w-xs mx-auto">
-                                    {loungeError
-                                        ? 'Just let your technician know if you need anything.'
-                                        : 'Ask your technician if there is anything you would like.'}
-                                </p>
-                                {loungeError && (
-                                    <Button
-                                        variant="outline"
-                                        onClick={onRefresh}
-                                        className="min-h-[44px] h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-[0.2em]"
-                                    >
-                                        <Repeat className="w-3.5 h-3.5 mr-1.5" /> Try Again
-                                    </Button>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    <ExploreServicesPanel
-                        services={upsellServices}
-                        onAsk={handleAskAboutService}
-                        askedIds={askedServiceIds}
-                        pendingId={askingId}
-                        tenantId={tenant?.id || null}
-                    />
-                </div>
-
-                <div className="p-6 md:p-10 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
-                    {tenant?.wifiNetwork && (
-                        <div className="p-5 md:p-6 rounded-[2.5rem] border-2 bg-white shadow-2xl flex items-center justify-between gap-4">
-                            <div className="flex items-center gap-4 text-left min-w-0">
-                                <div className="p-3 bg-primary/10 rounded-xl text-primary shadow-inner shrink-0">
-                                    <Wifi className="w-6 h-6" />
-                                </div>
-                                <div className="text-left min-w-0">
-                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi Network</p>
-                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{tenant.wifiNetwork}</p>
-                                </div>
-                            </div>
-                            {tenant.wifiPassword && (
-                                <div className="text-right shrink-0">
-                                    <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
-                                </div>
-                            )}
-                        </div>
-                    )}
-                    {/* Only rendered when we actually know who this is. It used
-                        to render unconditionally and resolve to
-                        /portal/{tenantId}/undefined for every guest, because a
-                        guest cannot read their own client document. */}
-                    {tenant?.id && portalClientId && (
-                        <div className="pt-2 text-center">
-                            <Button asChild variant="outline" className="w-full min-h-[44px] h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
-                                <Link href={`/portal/${tenant.id}/${portalClientId}`}>
-                                    <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
-                                    Access Main Studio Portal
-                                </Link>
-                            </Button>
-                        </div>
-                    )}
-                </div>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-// -- v2 -- NEW: CompletionGateView --------------------------------------
-// Ported from the old standalone /complete/[tenantId]/[token] page, restyled
-// to match this page's ViewContainer/ViewHeader visual language instead of
-// the old page's separate plain-slate-50 style. Handles the same four
-// scenarios: forms+card, forms only, card only, nothing (caller should not
-// render this view at all in the "nothing" case -- see isCompletionPending
-// in the main component below).
-const CompletionGateView = ({
-    tenant, tenantId, token, completion, forms, onDone,
-}: {
-    tenant: Tenant | null;
-    tenantId: string;
-    token: string;
-    completion: any;
-    forms: any[];
-    onDone: (justCompletedToday: boolean) => void;
-}) => {
-    const { firestore } = useFirebase();
-    const { toast } = useToast();
-
-    const [answers, setAnswers] = useState<Record<string, Record<string, any>>>({});
-    const [uploads, setUploads] = useState<Record<string, any[]>>({});
-    const [uploading, setUploading] = useState(false);
-    const [accepted, setAccepted] = useState(false);
-    const [submitting, setSubmitting] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [clientSecret, setClientSecret] = useState<string | null>(null);
-    const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
-    // v4 — guardian info per form that requires it (formId -> fields).
-    // Kept separate from `answers` since it's not part of the form's own
-    // field schema — it's a structural requirement (a second signer) that
-    // applies on top of whatever the form itself asks.
-    const [guardianInfo, setGuardianInfo] = useState<Record<string, { name: string; relationship: string; accepted: boolean }>>({});
-    const [marketingConsent, setMarketingConsent] = useState<boolean | null>(null);
-    const [emergencyContact, setEmergencyContact] = useState({ name: '', phone: '', relationship: '' });
-    const [acknowledged, setAcknowledged] = useState<Record<string, boolean>>({});
-
-    const stripePromise = useMemo(() => {
-        const pk = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
-        if (!pk || !stripeAccountId) return null;
-        return loadStripe(pk, { stripeAccount: stripeAccountId });
-    }, [stripeAccountId]);
-
-    const skipCardStep = completion?.skipCardStep === true;
-    const depositDollars = (completion?.depositAmountCents || 0) / 100;
-    const studioName = tenant?.name || 'the studio';
-
-    const allConsentsComplete = forms.every((f: any) =>
-        (f.fields || []).every((fld: any) => {
-            if (fld.type === 'heading' || fld.type === 'paragraph') return true;
-            const v = answers[f.id]?.[fld.id];
-            return v !== undefined && v !== null && v !== '';
-        })
-    );
-
-    // v4 — guardian consent: forms flagged `requiresGuardianSignature` need
-    // a second signer's name + relationship + their own affirmation,
-    // collected alongside (not instead of) the minor's own form answers.
-    const guardianRequiredForms = forms.filter((f: any) => f.requiresGuardianSignature);
-    const allGuardianComplete = guardianRequiredForms.every((f: any) => {
-        const g = guardianInfo[f.id];
-        return !!g?.name?.trim() && !!g?.relationship?.trim() && g?.accepted;
-    });
-
-    const acknowledgments: any[] = completion?.acknowledgments || [];
-    const allAcknowledged = acknowledgments.every((a: any) => acknowledged[a.id]);
-
-    const marketingConsentComplete = !completion?.requestMarketingConsent || marketingConsent !== null;
-    const emergencyContactComplete = !completion?.requestEmergencyContact ||
-        (!!emergencyContact.name.trim() && !!emergencyContact.phone.trim());
-
-    const fileReqs: any[] = completion?.fileRequirements || [];
-    const fileCfg = (fr: any) => fr.file || fr;
-    const allFilesComplete = fileReqs.every((fr: any) => {
-        if (fr.required === false) return true;
-        const min = fileCfg(fr).minCount ?? 1;
-        return (uploads[fr.id] || []).length >= min;
-    });
-
-    const handleFiles = async (reqId: string, fileList: FileList | null, cfg: any) => {
-        if (!fileList || fileList.length === 0) return;
-        const existing = uploads[reqId] || [];
-        const max = cfg?.maxCount ?? 5;
-        const picked = Array.from(fileList).slice(0, Math.max(0, max - existing.length));
-        setError(null); setUploading(true);
-        try {
-            for (const file of picked) {
-                if (file.size > 10 * 1024 * 1024) { setError(`${file.name} is over 10MB and was skipped.`); continue; }
-                const fd = new FormData();
-                fd.append('file', file); fd.append('tenantId', tenantId);
-                fd.append('token', token); fd.append('reqId', reqId);
-                const res = await fetch('/api/completion/upload-file', { method: 'POST', body: fd });
-                const out = await res.json().catch(() => null);
-                if (out?.url) {
-                    setUploads(prev => ({ ...prev, [reqId]: [...(prev[reqId] || []), { name: file.name, url: out.url, uploadedAt: new Date().toISOString() }] }));
-                } else {
-                    setError(out?.error || `Couldn't upload ${file.name}.`);
-                }
-            }
-        } catch (e: any) { setError(`Upload failed: ${e.message}`); }
-        finally { setUploading(false); }
-    };
-
-    const removeUpload = (reqId: string, idx: number) =>
-        setUploads(prev => ({ ...prev, [reqId]: (prev[reqId] || []).filter((_, i) => i !== idx) }));
-
-    const handleSubmit = async () => {
-        setError(null);
-        if (!skipCardStep && !accepted) { setError('Please accept the policy and authorization to continue.'); return; }
-        if (!allConsentsComplete) { setError('Please complete and sign all forms before continuing.'); return; }
-        if (!allGuardianComplete) { setError('A parent or guardian needs to provide their name, relationship, and confirmation before continuing.'); return; }
-        if (!allFilesComplete) { setError('Please add the requested photos/files before continuing.'); return; }
-        if (!allAcknowledged) { setError('Please confirm you\'ve read everything before continuing.'); return; }
-        if (!marketingConsentComplete) { setError('Please let us know your marketing preference before continuing.'); return; }
-        if (!emergencyContactComplete) { setError('Please add an emergency contact before continuing.'); return; }
-        if (uploading) { setError('Please wait for uploads to finish.'); return; }
-        if (!firestore) { setError('Connection problem — please try again.'); return; }
-
-        setSubmitting(true);
-        try {
-            const nowISO = new Date().toISOString();
-            const signedForms = forms.map((f: any) => ({ formId: f.id, formTitle: f.title, formData: answers[f.id] || {} }));
-            const fileSubmissions = fileReqs.map((fr: any) => ({
-                requirementId: fr.id, label: fileCfg(fr).prompt || fr.label || 'Files', files: uploads[fr.id] || [],
-            }));
-            const policyAcceptance = {
-                acceptedAt: nowISO,
-                cardAuthorization: !skipCardStep,
-                policyVersion: tenant?.depositPolicy?.version || 'v1',
-                depositAmountCents: completion?.depositAmountCents || 0,
-            };
-
-            await addDoc(collection(firestore, `tenants/${tenantId}/completionSubmissions`), {
-                token, tenantId,
-                appointmentId: completion?.appointmentId || null,
-                clientId: completion?.clientId || null,
-                clientName: completion?.clientName || null,
-                clientEmail: completion?.clientEmail || null,
-                signedForms, fileSubmissions, policyAcceptance,
-                submittedAt: nowISO,
-                cardAlreadyOnFile: skipCardStep,
-            });
-
-            try {
-                if (completion?.appointmentId) {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                        { signedForms, policyAcceptance, requirementFiles: fileSubmissions, completionConsentsAt: nowISO },
-                        { merge: true },
-                    );
-                }
-            } catch { /* public write may be restricted -- audit record is source of truth */ }
-
-            // v3 — FIX: previously a signed form only ever got written onto
-            // THIS appointment (signedForms above) and into the audit log —
-            // never onto the client's permanent record. Since
-            // AppointmentDetailsSheet's "already on file" check reads
-            // exclusively from clients/{clientId}/signedConsents, a form
-            // signed here could never satisfy the "sign once, valid
-            // forever" rule at any FUTURE appointment — the client would be
-            // asked to sign the exact same form again next time, every
-            // time. This closes that gap. Keyed by formId so a later
-            // re-sign (e.g. a requiresEveryAppointment form) simply
-            // overwrites the prior record with the newer signature.
-            if (completion?.clientId && forms.length > 0) {
-                try {
-                    await Promise.all(forms.map((f: any) => {
-                        const guardian = f.requiresGuardianSignature ? guardianInfo[f.id] : null;
-                        return setDoc(
-                            doc(firestore, `tenants/${tenantId}/clients/${completion.clientId}/signedConsents`, f.id),
-                            {
-                                formId: f.id,
-                                formTitle: f.title,
-                                signedAt: nowISO,
-                                formData: answers[f.id] || {},
-                                source: 'client_self_service',
-                                appointmentId: completion?.appointmentId || null,
-                                // v4 — guardian consent, only present on forms flagged
-                                // requiresGuardianSignature. A separate signer's name/
-                                // relationship recorded alongside the minor's own answers,
-                                // not instead of them.
-                                ...(guardian ? {
-                                    guardianName: guardian.name.trim(),
-                                    guardianRelationship: guardian.relationship.trim(),
-                                    guardianSignedAt: nowISO,
-                                } : {}),
-                            },
-                            { merge: true },
-                        );
-                    }));
-                } catch { /* best-effort -- the appointment-level record and audit log above are the fallback of record */ }
-            }
-
-            // v4 — persistToProfile files (e.g. Photo ID): in addition to the
-            // per-appointment requirementFiles record above, save a durable
-            // copy onto the client's own profile so it isn't re-requested at
-            // a future visit. Files WITHOUT this flag (e.g. one-off
-            // inspiration photos) intentionally stay scoped to this
-            // appointment only — see fileCfg().persistToProfile on the
-            // requirement definition, set by staff when requesting it.
-            const persistentFileReqs = fileReqs.filter((fr: any) => fileCfg(fr).persistToProfile);
-            if (completion?.clientId && persistentFileReqs.length > 0) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                        {
-                            profileDocuments: persistentFileReqs.map((fr: any) => ({
-                                requirementId: fr.id,
-                                label: fileCfg(fr).prompt || fr.label || 'Document',
-                                files: uploads[fr.id] || [],
-                                uploadedAt: nowISO,
-                            })),
-                        },
-                        { merge: true },
-                    );
-                } catch { /* best-effort -- appointment-level requirementFiles is the fallback of record */ }
-            }
-
-            // v4 — marketing/photo consent and emergency contact are
-            // permanent CLIENT attributes, not per-appointment data — they
-            // get written straight to the client doc, plus a timestamp on
-            // the appointment purely so the activity timeline can show when
-            // each was captured.
-            if (completion?.clientId && completion?.requestMarketingConsent && marketingConsent !== null) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                        { marketingConsent: { consented: marketingConsent, consentedAt: nowISO, source: 'client_self_service' } },
-                        { merge: true },
-                    );
-                    if (completion?.appointmentId) {
-                        await setDoc(
-                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                            { marketingConsentAnsweredAt: nowISO, marketingConsentAnswer: marketingConsent },
-                            { merge: true },
-                        );
-                    }
-                } catch { /* best-effort */ }
-            }
-            if (completion?.clientId && completion?.requestEmergencyContact && emergencyContactComplete) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/clients`, completion.clientId),
-                        { emergencyContact: { name: emergencyContact.name.trim(), phone: emergencyContact.phone.trim(), relationship: emergencyContact.relationship.trim() || null } },
-                        { merge: true },
-                    );
-                    if (completion?.appointmentId) {
-                        await setDoc(
-                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                            { emergencyContactCapturedAt: nowISO },
-                            { merge: true },
-                        );
-                    }
-                } catch { /* best-effort */ }
-            }
-
-            // v4 — acknowledgments (e.g. "please arrive with clean, dry
-            // hair") don't collect data — they're just a confirmed-read
-            // checkbox. Recorded onto the appointment for the timeline;
-            // nothing client-profile-level to persist here.
-            if (completion?.appointmentId && acknowledgments.length > 0) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                        { acknowledgedAt: nowISO, acknowledgedItems: acknowledgments.map((a: any) => a.text) },
-                        { merge: true },
-                    );
-                } catch { /* best-effort */ }
-            }
-
-            if (skipCardStep) {
-                try {
-                    await setDoc(
-                        doc(firestore, `tenants/${tenantId}/bookingCompletions`, token),
-                        { status: 'complete', completedAt: nowISO, formsSignedAt: nowISO },
-                        { merge: true },
-                    );
-                    // v5 — FIX: previously only bookingCompletions.status
-                    // flipped to 'complete' — nothing on the APPOINTMENT
-                    // itself (where staff actually look, via
-                    // completionStatus / the activity timeline) ever
-                    // updated. A completed request looked identical to a
-                    // still-pending one anywhere staff checked the
-                    // appointment record directly.
-                    if (completion?.appointmentId) {
-                        await setDoc(
-                            doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                            { completionStatus: 'completed', requirementsCompletedAt: nowISO },
-                            { merge: true },
-                        );
-                    }
-                } catch { /* best-effort */ }
-                setSubmitting(false);
-                const startsToday = completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false;
-                onDone(startsToday);
-                return;
-            }
-
-            const res = await fetch('/api/stripe/completion', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId, completionToken: token,
-                    appointmentId: completion?.appointmentId, clientId: completion?.clientId,
-                    clientName: completion?.clientName, clientEmail: completion?.clientEmail,
-                    depositAmount: depositDollars, serviceName: completion?.serviceName,
-                }),
-            });
-            const out = await res.json().catch(() => null);
-            if (out?.clientSecret) {
-                setStripeAccountId(out.stripeAccountId || null);
-                setClientSecret(out.clientSecret);
-                setSubmitting(false);
-                return;
-            }
-            setError(out?.error || 'Could not start checkout. Please contact the studio.');
-            setSubmitting(false);
-        } catch (e: any) {
-            setError(e.message || 'Something went wrong. Please try again.');
-            setSubmitting(false);
-        }
-    };
-
-    // Stripe embedded checkout step
-    if (clientSecret) {
-        return (
-            <ViewContainer>
-                <ViewHeader title="Payment & Card" subtitle="Secured by Stripe" icon={CreditCard} />
-                <CardContent className="p-6 md:p-10 space-y-5">
-                    <p className="text-sm text-slate-500 text-center">
-                        {depositDollars > 0 ? `Pay your $${depositDollars.toFixed(2)} deposit and save your card.` : 'Securely save your card to finish.'}
-                    </p>
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-2 sm:p-4 min-h-[300px]">
-                        {stripePromise
-                            ? <EmbeddedCheckoutProvider stripe={stripePromise} options={{ clientSecret, onComplete: () => {
-                                // v5 — FIX: this path previously only wrote
-                                // cardUpdatedViaLinkAt (for the timeline) —
-                                // it never marked bookingCompletions.status
-                                // or the appointment's completionStatus as
-                                // done, unlike the skip-card-step branch
-                                // above. A request fulfilled via card/deposit
-                                // stayed looking "pending" forever anywhere
-                                // staff checked. Fire-and-forget, same as the
-                                // existing cardUpdatedViaLinkAt write —
-                                // onDone() below navigates the client onward
-                                // regardless of whether these land.
-                                const nowISO2 = new Date().toISOString();
-                                if (completion?.appointmentId) {
-                                    setDoc(
-                                        doc(firestore, `tenants/${tenantId}/appointments/${completion.appointmentId}`),
-                                        { cardUpdatedViaLinkAt: nowISO2, completionStatus: 'completed', requirementsCompletedAt: nowISO2 },
-                                        { merge: true },
-                                    ).catch(() => {});
-                                }
-                                setDoc(
-                                    doc(firestore, `tenants/${tenantId}/bookingCompletions`, token),
-                                    { status: 'complete', completedAt: nowISO2 },
-                                    { merge: true },
-                                ).catch(() => {});
-                                onDone(completion?.appointmentStartTime ? isToday(safeDate(completion.appointmentStartTime)) : false);
-                            } }}>
-                                <EmbeddedCheckout />
-                            </EmbeddedCheckoutProvider>
-                            : <div className="p-8 text-center text-sm text-slate-500">Payment can't load right now — please contact {studioName}.</div>}
-                    </div>
-                    <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400">
-                        <Lock className="w-3 h-3" /> your card details never touch our servers
-                    </p>
-                </CardContent>
-            </ViewContainer>
-        );
-    }
-
-    return (
-        <ViewContainer>
-            <ViewHeader
-                title={skipCardStep ? 'Sign Your Forms' : 'Finish Your Booking'}
-                subtitle={skipCardStep ? 'Card already on file' : 'A couple of quick steps'}
-                icon={FileSignature}
-            />
-            <CardContent className="p-6 md:p-10 space-y-6">
-                {skipCardStep && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-50 border-2 border-green-200">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-                        <span className="text-[10px] font-black text-green-700 uppercase tracking-widest">Card on file — no payment needed</span>
-                    </div>
-                )}
-
-                {!skipCardStep && depositDollars > 0 && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-5 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <CreditCard className="w-5 h-5 text-primary" />
-                            <div>
-                                <p className="text-sm font-bold text-slate-900">Deposit due today</p>
-                                <p className="text-[11px] text-slate-400">{completion?.serviceName || 'Your appointment'}</p>
-                            </div>
-                        </div>
-                        <p className="text-xl font-black text-slate-900">${depositDollars.toFixed(2)}</p>
-                    </div>
-                )}
-
-                {forms.map((form: any) => (
-                    <div key={form.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-5">
-                        <div className="flex items-center gap-2 pb-3 border-b">
-                            <FileSignature className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{form.title}</h2>
-                            {form.requiresGuardianSignature && (
-                                <span className="text-[9px] font-black uppercase text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full ml-auto">Guardian signature required</span>
-                            )}
-                        </div>
-                        <div className="space-y-6">
-                            {(form.fields || []).map((field: any) => (
-                                <FormFieldRenderer
-                                    key={field.id}
-                                    field={field}
-                                    value={answers[form.id]?.[field.id]}
-                                    onChange={(val: any) => setAnswers(prev => ({ ...prev, [form.id]: { ...(prev[form.id] || {}), [field.id]: val } }))}
-                                />
-                            ))}
-                        </div>
-                        {form.requiresGuardianSignature && (
-                            <div className="pt-4 border-t border-dashed space-y-3 bg-amber-50/40 -mx-6 -mb-6 px-6 pb-6 rounded-b-2xl">
-                                <p className="text-[10px] font-black uppercase tracking-wide text-amber-700">Parent / Guardian Information</p>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <input
-                                        value={guardianInfo[form.id]?.name || ''}
-                                        onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: e.target.value, relationship: prev[form.id]?.relationship || '', accepted: prev[form.id]?.accepted || false } }))}
-                                        placeholder="Guardian full name"
-                                        className="h-10 rounded-xl border-2 px-3 text-xs"
-                                    />
-                                    <input
-                                        value={guardianInfo[form.id]?.relationship || ''}
-                                        onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: e.target.value, accepted: prev[form.id]?.accepted || false } }))}
-                                        placeholder="Relationship to client"
-                                        className="h-10 rounded-xl border-2 px-3 text-xs"
-                                    />
-                                </div>
-                                <label className="flex items-start gap-2.5 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={!!guardianInfo[form.id]?.accepted}
-                                        onChange={e => setGuardianInfo(prev => ({ ...prev, [form.id]: { name: prev[form.id]?.name || '', relationship: prev[form.id]?.relationship || '', accepted: e.target.checked } }))}
-                                        className="mt-0.5 h-4 w-4 rounded border-2 shrink-0 accent-amber-600"
-                                    />
-                                    <span className="text-xs font-medium text-slate-700">I am this client's parent or legal guardian and I consent to this form on their behalf.</span>
-                                </label>
-                            </div>
-                        )}
-                    </div>
-                ))}
-
-                {fileReqs.map((fr: any) => {
-                    const cfg = fileCfg(fr);
-                    const got = uploads[fr.id] || [];
-                    const min = cfg.minCount ?? 1;
-                    const max = cfg.maxCount ?? 5;
-                    return (
-                        <div key={fr.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
-                            <div className="flex items-center gap-2 pb-3 border-b">
-                                <ImageIcon className="w-4 h-4 text-primary" />
-                                <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">{cfg.prompt || fr.label || 'Share files'}</h2>
-                            </div>
-                            <p className="text-xs text-slate-500">
-                                Add up to {max} {max > 1 ? 'files' : 'file'}{min > 0 ? ` (at least ${min})` : ''}. Images or PDFs, up to 10MB each.
-                            </p>
-                            {got.length > 0 && (
-                                <div className="grid grid-cols-3 gap-2">
-                                    {got.map((f: any, i: number) => (
-                                        <div key={i} className="relative rounded-xl border-2 overflow-hidden bg-slate-50 aspect-square">
-                                            {/\.(png|jpe?g|gif|webp)$/i.test(f.name)
-                                                ? <img src={f.url} alt={f.name} className="w-full h-full object-cover" />
-                                                : <div className="flex items-center justify-center h-full text-[10px] p-2 text-center text-slate-500 break-all">{f.name}</div>}
-                                            <button onClick={() => removeUpload(fr.id, i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white text-sm leading-none flex items-center justify-center">×</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            {got.length < max && (
-                                <label className="flex items-center justify-center gap-2 h-12 rounded-xl border-2 border-dashed cursor-pointer text-xs font-bold text-slate-500 hover:bg-slate-50 transition-colors">
-                                    <Upload className="w-4 h-4" /> {uploading ? 'Uploading…' : got.length > 0 ? 'Add more' : 'Add photos'}
-                                    <input
-                                        type="file" multiple
-                                        accept={(cfg.acceptedTypes || ['image/*']).join(',')}
-                                        className="hidden"
-                                        onChange={e => { handleFiles(fr.id, e.target.files, cfg); e.currentTarget.value = ''; }}
-                                        disabled={uploading}
-                                    />
-                                </label>
-                            )}
-                        </div>
-                    );
-                })}
-
-                {/* v4 — acknowledgments: lightweight "confirm you've read this"
-                    items with no data collection, e.g. prep instructions.
-                    Text is fully staff-configured — see the request panel
-                    in AppointmentDetailsSheet. */}
-                {acknowledgments.map((ack: any) => (
-                    <div key={ack.id} className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-3">
-                        <div className="flex items-center gap-2 pb-2 border-b">
-                            <Info className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Please Confirm</h2>
-                        </div>
-                        <p className="text-sm text-slate-600 leading-relaxed">{ack.text}</p>
-                        <label className="flex items-start gap-2.5 cursor-pointer pt-1">
-                            <input
-                                type="checkbox"
-                                checked={!!acknowledged[ack.id]}
-                                onChange={e => setAcknowledged(prev => ({ ...prev, [ack.id]: e.target.checked }))}
-                                className="mt-0.5 h-5 w-5 rounded border-2 shrink-0 accent-primary"
-                            />
-                            <span className="text-xs font-medium text-slate-700">I have read and understand this.</span>
-                        </label>
-                    </div>
-                ))}
-
-                {/* v4 — marketing/photo consent: a permanent client
-                    preference, not a per-visit form. Two explicit buttons
-                    rather than a checkbox so "no" is a real, equally
-                    easy-to-select answer, not just an unchecked default. */}
-                {completion?.requestMarketingConsent && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
-                        <div className="flex items-center gap-2 pb-2 border-b">
-                            <Camera className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Photo & Marketing Consent</h2>
-                        </div>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                            Can {studioName} share before/after photos or mention your visit on social media or in marketing materials? You can change your answer anytime by asking the studio.
-                        </p>
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setMarketingConsent(true)}
-                                className={cn('h-12 rounded-xl border-2 text-xs font-black uppercase tracking-wide transition-colors', marketingConsent === true ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
-                            >
-                                Yes, that's fine
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setMarketingConsent(false)}
-                                className={cn('h-12 rounded-xl border-2 text-xs font-black uppercase tracking-wide transition-colors', marketingConsent === false ? 'border-primary bg-primary/5 text-primary' : 'border-slate-200 text-slate-500')}
-                            >
-                                No, please don't
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* v4 — emergency contact: a permanent client profile field,
-                    not appointment-specific — captured once, then it's just
-                    on file like phone/email. */}
-                {completion?.requestEmergencyContact && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
-                        <div className="flex items-center gap-2 pb-2 border-b">
-                            <Phone className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Emergency Contact</h2>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <input
-                                value={emergencyContact.name}
-                                onChange={e => setEmergencyContact(prev => ({ ...prev, name: e.target.value }))}
-                                placeholder="Full name"
-                                className="h-11 rounded-xl border-2 px-3 text-sm"
-                            />
-                            <input
-                                value={emergencyContact.phone}
-                                onChange={e => setEmergencyContact(prev => ({ ...prev, phone: e.target.value }))}
-                                placeholder="Phone number"
-                                className="h-11 rounded-xl border-2 px-3 text-sm"
-                            />
-                        </div>
-                        <input
-                            value={emergencyContact.relationship}
-                            onChange={e => setEmergencyContact(prev => ({ ...prev, relationship: e.target.value }))}
-                            placeholder="Relationship (optional)"
-                            className="w-full h-11 rounded-xl border-2 px-3 text-sm"
-                        />
-                    </div>
-                )}
-
-                {!skipCardStep && (
-                    <div className="bg-white rounded-2xl border-2 shadow-sm p-6 space-y-4">
-                        <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-4 h-4 text-primary" />
-                            <h2 className="text-sm font-black uppercase tracking-tight text-slate-900">Policy & Authorization</h2>
-                        </div>
-                        <div className="text-xs text-slate-500 leading-relaxed space-y-2 max-h-44 overflow-y-auto pr-1">
-                            <p>{tenant?.cancellationPolicyText || `Deposits secure your appointment time. Cancellations made with adequate notice are handled per ${studioName}'s policy; late cancellations and no-shows may forfeit the deposit or incur a fee.`}</p>
-                            <p>By continuing, you authorize {studioName} to keep your card on file and to charge it for late-cancellation or no-show fees in accordance with the policy above.</p>
-                        </div>
-                        <label className="flex items-start gap-3 cursor-pointer pt-2 border-t">
-                            <input type="checkbox" checked={accepted} onChange={e => setAccepted(e.target.checked)} className="mt-0.5 h-5 w-5 rounded border-2 shrink-0 accent-primary" />
-                            <span className="text-xs font-medium text-slate-700 leading-relaxed">
-                                I have read and agree to the policy, and I authorize {studioName} to securely store and charge my card for fees as described.
-                            </span>
-                        </label>
-                    </div>
-                )}
-
-                {error && (
-                    <div className="flex items-start gap-3 p-4 rounded-2xl bg-red-50 border-2 border-red-200">
-                        <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                        <p className="text-xs font-medium text-red-700">{error}</p>
-                    </div>
-                )}
-
-                <Button
-                    onClick={handleSubmit}
-                    disabled={submitting || uploading || !allGuardianComplete || !allAcknowledged || !marketingConsentComplete || !emergencyContactComplete}
-                    className="w-full h-16 rounded-[2rem] text-sm md:text-lg font-black uppercase tracking-widest shadow-3xl shadow-primary/30"
-                >
-                    {submitting
-                        ? <><Loader className="w-5 h-5 animate-spin mr-2" /> Securing…</>
-                        : skipCardStep
-                            ? <>Submit & confirm</>
-                            : depositDollars > 0
-                                ? <>Pay ${depositDollars.toFixed(2)} & save card</>
-                                : <>Save card & finish</>}
-                </Button>
-
-                <p className="flex items-center justify-center gap-1.5 text-[10px] font-medium text-slate-400">
-                    <Lock className="w-3 h-3" /> Your information is kept private and secure
-                </p>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-// ── v3 — NEW: CancelGateView ──────────────────────────────────────────────
-// Folds the standalone /cancel/[tenantId]/[appointmentId] page's flow into
-// the unified check-in link. Reuses the exact same /api/appointments/
-// self-cancel route (GET for fee preview, POST to actually cancel) — no
-// server-side changes needed, just a client-side entry point that doesn't
-// require a separate URL/token. tenantId and appointmentId are both already
-// resolved on this page by the time a client reaches the arrival screen
-// (appointmentData.id is the appointmentId — it's on every appointment doc,
-// including the mirrored appointmentCheckIns copy this page reads from).
-const CLIENT_REASON_OPTIONS = [
-    { value: 'schedule_conflict', label: 'Schedule Conflict' },
-    { value: 'changed_mind', label: 'Changed Mind' },
-    { value: 'found_alternative', label: 'Found Alternative' },
-    { value: 'price_concern', label: 'Price Concern' },
-    { value: 'health_or_childcare', label: 'Health / Childcare' },
-    { value: 'other', label: 'Other' },
-];
-
-const CancelGateView = ({
-    tenantId,
-    appointmentId,
-    onBack,
-}: {
-    tenantId: string;
-    appointmentId: string;
-    onBack: () => void;
-}) => {
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [details, setDetails] = useState<any>(null);
-    const [reason, setReason] = useState('schedule_conflict');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [result, setResult] = useState<any>(null);
-
-    useEffect(() => {
-        if (!tenantId || !appointmentId) return;
-        // v9 — truthful errors: tell the difference between "the studio's
-        // cancellation service isn't deployed" and "this appointment can't
-        // be cancelled" instead of one vague message for everything.
-        fetch(`/api/appointments/self-cancel?tenantId=${tenantId}&appointmentId=${appointmentId}`)
-            .then(async (res) => {
-                let data: any = null;
-                try { data = await res.json(); } catch {
-                    setError(res.status === 404
-                        ? 'Online cancellation isn\'t available right now — call or text the studio and we\'ll take care of it.'
-                        : `Something went wrong on our end (${res.status}) — try again in a moment, or call the studio.`);
-                    return;
-                }
-                if (!data.ok) { setError(data.error || 'This appointment could not be found.'); setDetails(data); return; }
-                setDetails(data);
-            })
-            .catch(() => setError('No connection — check your signal and try again.'))
-            .finally(() => setIsLoading(false));
-    }, [tenantId, appointmentId]);
-
-    const handleCancel = async () => {
-        setIsSubmitting(true);
-        setError(null);
-        try {
-            const res = await fetch('/api/appointments/self-cancel', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ tenantId, appointmentId, clientReason: reason }),
-            });
-            const data = await res.json();
-            if (!data.ok) { setError(data.error || 'Could not cancel this appointment.'); return; }
-            setResult(data);
-        } catch {
-            setError('Something went wrong. Please call the studio directly.');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    if (isLoading) {
-        return (
-            <ViewContainer>
-                <div className="p-16 flex flex-col items-center justify-center gap-4">
-                    <Loader className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Loading your appointment…</p>
-                </div>
-            </ViewContainer>
-        );
-    }
-
-    if (error && !result) {
-        return (
-            <ViewContainer>
-                <ViewHeader title="Can't Cancel Online" subtitle="Here's what happened" icon={AlertTriangle} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                        <AlertTriangle className="w-12 h-12 text-destructive" />
-                    </div>
-                    <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">{error}</h3>
-                    </div>
-                    {details?.studioPhone && (
-                        <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                            <a href={`tel:${details.studioPhone}`}><Phone className="w-4 h-4 mr-2" /> Call {details.studioPhone}</a>
-                        </Button>
-                    )}
-                    <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
-                </CardContent>
-            </ViewContainer>
-        );
-    }
-
-    if (result) {
-        return (
-            <ViewContainer>
-                <ViewHeader title={result.alreadyCancelled ? 'Already Cancelled' : 'Session Voided'} subtitle="Cancellation confirmed" icon={CheckCircle2} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                        <CheckCircle2 className="w-12 h-12 text-green-500" />
-                    </div>
-                    <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Appointment Cancelled</h3>
-                        {!result.alreadyCancelled && (
-                            <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
-                                {result.feeCharged
-                                    ? `Since this is within the studio's ${details?.windowHours}-hour cancellation window, a $${Number(result.feeAmount).toFixed(2)} cancellation fee applies.`
-                                    : "No cancellation fee applies — thanks for the advance notice."}
-                            </p>
-                        )}
-                    </div>
-                </CardContent>
-            </ViewContainer>
-        );
-    }
-
-    return (
-        <ViewContainer>
-            <ViewHeader title="Cancel Appointment" subtitle="Confirm your cancellation below" icon={Ban} />
-            <CardContent className="p-8 md:p-12 space-y-10 text-left">
-                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
-                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                    <div className="space-y-1.5 text-center">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">{details?.studioName}</p>
-                        <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{details?.appointment?.serviceName}</h3>
-                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-                            {details?.appointment?.startTime ? format(safeDate(details.appointment.startTime), 'EEEE, MMM d @ h:mm a') : ''}
-                        </p>
-                    </div>
-                </div>
-
-                <AnimatePresence mode="wait">
-                    {details?.isLate ? (
-                        <motion.div key="late" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
-                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                            <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                                This is within the {details.windowHours}-hour cancellation window. A <span className="font-mono">${Number(details.estimatedFee).toFixed(2)}</span> cancellation fee will apply.
-                            </p>
-                        </motion.div>
-                    ) : (
-                        <motion.div key="ontime" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-6 rounded-[2rem] border-2 border-green-200 bg-green-50">
-                            <p className="text-xs font-bold text-green-700 uppercase tracking-tight">No cancellation fee — thanks for the advance notice.</p>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {details?.cancellationPolicyText && (
-                    <p className="text-[10px] text-muted-foreground leading-relaxed italic px-2">{details.cancellationPolicyText}</p>
-                )}
-
-                <div className="space-y-3">
-                    <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Reason (optional)</Label>
-                    <select
-                        value={reason}
-                        onChange={e => setReason(e.target.value)}
-                        className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner"
-                    >
-                        {CLIENT_REASON_OPTIONS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {error && <p className="text-xs font-bold text-destructive text-center">{error}</p>}
-
-                <Button
-                    onClick={handleCancel}
-                    disabled={isSubmitting}
-                    variant="destructive"
-                    className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 group"
-                >
-                    {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : (
-                        <>Confirm Cancellation <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>
-                    )}
-                </Button>
-
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my appointment</Button>
-
-                {details?.studioPhone && (
-                    <p className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                        Prefer to talk to someone? <a href={`tel:${details.studioPhone}`} className="text-primary">{details.studioPhone}</a>
-                    </p>
-                )}
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-// v8 — RESCHEDULE FLOW. "Need a different time?" on the arrival screen
-// lands here. Uses the conflict-checked self-serve engine (/api/appt,
-// action 'reschedule'): same provider, live calendar check, studio's
-// change-window policy enforced server-side. Auth = this page's own
-// checkInToken (the /api/appt engine accepts it alongside manageToken).
-const RescheduleGateView = ({
-    tenantId,
-    appointmentId,
-    k,
-    onBack,
-}: {
-    tenantId: string;
-    appointmentId: string;
-    k: string;
-    onBack: () => void;
-}) => {
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [info, setInfo] = useState<any>(null);
-    const [newDate, setNewDate] = useState('');
-    const [newTime, setNewTime] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [result, setResult] = useState<any>(null);
-
-    const apptApi = async (payload: any) => {
-        const res = await fetch('/api/appt', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tenantId, apptId: appointmentId, k, ...payload }),
-        });
-        try { return await res.json(); } catch {
-            throw new Error(res.status === 404
-                ? 'Rescheduling is not available online right now — call the studio and we\'ll move it for you.'
-                : `Server error (${res.status}) — try again in a moment.`);
-        }
-    };
-
-    useEffect(() => {
-        (async () => {
-            try {
-                const d = await apptApi({ action: 'view' });
-                if (!d.ok) { setError(d.error || 'This appointment could not be loaded.'); return; }
-                setInfo(d);
-            } catch (e: any) { setError(e?.message || 'Something went wrong loading your appointment.'); }
-            finally { setIsLoading(false); }
-        })();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [tenantId, appointmentId, k]);
-
-    const tzSuffixOf = (tzOffsetMinutes: any): string => {
-        const m = Number.isFinite(Number(tzOffsetMinutes)) ? Number(tzOffsetMinutes) : -300;
-        const sign = m <= 0 ? '-' : '+';
-        const abs = Math.abs(m);
-        return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
-    };
-
-    const handleReschedule = async () => {
-        if (!newDate || !newTime || isSubmitting) return;
-        setIsSubmitting(true); setError(null);
-        try {
-            const iso = new Date(`${newDate}T${newTime}:00${tzSuffixOf(info?.policy?.tzOffsetMinutes)}`).toISOString();
-            const d = await apptApi({ action: 'reschedule', newStartIso: iso });
-            if (!d.ok) { setError(d.error || 'Could not move the appointment — try another time.'); return; }
-            setResult(d);
-        } catch (e: any) { setError(e?.message || 'Something went wrong. Please call the studio directly.'); }
-        finally { setIsSubmitting(false); }
-    };
-
-    if (isLoading) {
-        return (
-            <ViewContainer>
-                <div className="p-16 flex flex-col items-center justify-center gap-4">
-                    <Loader className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Loading your appointment…</p>
-                </div>
-            </ViewContainer>
-        );
-    }
-
-    if (result) {
-        return (
-            <ViewContainer>
-                <ViewHeader title="Rescheduled" subtitle="Your new time is locked in" icon={CheckCircle2} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
-                        <CheckCircle2 className="w-12 h-12 text-green-500" />
-                    </div>
-                    <div className="space-y-2 text-center">
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">See you {result.whenLabel || 'then'}</h3>
-                        <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
-                            The studio's calendar is updated and your reminders follow the new time. This same link checks you in on the day.
-                        </p>
-                    </div>
-                    <Button onClick={onBack} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">Done</Button>
-                </CardContent>
-            </ViewContainer>
-        );
-    }
-
-    if (error && !info) {
-        return (
-            <ViewContainer>
-                <ViewHeader title="Can't Reschedule Online" subtitle="This link is no longer actionable" icon={AlertTriangle} />
-                <CardContent className="p-10 md:p-16 text-center space-y-8">
-                    <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
-                        <AlertTriangle className="w-12 h-12 text-destructive" />
-                    </div>
-                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{error}</h3>
-                    <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
-                </CardContent>
-            </ViewContainer>
-        );
-    }
-
-    // v19 — reschedule uses its OWN short cutoff (default 2h), separate
-    // from the cancellation fee window: a reschedule keeps the booking.
-    const canChange = (info?.policy?.canReschedule ?? info?.policy?.canChange) !== false;
-    const cutoffHours = info?.policy?.rescheduleCutoffHours ?? info?.policy?.cancelHours;
-
-    return (
-        <ViewContainer>
-            <ViewHeader title="Pick a New Time" subtitle="Same service, same provider" icon={Repeat} />
-            <CardContent className="p-8 md:p-12 space-y-8 text-left">
-                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-4">
-                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                    <div className="space-y-1.5 text-center">
-                        <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">{info?.studioName}</p>
-                        <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{info?.appt?.serviceName}</h3>
-                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
-                            Currently {info?.appt?.whenLabel}{info?.appt?.staffName ? ` · with ${info.appt.staffName}` : ''}
-                        </p>
-                    </div>
-                </div>
-
-                {!canChange ? (
-                    <div className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
-                        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                        <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
-                            Online rescheduling closes {cutoffHours}h before your appointment — call the studio and we'll move it for you.
-                        </p>
-                    </div>
-                ) : (
-                    <>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New date</Label>
-                                <input type="date" value={newDate} min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
-                                    onChange={(e) => setNewDate(e.target.value)}
-                                    className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
-                            </div>
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New time</Label>
-                                <input type="time" value={newTime} step={900}
-                                    onChange={(e) => setNewTime(e.target.value)}
-                                    className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
-                            </div>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground leading-relaxed italic px-2">
-                            We check {info?.appt?.staffName ? `${info.appt.staffName}'s` : 'the'} live calendar instantly — if the slot is taken you'll know right away.
-                        </p>
-
-                        {error && <p className="text-xs font-bold text-destructive text-center">{error}</p>}
-
-                        <Button
-                            onClick={handleReschedule}
-                            disabled={isSubmitting || !newDate || !newTime}
-                            className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest shadow-2xl group"
-                        >
-                            {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : (
-                                <>Confirm New Time <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>
-                            )}
-                        </Button>
-                    </>
-                )}
-
-                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my time</Button>
-            </CardContent>
-        </ViewContainer>
-    );
-};
-
-export default function CheckInPage() {
-    const params = useParams();
-    const token = params.token as string;
-    const { toast } = useToast();
-    const { firestore } = useFirebase();
-
-    const [entered, setEntered] = useState(false);
-    const [showCancelFlow, setShowCancelFlow] = useState(false);
-    const [showRescheduleFlow, setShowRescheduleFlow] = useState(false);
-    const [showNotificationSettings, setShowNotificationSettings] = useState(false);
-    // v2 -- once the completion gate is submitted, we don't want the
-    // still-cached-in-memory `completion` doc (which may not have refreshed
-    // yet) to flash the gate again before Firestore's snapshot updates.
-    const [completionJustDone, setCompletionJustDone] = useState<null | boolean>(null);
-
-    const appointmentCheckInRef = useMemoFirebase(() => !firestore || !token ? null : doc(firestore, 'appointmentCheckIns', token), [firestore, token]);
-    const { data: appointmentData, isLoading: appointmentLoading } = useDoc<Appointment>(appointmentCheckInRef);
-
-    const tenantId = appointmentData?.tenantId;
-    const clientId = appointmentData?.clientId;
-
-    const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-    const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
-    
-    const inventoryQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
-    const { data: inventory } = useCollection<InventoryItem>(inventoryQuery);
-
-    const membershipsQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/memberships`), [firestore, tenantId]);
-    const { data: memberships } = useCollection<Membership>(membershipsQuery);
-
-    const resourcesQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/resources`), [firestore, tenantId]);
-    const { data: resources } = useCollection<Resource>(resourcesQuery);
-
-    const allClientRequestsQuery = useMemoFirebase(() => {
-        if (!firestore || !tenantId || !clientId) return null;
-        return query(
-            collection(firestore, `tenants/${tenantId}/refreshmentRequests`),
-            where('clientId', '==', clientId)
-        );
-    }, [firestore, tenantId, clientId]);
-    const { data: clientRequests } = useCollection(allClientRequestsQuery);
-
-    // ── Guest lounge payload ─────────────────────────────────────────────────
-    // A guest opening this link is NOT signed in to Firebase, and firestore.rules
-    // denies an unauthenticated reader `inventory` (staff-only), `memberships`
-    // (catch-all deny) and `clients/{id}` (read is staff-only). That is why the
-    // waiting screen used to render an empty band: every collection it needed
-    // came back as []. /api/guest-lounge reads those server-side with the Admin
-    // SDK and returns a narrow, sanitised projection keyed off this same token —
-    // no cost prices, no supplier, no stock counts, no other tenant's data.
-    const [lounge, setLounge] = useState<any | null>(null);
-    const [loungeError, setLoungeError] = useState(false);
-    const [loungeNonce, setLoungeNonce] = useState(0);
-    const isLoungeActive = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
-
-    useEffect(() => {
-        if (!token || !isLoungeActive) return;
-        let cancelled = false;
-        (async () => {
-            try {
-                const res = await fetch(`/api/guest-lounge?token=${encodeURIComponent(token)}`);
-                const d = await res.json().catch(() => ({}));
-                if (cancelled) return;
-                if (!res.ok || !d?.ok) { setLoungeError(true); return; }
-                setLounge(d);
-                setLoungeError(false);
-            } catch {
-                if (!cancelled) setLoungeError(true);
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [token, isLoungeActive, loungeNonce]);
-
-    // useCallback is not imported in this file, so a plain arrow it is. It is
-    // only ever passed down as a prop, never used in a dependency array.
-    const refreshLounge = () => setLoungeNonce(n => n + 1);
-
-    const clientDocRef = useMemoFirebase(() => !firestore || !tenantId || !clientId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
-    const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
-    
-    const serviceDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.serviceId ? null : doc(firestore, `tenants/${tenantId}/services`, appointmentData.serviceId), [firestore, tenantId, appointmentData?.serviceId]);
-    const { data: service, isLoading: serviceLoading } = useDoc<Service>(serviceDocRef);
-    
-    const staffDocRef = useMemoFirebase(() => !firestore || !tenantId || !appointmentData?.staffId ? null : doc(firestore, `tenants/${tenantId}/staff`, appointmentData.staffId), [firestore, tenantId, appointmentData?.staffId]);
-    const { data: assignedStaff, isLoading: staffLoading } = useDoc<Staff>(staffDocRef);
-
-    // v2 -- NEW: completion record + its required consent forms, looked up
-    // by the SAME token as everything else on this page. Both queries are
-    // no-ops (return null) until tenantId resolves, same pattern as every
-    // other query on this page.
-    const completionRef = useMemoFirebase(() => !firestore || !tenantId || !token ? null : doc(firestore, `tenants/${tenantId}/bookingCompletions`, token), [firestore, tenantId, token]);
-    const { data: completion, isLoading: completionLoading } = useDoc<any>(completionRef);
-
-    const allConsentFormsQuery = useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, `tenants/${tenantId}/consentForms`), [firestore, tenantId]);
-    const { data: allConsentForms } = useCollection<any>(allConsentFormsQuery);
-
-    const requiredForms = useMemo(() => {
-        const ids: string[] = completion?.requiredConsentFormIds || [];
-        if (!ids.length || !allConsentForms) return [];
-        return allConsentForms.filter((f: any) => ids.includes(f.id));
-    }, [completion, allConsentForms]);
-
-    // Same computation CompletionContent used for its "nothingToDo" check,
-    // just inverted and named for clarity at this call site.
-    const isCompletionPending = useMemo(() => {
-        if (!completion) return false;
-        if (completion.status === 'complete') return false;
-        const skipCardStep = completion.skipCardStep === true;
-        const hasForms = requiredForms.length > 0;
-        const hasFileReqs = (completion.fileRequirements || []).length > 0;
-        return !(skipCardStep && !hasForms && !hasFileReqs);
-    }, [completion, requiredForms]);
-
-    // v4 — one-time "client opened the link" tracking, purely for the
-    // activity timeline. Guarded on the appointment doc's own field so it
-    // only ever writes once, no matter how many times the client re-opens
-    // the same link. Fires unconditionally on mount (before any early
-    // return) — same Rules-of-Hooks discipline as every other hook here.
-    useEffect(() => {
-        if (!firestore || !tenantId || !appointmentData?.id) return;
-        if (appointmentData.completionLinkFirstViewedAt) return; // already recorded
-        setDoc(
-            doc(firestore, `tenants/${tenantId}/appointments/${appointmentData.id}`),
-            { completionLinkFirstViewedAt: new Date().toISOString() },
-            { merge: true },
-        ).catch(() => {}); // best-effort — never block the client's experience on this
-    }, [firestore, tenantId, appointmentData?.id, appointmentData?.completionLinkFirstViewedAt]);
-
-    const updateStatus = async (status: string, lateMinutes?: number) => {
-        if (!firestore || !token || !appointmentData) return;
-        const updates: any = { checkInStatus: status };
-        if (lateMinutes !== undefined) updates.lateTimeMinutes = lateMinutes;
-        try {
-            // Server write path — lands in the scoped collection (with audit
-            // entry) and mirrors to the legacy one during the migration window.
-            if (!tenantId) throw new Error('__legacy__');
-            const res = await fetch('/api/checkins', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    tenantId, token, ...updates,
-                    appointmentId: appointmentData.id || undefined,
-                    clientId: client?.id || appointmentData.clientId || undefined,
-                    clientName: client?.name || undefined,
-                }),
-            });
-            const d = await res.json().catch(() => ({}));
-            if (!res.ok || !d?.ok) throw new Error('__legacy__');
-            toast({ title: "Status Updated", description: "Studio technical team notified." });
-        } catch {
-            // API unavailable (or not deployed yet) — direct legacy write while
-            // the old open rule is still live; truthful failure toast otherwise.
-            try {
-                await updateDocumentNonBlocking(doc(firestore, 'appointmentCheckIns', token), updates);
-                toast({ title: "Status Updated", description: "Studio technical team notified." });
-            } catch {
-                toast({ variant: 'destructive', title: "Update Failed", description: "Please let the front desk know directly." });
-            }
-        }
-    };
-
-    if (appointmentLoading || clientLoading || serviceLoading || tenantLoading || staffLoading || completionLoading) {
-        return (
-            <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-background text-center text-left">
-                <Loader className="h-10 w-10 animate-spin text-primary" />
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60 mt-4">Initializing Studio Pulse...</p>
+              );
+            })}
+            <div className="h-6" />
+            <div className="flex items-center gap-2 opacity-30">
+              <div className="flex-1 border-t-2 border-dashed border-slate-400" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">CUT</span>
+              <div className="flex-1 border-t-2 border-dashed border-slate-400" />
             </div>
-        );
+          </div>
+        </div>
+        <DialogFooter className="flex-shrink-0 p-6 pt-4 border-t bg-muted/5">
+          <div className="grid grid-cols-2 gap-3 w-full">
+            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isPrinting} className="h-12 font-black uppercase text-[10px] tracking-widest text-slate-400">Cancel</Button>
+            <Button onClick={onConfirm} disabled={isPrinting} className="h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20">
+              {isPrinting ? <><Loader className="w-4 h-4 mr-2 animate-spin" />Printing...</> : <><Printer className="w-4 h-4 mr-2" />Print Label</>}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── Allergy pill ─────────────────────────────────────────────────────────────
+const AllergyPill = ({ allergy }: { allergy: any }) => {
+  const label    = typeof allergy === 'object' ? allergy.label    : allergy;
+  const severity = typeof allergy === 'object' ? allergy.severity : 'preference';
+  if (severity === 'critical') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 border border-red-300 text-[9px] font-black uppercase tracking-wide text-red-800">⚠ {label}</span>;
+  if (severity === 'intolerance') return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[9px] font-black uppercase tracking-wide text-amber-700">⚠ {label}</span>;
+  return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-[9px] font-black uppercase tracking-wide text-slate-600">{label}</span>;
+};
+
+// ─── PIN Numpad Login ─────────────────────────────────────────────────────────
+const PIN_KEYS = ['1','2','3','4','5','6','7','8','9','','0','⌫'];
+
+const PinLogin = ({ staff, onLogin }: { staff: Staff[]; onLogin: (m: Staff) => void }) => {
+  const [pin, setPin]         = useState('');
+  const [shake, setShake]     = useState(false);
+  const [welcome, setWelcome] = useState<Staff | null>(null);
+
+  const press = (key: string) => {
+    if (key === '⌫') { setPin(p => p.slice(0, -1)); return; }
+    if (pin.length >= 4) return;
+    const next = pin + key;
+    setPin(next);
+    if (next.length === 4) {
+      const found = staff.find(s => s.pin === next);
+      if (found) { setWelcome(found); setTimeout(() => onLogin(found), 500); }
+      else { setShake(true); setTimeout(() => { setShake(false); setPin(''); }, 600); }
     }
+  };
 
-    if (!appointmentData) {
-        return (
-            <ViewContainer>
-                <div className="p-16 text-center space-y-8">
-                    <XCircle className="w-20 h-20 text-destructive mx-auto opacity-40" />
-                    <div className="space-y-2">
-                        <h2 className="text-3xl font-black uppercase tracking-tighter text-slate-900">Record Expired</h2>
-                        <p className="text-sm font-medium text-slate-500 uppercase tracking-tight leading-relaxed text-center px-8">
-                            This digital key is no longer valid or could not be verified in our manifest.
-                        </p>
-                    </div>
-                    <Button asChild className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
-                        <Link href="/">Back to Studio</Link>
-                    </Button>
-                </div>
-            </ViewContainer>
-        );
-    }
-
-    if (appointmentData?.status === 'completed') {
-        return (
-            <CompletedView 
-                tenant={tenant || null} 
-                client={client || null} 
-                appointment={appointmentData} 
-                service={service || null}
-                staff={assignedStaff || null}
-            />
-        );
-    }
-
-    if (appointmentData?.status === 'cancelled') {
-        return (
-            <CancelledView
-                reason={appointmentData.cancellationReason}
-                tenantId={tenantId}
-                token={token}
-                completion={completion}
-                firestore={firestore}
-            />
-        );
-    }
-
-    // v2 -- NEW: completion gate. Sits before the arrival flow. If the
-    // client just submitted it this session, `completionJustDone` short-
-    // circuits so we don't flash the gate again while Firestore's snapshot
-    // catches up -- and if the appointment isn't today, we show a distinct
-    // "you're all set, see you on {date}" success card instead of jumping
-    // into the day-of arrival screen.
-    if (completionJustDone === null && isCompletionPending) {
-        return (
-            <CompletionGateView
-                tenant={tenant || null}
-                tenantId={tenantId!}
-                token={token}
-                completion={{ ...completion, appointmentStartTime: appointmentData.startTime }}
-                forms={requiredForms}
-                onDone={(startsToday) => setCompletionJustDone(startsToday)}
-            />
-        );
-    }
-
-    if (completionJustDone === false) {
-        return (
-            <ViewContainer>
-                <ViewHeader title="You're All Set" subtitle="Booking secured" icon={CheckCircle2} />
-                <CardContent className="p-10 md:p-16 text-center space-y-6">
-                    <div className="w-20 h-20 bg-green-50 rounded-[2rem] flex items-center justify-center mx-auto">
-                        <CheckCircle2 className="w-10 h-10 text-green-500" />
-                    </div>
-                    <p className="text-sm font-medium text-slate-500 leading-relaxed max-w-sm mx-auto">
-                        Your appointment with {tenant?.name || 'the studio'} on{' '}
-                        <strong className="text-slate-900">{format(safeDate(appointmentData.startTime), 'EEEE, MMM d')}</strong>{' '}
-                        is confirmed. We'll see you then — this link will bring you back to check in on the day of your visit.
-                    </p>
-                </CardContent>
-            </ViewContainer>
-        );
-    }
-    
-    // v3 — NEW: cancellation flow. Reachable via a "Can't make it?" link on
-    // the arrival screen further down. Uses the appointmentId + tenantId
-    // already resolved on this page — no separate URL/token needed.
-    if (showCancelFlow && tenantId && appointmentData?.id) {
-        return (
-            <CancelGateView
-                tenantId={tenantId}
-                appointmentId={appointmentData.id}
-                onBack={() => setShowCancelFlow(false)}
-            />
-        );
-    }
-
-    // v8 — reschedule flow. Reachable via "Need a different time?" on the
-    // arrival screen; authenticated with this page's own token.
-    if (showRescheduleFlow && tenantId && appointmentData?.id) {
-        return (
-            <RescheduleGateView
-                tenantId={tenantId}
-                appointmentId={appointmentData.id}
-                k={token}
-                onBack={() => setShowRescheduleFlow(false)}
-            />
-        );
-    }
-
-    if (showNotificationSettings && tenantId && client && tenant?.notificationDefaults?.allowClientOverride !== false) {
-        return (
-            <NotificationPreferencesView
-                tenantId={tenantId}
-                client={client}
-                onBack={() => setShowNotificationSettings(false)}
-            />
-        );
-    }
-
-    // IMMERSIVE TRANSITION CHECK
-    const isArrivedOrServicing = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
-
-    if (isArrivedOrServicing) {
-        return (
-            <ConciergeExperienceView 
-                tenant={tenant || null} 
-                client={client || null} 
-                inventory={inventory || []} 
-                activeRequests={clientRequests || []}
-                appointment={appointmentData}
-                staff={assignedStaff || null}
-                resources={resources || []}
-                memberships={memberships || []}
-                isWaiting={appointmentData?.status !== 'servicing'}
-                token={token}
-                lounge={lounge}
-                loungeError={loungeError}
-                onRefresh={refreshLounge}
-            />
-        );
-    }
-
-    // v7 — NEW: stale/past-due appointment check. Only reached if none of
-    // the above matched — status isn't cancelled/completed, and the client
-    // never checked in or started service. If the appointment's own end
-    // time (or start time, if end time is missing) is more than 3 hours in
-    // the past, treat this as a dead link rather than showing the normal
-    // arrival flow. The 3-hour buffer intentionally still allows the
-    // legitimate "running very late same-day" case to tap "I Have Arrived"
-    // — this only catches genuinely stale appointments (yesterday, last
-    // week, etc.) that nothing ever explicitly resolved.
-    const referenceEnd = appointmentData?.endTime || appointmentData?.startTime;
-    const isStaleUnresolved = referenceEnd
-        ? (Date.now() - safeDate(referenceEnd).getTime()) > 3 * 60 * 60 * 1000
-        : false;
-
-    if (isStaleUnresolved) {
-        return <StaleAppointmentView tenantName={tenant?.name} tenantPhone={tenant?.twilioPhoneNumber} />;
-    }
-
-    // v8 — NEW: the mirror check. isSameDay rather than an hours-based
-    // threshold deliberately — someone arriving 3 hours before a 2pm slot
-    // is completely normal and shouldn't be blocked, but any DIFFERENT
-    // calendar day (a week out, tomorrow, whenever) should not show live
-    // arrival buttons at all.
-    const isTooEarly = appointmentData?.startTime
-        ? !isSameDay(safeDate(appointmentData.startTime), new Date())
-            && safeDate(appointmentData.startTime).getTime() > Date.now()
-        : false;
-
-    if (isTooEarly) {
-        return (
-            <TooEarlyView
-                startTime={appointmentData!.startTime}
-                serviceName={service?.name}
-                onReschedule={() => setShowRescheduleFlow(true)}
-                onCancel={() => setShowCancelFlow(true)}
-                calendarUrl={tenantId && appointmentData?.id
-                    ? `/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentData.id)}&k=${encodeURIComponent(token)}`
-                    : null}
-            />
-        );
-    }
-
-    return (
-        <AnimatePresence mode="wait">
-            {!entered ? (
-                <motion.div 
-                    key="entry"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background px-6 text-center"
-                >
-                    <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
-                        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-primary/10 blur-[120px] rounded-full animate-pulse" />
-                        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-primary/5 blur-[120px] rounded-full animate-pulse" />
-                    </div>
-
-                    <motion.div
-                        initial={{ scale: 0.9, y: 20, opacity: 0 }}
-                        animate={{ scale: 1, y: 0, opacity: 1 }}
-                        transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-                        className="relative z-10 space-y-12 max-w-sm w-full"
-                    >
-                        <div className="flex flex-col items-center gap-8">
-                            <div className="p-6 bg-white rounded-[2.5rem] shadow-3xl border-4 border-primary/5">
-                                <ClarityFlowLogo className="w-16 h-16" />
-                            </div>
-                            <div className="space-y-3">
-                                <h1 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-slate-900 leading-none">Hello,<br/><span className="text-primary italic font-serif lowercase tracking-normal">{client?.name?.split(' ')[0] || 'there'}</span></h1>
-                                <p className="text-sm font-bold text-muted-foreground uppercase tracking-[0.3em] opacity-60">Verified Identity</p>
-                            </div>
-                        </div>
-
-                        <Button 
-                            size="lg" 
-                            onClick={() => setEntered(true)}
-                            className="w-full h-20 rounded-[2.5rem] text-xl font-black uppercase tracking-widest shadow-3xl shadow-primary/30 group active:scale-95 transition-all"
-                        >
-                            Enter Studio <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-2" />
-                        </Button>
-                    </motion.div>
-                </motion.div>
-            ) : (
-                <ViewContainer key="options">
-                    <ViewHeader title="Portal Active" subtitle="Certify your arrival protocol" icon={Fingerprint} />
-                    <CardContent className="p-8 md:p-12 text-center space-y-10">
-                        <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-6">
-                            <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
-                            <div className="space-y-1.5">
-                                <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">Technical Agenda</p>
-                                <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{service?.name}</h3>
-                                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{format(safeDate(appointmentData?.startTime), 'EEEE, MMM d @ h:mm a')}</p>
-                            </div>
-                        </div>
-
-                        <div className="space-y-8">
-                            <p className="text-sm md:text-lg font-medium text-slate-500 leading-relaxed px-6">Ready for your transformation? Please certify your status below to begin the concierge sequence.</p>
-                            
-                            <div className="grid gap-4">
-                                <Button 
-                                    onClick={() => updateStatus('arrived')} 
-                                    className="w-full h-16 md:h-20 rounded-[2rem] text-lg md:text-2xl font-black uppercase tracking-tight shadow-3xl shadow-primary/30 group"
-                                >
-                                    I Have Arrived <ArrowRight className="ml-3 w-6 h-6 transition-transform group-hover:translate-x-1" />
-                                </Button>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <Button 
-                                        variant="outline" 
-                                        onClick={() => updateStatus('on_my_way')} 
-                                        className="h-14 md:h-16 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest bg-white shadow-sm"
-                                    >
-                                        <Car className="w-5 h-5 mr-2 text-primary" /> En Route
-                                    </Button>
-                                    <Button 
-                                        variant="outline" 
-                                        onClick={() => updateStatus('running_late', 15)} 
-                                        className="h-14 md:h-16 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest bg-white shadow-sm"
-                                    >
-                                        <AlertTriangle className="w-5 h-5 mr-2 text-amber-500" /> Late
-                                    </Button>
-                                </div>
-                            </div>
-
-                            {assignedStaff && (
-                                <div className="flex items-center gap-5 p-5 rounded-[2rem] border-2 bg-muted/5 shadow-inner text-left">
-                                    <Avatar className="h-14 w-14 border-4 border-background shadow-xl rounded-[1.5rem] shrink-0">
-                                        <AvatarImage src={assignedStaff.avatarUrl} className="object-cover" />
-                                        <AvatarFallback className="font-black text-sm bg-primary/10 text-primary">{(assignedStaff.name || 'S').charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                    <div className="text-left flex-1 min-w-0">
-                                        <p className="text-[10px] font-black uppercase text-muted-foreground opacity-60 leading-none mb-1 text-left">Professional Mastery</p>
-                                        <p className="font-black text-sm md:text-lg uppercase text-slate-800 leading-none truncate text-left">{assignedStaff.name}</p>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div className="pt-6 border-t border-dashed space-y-3">
-                            <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
-                                <Link href={`/portal/${tenantId}/${clientId}`}>
-                                    <LayoutDashboard className="w-4 h-4 mr-3 opacity-40" />
-                                    Access Private Dashboard
-                                </Link>
-                            </Button>
-                            <button
-                                type="button"
-                                onClick={() => setShowRescheduleFlow(true)}
-                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                            >
-                                Need a different time? Reschedule
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setShowCancelFlow(true)}
-                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
-                            >
-                                Can't make it? Cancel appointment
-                            </button>
-                            {tenant?.notificationDefaults?.allowClientOverride !== false && (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowNotificationSettings(true)}
-                                    className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
-                                >
-                                    Notification settings
-                                </button>
-                            )}
-                        </div>
-                    </CardContent>
-                </ViewContainer>
-            )}
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900 flex items-center justify-center">
+      <motion.div animate={shake ? { x: [0,-12,12,-8,8,0] } : {}} transition={{ duration: 0.5 }} className="flex flex-col items-center gap-8 w-full max-w-xs px-6">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-16 h-16 rounded-2xl bg-primary/20 flex items-center justify-center">
+            <ChefHat className="w-8 h-8 text-primary" />
+          </div>
+          <h1 className="font-black text-2xl uppercase tracking-tighter text-white">KDS Login</h1>
+          <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">Enter your staff PIN</p>
+        </div>
+        <div className="flex gap-4">
+          {[0,1,2,3].map(i => (
+            <motion.div key={i} animate={{ scale: pin.length > i ? 1.25 : 1 }}
+              className={cn('w-4 h-4 rounded-full border-2 transition-colors duration-150',
+                pin.length > i ? shake ? 'bg-red-500 border-red-500' : 'bg-primary border-primary' : 'bg-transparent border-slate-600'
+              )} />
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-3 w-full">
+          {PIN_KEYS.map((key, i) => (
+            <button key={i} onClick={() => key && press(key)} disabled={!key}
+              className={cn('h-16 rounded-2xl font-black text-2xl transition-all active:scale-95 select-none',
+                key === '⌫' ? 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                  : key ? 'bg-slate-800 text-white hover:bg-slate-700 shadow-lg shadow-black/30'
+                  : 'opacity-0 pointer-events-none'
+              )}>
+              {key === '⌫' ? <Delete className="w-5 h-5 mx-auto" /> : key}
+            </button>
+          ))}
+        </div>
+        <AnimatePresence>
+          {welcome && (
+            <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-[11px] font-black uppercase tracking-widest text-emerald-400">
+              Welcome, {welcome.name.split(' ')[0]} ✓
+            </motion.p>
+          )}
         </AnimatePresence>
+      </motion.div>
+    </div>
+  );
+};
+
+// ─── Inactivity Logout Hook ───────────────────────────────────────────────────
+function useInactivityLogout(onLogout: () => void, ms = INACTIVITY_MS) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reset = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(onLogout, ms);
+  }, [onLogout, ms]);
+  useEffect(() => {
+    const events = ['mousemove','mousedown','keydown','touchstart','scroll'];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => {
+      events.forEach(e => window.removeEventListener(e, reset));
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [reset]);
+}
+
+// ─── Elapsed Timer Hook ───────────────────────────────────────────────────────
+function useElapsed(startDate: Date) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const update = () => setElapsed(differenceInSeconds(new Date(), startDate));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [startDate]);
+  return elapsed;
+}
+
+// ─── Claimer Badge ────────────────────────────────────────────────────────────
+const ClaimerBadge = ({ claimedByName, isMe, onReassign }: {
+  claimedByName: string; isMe: boolean; onReassign: () => void;
+}) => (
+  <div className={cn('flex items-center gap-2 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest', isMe ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-slate-500')}>
+    <div className={cn('w-5 h-5 rounded-lg flex items-center justify-center text-[8px] font-black text-white shrink-0', isMe ? 'bg-primary' : 'bg-slate-400')}>
+      {getInitials(claimedByName)}
+    </div>
+    <span>{isMe ? 'You' : claimedByName.split(' ')[0]}</span>
+    {!isMe && <button onClick={onReassign} className="ml-1 text-slate-400 hover:text-primary transition-colors"><RefreshCw className="w-3 h-3" /></button>}
+  </div>
+);
+
+// ─── Ticket Card ──────────────────────────────────────────────────────────────
+const TicketCard = ({
+  request, inventory, onClaim, onMarkReady, onDeliver, onCancel,
+  onReassign, onPreviewPrint, lane, fifoIndex, currentStaff,
+}: {
+  request: any; inventory: InventoryItem[];
+  onClaim: (id: string) => void; onMarkReady: (req: any) => void;
+  onDeliver: (req: any) => void; onCancel: (id: string) => void;
+  onReassign: (id: string) => void;
+  onPreviewPrint: (req: any, fifoIndex: number) => void;
+  lane: 'incoming' | 'prep' | 'ready'; fifoIndex: number; currentStaff: Staff;
+}) => {
+  const startDate     = safeDate(request.requestedAt || request.createdAt);
+  const elapsed       = useElapsed(startDate);
+  const urgency       = urgencyLevel(elapsed);
+  const styles        = URGENCY[urgency];
+  const qty           = request._quantity || 1;
+  const item          = inventory.find(i => i.id === request._itemId);
+  const fifoBadge     = FIFO_BADGES[fifoIndex] ?? `(${fifoIndex + 1})`;
+  const claimedByName = request.claimedBy?.name ?? null;
+  const isClaimedByMe = request.claimedBy?.staffId === currentStaff.id;
+  const isEventTicket = request._source === 'event';
+  const allergies: any[] = request.allergies || [];
+  const hasCritical = allergies.some((a: any) => typeof a === 'object' && a.severity === 'critical');
+
+  const ingredients = useMemo(() => {
+    if (!item?.formula || item.formula.length === 0) return [];
+    return item.formula.map((f: any) => ({ ...f, totalNeeded: (safeNumber(f.quantityUsed) * qty).toFixed(1) }));
+  }, [item, qty]);
+
+  return (
+    <motion.div layout
+      initial={{ opacity: 0, y: 16, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.93, y: -10 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+      className={cn('relative rounded-[1.75rem] border-2 bg-white overflow-hidden transition-shadow duration-500', styles.border, styles.glow, lane === 'prep' && claimedByName && !isClaimedByMe && 'opacity-70')}>
+      <div className={cn('absolute top-0 left-0 right-0 h-1.5', styles.bar)} />
+      {isEventTicket && <div className="absolute top-0 left-0 right-0 h-1.5 bg-indigo-500" />}
+
+      <div className="px-5 pt-6 pb-3 flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-2xl leading-none select-none">{fifoBadge}</span>
+            <span className="font-black text-[10px] uppercase tracking-[0.25em] text-slate-400">#{(request.id ?? '').slice(-5).toUpperCase()}</span>
+            {isEventTicket && <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200 font-black text-[8px] uppercase tracking-widest h-4 px-2"><Utensils className="w-2 h-2 mr-1" />{request.courseNumber ? `Course ${request.courseNumber}` : 'Event'}</Badge>}
+            {request.isRedemption && <Badge className="bg-indigo-600 text-white border-none font-black text-[8px] uppercase tracking-widest h-4 px-2"><Star className="w-2 h-2 mr-1 fill-current" /> Perk</Badge>}
+            {request.isGuestKiosk && <Badge className="bg-amber-500 text-white border-none font-black text-[8px] uppercase tracking-widest h-4 px-2">Lounge</Badge>}
+            {safeNumber(request.priceAtRequest) > 0 && !request.isRedemption && <Badge className="bg-emerald-600 text-white border-none font-black text-[8px] uppercase tracking-widest h-4 px-2">${(safeNumber(request.priceAtRequest) * qty).toFixed(2)}</Badge>}
+            {hasCritical && <Badge className="bg-red-500 text-white border-none font-black text-[8px] uppercase tracking-widest h-4 px-2 animate-pulse">⚠ ALLERGY</Badge>}
+          </div>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{format(startDate, 'h:mm:ss a')}</p>
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className={cn('px-3 py-1.5 rounded-xl font-black font-mono text-sm tabular-nums', styles.label)}>{formatElapsed(elapsed)}</div>
+          {lane !== 'incoming' && (
+            <button onClick={() => onPreviewPrint(request, fifoIndex)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest text-slate-400 hover:text-primary hover:bg-primary/5 transition-all">
+              <Printer className="w-3 h-3" /> Label
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="px-5 pb-3 flex items-center gap-4">
+        <div className="relative w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
+          {item?.imageUrl ? <Image src={item.imageUrl} alt={item.name} fill className="object-cover" /> : isEventTicket ? <Utensils className="w-6 h-6 text-indigo-300" /> : <Coffee className="w-6 h-6 text-slate-300" />}
+          {qty > 1 && <div className="absolute -top-1.5 -right-1.5 bg-slate-900 text-white rounded-full w-5 h-5 flex items-center justify-center font-black text-[10px] border-2 border-white">{qty}</div>}
+        </div>
+        <div className="min-w-0">
+          <h3 className="font-black text-xl uppercase tracking-tighter text-slate-900 leading-none truncate">{request._displayItem}</h3>
+          {ingredients.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {ingredients.map((f: any, i: number) => (
+                <span key={i} className="text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-600 px-2 py-0.5 rounded-lg border border-slate-200">{f.totalNeeded}{f.unit} {f.name}</span>
+              ))}
+            </div>
+          )}
+          {isEventTicket && request.courseNumber && <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500 mt-1">Course {request.courseNumber} · {request.eventTitle || 'Event'}</p>}
+        </div>
+      </div>
+
+      <div className="mx-5 mb-3 p-3 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1"><User className="w-3 h-3" /> Guest</span>
+          <span className="text-[10px] font-black text-slate-700 uppercase tracking-tight">{request._displayName}</span>
+          <span className="text-slate-300">·</span>
+          <span className="text-[9px] font-black text-primary uppercase flex items-center gap-1"><MapPin className="w-3 h-3" />{request._displayStation}</span>
+        </div>
+        {allergies.length > 0 && <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-200">{allergies.map((a: any, i: number) => <AllergyPill key={i} allergy={a} />)}</div>}
+        {claimedByName && (
+          <div className="flex items-center gap-2 pt-1.5 border-t border-slate-200">
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Staff:</span>
+            <ClaimerBadge claimedByName={claimedByName} isMe={isClaimedByMe} onReassign={() => onReassign(request.id)} />
+          </div>
+        )}
+        {(request.guestDescription || request.notes) && (
+          <div className="space-y-1.5 pt-1 border-t border-slate-200">
+            {request.guestDescription && <p className="text-[9px] font-black text-indigo-600 uppercase flex items-center gap-1.5 tracking-widest"><Eye className="w-3 h-3" />{request.guestDescription}</p>}
+            {request.notes && <p className="text-[9px] font-medium text-slate-500 italic leading-relaxed border-l-2 border-slate-300 pl-2">"{request.notes}"</p>}
+          </div>
+        )}
+        {request.allergyNote && <div className="pt-1 border-t border-slate-200"><p className="text-[9px] font-bold text-amber-700 italic leading-relaxed">Note: {request.allergyNote}</p></div>}
+      </div>
+
+      <div className="px-5 pb-5 flex gap-2">
+        {lane === 'incoming' && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => onCancel(request.id)} className="h-10 w-10 rounded-xl p-0 border-2 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-all shrink-0"><XCircle className="w-4 h-4" /></Button>
+            <Button size="sm" onClick={() => onClaim(request.id)} className="h-10 flex-1 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] shadow-lg shadow-primary/20"><ChefHat className="w-3.5 h-3.5 mr-2" /> Claim & Prep</Button>
+          </>
+        )}
+        {lane === 'prep' && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => onCancel(request.id)} className="h-10 w-10 rounded-xl p-0 border-2 hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-all shrink-0"><XCircle className="w-4 h-4" /></Button>
+            <Button size="sm" onClick={() => onMarkReady(request)} className={cn('h-10 flex-1 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] shadow-lg', isClaimedByMe || !claimedByName ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20' : 'bg-slate-200 text-slate-500 hover:bg-emerald-600 hover:text-white shadow-none')}>
+              <CheckCircle2 className="w-3.5 h-3.5 mr-2" />{!claimedByName || isClaimedByMe ? 'Mark Ready' : `Mark Ready (${getInitials(claimedByName)})`}
+            </Button>
+          </>
+        )}
+        {lane === 'ready' && (
+          <Button size="sm" onClick={() => onDeliver(request)} className="h-10 flex-1 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] shadow-lg shadow-primary/20 animate-pulse">
+            <ArrowRight className="w-3.5 h-3.5 mr-2" /> Certify Delivery
+          </Button>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Lane Column ──────────────────────────────────────────────────────────────
+const LaneColumn = ({ title, icon: Icon, count, children, accentClass, emptyLabel }: {
+  title: string; icon: React.ElementType; count: number;
+  children: React.ReactNode; accentClass: string; emptyLabel: string;
+}) => (
+  <div className="flex flex-col gap-4 min-w-0">
+    <div className="flex items-center justify-between px-1">
+      <div className="flex items-center gap-2.5">
+        <div className={cn('p-2 rounded-xl', accentClass)}><Icon className="w-4 h-4" /></div>
+        <span className="font-black text-[11px] uppercase tracking-[0.25em] text-slate-700">{title}</span>
+      </div>
+      <span className={cn('font-black font-mono text-sm w-8 h-8 rounded-xl flex items-center justify-center', count > 0 ? accentClass : 'bg-slate-100 text-slate-400')}>{count}</span>
+    </div>
+    <div className="h-px bg-slate-200/80" />
+    <div className="space-y-4 flex-1">
+      <AnimatePresence mode="popLayout">
+        {count === 0 ? (
+          <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="py-16 flex flex-col items-center gap-3 text-slate-300 border-2 border-dashed border-slate-200 rounded-[2rem]">
+            <Icon className="w-8 h-8" />
+            <p className="text-[9px] font-black uppercase tracking-[0.3em]">{emptyLabel}</p>
+          </motion.div>
+        ) : children}
+      </AnimatePresence>
+    </div>
+  </div>
+);
+
+// ─── Stats Bar ────────────────────────────────────────────────────────────────
+const StatsBar = ({ requests }: { requests: any[] }) => {
+  const stats = useMemo(() => {
+    const safeRequests = requests ?? [];
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayReqs = safeRequests.filter(r => safeDate(r.requestedAt || r.createdAt) >= today);
+    const delivered = todayReqs.filter(r => r.status === 'delivered');
+    const waitTimes = delivered.map(r => Math.max(0, differenceInSeconds(safeDate(r.deliveredAt), safeDate(r.requestedAt || r.createdAt))));
+    const avgWait = waitTimes.length ? Math.round(waitTimes.reduce((a, b) => a + b, 0) / waitTimes.length) : 0;
+    const itemCount: Record<string, number> = {};
+    safeRequests.forEach(r => { const name = r.itemName || r.menuItemName || '?'; itemCount[name] = (itemCount[name] || 0) + 1; });
+    const topItem = Object.entries(itemCount).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
+    return { total: todayReqs.length, delivered: delivered.length, pending: todayReqs.filter(r => r.status === 'pending').length, avgWait: formatElapsed(avgWait), topItem };
+  }, [requests]);
+
+  const items = [
+    { label: 'Today',     value: stats.total,     icon: Activity     },
+    { label: 'Delivered', value: stats.delivered, icon: CheckCircle2 },
+    { label: 'Pending',   value: stats.pending,   icon: Timer        },
+    { label: 'Avg Wait',  value: stats.avgWait,   icon: TrendingUp   },
+    { label: 'Top Item',  value: stats.topItem,   icon: Star, truncate: true },
+  ];
+
+  return (
+    <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-white border-2 border-slate-100 shrink-0">
+          <item.icon className="w-3.5 h-3.5 text-primary opacity-50 shrink-0" />
+          <div>
+            <p className="text-[8px] font-black uppercase tracking-widest text-slate-400 leading-none mb-0.5">{item.label}</p>
+            <p className={cn('font-black text-sm text-slate-900 leading-none font-mono', item.truncate && 'max-w-[80px] truncate text-xs')}>{String(item.value)}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN KDS
+// ═══════════════════════════════════════════════════════════════════════════════
+function KDSContent() {
+  const { tenantId } = useParams() as { tenantId: string };
+  const { firestore, user } = useFirebase();
+  const { toast } = useToast();
+
+  const [currentStaff, setCurrentStaff]   = useState<Staff | null>(null);
+  const audioCtxRef                        = useRef<AudioContext | null>(null);
+
+  const handleLogout = useCallback(() => {
+    setCurrentStaff(null);
+    if (audioCtxRef.current) audioCtxRef.current.suspend().catch(() => {});
+  }, []);
+  useInactivityLogout(handleLogout);
+
+  const [soundEnabled, setSoundEnabled]   = useState(true);
+  const [lastCount, setLastCount]         = useState(0);
+
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfig>(DEFAULT_PRINTER_CONFIG);
+  const [printerSettingsOpen, setPrinterSettingsOpen] = useState(false);
+  useEffect(() => { setPrinterConfig(loadPrinterConfig()); }, []);
+
+  const handleSavePrinterConfig = (cfg: PrinterConfig) => {
+    savePrinterConfig(cfg);
+    setPrinterConfig(cfg);
+    toast({ title: 'Printer Settings Saved', description: `Mode: ${cfg.mode === 'network' ? `Network · ${cfg.ip}` : 'Browser print dialog'}` });
+  };
+
+  const [previewOpen, setPreviewOpen]       = useState(false);
+  const [previewPayload, setPreviewPayload] = useState<LabelPayload | null>(null);
+  const [isPrinting, setIsPrinting]         = useState(false);
+
+  // Data
+  const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
+  const { data: tenant } = useDoc<Tenant>(tenantRef);
+
+  const staffQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/staff`), [firestore, tenantId]);
+  const { data: staffListRaw } = useCollection<Staff>(staffQuery);
+  const staffList = staffListRaw ?? [];
+
+  const inventoryQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/inventory`), [firestore, tenantId]);
+  const { data: inventory = [] } = useCollection<InventoryItem>(inventoryQuery);
+
+  const activeRefreshmentQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('status', 'in', ['pending', 'in_progress', 'ready'])), [firestore, tenantId]);
+  const { data: activeRefreshmentsRaw } = useCollection<any>(activeRefreshmentQuery);
+  const activeRefreshments = (activeRefreshmentsRaw ?? []).map(normaliseTicket);
+
+  const allRefreshmentQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/refreshmentRequests`), [firestore, tenantId]);
+  const { data: allRefreshmentsRaw } = useCollection<any>(allRefreshmentQuery);
+  const allRefreshments = allRefreshmentsRaw ?? [];
+
+  const activeEventKdsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/kdsTickets`), where('status', 'in', ['pending', 'in_progress', 'ready'])), [firestore, tenantId]);
+  const { data: activeEventTicketsRaw } = useCollection<any>(activeEventKdsQuery);
+  const activeEventTickets = (activeEventTicketsRaw ?? []).map(normaliseTicket);
+
+  const allEventKdsQuery = useMemoFirebase(() => collection(firestore, `tenants/${tenantId}/kdsTickets`), [firestore, tenantId]);
+  const { data: allEventTicketsRaw } = useCollection<any>(allEventKdsQuery);
+  const allEventTickets = allEventTicketsRaw ?? [];
+
+  const allActive = useMemo(() => [...activeRefreshments, ...activeEventTickets], [activeRefreshments, activeEventTickets]);
+  const byTime = (a: any, b: any) => safeDate(a.requestedAt || a.createdAt).getTime() - safeDate(b.requestedAt || b.createdAt).getTime();
+  const incoming = useMemo(() => allActive.filter(r => r.status === 'pending').sort(byTime),     [allActive]);
+  const prep     = useMemo(() => allActive.filter(r => r.status === 'in_progress').sort(byTime), [allActive]);
+  const ready    = useMemo(() => allActive.filter(r => r.status === 'ready').sort(byTime),       [allActive]);
+  const allRequests = useMemo(() => [...allRefreshments, ...allEventTickets], [allRefreshments, allEventTickets]);
+
+  // ── Sound — fixed for browser autoplay policy ──────────────────────────────
+  useEffect(() => {
+    if (incoming.length > lastCount && lastCount !== 0 && soundEnabled) {
+      const playSound = async () => {
+        try {
+          if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+          const ctx = audioCtxRef.current;
+
+          // Resume suspended context — required by browser autoplay policy
+          if (ctx.state === 'suspended') await ctx.resume();
+
+          const playTone = (freq: number, startOffset: number, duration: number) => {
+            const osc  = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, ctx.currentTime + startOffset);
+            gain.gain.setValueAtTime(0, ctx.currentTime + startOffset);
+            gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + startOffset + 0.01);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startOffset + duration);
+            osc.start(ctx.currentTime + startOffset);
+            osc.stop(ctx.currentTime + startOffset + duration);
+          };
+
+          playTone(880,  0,    0.3);
+          playTone(1100, 0.15, 0.4);
+        } catch (e) {
+          console.warn('[KDS sound]', e);
+        }
+      };
+      playSound();
+    }
+    setLastCount(incoming.length);
+  }, [incoming.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+  const handleClaim = async (requestId: string) => {
+    if (!firestore || !tenantId || !currentStaff) return;
+    const request = allActive.find(r => r.id === requestId);
+    if (!request) return;
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, requestId), sanitize({
+        status: 'in_progress',
+        claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
+        claimedAt: new Date().toISOString(),
+      }));
+    } catch { toast({ variant: 'destructive', title: 'Error', description: 'Could not claim order.' }); }
+  };
+
+  const handleReassign = async (requestId: string) => {
+    if (!firestore || !tenantId || !currentStaff) return;
+    const request = allActive.find(r => r.id === requestId);
+    if (!request) return;
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, requestId), sanitize({
+        claimedBy: { staffId: currentStaff.id, name: currentStaff.name, initials: getInitials(currentStaff.name) },
+        reassignedAt: new Date().toISOString(),
+      }));
+      toast({ title: 'Reassigned', description: 'Order is now yours.' });
+    } catch { toast({ variant: 'destructive', title: 'Error', description: 'Could not reassign.' }); }
+  };
+
+  const handleMarkReady = async (request: any) => {
+    if (!firestore || !tenantId) return;
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, request.id), sanitize({ status: 'ready', readyAt: new Date().toISOString() }));
+      toast({ title: 'Order Ready', description: `${request._displayItem} ready for ${request._displayName}.` });
+    } catch { toast({ variant: 'destructive', title: 'Error', description: 'Could not update order.' }); }
+  };
+
+  const handleDeliver = async (request: any) => {
+    if (!firestore || !tenantId) return;
+    const col = getCollection(request);
+    const now = new Date().toISOString();
+    const b   = writeBatch(firestore);
+    const qty = request._quantity || 1;
+
+    b.update(doc(firestore, `tenants/${tenantId}/${col}`, request.id), sanitize({
+      status: 'delivered', deliveredAt: now,
+      deliveredBy: currentStaff ? { staffId: currentStaff.id, name: currentStaff.name } : { staffId: user?.uid || 'kds' },
+    }));
+
+    if (request._source === 'refreshment' && request._itemId) {
+      const item = inventory.find(i => i.id === request._itemId);
+      if (item) {
+        const ingredients = item.formula?.length
+          ? item.formula.map((f: any) => ({ ...f, quantityUsed: safeNumber(f.quantityUsed) * qty }))
+          : [{ id: item.id, name: item.name, quantityUsed: qty, unit: item.unit || 'unit' }];
+
+        ingredients.forEach((ingredient: any) => {
+          const product = inventory.find(p => p.id === ingredient.id);
+          if (!product) return;
+          const productRef  = doc(firestore, `tenants/${tenantId}/inventory`, product.id);
+          const updateData: any = {};
+          if (product.costingMethod === 'uses') {
+            let uses  = safeNumber(product.partialContainerUses) - ingredient.quantityUsed;
+            let stock = safeNumber(product.totalStock);
+            const usesPerContainer = safeNumber(product.estimatedUses) || 1;
+            while (uses <= 0 && stock > 0) { stock -= 1; uses += usesPerContainer; }
+            if (stock <= 0) { stock = 0; uses = Math.max(0, uses); }
+            updateData.totalStock = stock;
+            updateData.partialContainerUses = uses;
+          } else {
+            updateData.totalStock = increment(-ingredient.quantityUsed);
+          }
+          b.update(productRef, sanitize(updateData));
+          const corrRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+          b.set(corrRef, sanitize({ id: nanoid(), productId: product.id, date: now, change: -ingredient.quantityUsed, unit: product.unit || 'unit', reason: `KDS Delivery: ${item.name} (x${qty}) — ${request._displayName}`, requestId: request.id }));
+        });
+
+        if (request.isRedemption && request.clientId && request.clientId !== 'guest-walkin') {
+          b.update(doc(firestore, `tenants/${tenantId}/clients`, request.clientId), {
+            [`subscription.perkUsage.${request._itemId}`]: increment(qty),
+            'subscription.perkLastUsed': now,
+          });
+        }
+        if (request.appointmentId && request.appointmentId !== 'guest-walkin') {
+          b.set(doc(firestore, `tenants/${tenantId}/appointments/${request.appointmentId}`), { checkoutState: { refreshments: arrayUnion(sanitize({ id: item.id, name: item.name, price: safeNumber(request.priceAtRequest), deliveredAt: now, quantity: qty, isAccountedFor: true })) } }, { merge: true });
+        }
+      }
+    }
+
+    try {
+      await b.commit();
+      toast({ title: 'Delivery Certified', description: `${request._displayItem} delivered to ${request._displayName}.` });
+    } catch { toast({ variant: 'destructive', title: 'Error', description: 'Delivery record failed.' }); }
+  };
+
+  const handleCancel = async (requestId: string) => {
+    if (!firestore || !tenantId) return;
+    const request = allActive.find(r => r.id === requestId);
+    if (!request) return;
+    try {
+      await updateDoc(doc(firestore, `tenants/${tenantId}/${getCollection(request)}`, requestId), sanitize({
+        status: 'cancelled', cancelledAt: new Date().toISOString(),
+        cancelledBy: currentStaff ? { staffId: currentStaff.id, name: currentStaff.name } : { staffId: user?.uid || 'kds' },
+      }));
+      toast({ title: 'Order Cancelled' });
+    } catch { toast({ variant: 'destructive', title: 'Error', description: 'Could not cancel order.' }); }
+  };
+
+  const handlePreviewPrint = useCallback((request: any, fifoIndex: number) => {
+    if (!currentStaff) return;
+    const item = inventory.find(i => i.id === request._itemId);
+    const qty  = request._quantity || 1;
+    const ingredients = (item?.formula ?? []).map((f: any) => ({ ...f, totalNeeded: (safeNumber(f.quantityUsed) * qty).toFixed(1) }));
+    setPreviewPayload(buildLabel(request, currentStaff, fifoIndex, ingredients));
+    setPreviewOpen(true);
+  }, [currentStaff, inventory]);
+
+  const handleConfirmPrint = useCallback(async () => {
+    if (!previewPayload) return;
+    setIsPrinting(true);
+    try {
+      if (printerConfig.mode === 'network') {
+        try {
+          await networkPrint(previewPayload, printerConfig);
+          toast({ title: 'Label Sent', description: `Sent to ${printerConfig.ip}` });
+        } catch (networkErr: any) {
+          toast({ variant: 'destructive', title: 'Network Print Failed', description: `${networkErr.message} — opening browser print as fallback.` });
+          browserPrint(previewPayload);
+        }
+      } else {
+        browserPrint(previewPayload);
+        toast({ title: 'Print Dialog Opened', description: 'Select your thermal printer from the list.' });
+      }
+      setPreviewOpen(false);
+    } finally {
+      setIsPrinting(false);
+    }
+  }, [previewPayload, printerConfig, toast]);
+
+  const totalActive = incoming.length + prep.length + ready.length;
+
+  // ── PIN gate ───────────────────────────────────────────────────────────────
+  if (!currentStaff) {
+    return (
+      <PinLogin
+        staff={staffList}
+        onLogin={m => {
+          setCurrentStaff(m);
+          // Initialize AudioContext during this confirmed user gesture
+          initAudioContext(audioCtxRef);
+        }}
+      />
     );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-body flex flex-col overflow-hidden">
+
+      <LabelPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} payload={previewPayload} onConfirm={handleConfirmPrint} isPrinting={isPrinting} printerConfig={printerConfig} />
+      <PrinterSettingsDialog open={printerSettingsOpen} onOpenChange={setPrinterSettingsOpen} config={printerConfig} onSave={handleSavePrinterConfig} />
+
+      {/* Top Bar */}
+      <header className="shrink-0 bg-white border-b-2 border-slate-100 px-6 py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="p-2.5 bg-primary/10 rounded-2xl shrink-0"><ChefHat className="w-5 h-5 text-primary" /></div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="font-black text-lg uppercase tracking-tighter text-slate-900 leading-none">KDS</h1>
+              <span className="text-slate-300 font-light">·</span>
+              <span className="font-black text-[11px] uppercase tracking-[0.2em] text-slate-400 truncate">{tenant?.name || 'Concierge'}</span>
+            </div>
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400 mt-0.5">Kitchen Display System</p>
+          </div>
+          {totalActive > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-white shrink-0">
+              <Bell className="w-3 h-3 animate-bounce" />
+              <span className="font-black text-[10px] uppercase tracking-widest">{totalActive} Active</span>
+            </div>
+          )}
+          {activeEventTickets.length > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-100 text-indigo-700 shrink-0">
+              <Utensils className="w-3 h-3" />
+              <span className="font-black text-[10px] uppercase tracking-widest">{activeEventTickets.length} Event</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <StatsBar requests={allRequests} />
+
+          {/* Printer mode indicator */}
+          <button
+            onClick={() => setPrinterSettingsOpen(true)}
+            className={cn('flex items-center gap-2 px-3 py-2 rounded-2xl border-2 transition-all hover:border-primary/30', printerConfig.mode === 'network' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-500')}
+          >
+            {printerConfig.mode === 'network' ? <Wifi className="w-3.5 h-3.5" /> : <Monitor className="w-3.5 h-3.5" />}
+            <span className="font-black text-[9px] uppercase tracking-widest">{printerConfig.mode === 'network' ? printerConfig.ip || 'No IP' : 'Browser'}</span>
+            <Settings className="w-3 h-3 opacity-50" />
+          </button>
+
+          <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-100 border-2 border-slate-200">
+            <div className="w-7 h-7 rounded-xl bg-primary flex items-center justify-center text-white font-black text-[10px] shrink-0">{getInitials(currentStaff.name)}</div>
+            <span className="font-black text-[10px] uppercase tracking-widest text-slate-700">{currentStaff.name.split(' ')[0]}</span>
+            <button onClick={handleLogout} className="ml-1 text-slate-400 hover:text-red-500 transition-colors"><LogOut className="w-3.5 h-3.5" /></button>
+          </div>
+
+          {/* Sound toggle — also unblocks AudioContext on click */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setSoundEnabled(v => !v);
+              initAudioContext(audioCtxRef);
+            }}
+            className={cn('h-10 w-10 rounded-2xl p-0 border-2 transition-all', soundEnabled ? 'border-primary/20 text-primary bg-primary/5' : 'border-slate-200 text-slate-400')}
+          >
+            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </Button>
+        </div>
+      </header>
+
+      {/* Three Lanes */}
+      <main className="flex-1 overflow-hidden p-6">
+        <div className="h-full grid grid-cols-3 gap-6">
+          <div className="overflow-y-auto pr-1 scrollbar-none">
+            <LaneColumn title="Incoming" icon={Bell} count={incoming.length} accentClass="bg-blue-100 text-blue-600" emptyLabel="Queue Clear">
+              {incoming.map((r, i) => <TicketCard key={r.id} request={r} inventory={inventory} onClaim={handleClaim} onMarkReady={handleMarkReady} onDeliver={handleDeliver} onCancel={handleCancel} onReassign={handleReassign} onPreviewPrint={handlePreviewPrint} lane="incoming" fifoIndex={i} currentStaff={currentStaff} />)}
+            </LaneColumn>
+          </div>
+          <div className="overflow-y-auto pr-1 scrollbar-none">
+            <LaneColumn title="In Prep" icon={ChefHat} count={prep.length} accentClass="bg-amber-100 text-amber-600" emptyLabel="Nothing Prepping">
+              {prep.map((r, i) => <TicketCard key={r.id} request={r} inventory={inventory} onClaim={handleClaim} onMarkReady={handleMarkReady} onDeliver={handleDeliver} onCancel={handleCancel} onReassign={handleReassign} onPreviewPrint={handlePreviewPrint} lane="prep" fifoIndex={i} currentStaff={currentStaff} />)}
+            </LaneColumn>
+          </div>
+          <div className="overflow-y-auto pr-1 scrollbar-none">
+            <LaneColumn title="Ready to Deliver" icon={Zap} count={ready.length} accentClass="bg-emerald-100 text-emerald-600" emptyLabel="Nothing Ready Yet">
+              {ready.map((r, i) => <TicketCard key={r.id} request={r} inventory={inventory} onClaim={handleClaim} onMarkReady={handleMarkReady} onDeliver={handleDeliver} onCancel={handleCancel} onReassign={handleReassign} onPreviewPrint={handlePreviewPrint} lane="ready" fifoIndex={i} currentStaff={currentStaff} />)}
+            </LaneColumn>
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="shrink-0 bg-white border-t-2 border-slate-100 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Live · Auto-Sync</span>
+          </div>
+          <span className="text-slate-300">·</span>
+          <span className="text-[9px] font-black uppercase tracking-[0.3em] text-slate-400">Auto-logout 30m inactivity</span>
+          <span className="text-slate-300">·</span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">Event Course</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {[{ color: 'bg-emerald-400', label: '0–2m' }, { color: 'bg-amber-400', label: '2–5m' }, { color: 'bg-orange-500', label: '5–8m' }, { color: 'bg-red-500', label: '8m+' }].map(({ color, label }) => (
+              <div key={label} className="flex items-center gap-1.5">
+                <div className={cn('w-2.5 h-2.5 rounded-full', color)} />
+                <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{label}</span>
+              </div>
+            ))}
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">{format(new Date(), 'h:mm a')}</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+export default function KDSPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen flex items-center justify-center bg-slate-900">
+        <div className="flex flex-col items-center gap-4">
+          <Loader className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Initializing KDS...</p>
+        </div>
+      </div>
+    }>
+      <KDSContent />
+    </Suspense>
+  );
 }
