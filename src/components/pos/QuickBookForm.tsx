@@ -2419,6 +2419,13 @@ export function QuickBookForm({
     const groupBookingId = isGroup ? _nanoid() : null;
     const multiProviderGroupId = isMultiProvider && scheduledLegs.length > 0 ? _nanoid() : null;
 
+    // A short-lived lock stops two receptionists from selling the same slot in
+    // the same few seconds. It MUST be given back if the booking then fails —
+    // otherwise that slot stays unsellable forever. These two live outside the
+    // try so the finally block can still see them.
+    let acquiredSlotLockRef: any = null;
+    let bookingCommitted = false;
+
     try {
       let clientId = selectedClient?.id;
       const startTime = new Date(`${aptDate}T${aptTime}:00`);
@@ -2558,16 +2565,25 @@ export function QuickBookForm({
       const recurrenceId = isRecurring && recurrenceCount > 1 ? _nanoid() : null;
 
       if (resolvedStaffId) {
+        const slotRef = doc(
+          firestore,
+          `tenants/${tenantId}/slotLocks`,
+          `${resolvedStaffId}_${aptDate}_${aptTime.replace(':', '')}`,
+        );
         try {
           await runTransaction(firestore, async (tx) => {
-            const slotRef = doc(
-              firestore,
-              `tenants/${tenantId}/slotLocks`,
-              `${resolvedStaffId}_${aptDate}_${aptTime.replace(':', '')}`,
-            );
             const existing = await tx.get(slotRef);
             if (existing.exists()) {
-              throw new Error('SLOT_TAKEN');
+              // An abandoned lock is not a booked slot. Locks carry a 5 minute
+              // expiry; once that passes, anyone may take the slot. Without
+              // this check a booking that failed halfway made the time
+              // unsellable until someone deleted the document by hand.
+              const data: any = existing.data() || {};
+              const expiresAt = data.expiresAt ? new Date(data.expiresAt).getTime() : 0;
+              const stillHeld = Number.isFinite(expiresAt) && expiresAt > Date.now();
+              if (stillHeld && data.aptId !== aptId) {
+                throw new Error('SLOT_TAKEN');
+              }
             }
             tx.set(slotRef, {
               staffId: resolvedStaffId,
@@ -2578,6 +2594,7 @@ export function QuickBookForm({
               expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
             });
           });
+          acquiredSlotLockRef = slotRef;
         } catch (e: any) {
           if (e?.message === 'SLOT_TAKEN') {
             setSlotConflict(true);
@@ -2589,6 +2606,9 @@ export function QuickBookForm({
             setIsSubmitting(false);
             return;
           }
+          // Any other failure here (offline, rules) must not block the booking.
+          // The server-side check in /api/appointments/book is the real guard;
+          // this lock is only a courtesy between two desks.
         }
       }
 
@@ -2946,6 +2966,10 @@ export function QuickBookForm({
       }
 
       await batch.commit();
+      // The batch itself deletes the lock, so from here on there is nothing to
+      // give back. Anything that fails after this point is follow-up work, not
+      // the booking.
+      bookingCommitted = true;
 
       if (recurrenceId && isRecurring && recurrenceCount > 1) {
         try {
@@ -3154,6 +3178,16 @@ export function QuickBookForm({
     } catch (e) {
       toast({ variant: 'destructive', title: 'Booking failed', description: 'Please try again.' });
     } finally {
+      // Hand the slot back if we took a lock and the booking never landed.
+      // Without this, one failed booking took that time off the board for good.
+      if (acquiredSlotLockRef && !bookingCommitted) {
+        try {
+          await deleteDoc(acquiredSlotLockRef);
+        } catch {
+          // Even if the release fails, the lock now expires on its own within
+          // five minutes because acquisition honors expiresAt.
+        }
+      }
       setIsSubmitting(false);
     }
   };
