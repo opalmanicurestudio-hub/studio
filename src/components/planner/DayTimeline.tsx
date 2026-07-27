@@ -9,7 +9,7 @@ import { AppointmentCard } from '@/components/planner/AppointmentCard';
 import { EventCard } from '@/components/planner/EventCard';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Building, HardHat, Lock, Users, Landmark, Briefcase, Eye, DollarSign } from 'lucide-react';
+import { Building, HardHat, Lock, Users, Landmark, Briefcase, Eye, DollarSign, Link2 } from 'lucide-react';
 
 // Live elapsed timer for a checked-in reservation — ticks itself so only the
 // timer re-renders, not the whole timeline. Turns red + "OVER" past booked end.
@@ -174,6 +174,62 @@ export const DayTimeline = ({
         );
     }
 
+    // ── WHICH CARDS BELONG TOGETHER ─────────────────────────────────────────
+    // A party of five and a three-provider visit both land on the board as
+    // separate cards in separate columns, which read as five and three
+    // unrelated strangers. Front desk then greeted them one at a time and
+    // moved one card when the whole booking shifted. This indexes every visit
+    // once so each card can say what it is part of and where it sits in it.
+    const visitIndex = useMemo(() => {
+        const groups = new Map<string, { kind: 'party' | 'chain'; ids: string[] }>();
+        const all: any[] = [];
+        if (itemsByColumn) {
+            const seen = new Set<string>();
+            for (const items of Array.from(itemsByColumn.values()) as any[]) {
+                for (const it of (items || [])) {
+                    if (it?.itemType && it.itemType !== 'appointment') continue;
+                    if (!it?.id || it.isSecondary || seen.has(it.id)) continue;
+                    seen.add(it.id);
+                    all.push(it);
+                }
+            }
+        }
+        for (const it of all) {
+            const key = it.groupBookingId
+                ? `party:${it.groupBookingId}`
+                : it.multiProviderGroupId
+                ? `chain:${it.multiProviderGroupId}`
+                : null;
+            if (!key) continue;
+            const g = groups.get(key) || { kind: (it.groupBookingId ? 'party' : 'chain') as 'party' | 'chain', ids: [] };
+            g.ids.push(it.id);
+            groups.set(key, g);
+        }
+        // Order within a visit is chronological, so "2 of 3" means the second
+        // thing that happens — not the second row Firestore handed back.
+        const byId = new Map(all.map((it) => [it.id, it]));
+        const out = new Map<string, { kind: 'party' | 'chain'; position: number; total: number; label: string }>();
+        for (const g of groups.values()) {
+            if (g.ids.length < 2) continue;
+            const ordered = [...g.ids].sort((a, b) => {
+                const av = safeDate(byId.get(a)?.startTime).getTime();
+                const bv = safeDate(byId.get(b)?.startTime).getTime();
+                return av - bv;
+            });
+            ordered.forEach((id, i) => {
+                out.set(id, {
+                    kind: g.kind,
+                    position: i + 1,
+                    total: ordered.length,
+                    label: g.kind === 'party'
+                        ? `Party of ${ordered.length} · guest ${i + 1}`
+                        : `One visit · stop ${i + 1} of ${ordered.length}`,
+                });
+            });
+        }
+        return out;
+    }, [itemsByColumn]);
+
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
         const service = (services || []).find(s => s.id === item.serviceId);
@@ -189,8 +245,26 @@ export const DayTimeline = ({
         const height = totalDuration * (160/60);
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left };
        
+        const group = visitIndex.get(item.id);
+
         return (
             <div key={`${item.id}-${item.isSecondary ? 'sec' : 'pri'}`} className={cn("absolute pr-1 z-10", item.isSecondary && "opacity-80")} style={style}>
+                {group && height > 44 && (
+                    <div
+                        title={group.label}
+                        className={cn(
+                            'absolute -top-1 left-1 z-20 pointer-events-none inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[7px] sm:text-[8px] font-black uppercase tracking-widest text-white shadow-sm max-w-[calc(100%-0.75rem)]',
+                            group.kind === 'party' ? 'bg-violet-600' : 'bg-indigo-600',
+                        )}
+                    >
+                        {group.kind === 'party' ? <Users className="w-2 h-2 shrink-0" /> : <Link2 className="w-2 h-2 shrink-0" />}
+                        <span className="truncate">
+                            {group.kind === 'party'
+                                ? `Party ${group.position}/${group.total}`
+                                : `Visit ${group.position}/${group.total}`}
+                        </span>
+                    </div>
+                )}
                 <AppointmentCard
                     appointment={item} client={client} service={service} style={{ height: '100%'}}
                     onUpdateStatus={onUpdateStatus} onDelete={onDeleteAppointment}
