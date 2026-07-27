@@ -54,6 +54,47 @@
 // but two appointments can never eat into each other's buffer. This matches
 // what /api/appointments/book already enforces, which is the behavior that
 // counts, because that route is what says no.
+//
+// ─── EVERY REASON A TIME CAN BE UNAVAILABLE (v2) ─────────────────────────────
+// This app stores "not bookable" in eight different places. v1 of this file
+// read three of them. All eight are now handled, in this order of authority:
+//
+//   1. SHIFT (tenants/{t}/shifts) — the published roster for one date, with its
+//      own startTime/endTime clock strings. Most authoritative: a manager who
+//      publishes a 12-8 shift has overridden the weekly template. If NOBODY has
+//      a shift on that date, the roster simply isn't published yet, so shifts
+//      are ignored entirely rather than blanking the day. That fallback matters
+//      — without it, turning this on would empty every future date at once.
+//   2. APPROVED DAY OFF (shiftDayOffBlocks) — whole day gone. Pending requests
+//      do NOT block, because a request nobody has answered should not quietly
+//      cost you bookings.
+//   3. PER-STAFF WEEKLY HOURS (staff.availability.week[day]) — the template. A
+//      day explicitly disabled means off; a day absent falls through.
+//   4. STUDIO SCHEDULE PROFILE (scheduleProfiles, isActive) — the house hours.
+//   5. APPOINTMENTS — padded on both sides. Everything blocks except
+//      cancellations and payment holds older than 30 minutes.
+//   6. CALENDAR EVENTS (events) — 'blocked', 'personal' AND 'business' all
+//      occupy the person. v1 only honored 'blocked', so a staff meeting on the
+//      calendar was invisible to booking. allDay events take the whole day.
+//   7. STAFF BLOCKS (staffBlocks) — duration-based holds written when an add-on
+//      is handed to another tech. The code that writes them says they exist "so
+//      the tech's slot is protected in the booking system"; until now nothing
+//      read them, so they protected nothing.
+//   8. RESOURCE CAPACITY (resources + requiredResourceIds) — a studio-wide
+//      constraint, not a per-person one. Two techs are free but there is one
+//      pedicure chair, so only one of them is actually bookable. Downtime is
+//      derived from open urgent/high tickets and from maintenancePlans whose
+//      nextRunAt is this date — the SAME rule planner-page uses, so the planner
+//      and the booking grid can never disagree about what is out of service.
+//
+// Plus two throttles that exist to protect the day rather than describe it:
+// booking lead time (no online bookings inside the next N minutes) and booking
+// horizon (nothing further out than N days).
+//
+// Everything in that list is OPTIONAL input. Pass nothing and you get v1
+// behavior; pass a collection and that constraint switches on. Nothing here
+// invents a restriction from missing data — the only thing missing data
+// produces is a warning.
 
 import {
   addMinutes,
@@ -110,6 +151,21 @@ export type AvailabilityInput = {
   scheduleProfiles?: any[];
   tenant?: any;
 
+  // ── Additional blocking sources. Each is optional; omit one and that
+  //    constraint is simply not applied. ──────────────────────────────────────
+  /** tenants/{t}/shifts — the published roster. { staffId, date, startTime, endTime, status } */
+  shifts?: any[];
+  /** tenants/{t}/staffBlocks — { staffId, startTime, duration } holds. */
+  staffBlocks?: any[];
+  /** tenants/{t}/shiftDayOffBlocks — { staffId, date, status }. Only 'approved' blocks. */
+  dayOffBlocks?: any[];
+  /** tenants/{t}/resources — { id, name, capacity, isOutOfService }. */
+  resources?: any[];
+  /** tenants/{t}/tickets — open ones at urgent/high priority take a resource down. */
+  tickets?: any[];
+  /** tenants/{t}/maintenancePlans — a plan whose nextRunAt is this date takes a resource down. */
+  maintenancePlans?: any[];
+
   /** Injectable clock. Defaults to new Date(). */
   now?: Date;
   /** 'HH:mm' — hide anything earlier (used for "today, after now"). */
@@ -122,6 +178,34 @@ export type AvailabilityInput = {
   ignoreHeuristics?: boolean;
   /** Include rejected slots in `allSlots` with a reason. Default true. */
   includeUnavailable?: boolean;
+
+  // ── Policy switches. ──────────────────────────────────────────────────────
+  /**
+   * Minutes of notice required before a booking may start. Public pages should
+   * pass this; the front desk should not, because a receptionist booking
+   * someone standing in front of them must be able to say "right now".
+   * Falls back to tenant.bookingLeadMinutes / tenant.bookingLeadHours.
+   */
+  minLeadMinutes?: number;
+  /** Refuse dates further out than this. Falls back to tenant.bookingHorizonDays. */
+  maxHorizonDays?: number;
+  /**
+   * Ignore the shift roster entirely. The front desk needs this to book a tech
+   * onto a day they are not rostered for — which is a normal thing to do.
+   */
+  ignoreShifts?: boolean;
+  /** Treat a PENDING day-off request as blocking too. Default false. */
+  blockPendingDayOff?: boolean;
+  /** Only offer staff with acceptingWalkIns !== false. For the walk-in queue. */
+  requireAcceptingWalkIns?: boolean;
+  /**
+   * Event types that occupy a staff member. Default: blocked, personal,
+   * business, time_off (and spelling variants). Pass a narrower list to let,
+   * say, 'business' events sit alongside bookings.
+   */
+  blockingEventTypes?: string[];
+  /** Skip the resource-capacity check even when resources are supplied. */
+  ignoreResources?: boolean;
 };
 
 export type AvailabilityResult = {
@@ -155,6 +239,22 @@ type StaffDay = {
   load: number;
 };
 
+/**
+ * A studio-wide constraint: how many of one physical thing exist, and when
+ * each unit is already spoken for. Unlike everything else in a StaffDay, this
+ * is shared — two techs competing for the same pedicure chair.
+ */
+type ResourceLedger = {
+  resourceId: string;
+  name: string;
+  /** Units available today, after out-of-service and maintenance. */
+  capacity: number;
+  /** Padded windows already consuming a unit, one entry per consuming booking. */
+  taken: Window[];
+  /** Set when capacity hit zero, so the reason can name the cause. */
+  downReason?: string;
+};
+
 type DayContext = {
   dateObj: Date;
   dayName: string;
@@ -168,6 +268,12 @@ type DayContext = {
   byId: Record<string, StaffDay>;
   tightScheduling: boolean;
   morningAnchor: boolean;
+  /** Ledgers for the resources THIS service needs. Empty when it needs none. */
+  resourceLedgers: ResourceLedger[];
+  /** Earliest permissible service start, from lead time and the clock. */
+  earliest: Date | null;
+  /** True when the whole day is refused (past horizon, closed, etc). */
+  closed: boolean;
   warnings: string[];
 };
 
@@ -290,6 +396,62 @@ export function resolveDayHours(
   return null;
 }
 
+/**
+ * The roster entry for one person on one date, or null.
+ *
+ * Shape comes from how StaffPortalPage reads it:
+ *   { staffId, date: 'yyyy-MM-dd', startTime: 'HH:mm', endTime: 'HH:mm', status }
+ * Draft and cancelled shifts are not a commitment, so they do not count —
+ * matching the filter QuickBookForm's resolveAnyStaffId already used.
+ */
+export function findShift(shifts: any[], staffId: string, dateStr: string): any | null {
+  return (
+    (shifts || []).find(
+      (s) =>
+        s?.staffId === staffId &&
+        String(s?.date || '').slice(0, 10) === dateStr &&
+        s?.status !== 'cancelled' &&
+        s?.status !== 'draft' &&
+        s?.status !== 'denied',
+    ) || null
+  );
+}
+
+/** Is the roster published for this date at all? Governs the shift fallback. */
+export function rosterPublished(shifts: any[], dateStr: string): boolean {
+  return (shifts || []).some(
+    (s) =>
+      String(s?.date || '').slice(0, 10) === dateStr &&
+      s?.status !== 'cancelled' &&
+      s?.status !== 'draft' &&
+      s?.status !== 'denied',
+  );
+}
+
+/**
+ * Whole-day absence from an approved day-off request.
+ *
+ * Note for the owner: nothing in the app currently sets these to 'approved' —
+ * StaffPortalPage writes them at status 'pending' and the approval path never
+ * comes back to update them. So today this returns false for everything, which
+ * is the safe direction. Wire the approval to set status:'approved' and this
+ * starts working with no change here.
+ */
+export function hasApprovedDayOff(
+  blocks: any[],
+  staffId: string,
+  dateStr: string,
+  includePending = false,
+): boolean {
+  return (blocks || []).some((b) => {
+    if (b?.staffId !== staffId) return false;
+    if (String(b?.date || '').slice(0, 10) !== dateStr) return false;
+    const status = String(b?.status || '').toLowerCase();
+    if (status === 'approved' || status === 'accepted') return true;
+    return includePending && status === 'pending';
+  });
+}
+
 /** Staff who hold every skill the service requires. */
 export function qualifiedFor(service: any, staff: any[]): any[] {
   const required: string[] = service?.requiredSkills || [];
@@ -340,9 +502,31 @@ function paddingFor(apt: any, servicesById: Record<string, any>): { before: numb
   };
 }
 
-function isBlockingEvent(evt: any): boolean {
-  const t = evt?.type;
-  return t === 'blocked' || t === 'time_off' || t === 'timeOff' || t === 'timeoff';
+/**
+ * Event types that occupy a person.
+ *
+ * EventsDialog writes exactly three: 'personal', 'business', 'blocked'. v1 of
+ * this file honored only 'blocked', which meant a staff meeting entered as a
+ * 'business' event was invisible to booking and got double-booked. All three
+ * count now — if it is on someone's calendar with a start and an end, they are
+ * not available. `blockingEventTypes` can narrow this per call.
+ */
+const DEFAULT_BLOCKING_EVENT_TYPES = [
+  'blocked',
+  'personal',
+  'business',
+  'time_off',
+  'timeoff',
+  'unavailable',
+  'class',
+  'training',
+];
+
+function isBlockingEvent(evt: any, allowed: string[]): boolean {
+  const status = String(evt?.status || '').toLowerCase();
+  if (status === 'cancelled' || status === 'canceled' || status === 'deleted') return false;
+  const t = String(evt?.type ?? 'blocked').toLowerCase().replace(/[\s-]/g, '_');
+  return allowed.includes(t);
 }
 
 /** Supports both the `staffId` and the `staffIds[]` shapes used in this app. */
@@ -355,6 +539,93 @@ function eventAppliesTo(evt: any, staffId: string): boolean {
   const single = evt?.staffId;
   if (!single) return true;
   return single === 'all' || single === staffId;
+}
+
+/**
+ * The window an event occupies on a given day.
+ *
+ * allDay events are the trap here: EventsDialog still stores a startTime and
+ * endTime for them, and those are whatever the clock happened to say. Taking
+ * them literally would block a random hour instead of the day. So an allDay
+ * event returns the full working window instead.
+ */
+function eventWindow(evt: any, open: Date, close: Date): Window | null {
+  if (evt?.allDay) return { start: open, end: close };
+  const start = safeDate(evt?.startTime);
+  const end = safeDate(evt?.endTime);
+  if (!start || !end || end <= start) return null;
+  return { start, end };
+}
+
+/**
+ * A staffBlock's window. These are stored as a start plus a DURATION in
+ * minutes, not an end — so an end has to be derived. Released blocks stop
+ * counting so a handoff that was undone gives the time back.
+ */
+function staffBlockWindow(block: any): Window | null {
+  const status = String(block?.status || '').toLowerCase();
+  if (status === 'released' || status === 'cancelled' || status === 'done' || status === 'completed') {
+    return null;
+  }
+  const start = safeDate(block?.startTime);
+  if (!start) return null;
+  const end = safeDate(block?.endTime) ?? addMinutes(start, num(block?.duration, 0));
+  if (end <= start) return null;
+  return { start, end };
+}
+
+/**
+ * Which physical resources a booking consumes. Prefers what is recorded on the
+ * appointment (that is what check-in and the planner read), and falls back to
+ * the service definition so the constraint applies to bookings made before the
+ * field was being written.
+ */
+function resourceIdsFor(apt: any, service: any): string[] {
+  const onApt = apt?.requiredResourceIds;
+  if (Array.isArray(onApt) && onApt.length > 0) return onApt.filter(Boolean);
+  const onService = service?.requiredResourceIds;
+  if (Array.isArray(onService) && onService.length > 0) return onService.filter(Boolean);
+  return [];
+}
+
+/**
+ * Resources that are down for the whole of `dateStr`.
+ *
+ * This deliberately reuses planner-page.tsx's exact rule so the two screens can
+ * never disagree about what is out of service:
+ *   • an OPEN ticket at urgent/high priority takes its resource down from the
+ *     day it was reported until someone resolves it;
+ *   • a maintenancePlan whose nextRunAt is this date takes its resource down
+ *     for that date.
+ * A resource flagged isOutOfService is down regardless of tickets.
+ */
+export function resourceDowntime(
+  dateStr: string,
+  tickets: any[] = [],
+  plans: any[] = [],
+): Record<string, string> {
+  const down: Record<string, string> = {};
+
+  for (const t of tickets || []) {
+    const status = String(t?.status || '').toLowerCase();
+    if (status !== 'open' && status !== 'in_progress') continue;
+    if (!['urgent', 'high'].includes(String(t?.priority || '').toLowerCase())) continue;
+    const rid = t?.resourceId;
+    if (!rid) continue;
+    const reported = String(t?.createdAt || '').slice(0, 10);
+    if (reported && reported > dateStr) continue; // not reported yet on this day
+    down[rid] = `out of service — ${t?.title || 'maintenance ticket'}`;
+  }
+
+  for (const p of plans || []) {
+    if (p?.active === false) continue;
+    if (String(p?.nextRunAt || '').slice(0, 10) !== dateStr) continue;
+    const rid = p?.resourceId;
+    if (!rid) continue;
+    down[rid] = `scheduled maintenance — ${p?.title || 'preventive run'}`;
+  }
+
+  return down;
 }
 
 // ─── Day context ─────────────────────────────────────────────────────────────
@@ -415,22 +686,149 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     if (tierId !== 'any') pool = pool.filter((s) => s?.pricingTierId === tierId);
   }
 
+  const dateStr = format(dateObj, 'yyyy-MM-dd');
+
+  // ── Booking window: how soon, and how far out. ─────────────────────────────
+  // Both are optional. The front desk passes neither, because a receptionist
+  // has to be able to book the person standing in front of them for right now,
+  // and to book six months out for a wedding.
+  let closed = false;
+
+  const horizonDays = num(
+    input.maxHorizonDays,
+    num(input.tenant?.bookingHorizonDays, 0),
+  );
+  if (horizonDays > 0) {
+    const daysOut = Math.round(
+      (startOfDay(dateObj).getTime() - startOfDay(now).getTime()) / 86400000,
+    );
+    if (daysOut > horizonDays) {
+      closed = true;
+      warnings.push(`That date is more than ${horizonDays} days out — outside the booking window.`);
+    }
+  }
+
+  const leadMinutes = num(
+    input.minLeadMinutes,
+    num(input.tenant?.bookingLeadMinutes, num(input.tenant?.bookingLeadHours, 0) * 60),
+  );
+  const earliest = leadMinutes > 0 ? addMinutes(now, leadMinutes) : null;
+
+  // ── The published roster. ─────────────────────────────────────────────────
+  // A shift is the strongest statement about who is working, and it carries its
+  // own clock times. But it can only ever REMOVE people, so if the roster has
+  // not been published for this date, applying it would blank the whole day.
+  // In that case it is ignored entirely and the weekly hours take over.
+  const shifts = input.shifts || [];
+  const rosterIsPublished = rosterPublished(shifts, dateStr);
+  const useShifts = !input.ignoreShifts && shifts.length > 0 && rosterIsPublished;
+  if (!input.ignoreShifts && shifts.length > 0 && !rosterIsPublished) {
+    warnings.push(
+      `No published shifts for ${dateStr} — the roster was skipped for this day and regular weekly hours were used instead.`,
+    );
+  }
+
+  const blockingTypes = (input.blockingEventTypes || DEFAULT_BLOCKING_EVENT_TYPES).map((t) =>
+    String(t).toLowerCase().replace(/[\s-]/g, '_'),
+  );
+
   const dayAppointments = (input.appointments || []).filter((a) => {
     const start = safeDate(a?.startTime);
     return start ? isSameDay(start, dateObj) : false;
   });
 
+  // Events on this date, including multi-day ones that straddle it.
   const dayEvents = (input.events || []).filter((e) => {
-    if (!isBlockingEvent(e)) return false;
+    if (!isBlockingEvent(e, blockingTypes)) return false;
     const start = safeDate(e?.startTime);
+    if (!start) return false;
+    if (isSameDay(start, dateObj)) return true;
+    const end = safeDate(e?.endTime);
+    if (!end) return false;
+    return startOfDay(start) <= startOfDay(dateObj) && startOfDay(end) >= startOfDay(dateObj);
+  });
+
+  const dayStaffBlocks = (input.staffBlocks || []).filter((b) => {
+    const start = safeDate(b?.startTime);
     return start ? isSameDay(start, dateObj) : false;
   });
+
+  // ── Physical resources this service needs. ────────────────────────────────
+  // Studio-wide, not per staff: two techs free and one pedicure chair means one
+  // bookable slot, not two.
+  const resourceLedgers: ResourceLedger[] = [];
+  const neededResourceIds = input.ignoreResources ? [] : resourceIdsFor(null, service);
+  if (neededResourceIds.length > 0) {
+    const downtime = resourceDowntime(dateStr, input.tickets || [], input.maintenancePlans || []);
+    for (const rid of neededResourceIds) {
+      const res = (input.resources || []).find((r: any) => r?.id === rid);
+      if (!res) {
+        // The service names a station that no longer exists. Refusing every
+        // slot over a stale id would be worse than ignoring it, so warn.
+        warnings.push(
+          `${service?.name || 'This service'} requires resource "${rid}", which no longer exists — that requirement was ignored.`,
+        );
+        continue;
+      }
+      const label = res?.name || rid;
+      let capacity = Math.max(0, Math.floor(num(res?.capacity, 1) || 1));
+      let downReason: string | undefined;
+
+      if (res?.isOutOfService) {
+        capacity = 0;
+        downReason = `${label} is marked out of service`;
+      } else if (downtime[rid]) {
+        capacity = 0;
+        downReason = `${label} — ${downtime[rid]}`;
+      }
+
+      const taken: Window[] = [];
+      for (const apt of dayAppointments) {
+        if (!blocksTime(apt, now)) continue;
+        const ids = resourceIdsFor(apt, servicesById[apt?.serviceId]);
+        if (!ids.includes(rid)) continue;
+        const start = safeDate(apt?.startTime);
+        if (!start) continue;
+        const end =
+          safeDate(apt?.endTime) ??
+          addMinutes(start, num(servicesById[apt?.serviceId]?.duration, 60));
+        const pad = paddingFor(apt, servicesById);
+        const w = { start: subMinutes(start, pad.before), end: addMinutes(end, pad.after) };
+        if (w.end > w.start) taken.push(w);
+      }
+
+      resourceLedgers.push({ resourceId: rid, name: label, capacity, taken, downReason });
+    }
+  }
 
   const staffDays: StaffDay[] = [];
   const byId: Record<string, StaffDay> = {};
 
   for (const staffMember of pool) {
-    let hours = resolveDayHours(staffMember, dayName, profile);
+    // Walk-in queue only: skip anyone who has turned walk-ins off.
+    if (input.requireAcceptingWalkIns && staffMember?.acceptingWalkIns === false) continue;
+
+    // An approved day off outranks every schedule underneath it.
+    if (
+      hasApprovedDayOff(
+        input.dayOffBlocks || [],
+        staffMember.id,
+        dateStr,
+        !!input.blockPendingDayOff,
+      )
+    ) {
+      continue;
+    }
+
+    // Roster first, weekly hours second, studio profile third.
+    const shift = useShifts ? findShift(shifts, staffMember.id, dateStr) : null;
+    if (useShifts && !shift) continue; // published roster says they are not in
+
+    let hours: { start: string; end: string } | null =
+      shift?.startTime && shift?.endTime
+        ? { start: String(shift.startTime), end: String(shift.endTime) }
+        : resolveDayHours(staffMember, dayName, profile);
+
     if (!hours) {
       const hasAnySchedule = !!staffMember?.availability?.week || !!profile?.week;
       if (hasAnySchedule) continue; // genuinely off today
@@ -477,10 +875,18 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
 
     for (const evt of dayEvents) {
       if (!eventAppliesTo(evt, staffMember.id)) continue;
-      const start = safeDate(evt?.startTime);
-      const end = safeDate(evt?.endTime);
-      if (!start || !end || end <= start) continue;
-      busy.push({ start, end });
+      const w = eventWindow(evt, open, close);
+      if (w) busy.push(w);
+    }
+
+    // Handoff holds written by the staff portal when a tech takes a sequential
+    // add-on. The code that writes them says they protect the tech's slot in
+    // the booking system; until now nothing read them, so they protected
+    // nothing.
+    for (const block of dayStaffBlocks) {
+      if (block?.staffId !== staffMember.id) continue;
+      const w = staffBlockWindow(block);
+      if (w) busy.push(w);
     }
 
     busy.sort((a, b) => a.start.getTime() - b.start.getTime());
@@ -503,8 +909,80 @@ export function buildDayContext(input: AvailabilityInput): DayContext | null {
     byId,
     tightScheduling: !input.ignoreHeuristics && !!input.tenant?.tightSchedulingEnabled,
     morningAnchor: !input.ignoreHeuristics && !!input.tenant?.morningAnchorEnabled,
+    resourceLedgers,
+    earliest,
+    closed,
     warnings,
   };
+}
+
+/**
+ * Is there a free unit of every resource this service needs, for this window?
+ *
+ * Kept separate from `isStaffFree` because it is not about a person. The same
+ * check runs in the slot scan, in the staff picker, and in `verifyBookable`, so
+ * the grid cannot offer a pedicure the studio has no chair for.
+ */
+export function resourcesAvailable(
+  ctx: DayContext,
+  start: Date,
+): { ok: true } | { ok: false; reason: string } {
+  if (ctx.resourceLedgers.length === 0) return { ok: true };
+  const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+
+  for (const led of ctx.resourceLedgers) {
+    if (led.capacity <= 0) {
+      return { ok: false, reason: led.downReason ?? `${led.name} is unavailable today` };
+    }
+    const concurrent = led.taken.filter((w) => overlaps(guard, w)).length;
+    if (concurrent >= led.capacity) {
+      return {
+        ok: false,
+        reason:
+          led.capacity === 1
+            ? `${led.name} is already in use at that time`
+            : `all ${led.capacity} ${led.name} are in use at that time`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Same check, but counting units this visit has already claimed for itself.
+ * A party of five pedicures cannot be seated in three chairs, and the two legs
+ * of one chained visit cannot both hold the only manicure table.
+ */
+function resourceFreeWith(
+  ctx: DayContext,
+  start: Date,
+  claimed: Record<string, Window[]>,
+): boolean {
+  if (ctx.resourceLedgers.length === 0) return true;
+  const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+
+  for (const led of ctx.resourceLedgers) {
+    if (led.capacity <= 0) return false;
+    const already =
+      led.taken.filter((w) => overlaps(guard, w)).length +
+      (claimed[led.resourceId] || []).filter((w) => overlaps(guard, w)).length;
+    if (already >= led.capacity) return false;
+  }
+  return true;
+}
+
+/** Records this visit's claim on every resource its service needs. */
+function claimResources(
+  ctx: DayContext,
+  start: Date,
+  claimed: Record<string, Window[]>,
+): void {
+  if (ctx.resourceLedgers.length === 0) return;
+  const guard = protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter);
+  for (const led of ctx.resourceLedgers) {
+    if (!claimed[led.resourceId]) claimed[led.resourceId] = [];
+    claimed[led.resourceId].push(guard);
+  }
 }
 
 // ─── Freedom checks ──────────────────────────────────────────────────────────
@@ -582,6 +1060,8 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
   if (!input?.date || !input?.serviceId) return empty;
   const ctx = buildDayContext(input);
   if (!ctx) return { ...empty, warnings: ['Service not found, or the date could not be read.'] };
+  // The whole day is refused — past the booking horizon.
+  if (ctx.closed) return { ...empty, warnings: ctx.warnings };
 
   const includeUnavailable = input.includeUnavailable !== false;
   const sameDay = isSameDay(ctx.dateObj, ctx.now);
@@ -595,6 +1075,8 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
     const nowFloor = ctx.now;
     if (!floor || nowFloor > floor) floor = nowFloor;
   }
+  // Required notice, when the caller asked for it.
+  if (ctx.earliest && (!floor || ctx.earliest > floor)) floor = ctx.earliest;
 
   const allSlots: Slot[] = [];
 
@@ -618,9 +1100,14 @@ export function computeAvailability(input: AvailabilityInput): AvailabilityResul
       let available = true;
       let reason: string | undefined;
 
+      const resourceCheck = collides ? null : resourcesAvailable(ctx, cursor);
+
       if (collides) {
         available = false;
         reason = 'overlaps an existing appointment or blocked time';
+      } else if (resourceCheck && !resourceCheck.ok) {
+        available = false;
+        reason = resourceCheck.reason;
       } else if (!heuristicsAllow(ctx, day, cursor, hot)) {
         available = false;
         reason = ctx.tightScheduling
@@ -727,8 +1214,19 @@ export function pickStaffForSlot(input: AvailabilityInput & { time: string }): S
   const ctx = buildDayContext(input);
   if (!ctx) return { ok: false, error: 'Service not found, or the date could not be read.' };
 
+  if (ctx.closed) return { ok: false, error: 'That date is outside the booking window.' };
+
   const start = parseClock(input.time, ctx.dateObj);
   if (!start) return { ok: false, error: 'That time could not be read.' };
+
+  if (ctx.earliest && start < ctx.earliest) {
+    return { ok: false, error: 'That time is too soon — please choose a later one.' };
+  }
+
+  const resourceCheck = resourcesAvailable(ctx, start);
+  if (!resourceCheck.ok) {
+    return { ok: false, error: `That time is not available — ${resourceCheck.reason}.` };
+  }
 
   const candidates = ctx.staffDays.filter((d) =>
     isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter),
@@ -840,12 +1338,20 @@ export function computeChainAvailability(
 
     const placed: ChainLeg[] = [];
     const taken: Record<string, Window[]> = {}; // provider -> windows this visit occupies
+    const claimed: Record<string, Window[]> = {}; // resource -> windows this visit occupies
     let cursor = new Date(anchor.getTime());
     let ok = true;
 
     for (let i = 0; i < legs.length && ok; i++) {
       const ctx = contexts[i];
       const want = legs[i].staffId || 'any';
+
+      // The station this leg needs has to be free too, including from the
+      // earlier legs of this same visit.
+      if (!resourceFreeWith(ctx, cursor, claimed)) {
+        ok = false;
+        break;
+      }
 
       const candidates = ctx.staffDays.filter((d) => {
         if (!isStaffFree(d, cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter)) return false;
@@ -894,6 +1400,7 @@ export function computeChainAvailability(
       taken[pick.staff.id].push(
         protectedWindow(cursor, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter),
       );
+      claimResources(ctx, cursor, claimed);
 
       cursor = addMinutes(legEnd, i === legs.length - 1 ? 0 : processing);
     }
@@ -1013,12 +1520,18 @@ export function computePartyAvailability(
     offsets: number[],
   ): PartyMemberPlacement[] | null => {
     const taken: Record<string, Window[]> = {};
+    const claimed: Record<string, Window[]> = {};
     const placements: PartyMemberPlacement[] = [];
 
     for (let i = 0; i < members.length; i++) {
       const ctx = contexts[i];
       const want = members[i].staffId || 'any';
       const start = addMinutes(anchor, offsets[i]);
+
+      // Enough chairs/tables for this many people at once, not just enough
+      // techs. This is the difference between promising a party of five and
+      // seating a party of five.
+      if (!resourceFreeWith(ctx, start, claimed)) return null;
 
       const candidates = ctx.staffDays.filter((d) => {
         if (!isStaffFree(d, start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter)) return false;
@@ -1057,6 +1570,7 @@ export function computePartyAvailability(
       taken[pick.staff.id].push(
         protectedWindow(start, ctx.serviceMinutes, ctx.padBefore, ctx.padAfter),
       );
+      claimResources(ctx, start, claimed);
     }
 
     return placements;
