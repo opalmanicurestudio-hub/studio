@@ -1,223 +1,227 @@
 'use client';
 
 /**
- * useSmartAvailability — v2
+ * useSmartAvailability — v3
+ * ─────────────────────────────────────────────────────────────────────────────
+ * This hook no longer contains an availability engine. It is now a thin React
+ * wrapper over `src/lib/availability.ts`, which is the single source of truth
+ * for "can this be booked?" across the whole app — the public booking sheet,
+ * the front-desk QuickBook form, and the server-side booking route.
  *
- * v2 — BUG FIX: the add-on upsell filter checked `s.type === 'service'` and
- * `s.isAddOn !== false`. Your Service type has no `isAddOn` field at all, so
- * that second check was always true (undefined !== false), and the first
- * check pulled from full primary SERVICES, not things actually flagged as
- * add-ons. The practical effect: a manicure's "upsells" could include an
- * unrelated Pedicure or Facial just because it happened to fit the time gap
- * — not because anyone marked it compatible. Now filters on
- * `type === 'addon'` AND membership in the selected service's
- * `compatibleAddOnIds`, the same field AppointmentDetailsSheet,
- * AddAndConfigurePartsDialog, and MultiProviderPanel already key off of —
- * so upsells here are finally drawn from the same compatibility model as
- * the rest of the app instead of an independent (and broken) one.
+ * WHY THIS CHANGED
  *
- * v1 — Given a date, serviceId, and optional staffId, returns only the time
- * slots where the full service (duration + padBefore + padAfter) fits
- * without overlapping any existing confirmed appointment.
+ * v2 of this hook had its own scan loop with these constants baked in:
  *
- * Also returns eligible add-ons that fit within the selected slot's
- * remaining gap before the next appointment.
+ *     BUSINESS_START_HOUR   = 8
+ *     BUSINESS_END_HOUR     = 20
+ *     SLOT_INTERVAL_MINUTES = 30
  *
- * No extra Firestore reads — uses appointments already in InventoryContext.
+ * It read no working hours, no schedule profiles, and no blocked events. So the
+ * front desk was offered 8:00 AM slots on days the studio opens at 10, and
+ * slots on days the studio is closed entirely. It also used a three-status
+ * whitelist (`confirmed`, `deposit_pending`, `servicing`) to decide what counts
+ * as busy, which meant any appointment in some other state — checked in, no
+ * show, rescheduled, completed — was invisible and its time got double-booked.
  *
- * FIX (carried forward): the slot dedup step below previously keyed by
- * `slot.time` alone. That's harmless when staffId is a single specific
- * provider (there's only ever one slot per time, so nothing collides) but
- * breaks "Any available": with multiple providers open at the same time,
- * only the one with the largest gapMinutesAfter survived — every other
- * provider's slot at that exact time was silently overwritten and
- * discarded. Keying by `${staffId}-${time}` instead means providers no
- * longer collide with each other, so SmartAvailabilityGrid (which already
- * keys its buttons by staffId+time) actually receives every provider's
- * slots, not just one.
+ * The engine fixes all of that, and because the same functions run in the API
+ * route, the front desk can no longer offer a time the server will reject.
+ *
+ * WHAT DID NOT CHANGE — ON PURPOSE
+ *
+ * The parameter names, the return shape, and the two exported types are byte
+ * for byte what they were. `QuickBookForm`, `MultiProviderPanel`, and
+ * `SmartAvailabilityGrid` compile and behave without a single edit. Every new
+ * capability is an OPTIONAL parameter, so nothing breaks by omission — it just
+ * stays as approximate as it was until the extra data is passed in.
+ *
+ * TO GET FULL CORRECTNESS AT A CALL SITE, add three props:
+ *
+ *     events:           events,            // blocked time, classes, closures
+ *     scheduleProfiles: scheduleProfiles,  // the studio's real open hours
+ *     tenant:           tenant,            // slot interval + smart toggles
+ *
+ * Without `scheduleProfiles`, per-staff hours are still honored; only staff
+ * with no schedule of their own fall back to a window. Without `events`,
+ * blocked time is invisible. Without `tenant`, tight scheduling / morning
+ * anchor / flash yield stay off and the slot interval falls back to config
+ * defaults.
+ *
+ * FALLBACK WINDOW: when a staff member has no schedule AND no profile exists,
+ * this hook falls back to 8:00 AM – 8:00 PM, matching v2 exactly. That keeps
+ * an unconfigured studio working the way it does today instead of showing an
+ * empty grid the day this file lands.
  */
 
 import { useMemo } from 'react';
 import {
-  addMinutes,
-  areIntervalsOverlapping,
-  format,
-  parseISO,
-  startOfDay,
-  endOfDay,
-  isAfter,
-  isBefore,
-  setHours,
-  setMinutes,
-} from 'date-fns';
+  computeAvailability,
+  type Slot,
+  type AddOnUpsell as EngineAddOnUpsell,
+} from '@/lib/availability';
 
-export type AvailableSlot = {
-  time: string;
-  label: string;
-  staffId: string;
-  staffName: string;
-  gapMinutesAfter: number;
-  available: boolean;
-};
+/**
+ * Unchanged public type. The engine's Slot is a superset — it adds `isHotSlot`
+ * and an optional `reason` — so existing consumers keep type-checking, and new
+ * ones can read the extra fields.
+ */
+export type AvailableSlot = Slot;
 
-export type AddOnUpsell = {
-  serviceId: string;
-  name: string;
-  duration: number;
-  price: number;
-  fitsInGap: boolean;
-};
+/** Unchanged public type: { serviceId, name, duration, price, fitsInGap }. */
+export type AddOnUpsell = EngineAddOnUpsell;
 
-const safeDate = (val: any): Date | null => {
-  if (!val) return null;
-  try {
-    if (val instanceof Date) return val;
-    if (typeof val === 'string') return parseISO(val);
-    if (typeof val?.toDate === 'function') return val.toDate();
-    return new Date(val);
-  } catch { return null; }
-};
+/** Matches v2's hardcoded business day, used only when nothing is configured. */
+const LEGACY_FALLBACK_HOURS = { start: '08:00', end: '20:00' };
 
-const BUSINESS_START_HOUR = 8;
-const BUSINESS_END_HOUR = 20;
-const SLOT_INTERVAL_MINUTES = 30;
-
-export function useSmartAvailability(params: {
+export type SmartAvailabilityParams = {
+  /** 'yyyy-MM-dd' */
   date: string;
   serviceId: string;
+  /** A specific staff id, or 'any'. */
   staffId: string | 'any';
   allAppointments: any[];
   allServices: any[];
   allStaff: any[];
+  /** 'HH:mm' floor — nothing earlier is offered. */
   skipSlotsBefore?: string;
-}): {
+
+  // ── Optional. Each one makes the answer more correct. ──────────────────────
+  /** Blocked time / closures / classes. Without this they are invisible. */
+  events?: any[];
+  /** The studio's schedule profiles — the real open hours. */
+  scheduleProfiles?: any[];
+  /** Tenant doc: bookingSlotInterval, tightSchedulingEnabled, morningAnchorEnabled, flashYieldEnabled. */
+  tenant?: any;
+  /** Add-ons already chosen — extends the length the slot has to fit. */
+  addOnIds?: string[];
+  /** Pricing tier filter when staffId is 'any'. */
+  tierId?: string;
+  /** Force a grid step. Pass 30 to reproduce v2's spacing exactly. */
+  slotIntervalMinutes?: number;
+  /** Bypass tight-scheduling and morning-anchor rules (front desk override). */
+  ignoreHeuristics?: boolean;
+  /** Injectable clock — tests only. */
+  now?: Date;
+};
+
+export type SmartAvailabilityResult = {
+  /** Bookable slots only, earliest first. Unchanged contract. */
   slots: AvailableSlot[];
   addOnUpsells: AddOnUpsell[];
+  /** Largest free gap after any bookable slot, in minutes. Unchanged contract. */
   selectedSlotGap: number;
-} {
-  const { date, serviceId, staffId, allAppointments, allServices, allStaff, skipSlotsBefore } = params;
+
+  // ── Additive. Ignore these and nothing changes. ────────────────────────────
+  /** Every slot scanned, including unavailable ones with a `reason`. */
+  allSlots: AvailableSlot[];
+  /** Distinct bookable times, sorted — for a one-button-per-time grid. */
+  times: string[];
+  /** time -> every staff member free at that time. Powers "Any available". */
+  byTime: Record<string, AvailableSlot[]>;
+  /** Times reopened by a recent cancellation, when flash yield is on. */
+  hotTimes: string[];
+  /** Data problems worth showing the owner, e.g. missing hours. */
+  warnings: string[];
+};
+
+const EMPTY: SmartAvailabilityResult = {
+  slots: [],
+  addOnUpsells: [],
+  selectedSlotGap: 0,
+  allSlots: [],
+  times: [],
+  byTime: {},
+  hotTimes: [],
+  warnings: [],
+};
+
+export function useSmartAvailability(
+  params: SmartAvailabilityParams,
+): SmartAvailabilityResult {
+  const {
+    date,
+    serviceId,
+    staffId,
+    allAppointments,
+    allServices,
+    allStaff,
+    skipSlotsBefore,
+    events,
+    scheduleProfiles,
+    tenant,
+    addOnIds,
+    tierId,
+    slotIntervalMinutes,
+    ignoreHeuristics,
+    now,
+  } = params;
+
+  // `addOnIds` is usually a fresh array each render; key the memo on its
+  // contents so we recompute when the selection actually changes, not on
+  // every keystroke elsewhere in the form.
+  const addOnKey = (addOnIds || []).join(',');
 
   return useMemo(() => {
-    const empty = { slots: [], addOnUpsells: [], selectedSlotGap: 0 };
-    if (!date || !serviceId) return empty;
+    if (!date || !serviceId) return EMPTY;
 
-    const svc = allServices.find((s) => s.id === serviceId);
-    if (!svc) return empty;
+    try {
+      const result = computeAvailability({
+        date,
+        serviceId,
+        staffId,
+        tierId,
+        addOnIds,
+        services: allServices || [],
+        staff: allStaff || [],
+        appointments: allAppointments || [],
+        events: events || [],
+        scheduleProfiles: scheduleProfiles || [],
+        tenant,
+        now,
+        skipSlotsBefore,
+        slotIntervalMinutes,
+        ignoreHeuristics,
+        fallbackHours: LEGACY_FALLBACK_HOURS,
+        includeUnavailable: true,
+      });
 
-    const svcDuration: number = (svc.duration ?? 60) + (svc.padBefore ?? 0) + (svc.padAfter ?? 0);
-
-    const candidateStaff =
-      staffId === 'any'
-        ? allStaff.filter((s) => s.active !== false)
-        : allStaff.filter((s) => s.id === staffId);
-
-    const dayStart = startOfDay(new Date(`${date}T00:00:00`));
-    const dayEnd = endOfDay(dayStart);
-    const dayApts = allAppointments.filter((a) => {
-      const start = safeDate(a.startTime);
-      if (!start) return false;
-      if (!['confirmed', 'deposit_pending', 'servicing'].includes(a.status)) return false;
-      return start >= dayStart && start <= dayEnd;
-    });
-
-    const minTimeStr = skipSlotsBefore ?? null;
-    const slots: AvailableSlot[] = [];
-
-    for (const staffMember of candidateStaff) {
-      const staffApts = dayApts
-        .filter((a) => a.staffId === staffMember.id)
-        .map((a) => ({
-          start: safeDate(a.startTime)!,
-          end: safeDate(a.endTime) ?? addMinutes(safeDate(a.startTime)!, 60),
-        }))
-        .filter((a) => a.start != null)
-        .sort((a, b) => a.start.getTime() - b.start.getTime());
-
-      let cursor = setMinutes(setHours(dayStart, BUSINESS_START_HOUR), 0);
-      const businessEnd = setMinutes(setHours(dayStart, BUSINESS_END_HOUR), 0);
-
-      while (isBefore(cursor, businessEnd)) {
-        const slotEnd = addMinutes(cursor, svcDuration);
-        const timeStr = format(cursor, 'HH:mm');
-
-        if (minTimeStr && timeStr < minTimeStr) {
-          cursor = addMinutes(cursor, SLOT_INTERVAL_MINUTES);
-          continue;
-        }
-
-        if (isAfter(slotEnd, businessEnd)) {
-          cursor = addMinutes(cursor, SLOT_INTERVAL_MINUTES);
-          continue;
-        }
-
-        const blocked = staffApts.some((a) =>
-          areIntervalsOverlapping(
-            { start: cursor, end: slotEnd },
-            { start: a.start, end: a.end },
-            { inclusive: false },
-          ),
-        );
-
-        const nextApt = staffApts.find((a) => a.start >= slotEnd);
-        const gapEnd = nextApt ? nextApt.start : businessEnd;
-        const gapMinutesAfter = Math.max(
-          0,
-          Math.floor((gapEnd.getTime() - slotEnd.getTime()) / 60000),
-        );
-
-        slots.push({
-          time: timeStr,
-          label: format(cursor, 'h:mm a'),
-          staffId: staffMember.id,
-          staffName: staffMember.name ?? staffMember.id,
-          gapMinutesAfter,
-          available: !blocked,
-        });
-
-        cursor = addMinutes(cursor, SLOT_INTERVAL_MINUTES);
-      }
+      return {
+        slots: result.slots,
+        addOnUpsells: result.addOnUpsells,
+        selectedSlotGap: result.bestGapMinutes,
+        allSlots: result.allSlots,
+        times: result.times,
+        byTime: result.byTime,
+        hotTimes: result.hotTimes,
+        warnings: result.warnings,
+      };
+    } catch (err) {
+      // A malformed appointment or service doc must never white-screen the
+      // front desk mid-checkout. Degrade to "no slots" and say why in the
+      // console rather than throwing through React.
+      console.error('[useSmartAvailability] availability scan failed', err);
+      return {
+        ...EMPTY,
+        warnings: ['Availability could not be calculated. Please refresh and try again.'],
+      };
     }
-
-    // FIX: key by staff + time, not time alone — see file header comment.
-    const slotMap = new Map<string, AvailableSlot>();
-    for (const slot of slots) {
-      const key = `${slot.staffId}-${slot.time}`;
-      if (!slot.available) continue;
-      const existing = slotMap.get(key);
-      if (!existing || slot.gapMinutesAfter > existing.gapMinutesAfter) {
-        slotMap.set(key, slot);
-      }
-    }
-
-    const deduped = Array.from(slotMap.values()).sort((a, b) =>
-      a.time.localeCompare(b.time),
-    );
-
-    const bestGap = deduped.at(0)?.gapMinutesAfter ?? 0;
-
-    // v2 — FIX: draw upsells from the same compatibility model as the rest
-    // of the app (type === 'addon' + the primary service's
-    // compatibleAddOnIds) instead of the broken type/isAddOn check that let
-    // any unrelated full-price service through as an "upsell."
-    const compatibleAddOnIds: string[] = svc.compatibleAddOnIds || [];
-    const addOnUpsells: AddOnUpsell[] = allServices
-      .filter(
-        (s) =>
-          s.type === 'addon' &&
-          compatibleAddOnIds.includes(s.id) &&
-          (s.duration ?? 0) > 0,
-      )
-      .map((s) => ({
-        serviceId: s.id,
-        name: s.name,
-        duration: s.duration,
-        price: s.price ?? 0,
-        fitsInGap: (s.duration + (s.padBefore ?? 0) + (s.padAfter ?? 0)) <= bestGap,
-      }))
-      .filter((a) => a.fitsInGap)
-      .sort((a, b) => b.price - a.price)
-      .slice(0, 4);
-
-    return { slots: deduped, addOnUpsells, selectedSlotGap: bestGap };
-  }, [date, serviceId, staffId, allAppointments, allServices, allStaff, skipSlotsBefore]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    date,
+    serviceId,
+    staffId,
+    tierId,
+    addOnKey,
+    allServices,
+    allStaff,
+    allAppointments,
+    events,
+    scheduleProfiles,
+    tenant,
+    skipSlotsBefore,
+    slotIntervalMinutes,
+    ignoreHeuristics,
+    now,
+  ]);
 }
+
+export default useSmartAvailability;
