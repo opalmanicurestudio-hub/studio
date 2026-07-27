@@ -450,7 +450,17 @@ const StaleAppointmentView = ({ tenantName, tenantPhone }: { tenantName?: string
 // day" message whenever the appointment isn't today. Same-day arrivals are
 // never blocked here regardless of how many hours early — someone showing
 // up 3 hours before a 2pm slot is normal and shouldn't be stopped.
-const TooEarlyView = ({ startTime, serviceName }: { startTime: string; serviceName?: string }) => (
+// v9 — the pre-day gate is no longer a dead end: BEFORE the visit day is
+// exactly when clients reschedule and cancel, so those actions (and
+// add-to-calendar) live right here. The studio's change-window and
+// cancellation-fee policies are enforced by the flows these open — this
+// screen just gets clients to them.
+const TooEarlyView = ({
+    startTime, serviceName, onReschedule, onCancel, calendarUrl,
+}: {
+    startTime: string; serviceName?: string;
+    onReschedule?: () => void; onCancel?: () => void; calendarUrl?: string | null;
+}) => (
     <ViewContainer>
         <ViewHeader title="Not Quite Yet" subtitle="Check-in opens on the day of your visit" icon={CalendarIcon} />
         <CardContent className="p-10 md:p-16 text-center space-y-8">
@@ -464,6 +474,31 @@ const TooEarlyView = ({ startTime, serviceName }: { startTime: string; serviceNa
                     <strong className="text-slate-900">{format(safeDate(startTime), 'EEEE, MMMM d')}</strong>.
                     Come back to this link on the day to check in.
                 </p>
+            </div>
+            <div className="space-y-3 max-w-sm mx-auto">
+                {calendarUrl && (
+                    <Button asChild className="w-full h-14 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">
+                        <a href={calendarUrl}><CalendarIcon className="w-4 h-4 mr-2" /> Add to calendar</a>
+                    </Button>
+                )}
+                {onReschedule && (
+                    <button
+                        type="button"
+                        onClick={onReschedule}
+                        className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
+                    >
+                        Need a different time? Reschedule
+                    </button>
+                )}
+                {onCancel && (
+                    <button
+                        type="button"
+                        onClick={onCancel}
+                        className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-destructive transition-colors"
+                    >
+                        Can't make it? Cancel appointment
+                    </button>
+                )}
             </div>
         </CardContent>
     </ViewContainer>
@@ -1844,6 +1879,183 @@ const CancelGateView = ({
     );
 };
 
+// v8 — RESCHEDULE FLOW. "Need a different time?" on the arrival screen
+// lands here. Uses the conflict-checked self-serve engine (/api/appt,
+// action 'reschedule'): same provider, live calendar check, studio's
+// change-window policy enforced server-side. Auth = this page's own
+// checkInToken (the /api/appt engine accepts it alongside manageToken).
+const RescheduleGateView = ({
+    tenantId,
+    appointmentId,
+    k,
+    onBack,
+}: {
+    tenantId: string;
+    appointmentId: string;
+    k: string;
+    onBack: () => void;
+}) => {
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [info, setInfo] = useState<any>(null);
+    const [newDate, setNewDate] = useState('');
+    const [newTime, setNewTime] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [result, setResult] = useState<any>(null);
+
+    const apptApi = async (payload: any) => {
+        const res = await fetch('/api/appt', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, apptId: appointmentId, k, ...payload }),
+        });
+        try { return await res.json(); } catch {
+            throw new Error(res.status === 404
+                ? 'Rescheduling is not available online right now — call the studio and we\'ll move it for you.'
+                : `Server error (${res.status}) — try again in a moment.`);
+        }
+    };
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const d = await apptApi({ action: 'view' });
+                if (!d.ok) { setError(d.error || 'This appointment could not be loaded.'); return; }
+                setInfo(d);
+            } catch (e: any) { setError(e?.message || 'Something went wrong loading your appointment.'); }
+            finally { setIsLoading(false); }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tenantId, appointmentId, k]);
+
+    const tzSuffixOf = (tzOffsetMinutes: any): string => {
+        const m = Number.isFinite(Number(tzOffsetMinutes)) ? Number(tzOffsetMinutes) : -300;
+        const sign = m <= 0 ? '-' : '+';
+        const abs = Math.abs(m);
+        return `${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+    };
+
+    const handleReschedule = async () => {
+        if (!newDate || !newTime || isSubmitting) return;
+        setIsSubmitting(true); setError(null);
+        try {
+            const iso = new Date(`${newDate}T${newTime}:00${tzSuffixOf(info?.policy?.tzOffsetMinutes)}`).toISOString();
+            const d = await apptApi({ action: 'reschedule', newStartIso: iso });
+            if (!d.ok) { setError(d.error || 'Could not move the appointment — try another time.'); return; }
+            setResult(d);
+        } catch (e: any) { setError(e?.message || 'Something went wrong. Please call the studio directly.'); }
+        finally { setIsSubmitting(false); }
+    };
+
+    if (isLoading) {
+        return (
+            <ViewContainer>
+                <div className="p-16 flex flex-col items-center justify-center gap-4">
+                    <Loader className="h-8 w-8 animate-spin text-primary" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-60">Loading your appointment…</p>
+                </div>
+            </ViewContainer>
+        );
+    }
+
+    if (result) {
+        return (
+            <ViewContainer>
+                <ViewHeader title="Rescheduled" subtitle="Your new time is locked in" icon={CheckCircle2} />
+                <CardContent className="p-10 md:p-16 text-center space-y-8">
+                    <div className="w-24 h-24 bg-green-500/10 rounded-[2.5rem] flex items-center justify-center mx-auto shadow-xl">
+                        <CheckCircle2 className="w-12 h-12 text-green-500" />
+                    </div>
+                    <div className="space-y-2 text-center">
+                        <h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">See you {result.whenLabel || 'then'}</h3>
+                        <p className="text-sm font-medium text-slate-500 leading-relaxed uppercase tracking-tight max-w-sm mx-auto">
+                            The studio's calendar is updated and your reminders follow the new time. This same link checks you in on the day.
+                        </p>
+                    </div>
+                    <Button onClick={onBack} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl">Done</Button>
+                </CardContent>
+            </ViewContainer>
+        );
+    }
+
+    if (error && !info) {
+        return (
+            <ViewContainer>
+                <ViewHeader title="Can't Reschedule Online" subtitle="This link is no longer actionable" icon={AlertTriangle} />
+                <CardContent className="p-10 md:p-16 text-center space-y-8">
+                    <div className="w-24 h-24 bg-destructive/5 rounded-[2.5rem] flex items-center justify-center mx-auto opacity-40">
+                        <AlertTriangle className="w-12 h-12 text-destructive" />
+                    </div>
+                    <h3 className="text-xl font-black uppercase tracking-tighter text-slate-900">{error}</h3>
+                    <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Back</Button>
+                </CardContent>
+            </ViewContainer>
+        );
+    }
+
+    const canChange = info?.policy?.canChange !== false;
+
+    return (
+        <ViewContainer>
+            <ViewHeader title="Pick a New Time" subtitle="Same service, same provider" icon={Repeat} />
+            <CardContent className="p-8 md:p-12 space-y-8 text-left">
+                <div className="p-8 rounded-[3rem] bg-primary/5 border-2 border-primary/10 shadow-inner space-y-4">
+                    <CalendarIcon className="w-12 h-12 text-primary mx-auto opacity-40" />
+                    <div className="space-y-1.5 text-center">
+                        <p className="text-[10px] font-black uppercase text-primary tracking-[0.3em]">{info?.studioName}</p>
+                        <h3 className="text-2xl font-black uppercase text-slate-900 leading-tight">{info?.appt?.serviceName}</h3>
+                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+                            Currently {info?.appt?.whenLabel}{info?.appt?.staffName ? ` · with ${info.appt.staffName}` : ''}
+                        </p>
+                    </div>
+                </div>
+
+                {!canChange ? (
+                    <div className="p-6 rounded-[2rem] border-2 border-amber-200 bg-amber-50 flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                        <p className="text-xs font-bold text-amber-700 uppercase tracking-tight leading-relaxed">
+                            Online changes close {info?.policy?.cancelHours}h before your appointment — call the studio and we'll move it for you.
+                        </p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New date</Label>
+                                <input type="date" value={newDate} min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+                                    onChange={(e) => setNewDate(e.target.value)}
+                                    className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
+                            </div>
+                            <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">New time</Label>
+                                <input type="time" value={newTime} step={900}
+                                    onChange={(e) => setNewTime(e.target.value)}
+                                    className="w-full h-14 rounded-2xl border-2 px-4 text-sm font-bold bg-white shadow-inner" />
+                            </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-relaxed italic px-2">
+                            We check {info?.appt?.staffName ? `${info.appt.staffName}'s` : 'the'} live calendar instantly — if the slot is taken you'll know right away.
+                        </p>
+
+                        {error && <p className="text-xs font-bold text-destructive text-center">{error}</p>}
+
+                        <Button
+                            onClick={handleReschedule}
+                            disabled={isSubmitting || !newDate || !newTime}
+                            className="w-full h-16 rounded-[2rem] text-lg font-black uppercase tracking-widest shadow-2xl group"
+                        >
+                            {isSubmitting ? <Loader className="w-5 h-5 animate-spin" /> : (
+                                <>Confirm New Time <ArrowRight className="ml-3 w-5 h-5 transition-transform group-hover:translate-x-1" /></>
+                            )}
+                        </Button>
+                    </>
+                )}
+
+                <Button variant="ghost" onClick={onBack} className="w-full text-slate-400">← Never mind, keep my time</Button>
+            </CardContent>
+        </ViewContainer>
+    );
+};
+
 export default function CheckInPage() {
     const params = useParams();
     const token = params.token as string;
@@ -1852,6 +2064,7 @@ export default function CheckInPage() {
 
     const [entered, setEntered] = useState(false);
     const [showCancelFlow, setShowCancelFlow] = useState(false);
+    const [showRescheduleFlow, setShowRescheduleFlow] = useState(false);
     const [showNotificationSettings, setShowNotificationSettings] = useState(false);
     // v2 -- once the completion gate is submitted, we don't want the
     // still-cached-in-memory `completion` doc (which may not have refreshed
@@ -2070,6 +2283,19 @@ export default function CheckInPage() {
         );
     }
 
+    // v8 — reschedule flow. Reachable via "Need a different time?" on the
+    // arrival screen; authenticated with this page's own token.
+    if (showRescheduleFlow && tenantId && appointmentData?.id) {
+        return (
+            <RescheduleGateView
+                tenantId={tenantId}
+                appointmentId={appointmentData.id}
+                k={token}
+                onBack={() => setShowRescheduleFlow(false)}
+            />
+        );
+    }
+
     if (showNotificationSettings && tenantId && client && tenant?.notificationDefaults?.allowClientOverride !== false) {
         return (
             <NotificationPreferencesView
@@ -2128,7 +2354,17 @@ export default function CheckInPage() {
         : false;
 
     if (isTooEarly) {
-        return <TooEarlyView startTime={appointmentData!.startTime} serviceName={service?.name} />;
+        return (
+            <TooEarlyView
+                startTime={appointmentData!.startTime}
+                serviceName={service?.name}
+                onReschedule={() => setShowRescheduleFlow(true)}
+                onCancel={() => setShowCancelFlow(true)}
+                calendarUrl={tenantId && appointmentData?.id
+                    ? `/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(appointmentData.id)}&k=${encodeURIComponent(token)}`
+                    : null}
+            />
+        );
     }
 
     return (
@@ -2233,6 +2469,13 @@ export default function CheckInPage() {
                                     Access Private Dashboard
                                 </Link>
                             </Button>
+                            <button
+                                type="button"
+                                onClick={() => setShowRescheduleFlow(true)}
+                                className="w-full text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest hover:text-primary transition-colors"
+                            >
+                                Need a different time? Reschedule
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => setShowCancelFlow(true)}
