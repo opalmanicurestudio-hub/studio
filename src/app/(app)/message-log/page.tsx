@@ -30,6 +30,7 @@ const AUDIENCES = [
   { key: 'client', label: 'Clients', icon: User },
   { key: 'staff', label: 'Staff', icon: Users },
   { key: 'renter', label: 'Renters', icon: Armchair },
+  { key: 'contact', label: 'Guests', icon: User },
   { key: 'maintenance', label: 'Maintenance', icon: HardHat },
   { key: 'other', label: 'Other', icon: HelpCircle },
 ] as const;
