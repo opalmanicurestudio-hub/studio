@@ -15,7 +15,7 @@ import {
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
-  MessageSquare, DoorOpen,
+  MessageSquare, DoorOpen, Send,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -49,6 +49,7 @@ const DAILY_HUB = [
   { href: '/pos',         icon: ListChecks,      label: 'Terminal (POS)' },
   { href: '/voice',       icon: Bot,             label: 'AI Receptionist'},
   { href: '/messages',    icon: MessageSquare,   label: 'Messages'       },
+  { href: '/message-log', icon: Send,            label: 'Message Log'    },
   { href: '/my-schedule', icon: Clock,           label: 'My Schedule'    },
 ];
 
