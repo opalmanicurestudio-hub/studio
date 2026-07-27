@@ -14,6 +14,7 @@ import {
   Printer, StickyNote, TrendingUp, Gift, ChevronRight, Star, ExternalLink,
   PenLine, ImagePlus, Expand, X, Hash, Info, BadgePercent, ArrowUpRight,
   BarChart2, Repeat2, UserCheck, Clock3, Activity, ChevronLeft, Download,
+  Lock,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -523,7 +524,7 @@ const SessionNotePanel = ({
               </span>
             </div>
             <Button variant="ghost" size="sm" onClick={() => { setDraft(existing); setEditing(true); }}
-              className="h-6 px-2 text-[8px] font-black uppercase tracking-widest rounded-lg">
+              className="relative h-8 px-2.5 text-[8px] font-black uppercase tracking-widest rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
               <Edit className="w-2.5 h-2.5 mr-1" /> Edit
             </Button>
           </div>
@@ -551,11 +552,198 @@ const SessionNotePanel = ({
         </div>
       ) : (
         <button onClick={() => setEditing(true)}
-          className="w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
-          <PenLine className="w-3.5 h-3.5 text-primary/40" />
+          className="w-full flex items-center gap-2.5 px-4 py-3 min-h-[44px] rounded-2xl border-2 border-dashed border-primary/15 bg-primary/[0.015] hover:bg-primary/[0.04] hover:border-primary/30 transition-all text-left">
+          <PenLine className="w-3.5 h-3.5 text-primary/40 shrink-0" />
           <span className="text-[10px] font-black uppercase tracking-widest text-primary/40">Add session note</span>
         </button>
       )}
+    </div>
+  );
+};
+
+// ─── Appointment notes hub ────────────────────────────────────────────────────
+//
+// THE BUG THIS FIXES: three separate note fields were written and then never
+// displayed anywhere in this drawer.
+//
+//   appointment.notes                     ← typed at booking (front desk via
+//                                           QuickBookForm, or by the client
+//                                           themselves through the public
+//                                           booking route)
+//   appointment.internalNotes             ← the "internal / staff only" box in
+//                                           QuickBookForm. Written in exactly
+//                                           one place and READ NOWHERE in the
+//                                           entire codebase before this.
+//   appointment.checkoutState.reviewNotes ← what the technician types during
+//                                           checkout. Saved, then invisible.
+//
+// The drawer DID have a "Preferences & Notes" panel, which is why this looked
+// like a display bug rather than a missing feature — but that panel reads
+// client.notes.goals and client.notes.history off the CLIENT document. Same
+// word, different document, and on the client record `notes` is an OBJECT while
+// on the appointment it's a plain string. So the note you typed at checkout was
+// never anywhere near what the drawer was rendering.
+//
+// Booking and internal notes are editable here on purpose: if a note lands in
+// the wrong box, or needs correcting after the fact, this is where somebody
+// looking at the appointment will try to fix it.
+//
+// The checkout note is deliberately READ-ONLY. It lives inside checkoutState,
+// which the checkout flow rewrites wholesale; editing one field from here would
+// be silently overwritten the next time checkout ran. It's shown, clearly
+// labelled, and left alone.
+const NOTE_TONES = {
+  booking:  { label: 'Booking note',  icon: MessageSquare, hint: 'What was typed when this was booked. The client can see this.', ring: 'border-primary/15 bg-primary/[0.02]', dot: 'text-primary/50' },
+  internal: { label: 'Internal note', icon: Lock,          hint: 'Staff only. Never shown to the client.',                        ring: 'border-amber-300/40 bg-amber-50/40', dot: 'text-amber-600/70' },
+} as const;
+
+const EditableNoteRow = ({
+  kind, value, appointment, tenantId, firestore,
+}: {
+  kind: 'booking' | 'internal';
+  value: string;
+  appointment: any; tenantId: string; firestore: any;
+}) => {
+  const tone = NOTE_TONES[kind];
+  const field = kind === 'booking' ? 'notes' : 'internalNotes';
+  const Icon = tone.icon;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  // Keep the editor honest if the document changes underneath us (this drawer
+  // re-resolves the appointment live) — but never clobber an open edit.
+  useEffect(() => { if (!editing) setDraft(value || ''); }, [value, editing]);
+
+  const handleSave = async () => {
+    if (!firestore || !tenantId || !appointment?.id) return;
+    const next = draft.trim();
+    if (next === (value || '').trim()) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await updateDocumentNonBlocking(
+        doc(firestore, 'tenants', tenantId, 'appointments', appointment.id),
+        // Clearing a note removes the field rather than storing an empty
+        // string, so "no note" reads the same as it did before one existed.
+        { [field]: next ? next : deleteField() },
+      );
+      toast({ title: next ? 'Note saved' : 'Note cleared' });
+      setEditing(false);
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save note' });
+    } finally { setSaving(false); }
+  };
+
+  if (editing) {
+    return (
+      <div className={cn('space-y-2.5 p-3.5 rounded-2xl border-2', tone.ring)}>
+        <div className="flex items-center gap-2">
+          <Icon className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
+          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-70">{tone.label}</span>
+        </div>
+        <p className="text-[9px] font-bold text-muted-foreground opacity-60 leading-snug">{tone.hint}</p>
+        <Textarea
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder={kind === 'booking' ? 'What the client asked for, parking notes, anything they should see…' : 'Anything the team needs to know that the client should not see…'}
+          className="min-h-[76px] rounded-xl text-[11px] resize-none"
+          autoFocus
+        />
+        <div className="flex gap-2">
+          <Button size="sm" onClick={handleSave} disabled={saving}
+            className="h-9 flex-1 rounded-lg text-[9px] font-black uppercase tracking-widest">
+            {saving ? <Loader className="w-3 h-3 animate-spin" /> : 'Save'}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => { setDraft(value || ''); setEditing(false); }}
+            className="h-9 px-3 rounded-lg text-[9px] font-black uppercase tracking-widest border-2">
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!value) {
+    return (
+      <button onClick={() => setEditing(true)}
+        className={cn('w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl border-2 border-dashed transition-all text-left min-h-[44px] hover:bg-muted/20', kind === 'booking' ? 'border-primary/15' : 'border-amber-300/40')}>
+        <PenLine className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
+        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-50">Add {tone.label.toLowerCase()}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className={cn('rounded-2xl border-2 p-4 space-y-2', tone.ring)}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className={cn('w-3.5 h-3.5 shrink-0', tone.dot)} />
+          <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 truncate">{tone.label}</span>
+        </div>
+        {/* h-8 keeps the row visually tight; the -inset-2 pseudo-element gives
+            it a ~48px touch target on a phone without growing the layout. */}
+        <Button variant="ghost" size="sm" onClick={() => { setDraft(value); setEditing(true); }}
+          className="relative h-8 px-2.5 text-[8px] font-black uppercase tracking-widest rounded-lg shrink-0 after:absolute after:-inset-2 after:content-['']">
+          <Edit className="w-2.5 h-2.5 mr-1" /> Edit
+        </Button>
+      </div>
+      <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5 whitespace-pre-wrap break-words">{value}</p>
+    </div>
+  );
+};
+
+const AppointmentNotesPanel = ({
+  appointment, tenantId, firestore, currentUser, staff,
+}: { appointment: any; tenantId: string; firestore: any; currentUser: any; staff: any[] }) => {
+  const bookingNote = typeof appointment?.notes === 'string' ? appointment.notes.trim() : '';
+  const internalNote = typeof appointment?.internalNotes === 'string' ? appointment.internalNotes.trim() : '';
+  const checkoutNote = typeof appointment?.checkoutState?.reviewNotes === 'string'
+    ? appointment.checkoutState.reviewNotes.trim() : '';
+  const resolutionNote = typeof appointment?.resolutionNotes === 'string' ? appointment.resolutionNotes.trim() : '';
+
+  return (
+    <div className="space-y-2">
+      <EditableNoteRow kind="booking" value={bookingNote} appointment={appointment} tenantId={tenantId} firestore={firestore} />
+      <EditableNoteRow kind="internal" value={internalNote} appointment={appointment} tenantId={tenantId} firestore={firestore} />
+
+      {/* Read-only: owned by the checkout flow (see the note above). */}
+      {checkoutNote && (
+        <div className="rounded-2xl border-2 border-emerald-300/40 bg-emerald-50/40 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Receipt className="w-3.5 h-3.5 text-emerald-700/60 shrink-0" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+              From checkout
+              {appointment?.actualEndTime && ` · ${fmtDT(appointment.actualEndTime, 'MMM d')}`}
+            </span>
+          </div>
+          <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5 whitespace-pre-wrap break-words">{checkoutNote}</p>
+          <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 pl-5">
+            Recorded at checkout — edit it from the checkout screen
+          </p>
+        </div>
+      )}
+
+      {/* Escalation resolution — was rendered far down the drawer, well away
+          from every other note. Repeated here so one place answers "what do we
+          know about this appointment." */}
+      {resolutionNote && (
+        <div className="rounded-2xl border-2 border-slate-300 bg-slate-50 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
+              Escalation resolved
+              {appointment?.resolvedAt && ` · ${fmtDT(appointment.resolvedAt, 'MMM d')}`}
+            </span>
+          </div>
+          <p className="text-[11px] font-medium text-slate-700 leading-relaxed pl-5 whitespace-pre-wrap break-words">{resolutionNote}</p>
+        </div>
+      )}
+
+      <SessionNotePanel
+        appointment={appointment} tenantId={tenantId} firestore={firestore}
+        currentUser={currentUser} staff={staff}
+      />
     </div>
   );
 };
@@ -2312,12 +2500,17 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
           </div>
         )}
 
-        {/* ── Session note ────────────────────────────────────────────────── */}
+        {/* ── Notes ───────────────────────────────────────────────────────────
+            One place for every note attached to THIS appointment: the booking
+            note, the staff-only internal note, whatever the technician typed at
+            checkout, an escalation resolution, and the running session log.
+            Previously only the session log appeared here, so a note typed at
+            checkout was saved and then never shown. */}
         <div className="space-y-2">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-1.5">
-            <StickyNote className="w-3 h-3" /> Session Note
+            <StickyNote className="w-3 h-3" /> Notes
           </h3>
-          <SessionNotePanel
+          <AppointmentNotesPanel
             appointment={appointment} tenantId={tenantId!} firestore={firestore}
             currentUser={currentUser} staff={staff || []}
           />
@@ -2750,9 +2943,14 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
             <AccordionItem value="pref-notes" className="border-2 rounded-2xl overflow-hidden bg-muted/5 shadow-inner">
               <AccordionTrigger className="px-4 py-3 hover:no-underline font-black uppercase text-[9px] tracking-[0.2em] text-slate-600">
-                <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Preferences & Notes
+                <Sparkles className="w-3.5 h-3.5 mr-2 opacity-40" /> Client Profile &amp; Preferences
               </AccordionTrigger>
               <AccordionContent className="px-4 pb-4 pt-2 space-y-4">
+                {/* Standing record on the CLIENT, not notes about this visit —
+                    appointment notes live in the Notes section above. */}
+                <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 leading-relaxed">
+                  Standing record for {client.name || 'this client'} — carries across every visit
+                </p>
                 {client.notes?.goals && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-primary/60">Strategic Goals</p><p className="text-[10px] font-medium leading-relaxed italic">"{client.notes.goals}"</p></div>}
                 {client.sensoryNeeds && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-blue-600/60">Sensory Needs</p><p className="text-[10px] font-medium leading-relaxed italic">"{client.sensoryNeeds}"</p></div>}
                 {client.allergyNotes && <div className="space-y-1"><p className="text-[8px] font-black uppercase text-red-600">Allergy / Medical</p><p className="text-[10px] font-medium leading-relaxed text-red-700">"{client.allergyNotes}"</p></div>}
