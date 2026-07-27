@@ -30,14 +30,28 @@ const fmtDT = (iso: any) => {
 
 const STEPS = ['Sent', 'Delivered', 'Opened', 'Clicked'];
 
+// Best-effort E.164 for matching messageLog's stored `to` numbers.
+const toE164ish = (raw: any): string | null => {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return digits.length >= 10 ? `+${digits}` : null;
+};
+
 export function CommsTrail({
   recipientType,
   recipientId,
+  contactPhone,
+  contactEmail,
   title = 'Communications',
   maxItems = 8,
 }: {
-  recipientType: 'client' | 'staff' | 'renter' | 'maintenance';
+  recipientType: 'client' | 'staff' | 'renter' | 'maintenance' | 'contact';
   recipientId: string;
+  // Optional: also match by the person's phone/email — catches messages
+  // sent before their record existed (or before the tagging deploy).
+  contactPhone?: string;
+  contactEmail?: string;
   title?: string;
   maxItems?: number;
 }) {
@@ -52,13 +66,32 @@ export function CommsTrail({
   }, [firestore, tenantId, recipientId]);
   const { data: docs } = useCollection<any>(logQuery);
 
-  const messages = useMemo(
-    () => [...(docs || [])]
-      .filter((m: any) => !recipientType || !m.recipientType || m.recipientType === recipientType)
+  const phoneE164 = toE164ish(contactPhone);
+  const phoneQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !phoneE164) return null;
+    return query(collection(firestore, `tenants/${tenantId}/messageLog`), where('to', '==', phoneE164));
+  }, [firestore, tenantId, phoneE164]);
+  const { data: phoneDocs } = useCollection<any>(phoneQuery);
+
+  const emailNorm = String(contactEmail || '').trim().toLowerCase();
+  const emailQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !emailNorm || !emailNorm.includes('@')) return null;
+    return query(collection(firestore, `tenants/${tenantId}/messageLog`), where('to', '==', emailNorm));
+  }, [firestore, tenantId, emailNorm]);
+  const { data: emailDocs } = useCollection<any>(emailQuery);
+
+  const messages = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: any[] = [];
+    for (const m of [...(docs || []), ...(phoneDocs || []), ...(emailDocs || [])]) {
+      if (!m?.id || seen.has(m.id)) continue;
+      seen.add(m.id);
+      merged.push(m);
+    }
+    return merged
       .sort((a: any, b: any) => String(b.sentAt || '').localeCompare(String(a.sentAt || '')))
-      .slice(0, maxItems),
-    [docs, recipientType, maxItems],
-  );
+      .slice(0, maxItems);
+  }, [docs, phoneDocs, emailDocs, maxItems]);
 
   const attention = messages.filter((m: any) => m.bouncedAt || m.status === 'failed').length;
   if (!recipientId) return null;
