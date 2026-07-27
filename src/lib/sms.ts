@@ -132,7 +132,7 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
 // uses (staff → maintenance workers → renters → clients).
 export type SmsMeta = {
   kind?: string;                       // 'rent_reminder' | 'job_assigned' | ...
-  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'other';
+  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'contact' | 'other';
   recipientId?: string | null;
   recipientName?: string | null;
   appointmentId?: string | null;
@@ -148,6 +148,8 @@ async function resolveRecipient(db: any, tenantId: string, e164: string | null) 
     { coll: 'maintenanceWorkers', type: 'maintenance' as const },
     { coll: 'renters', type: 'renter' as const },
     { coll: 'clients', type: 'client' as const },
+    // Day-pass / hourly reservation customers (the booth CRM's contacts)
+    { coll: 'contacts', type: 'contact' as const },
   ];
   for (const p of pools) {
     try {
