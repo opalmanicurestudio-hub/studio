@@ -48,7 +48,7 @@ export type NotifyInput = {
   // v17 — who is this for? Enables the Message Log screen to group sends
   // by audience (clients / staff / renters / maintenance). When omitted,
   // clientId implies 'client'; texts are auto-matched by phone number.
-  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'other';
+  recipientType?: 'client' | 'staff' | 'renter' | 'maintenance' | 'contact' | 'other';
   recipientId?: string | null;
   recipientName?: string | null;
 };
