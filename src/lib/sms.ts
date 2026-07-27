@@ -42,7 +42,42 @@ export function toE164(raw: any): string | null {
   return null;
 }
 
-export interface SmsResult { ok: boolean; sid?: string; error?: string }
+export interface SmsResult { ok: boolean; sid?: string; error?: string; via?: 'sms' | 'email' }
+
+// ── EMAIL FALLBACK — the secondary delivery method ─────────────────────
+// When a text can't go out (Twilio down, unconfigured, number rejected,
+// trial limits) and we have an email address, the SAME message goes by
+// email via Resend instead of dying. Needs RESEND_API_KEY (and ideally
+// NOTIFY_FROM_EMAIL) in the environment; without them this quietly
+// declines and callers keep their owner-inbox fallback as the last net.
+async function sendFallbackEmail(toEmail: string, subject: string, body: string, studioName: string): Promise<boolean> {
+  try {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey || !toEmail || !/@/.test(toEmail)) return false;
+    const { brandedEmailHtml } = await import('./email-template');
+    // Lift a link out of the message body into a proper CTA button.
+    const linkMatch = body.match(/https?:\/\/\S+/);
+    const textOnly = linkMatch ? body.replace(linkMatch[0], '').replace(/\s{2,}/g, ' ').trim() : body;
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        from: process.env.NOTIFY_FROM_EMAIL || 'ClarityFlow <onboarding@resend.dev>',
+        to: [toEmail],
+        subject: subject || `${studioName || 'Studio'} — notification`,
+        text: `${body}\n\n— ${studioName || 'The studio'} (sent by email because your phone couldn't receive our text)`,
+        html: brandedEmailHtml({
+          studioName: studioName || 'Studio',
+          title: subject || 'Notification',
+          bodyLines: [textOnly],
+          cta: linkMatch ? { label: 'Open', url: linkMatch[0] } : null,
+          footerNote: `Sent by email because your phone couldn't receive our text. You're receiving this because you have an account or booking with ${studioName || 'the studio'}.`,
+        }),
+      }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
 
 // Low-level send using the platform account. Prefer sendTenantSms().
 export async function sendSms(to: string, body: string, opts?: { from?: string; messagingServiceSid?: string }): Promise<SmsResult> {
@@ -83,7 +118,11 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
 // the A2P registration promises carriers. Later messages in the ongoing
 // relationship stay clean (the disclosure requirement is first-contact,
 // and Twilio enforces STOP at the carrier level regardless).
-export async function sendTenantSms(db: any, tenantId: string, to: string, body: string): Promise<SmsResult> {
+export async function sendTenantSms(
+  db: any, tenantId: string, to: string, body: string,
+  // Secondary method: pass an email and the message survives SMS failure.
+  fallback?: { email?: string | null; subject?: string },
+): Promise<SmsResult> {
   let studioName = '';
   let from: string | undefined;
   let messagingServiceSid: string | undefined;
@@ -108,13 +147,22 @@ export async function sendTenantSms(db: any, tenantId: string, to: string, body:
     } catch { /* opt-out line is best-effort; carrier STOP still protects */ }
   }
   const branded = `${studioName ? `${studioName}: ` : ''}${body}${firstContact ? ' Reply STOP to opt out.' : ''}`;
-  const result = await sendSms(to, branded, { from, messagingServiceSid });
+  let result: SmsResult = await sendSms(to, branded, { from, messagingServiceSid });
+  if (result.ok) result.via = 'sms';
+
+  // SMS failed → try the secondary method before giving up.
+  if (!result.ok && fallback?.email) {
+    const emailed = await sendFallbackEmail(fallback.email, fallback.subject || (studioName ? `${studioName} — notification` : 'Notification'), body, studioName);
+    if (emailed) result = { ok: true, via: 'email', error: `sms failed (${result.error}) — delivered by email` };
+  }
+
   try {
     const ref = db.collection(`tenants/${tenantId}/private`).doc('smsLog')
       .collection('messages').doc();
     await ref.set({
       id: ref.id, to: toE164(to) || String(to).slice(0, 30), body: branded.slice(0, 500),
-      ok: result.ok, sid: result.sid || null, error: result.error || null,
+      ok: result.ok, via: result.via || 'sms', sid: result.sid || null, error: result.error || null,
+      fallbackEmail: (!result.ok || result.via === 'email') ? (fallback?.email || null) : null,
       at: new Date().toISOString(),
     });
   } catch { /* the log never blocks the message */ }
