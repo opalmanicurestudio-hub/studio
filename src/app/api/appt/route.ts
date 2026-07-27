@@ -31,7 +31,13 @@ async function loadAuthed(db: any, tenantId: string, apptId: string, k: any) {
   const snap = await ref.get();
   if (!snap.exists) return null;
   const a = snap.data() as any;
-  if (!a.manageToken || a.manageToken !== String(k)) return null;
+  // v18 — two accepted keys: the manageToken (from email links) OR the
+  // appointment's checkInToken (the master /check-in portal's own token),
+  // so the portal's reschedule view authenticates with the key it already
+  // has. Both are long random secrets delivered only to the client.
+  const key = String(k);
+  const ok = (a.manageToken && a.manageToken === key) || (a.checkInToken && a.checkInToken === key);
+  if (!ok) return null;
   return { ref, a };
 }
 
@@ -67,9 +73,17 @@ export async function POST(req: NextRequest) {
     const studioName = tDoc.name || tDoc.businessName || 'The studio';
     const cfg = tDoc.clientNotify || {};
     const cancelHours = Number.isFinite(Number(cfg.cancelHours)) ? Math.max(0, Number(cfg.cancelHours)) : 24;
+    // v19 — RESCHEDULING has its OWN, much shorter cutoff (default 2h,
+    // configurable via clientNotify.rescheduleCutoffHours). Psychology:
+    // a reschedule KEEPS the booking and the revenue — every one you
+    // allow is a cancellation or no-show you avoided. Only cancellation
+    // (money walking out) uses the longer fee window, and even then the
+    // fee engine recovers the cost rather than forcing a phone call.
+    const rescheduleCutoffHours = Number.isFinite(Number(cfg.rescheduleCutoffHours)) ? Math.max(0, Number(cfg.rescheduleCutoffHours)) : 2;
     const tzOffset = Number.isFinite(Number(cfg.tzOffsetMinutes)) ? Number(cfg.tzOffsetMinutes) : -300;
     const startMs = new Date(a.startTime).getTime();
     const insideWindow = Date.now() <= startMs - cancelHours * 3600000;
+    const insideRescheduleWindow = Date.now() <= startMs - rescheduleCutoffHours * 3600000;
     const already = ['cancelled', 'canceled', 'completed', 'no_show'].includes(String(a.status || ''));
 
     if (action === 'view') {
@@ -82,7 +96,10 @@ export async function POST(req: NextRequest) {
           status: a.status || 'confirmed',
           whenLabel: fmtWhen(a.startTime, tzOffset),
         },
-        policy: { cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset },
+        policy: {
+          cancelHours, canChange: insideWindow && !already, tzOffsetMinutes: tzOffset,
+          rescheduleCutoffHours, canReschedule: insideRescheduleWindow && !already,
+        },
       });
     }
 
@@ -109,7 +126,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'reschedule') {
-      if (!insideWindow) return NextResponse.json({ ok: false, error: `Online changes close ${cancelHours}h before the appointment — call the studio and we'll sort it out.` }, { status: 422 });
+      if (!insideRescheduleWindow) return NextResponse.json({ ok: false, error: `Online rescheduling closes ${rescheduleCutoffHours}h before the appointment — call the studio and we'll sort it out.` }, { status: 422 });
       const newStart = new Date(String(body.newStartIso || ''));
       if (Number.isNaN(newStart.getTime())) return NextResponse.json({ ok: false, error: 'Pick a date and time.' }, { status: 400 });
       const nowMs = Date.now();
@@ -132,12 +149,20 @@ export async function POST(req: NextRequest) {
           const oE = new Date(o.endTime || o.startTime).getTime() + (Number(o.padAfter) || 0) * 60000;
           if (overlaps(newStart.getTime(), newEnd.getTime(), oS, oE)) return { conflict: true };
         }
-        tx.set(ref, {
+        const move = {
           startTime: newStart.toISOString(), endTime: newEnd.toISOString(),
           rescheduledAt: new Date().toISOString(), rescheduledBy: 'client_self_serve',
           previousStartTime: a.startTime,
           reminderSentAt: null, // the new time earns its own reminder
-        }, { merge: true });
+        };
+        tx.set(ref, move, { merge: true });
+        // v18 — keep the check-in MIRRORS in step: the master portal reads
+        // appointmentCheckIns/{token}, so without this the portal would
+        // keep showing the old time after a successful move.
+        if (a.checkInToken) {
+          tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`), move, { merge: true });
+          tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), move, { merge: true });
+        }
         return { conflict: false };
       });
       if (result.conflict) return NextResponse.json({ ok: false, error: `${a.staffName || 'That staff member'} is booked then — try another time.` }, { status: 409 });
