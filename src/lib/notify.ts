@@ -133,8 +133,13 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     await logRef.set({
       id: logRef.id,
       channel, kind,
-      to: mask(to),
+      // v16 — the REAL address/number, not masked. The owner reads this
+      // log to spot typos ("client swears they got nothing" → the log
+      // shows gmial.com) and fix-and-resend. Masking stays in the audit
+      // summary below, which is the broader-audience surface.
+      to,
       subject: input.subject || null,
+      preview: input.text ? String(input.text).slice(0, 140) : null,
       status: result.status,
       error: result.error || null,
       providerId: result.providerId || null,
@@ -142,7 +147,20 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       clientId: input.clientId || null,
       clientName: input.clientName || null,
       sentAt: new Date().toISOString(),
+      // Journey fields — filled in later by the provider webhooks
+      // (/api/webhooks/resend for email, /api/sms/status for texts).
+      deliveredAt: null, openedAt: null, clickedAt: null,
+      bouncedAt: null, failureDetail: null,
     });
+    // v16 — O(1) webhook lookup: providerId → {tenantId, logId}. Resend and
+    // Twilio callbacks only know their own message id, not our tenant.
+    if (result.providerId) {
+      try {
+        await db.doc(`msgIndex/${result.providerId}`).set({
+          tenantId, logId: logRef.id, channel, at: new Date().toISOString(),
+        });
+      } catch { /* tracking is best-effort */ }
+    }
     await logAuditAdmin(db, tenantId, {
       action: `notify.${result.status}`,
       targetType: 'message', targetId: logRef.id,
