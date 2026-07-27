@@ -23,6 +23,22 @@ import { sweepNoShows } from '@/lib/no-show';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
+// Magic portal link for a renter — mints their portalToken when missing,
+// same mechanism as the owner's "Send portal link" button.
+async function renterPortalLink(db: any, tenantId: string, renterId: string, r: any): Promise<string | null> {
+  try {
+    const base = String(((await db.doc(`tenants/${tenantId}`).get()).data() as any)?.publicOrigin
+      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+    if (!base) return null;
+    let tok = r?.portalToken;
+    if (!tok || String(tok).length < 12) {
+      tok = Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 10)).join('') + Date.now().toString(36);
+      await db.doc(`tenants/${tenantId}/renters/${renterId}`).set({ portalToken: tok }, { merge: true });
+    }
+    return `${base}/rent/${tenantId}?rt=${tok}`;
+  } catch { return null; }
+}
+
 export async function GET(req: NextRequest) {
   // ── Auth: only Vercel Cron (or someone holding the secret) may run this ──
   const secret = process.env.CRON_SECRET;
@@ -182,11 +198,113 @@ export async function GET(req: NextRequest) {
           type: 'rent_late', link: '/booths',
           message: `${renterName}'s rent is late — $${owed.toFixed(2)} owed${feeCents > 0 ? ' (late fee applied)' : ''}.`,
         });
+        // COLLECTIONS ON AUTOPILOT: the renter hears it the same night,
+        // with a one-tap magic link into their portal's Pay button.
+        try {
+          const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+          if (lease.renterId && smsConfigured()) {
+            const rRef = db.doc(`tenants/${tDoc.id}/renters/${lease.renterId}`);
+            const r = (await rRef.get()).data() as any;
+            if (r?.phone) {
+              const link = await renterPortalLink(db, tDoc.id, lease.renterId, r);
+              await sendTenantSms(db, tDoc.id, r.phone,
+                `Your rent (due ${due}) is now past due — $${owed.toFixed(2)} owed${feeCents > 0 ? ' incl. late fee' : ''}. Pay in your portal:${link ? ` ${link}` : ' (link in your welcome text)'}`,
+                { email: r.email || null, subject: 'Rent past due' });
+            }
+          }
+        } catch { /* renter text is a bonus — the owner notification stands */ }
       }
     } catch (e) {
       results[`rent:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
     }
   }
+
+  // ── SELF-SERVE NUDGES — renter-facing money + paperwork, plus the
+  // Monday tech digest. Everything idempotent via stamps; everything
+  // fail-soft; each tenant isolated.
+  const nudgeTotals = { rentDue: 0, credExpiry: 0, techDigests: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const tid = tDoc.id;
+      const { smsConfigured, sendTenantSms } = await import('@/lib/sms');
+      if (!smsConfigured()) break; // no SMS → these are pure-noise skips
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const base = String((tDoc.data() as any)?.publicOrigin || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')).replace(/\/+$/, '');
+
+      // 1) RENT COMING DUE (3 days out) — friendly nudge with pay link.
+      try {
+        const dueSnap = await db.collection(`tenants/${tid}/rentInvoices`).where('status', '==', 'due').get();
+        const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+        for (const inv of dueSnap.docs) {
+          const v = inv.data() as any;
+          const due = String(v.dueDate || '').slice(0, 10);
+          if (!due || due > soon || due < todayStr || v.renterDueNotifiedAt) continue;
+          const lease = v.leaseId ? (await db.doc(`tenants/${tid}/leases/${v.leaseId}`).get()).data() as any : null;
+          if (!lease?.renterId || lease.autoCollect) continue;
+          const r = (await db.doc(`tenants/${tid}/renters/${lease.renterId}`).get()).data() as any;
+          if (!r?.phone) continue;
+          const link = await renterPortalLink(db, tid, lease.renterId, r);
+          const sent = await sendTenantSms(db, tid, r.phone,
+            `Heads up — rent of $${((v.amountCents || 0) / 100).toFixed(2)} is due ${due === todayStr ? 'today' : due}. Pay any time in your portal:${link ? ` ${link}` : ''}`,
+            { email: r.email || null, subject: 'Rent due soon' });
+          if (sent.ok) { await inv.ref.set({ renterDueNotifiedAt: new Date().toISOString() }, { merge: true }); nudgeTotals.rentDue++; }
+        }
+      } catch { /* isolated */ }
+
+      // 2) CREDENTIAL EXPIRY — the renter uploads the renewal THEMSELVES
+      // via their portal; you get a notification, not a filing task.
+      try {
+        const renters = await db.collection(`tenants/${tid}/renters`).get();
+        const cutoff = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+        for (const rDoc of renters.docs) {
+          const r = rDoc.data() as any;
+          if (!r?.phone || r.status === 'former') continue;
+          for (const [field, label] of [['licenseExpiry', 'license'], ['insuranceExpiry', 'insurance']] as const) {
+            const exp = String(r[field] || '').slice(0, 10);
+            if (!exp || exp > cutoff) continue;
+            const stampField = `credNotified_${field}`;
+            if (r[stampField] === exp) continue;
+            const link = await renterPortalLink(db, tid, rDoc.id, r);
+            const sent = await sendTenantSms(db, tid, r.phone,
+              `Your ${label} on file ${exp < todayStr ? 'expired' : 'expires'} ${exp}. Upload the renewed one in your portal (Documents):${link ? ` ${link}` : ''}`,
+              { email: r.email || null, subject: `Your ${label} ${exp < todayStr ? 'expired' : 'expires soon'}` });
+            if (sent.ok) { await rDoc.ref.set({ [stampField]: exp }, { merge: true }); nudgeTotals.credExpiry++; }
+          }
+        }
+      } catch { /* isolated */ }
+
+      // 3) MONDAY TECH DIGEST — each worker's week at a glance, once/week.
+      try {
+        const isMonday = new Date().getUTCDay() === 1;
+        const lastDigest = String((tDoc.data() as any)?.lastTechDigestAt || '').slice(0, 10);
+        if (isMonday && lastDigest !== todayStr) {
+          const [ws, ts] = await Promise.all([
+            db.collection(`tenants/${tid}/maintenanceWorkers`).get(),
+            db.collection(`tenants/${tid}/tickets`).get(),
+          ]);
+          const tickets = ts.docs.map((d: any) => d.data() as any);
+          const nowIso = new Date().toISOString();
+          for (const wDoc of ws.docs) {
+            const w = wDoc.data() as any;
+            if (!w?.phone || w.active === false) continue;
+            const mine = tickets.filter((t: any) => t.assigneeId === wDoc.id && ['open', 'in_progress'].includes(t.status));
+            const overdue = mine.filter((t: any) => t.dueAt && t.dueAt < nowIso).length;
+            const owed = (Math.max(0, Number(w.unpaidLaborCents) || 0) + Math.max(0, Number(w.unpaidMaterialsCents) || 0)) / 100;
+            if (mine.length === 0 && owed === 0) continue;
+            const link = base ? ` Queue: ${base}/maintain/${tid}?t=${w.token}` : '';
+            const r = await sendTenantSms(db, tid, w.phone,
+              `Week ahead: ${mine.length} open job${mine.length === 1 ? '' : 's'}${overdue ? ` (${overdue} overdue)` : ''}${owed > 0 ? ` · $${owed.toFixed(2)} owed to you` : ''}.${link}`,
+              { email: w.email || null, subject: 'Your week ahead' });
+            if (r.ok) nudgeTotals.techDigests++;
+          }
+          await tDoc.ref.set({ lastTechDigestAt: todayStr }, { merge: true });
+        }
+      } catch { /* isolated */ }
+    } catch (e) {
+      results[`nudges:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+  results.selfServeNudges = nudgeTotals;
 
   // ── Reminder suite — for EVERY tenant, emit idempotent in-app reminders for
   // upcoming tours, rent coming due, credential/license expiry, and leases up
