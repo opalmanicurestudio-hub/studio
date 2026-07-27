@@ -115,14 +115,64 @@ export async function POST(req: NextRequest) {
     if (action === 'cancel') {
       if (!insideWindow) return NextResponse.json({ ok: false, error: `Online cancellation closes ${cancelHours}h before the appointment — call the studio and we'll sort it out.` }, { status: 422 });
       const nowIso = new Date().toISOString();
-      await ref.set({ status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve' }, { merge: true });
-      await notifyStaffAndOwner(db, tenantId, a, `${a.clientName || 'A client'} cancelled ${fmtWhen(a.startTime, tzOffset)}${a.staffName ? ` with ${a.staffName}` : ''} (self-serve). The slot is open again.`);
+      const cancelFields = { status: 'cancelled', cancelledAt: nowIso, cancelledBy: 'client_self_serve' };
+      await ref.set(cancelFields, { merge: true });
+      if (a.checkInToken) {
+        // The portal she is standing on reads the mirror, so it has to move too.
+        await Promise.all([
+          db.doc(`appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}),
+          db.doc(`tenants/${tenantId}/appointmentCheckIns/${a.checkInToken}`).set({ ...cancelFields, tenantId }, { merge: true }).catch(() => {}),
+        ]);
+      }
+
+      // ── THE REST OF THE SAME VISIT ────────────────────────────────────────
+      // A multi-provider visit is stored as one row per leg. Cancelling only
+      // the leg she happened to tap left her booked for the others: the studio
+      // still expected her, the chairs stayed held, and she got a reminder for
+      // an appointment she believed she had cancelled. The legs go together.
+      //
+      // A party is one row per GUEST — different people — so a guest cancelling
+      // never touches anyone else. Only the organizer's row cancels the party,
+      // which is what cancelling a party of five means.
+      const visitId = a.multiProviderGroupId || null;
+      const partyId = a.isPrimaryGroup ? (a.groupBookingId || null) : null;
+      let alsoCancelled = 0;
+      if (visitId || partyId) {
+        const apptsCol = db.collection(`tenants/${tenantId}/appointments`);
+        const sibSnaps = await Promise.all([
+          visitId ? apptsCol.where('multiProviderGroupId', '==', visitId).get().catch(() => ({ docs: [] as any[] })) : Promise.resolve({ docs: [] as any[] }),
+          partyId ? apptsCol.where('groupBookingId', '==', partyId).get().catch(() => ({ docs: [] as any[] })) : Promise.resolve({ docs: [] as any[] }),
+        ]);
+        const seen = new Set<string>([apptId]);
+        for (const snap of sibSnaps) {
+          for (const d of (snap as any).docs) {
+            if (seen.has(d.id)) continue;
+            seen.add(d.id);
+            const s = d.data() as any;
+            if (['cancelled', 'canceled', 'completed', 'no_show'].includes(String(s.status || ''))) continue;
+            const sib = { ...cancelFields, cancelledWithAppointmentId: apptId };
+            await d.ref.set(sib, { merge: true }).catch(() => {});
+            if (s.checkInToken) {
+              await Promise.all([
+                db.doc(`appointmentCheckIns/${s.checkInToken}`).set({ ...sib, tenantId }, { merge: true }).catch(() => {}),
+                db.doc(`tenants/${tenantId}/appointmentCheckIns/${s.checkInToken}`).set({ ...sib, tenantId }, { merge: true }).catch(() => {}),
+              ]);
+            }
+            alsoCancelled++;
+          }
+        }
+      }
+
+      const extra = alsoCancelled > 0
+        ? ` This freed ${alsoCancelled + 1} linked bookings on the same visit.`
+        : '';
+      await notifyStaffAndOwner(db, tenantId, a, `${a.clientName || 'A client'} cancelled ${fmtWhen(a.startTime, tzOffset)}${a.staffName ? ` with ${a.staffName}` : ''} (self-serve). The slot is open again.${extra}`);
       await logAuditAdmin(db, tenantId, {
         action: 'appointment.client_cancelled', targetType: 'appointment', targetId: apptId,
-        summary: `${a.clientName || 'Client'} self-cancelled ${fmtWhen(a.startTime, tzOffset)}`,
+        summary: `${a.clientName || 'Client'} self-cancelled ${fmtWhen(a.startTime, tzOffset)}${alsoCancelled > 0 ? ` (+${alsoCancelled} linked)` : ''}`,
         actor: { type: 'user', name: a.clientName || 'Client', role: 'client', via: 'manage-link' },
       });
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ ok: true, ...(alsoCancelled > 0 ? { alsoCancelled } : {}) });
     }
 
     if (action === 'reschedule') {
