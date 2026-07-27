@@ -113,6 +113,15 @@ const staffName = (staffId: any, staffList: any[], fallback = 'Staff'): string =
 
 const isValidDate = (d: Date) => d instanceof Date && !isNaN(d.getTime());
 
+// v15 — format() THROWS RangeError on an Invalid Date and takes the whole
+// sheet down with it. Every user-facing date render goes through this.
+const fmtDT = (v: any, f: string): string => {
+    try {
+        const d = safeDate(v);
+        return isValidDate(d) ? format(d, f) : '—';
+    } catch { return '—'; }
+};
+
 // Single source of truth for "was this visit a no-show" — checks the modern
 // audit trail first, falls back to the legacy flat fields for older records.
 const isNoShowVisit = (a: any): boolean => {
@@ -220,6 +229,7 @@ const TIMELINE_BG: Record<string, string> = {
 const buildTimelineEvents = (opts: {
   appointment: any; transactions: any[]; cancellationEvent: any;
   depositDecision: any; auditLogEntries: any[]; staff: any[];
+  messages?: any[];
 }): TimelineEvent[] => {
   const { appointment, transactions, cancellationEvent, depositDecision, auditLogEntries, staff } = opts;
   if (!appointment) return [];
@@ -243,6 +253,26 @@ const buildTimelineEvents = (opts: {
 
   if (appointment.createdAt) push(appointment.createdAt, Calendar, 'Appointment booked',
     appointment.source === 'online' ? 'Online booking' : (appointment.isWalkIn || appointment.source === 'walk-in') ? 'Walk-in' : 'Manual entry');
+
+  // v16 — the communications journey, from messageLog: every email/text
+  // this appointment triggered, plus what the providers reported back
+  // (delivered / opened / clicked / bounced). This is the "they said they
+  // never got it" defense — the timeline shows exactly what happened.
+  (opts.messages || []).forEach((m: any) => {
+    const ch = m.channel === 'sms' ? 'Text' : 'Email';
+    const kindLabel = String(m.kind || 'message').replace(/_/g, ' ');
+    if (m.status === 'sent') {
+      push(m.sentAt, m.channel === 'sms' ? MessageSquare : Mail, `${ch} sent — ${kindLabel}`, m.to || undefined);
+    } else if (m.status === 'failed') {
+      push(m.sentAt, AlertCircle, `${ch} NOT sent — ${kindLabel}`, m.error || undefined, 'bad');
+    } else if (m.status === 'skipped_no_provider') {
+      push(m.sentAt, AlertCircle, `${ch} skipped — ${kindLabel}`, 'Provider not configured', 'warn');
+    }
+    if (m.deliveredAt) push(m.deliveredAt, CheckCircle2, `${ch} delivered`, m.to || undefined, 'good');
+    if (m.openedAt) push(m.openedAt, Activity, 'Email opened by client', undefined, 'good');
+    if (m.clickedAt) push(m.clickedAt, ExternalLink, 'Client tapped a link in the email', m.clickedUrl || undefined, 'good');
+    if (m.bouncedAt) push(m.bouncedAt, AlertCircle, `${ch} bounced / undelivered`, m.failureDetail || 'Check the address and resend', 'bad');
+  });
 
   const auto = appointment.automationState || {};
   if (auto.depositReminderSentAt) push(auto.depositReminderSentAt, Bell, 'Deposit reminder sent');
@@ -809,7 +839,7 @@ const CancellationRecord = ({
             <p className="text-[11px] font-black uppercase tracking-widest text-destructive leading-tight">
               {isNoShow ? 'No-Show' : `Cancelled by ${actorLabel}`}
             </p>
-            {audit?.timestamp && <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">{format(safeDate(audit.timestamp), 'MMM d, yyyy · h:mm a')}</p>}
+            {audit?.timestamp && <p className="text-[9px] font-bold text-destructive/60 uppercase tracking-wide">{fmtDT(audit.timestamp, 'MMM d, yyyy · h:mm a')}</p>}
           </div>
         </div>
         {reasonText && <p className="text-[10px] font-bold text-slate-600 uppercase tracking-tight leading-relaxed pl-7">{reasonText}{audit?.reasonDetail ? ` — "${audit.reasonDetail}"` : ''}</p>}
@@ -1336,10 +1366,65 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
   }, [firestore, tenantId, appointment?.id]);
   const { data: auditLogDocs } = useCollection<any>(auditLogQuery);
 
+  // v16 — every email/text this appointment triggered, live. Single
+  // equality filter — no composite index needed.
+  const messageLogQuery = useMemoFirebase(() => {
+    if (!firestore || !tenantId || !appointment?.id) return null;
+    return query(collection(firestore, `tenants/${tenantId}/messageLog`), where('appointmentId', '==', appointment.id));
+  }, [firestore, tenantId, appointment?.id]);
+  const { data: messageDocs } = useCollection<any>(messageLogQuery);
+  const messages = useMemo(
+    () => [...(messageDocs || [])].sort((a: any, b: any) => String(a.sentAt || '').localeCompare(String(b.sentAt || ''))),
+    [messageDocs],
+  );
+
   const timelineEvents = useMemo(() => buildTimelineEvents({
     appointment, transactions: transactions || [], cancellationEvent,
     depositDecision: latestDepositDecision, auditLogEntries: auditLogDocs || [], staff: staff || [],
-  }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff]);
+    messages,
+  }), [appointment, transactions, cancellationEvent, latestDepositDecision, auditLogDocs, staff, messages]);
+
+  // v16 — fix-and-resend: editable destination for the confirmation, so a
+  // typo'd email is corrected HERE (client record included) and resent in
+  // one motion.
+  const [resendEmail, setResendEmail] = useState('');
+  const [resendPhone, setResendPhone] = useState('');
+  const [isResendingConf, setIsResendingConf] = useState(false);
+  useEffect(() => {
+    setResendEmail(client?.email || '');
+    setResendPhone(client?.phone || '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client?.id]);
+  const handleResendConfirmation = async () => {
+    if (isResendingConf || !appointment?.id) return;
+    setIsResendingConf(true);
+    try {
+      // Corrected address? Save it to the client record too, so every
+      // FUTURE reminder and follow-up uses the fixed one.
+      if (firestore && client?.id) {
+        const fixes: any = {};
+        if (resendEmail.trim() && resendEmail.trim() !== (client.email || '')) fixes.email = resendEmail.trim();
+        if (resendPhone.trim() && resendPhone.trim() !== (client.phone || '')) fixes.phone = resendPhone.trim();
+        if (Object.keys(fixes).length > 0) {
+          updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/clients`, client.id), fixes);
+        }
+      }
+      const res = await fetch('/api/notifications/resend-confirmation', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId, appointmentId: appointment.id,
+          clientEmail: resendEmail.trim(), clientPhone: resendPhone.trim(),
+        }),
+      });
+      const out = await res.json().catch(() => null);
+      if (out?.ok) toast({ title: 'Confirmation sent', description: `${out.emailSent ? 'Email' : ''}${out.emailSent && out.smsSent ? ' and ' : ''}${out.smsSent ? 'text' : ''} on the way — watch the journey below.` });
+      else toast({ variant: 'destructive', title: 'Could not send', description: out?.reason || 'Check the message log below for details.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not send', description: 'Network problem — try again.' });
+    } finally {
+      setIsResendingConf(false);
+    }
+  };
 
   // ── Client visit history ────────────────────────────────────────────────────
   // Two sources, merged: the live in-memory `allAppointments` list from
@@ -1583,10 +1668,53 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
     }
   }, [appointment?.checkInToken, toast]);
 
-  const handleMarkupSave = (markedUpUrl: string) => {
+  // v15 — the old version wrote the canvas DATA URL (megabytes of base64)
+  // straight into the Firestore doc — over the 1 MiB limit it silently
+  // failed, and either way the ORIGINAL photo URL was destroyed. Now: the
+  // marked-up image uploads through the same route After Photos already
+  // use, the doc stores a normal URL, and the untouched original is kept
+  // in inspirationPhotoOriginalUrl the first time a markup is saved.
+  const handleMarkupSave = async (markedUpUrl: string) => {
     if (!firestore || !tenantId || !appointment?.id) return;
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { inspirationPhotoUrl: markedUpUrl });
-    toast({ title: 'Technical Mapping Archived' });
+    try {
+      let finalUrl = markedUpUrl;
+      if (markedUpUrl.startsWith('data:')) {
+        const blob = await (await fetch(markedUpUrl)).blob();
+        const formData = new FormData();
+        formData.append('files', new File([blob], `markup-${appointment.id}-${Date.now()}.png`, { type: 'image/png' }));
+        formData.append('tenantId', tenantId);
+        formData.append('appointmentId', appointment.id);
+        const res = await fetch('/api/upload/appointment-photos', { method: 'POST', body: formData });
+        const out = await res.json().catch(() => null);
+        if (!out?.urls?.[0]) throw new Error('Upload failed');
+        finalUrl = out.urls[0];
+      }
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), {
+        inspirationPhotoUrl: finalUrl,
+        ...(appointment.inspirationPhotoOriginalUrl ? {} : { inspirationPhotoOriginalUrl: appointment.inspirationPhotoUrl || null }),
+      });
+      toast({ title: 'Markup saved', description: 'The original photo is kept too.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not save markup', description: 'The original photo is untouched — try again.' });
+    }
+  };
+
+  // v15 — email the (marked-up) photo to the client for their records.
+  const [isSharingImage, setIsSharingImage] = useState(false);
+  const handleShareImage = async () => {
+    if (!tenantId || !appointment?.id || !appointment.inspirationPhotoUrl) return;
+    setIsSharingImage(true);
+    try {
+      const res = await fetch('/api/notifications/share-image', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, appointmentId: appointment.id, imageUrl: appointment.inspirationPhotoUrl, clientEmail: client?.email || undefined }),
+      });
+      const out = await res.json().catch(() => null);
+      if (out?.ok) toast({ title: 'Sent to client', description: `${client?.name || 'They'}\u2019ll have it in their inbox.` });
+      else toast({ variant: 'destructive', title: 'Could not send', description: out?.reason || 'Check that the client has an email on file.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not send', description: 'Network error — try again.' });
+    } finally { setIsSharingImage(false); }
   };
 
   const handleSendSMS = async (message: string) => {
@@ -1617,7 +1745,9 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
       // the whole lifecycle of the appointment.
       const token = appointment.checkInToken;
       const price = service.serviceTiers?.find((t: any) => t.tierId === (staff || []).find((s: any) => s.id === appointment.staffId)?.pricingTierId)?.price ?? service.price ?? 0;
-      const depositCents = (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
+      const depositCents = appointment.depositStatus === 'paid'
+        ? 0 // v15 — already paid: the guest link must never re-request it
+        : (() => { try { return computeDepositCents({ service, price, depositsLive: selectedTenant?.depositsLive === true }); } catch { return 0; } })();
       // v2 — service defaults + whatever staff picked ad-hoc for this visit,
       // deduplicated. Ad-hoc picks are NOT limited to what the service
       // mandates — this is what lets staff request a one-off consultation
@@ -1719,6 +1849,23 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
 
   const handleCollectDepositNow = async () => {
     if (!firestore || !tenantId || !appointment?.id || !client?.id || !service) return;
+    // ── v15: DOUBLE-CHARGE GUARDS. The button hides when paid, but a stale
+    // render, second device, or second tab could still fire this — so the
+    // handler itself refuses to charge twice.
+    if (appointment.depositStatus === 'paid' || appointment.depositTransactionId || appointment.depositStripePaymentIntentId) {
+      toast({ title: 'Deposit already collected', description: 'This appointment\u2019s deposit is already paid — nothing was charged.' });
+      return;
+    }
+    const existingDepositTxn = (transactions || []).find((t: any) =>
+      t.appointmentId === appointment.id && (t.kind === 'deposit' || t.category === 'Retainers' || /deposit|retainer/i.test(String(t.description || ''))));
+    if (existingDepositTxn) {
+      // Money already moved — repair the status flag instead of charging again.
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), {
+        depositStatus: 'paid', depositPaidAt: new Date().toISOString(), depositTransactionId: existingDepositTxn.id || null,
+      });
+      toast({ title: 'Deposit already collected', description: 'Found the earlier payment in the ledger — status fixed, nothing was charged.' });
+      return;
+    }
     setIsCollectingDeposit(true);
     try {
       const staffIdForPricing = appointment.checkoutState?.serviceStaffOverrides?.[service.id] || appointment.staffId;
@@ -1737,7 +1884,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         return;
       }
       const batch = writeBatch(firestore);
-      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { depositStatus: 'paid', depositAmountCents: depositCents, depositStripePaymentIntentId: out.paymentIntentId });
+      batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { depositStatus: 'paid', depositPaidAt: new Date().toISOString(), depositPaymentMethod: 'Vault', depositAmountCents: depositCents, depositStripePaymentIntentId: out.paymentIntentId });
       const creditRef = doc(collection(firestore, `tenants/${tenantId}/depositCredits`));
       batch.set(creditRef, { id: creditRef.id, tenantId, clientId: client.id, clientEmail: String(client.email || '').toLowerCase().trim(), clientName: client.name || 'Client', amountCents: depositCents, status: 'available', sourceAppointmentId: appointment.id, createdAt: new Date().toISOString(), stripeChargeId: out.paymentIntentId });
       await batch.commit();
@@ -1960,7 +2107,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2 text-[10px] font-black uppercase text-slate-700 tracking-tight">
                 <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
-                {format(safeDate(appointment.startTime), 'EEE, MMM d · h:mm a')}
+                {fmtDT(appointment.startTime, 'EEE, MMM d · h:mm a')}
                 {appointment.rescheduledFromTime && (
                   <span className="text-[9px] font-bold text-muted-foreground line-through opacity-50">
                     {format(safeDate(appointment.rescheduledFromTime), 'MMM d, h:mm a')}
@@ -2344,14 +2491,22 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
         {/* ── Inspiration photo & markup ───────────────────────────────────── */}
         {appointment.inspirationPhotoUrl && (
           <div className="space-y-3">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center gap-2 flex-wrap">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Inspiration & Mapping</h3>
-              <Button variant="ghost" size="sm" onClick={() => setIsMarkupOpen(true)} className="h-7 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
-                <Edit className="w-3 h-3 mr-1.5" /> Markup Tool
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" onClick={() => setIsMarkupOpen(true)} className="h-8 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                  <Edit className="w-3 h-3 mr-1.5" /> Markup
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleShareImage} disabled={isSharingImage} className="h-8 px-3 text-[9px] font-black uppercase tracking-widest text-primary border border-primary/20 rounded-lg hover:bg-primary/5">
+                  {isSharingImage ? <Loader className="w-3 h-3 animate-spin" /> : <><Send className="w-3 h-3 mr-1.5" /> Send to client</>}
+                </Button>
+              </div>
             </div>
-            <div className="relative aspect-video w-full rounded-[2rem] overflow-hidden border-2 border-primary/10 bg-muted/5 group shadow-inner cursor-zoom-in" onClick={() => openLightbox([{ url: appointment.inspirationPhotoUrl, name: 'Inspiration reference' }], 0)}>
-              <NextImage src={appointment.inspirationPhotoUrl} alt="Inspiration" fill className="object-cover transition-transform duration-700 hover:scale-105" />
+            {/* v15 — the photo IS the content here: full width, natural
+                aspect (object-contain, never cropped), tall enough to
+                actually read nail detail. Tap for the full-screen viewer. */}
+            <div className="relative w-full rounded-2xl overflow-hidden border-2 border-primary/10 bg-slate-950/90 group cursor-zoom-in" onClick={() => openLightbox([{ url: appointment.inspirationPhotoUrl, name: 'Inspiration reference' }], 0)}>
+              <img src={appointment.inspirationPhotoUrl} alt="Inspiration" className="w-full max-h-[68vh] object-contain" />
               <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                 <Maximize2 className="w-8 h-8 text-white" />
               </div>
@@ -2416,7 +2571,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                             {ev.detail && <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight opacity-60 mt-0.5">{ev.detail}</p>}
                           </div>
                           <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide opacity-50 shrink-0 whitespace-nowrap">
-                            {format(safeDate(ev.timestamp), 'MMM d, h:mm a')}
+                            {fmtDT(ev.timestamp, 'MMM d, h:mm a')}
                           </span>
                         </div>
                       </div>
@@ -2424,6 +2579,86 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                   })}
                 </div>
               )}
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+
+        {/* ── Communications journey ───────────────────────────────────────── */}
+        <Accordion type="single" collapsible className="w-full">
+          <AccordionItem value="comms" className="border-2 rounded-2xl overflow-hidden bg-white shadow-inner">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 font-black uppercase text-[10px] tracking-widest text-slate-700">
+                <Send className="w-3.5 h-3.5 text-primary" /> Communications
+                <Badge variant="outline" className="h-5 px-2 rounded-full text-[8px] font-black border-2 ml-1">{messages.length}</Badge>
+                {messages.some((m: any) => m.bouncedAt || m.status === 'failed') && (
+                  <Badge className="h-5 px-2 rounded-full text-[8px] font-black bg-red-100 text-red-700 border-red-200 border-2">NEEDS ATTENTION</Badge>
+                )}
+              </span>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4 pt-1 space-y-3">
+              {messages.length === 0 && (
+                <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-40 text-center py-2">Nothing sent for this appointment yet</p>
+              )}
+              {messages.map((m: any) => {
+                const failed = !!(m.bouncedAt || m.status === 'failed');
+                const skipped = m.status === 'skipped_no_provider';
+                // Furthest point reached in the journey
+                const stage = failed ? 'Failed' : m.clickedAt ? 'Clicked' : m.openedAt ? 'Opened' : m.deliveredAt ? 'Delivered' : skipped ? 'Skipped' : 'Sent';
+                const STEPS = ['Sent', 'Delivered', 'Opened', 'Clicked'];
+                const reached = STEPS.indexOf(stage);
+                return (
+                  <div key={m.id} className={cn('rounded-xl border-2 p-3', failed ? 'border-red-200 bg-red-50/50' : 'bg-muted/5')}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-black uppercase tracking-tight flex items-center gap-1.5">
+                          {m.channel === 'sms' ? <MessageSquare className="w-3 h-3 text-primary shrink-0" /> : <Mail className="w-3 h-3 text-primary shrink-0" />}
+                          {String(m.kind || 'message').replace(/_/g, ' ')}
+                        </p>
+                        <p className="text-[9px] font-bold text-muted-foreground mt-0.5 break-all">{m.to || '—'}</p>
+                        {(m.subject || m.preview) && <p className="text-[9px] font-medium text-muted-foreground/70 mt-0.5 line-clamp-1 italic">{m.subject || m.preview}</p>}
+                      </div>
+                      <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wide opacity-50 shrink-0 whitespace-nowrap">
+                        {m.sentAt ? fmtDT(m.sentAt, 'MMM d, h:mm a') : ''}
+                      </span>
+                    </div>
+                    {/* Journey chips: Sent → Delivered → Opened → Clicked */}
+                    {!failed && !skipped && (
+                      <div className="flex items-center gap-1 mt-2 flex-wrap">
+                        {(m.channel === 'sms' ? STEPS.slice(0, 2) : STEPS).map((s, i) => (
+                          <span key={s} className={cn(
+                            'px-2 h-5 inline-flex items-center rounded-full text-[8px] font-black uppercase tracking-wide border-2',
+                            i <= reached ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-white text-slate-300 border-slate-100',
+                          )}>
+                            {i <= reached ? '✓ ' : ''}{s}
+                          </span>
+                        ))}
+                        {m.openedAt && <span className="text-[8px] font-bold text-muted-foreground opacity-60">opened {fmtDT(m.openedAt, 'MMM d, h:mm a')}</span>}
+                      </div>
+                    )}
+                    {failed && (
+                      <p className="text-[9px] font-black text-red-700 mt-2">
+                        {m.failureDetail || m.error || 'Not delivered — check the address/number below and resend.'}
+                      </p>
+                    )}
+                    {skipped && (
+                      <p className="text-[9px] font-black text-amber-700 mt-2">Skipped — the {m.channel === 'sms' ? 'texting' : 'email'} provider isn't configured yet.</p>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Fix & resend — corrects the client record AND resends in one motion */}
+              <div className="rounded-xl border-2 border-dashed p-3 space-y-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-slate-600">Fix contact info &amp; resend confirmation</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <Input value={resendEmail} onChange={(e) => setResendEmail(e.target.value)} placeholder="client@email.com" type="email" className="h-9 text-xs" />
+                  <Input value={resendPhone} onChange={(e) => setResendPhone(e.target.value)} placeholder="Phone" type="tel" className="h-9 text-xs" />
+                </div>
+                <Button onClick={handleResendConfirmation} disabled={isResendingConf || (!resendEmail.trim() && !resendPhone.trim())} className="w-full h-9 text-[10px] font-black uppercase tracking-widest">
+                  {isResendingConf ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5 mr-1.5" /> Send confirmation now</>}
+                </Button>
+                <p className="text-[8px] font-bold text-muted-foreground opacity-60">Changed address or number? It's saved to the client's record too, so reminders and follow-ups use the fixed one.</p>
+              </div>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
@@ -2459,7 +2694,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <div key={f.id} className="p-3 rounded-xl bg-white border-2 border-transparent hover:border-primary/10 transition-all flex justify-between items-center shadow-sm">
                         <div className="min-w-0">
                           <span className="text-[10px] font-black uppercase tracking-tight truncate block">{f.name}</span>
-                          <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{format(safeDate(f.date), 'MMM d, yyyy')}</span>
+                          <span className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">{fmtDT(f.date, 'MMM d, yyyy')}</span>
                         </div>
                         <ArrowRight className="w-3 h-3 text-primary opacity-20" />
                       </div>
@@ -2494,7 +2729,7 @@ export const AppointmentDetailsSheet: React.FC<any> = ({
                       <div className="min-w-0">
                         <p className="text-[10px] font-black uppercase tracking-tight truncate">{svc?.name || 'Service'}</p>
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-60">
-                          {format(safeDate(a.startTime), 'MMM d, yyyy')}
+                          {fmtDT(a.startTime, 'MMM d, yyyy')}
                           {staffMember && ` · ${staffMember.name}`}
                         </p>
                       </div>
