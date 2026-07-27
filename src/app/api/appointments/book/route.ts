@@ -297,17 +297,20 @@ export async function POST(req: NextRequest) {
           || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : '')
           || req.nextUrl.origin,
         ).replace(/\/$/, '');
+        // v18 — ONE portal for clients: the master check-in link. Arrival,
+        // running-late, concierge, forms/deposit, and the studio's real
+        // cancellation flow all live at /check-in/{token}; every button we
+        // send points there. The manageToken lives on only as the key for
+        // the .ics calendar download (served by /api/appt GET).
         const { ensureApptToken, sendNotification } = await import('@/lib/notify');
         const k = await ensureApptToken(db, tenantId, r.aptId);
-        const manageUrl = k ? `${base}/appt/${tenantId}/${r.aptId}?k=${k}` : null;
-        // Same token, GET → .ics file — opens as "add this event" on
-        // iOS/Android/Outlook.
         const calendarUrl = k
           ? `${base}/api/appt?tenantId=${encodeURIComponent(tenantId)}&apptId=${encodeURIComponent(r.aptId)}&k=${encodeURIComponent(k)}`
           : null;
+        const portalUrl = `${base}/check-in/${r.token}`;
         const firstName = String(r.clientName || '').split(' ')[0] || 'there';
         const isHold = !!body.holdOnly;
-        const checkInUrl = `${base}/check-in/${r.token}`;
+        const checkInUrl = portalUrl;
         const svcLabel = svc.name || 'appointment';
 
         // Email — branded either way; the CONTENT matches the state.
@@ -332,9 +335,9 @@ export async function POST(req: NextRequest) {
                 'Show the code below when you arrive to check in.',
               ],
               bigCode: r.shortCode ? String(r.shortCode).toUpperCase() : undefined,
-              cta: manageUrl ? { label: 'Manage appointment', url: manageUrl } : null,
+              cta: { label: 'Check in / manage my visit', url: portalUrl },
               secondaryCta: calendarUrl ? { label: 'Add to calendar', url: calendarUrl } : null,
-              footerNote: `Need to cancel, reschedule, or tell us you're running late? Use the buttons above any time. Sent by ${studioName}.`,
+              footerNote: `Running late, need to cancel, or want anything during your visit? It's all behind the button above. Sent by ${studioName}.`,
             });
           const er = await sendNotification(db, {
             tenantId, channel: 'email', to: email,
@@ -354,7 +357,7 @@ export async function POST(req: NextRequest) {
             tenantId, channel: 'sms', to: phone,
             text: isHold
               ? `We're holding ${whenStr} for your ${svcLabel}. Finish up here to lock it in: ${checkInUrl}`
-              : `You're confirmed — ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}.${manageUrl ? ` Manage: ${manageUrl}` : ''}`,
+              : `You're confirmed — ${svcLabel}${staffName ? ` with ${staffName}` : ''} on ${whenStr}. Details & check-in: ${portalUrl}`,
             kind: isHold ? 'booking_hold' : 'booking_confirmation',
             appointmentId: r.aptId, clientId: r.clientId || null, clientName: r.clientName || null,
           });
