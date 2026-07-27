@@ -93,6 +93,12 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
     const from = opts?.from || process.env.TWILIO_FROM;
     if (msid) params.set('MessagingServiceSid', msid);
     else params.set('From', from as string);
+    // v16 — delivery journey: ask Twilio to report status changes
+    // (queued → sent → delivered / undelivered / failed) to our webhook,
+    // which stamps the message log the appointment timeline reads.
+    const cbBase = process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null;
+    if (cbBase) params.set('StatusCallback', `${cbBase}/api/sms/status`);
     const res = await fetch(`${TWILIO_API}/Accounts/${sid}/Messages.json`, {
       method: 'POST',
       headers: {
