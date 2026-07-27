@@ -18,6 +18,22 @@
 
 import { logAuditAdmin } from './audit';
 
+// ── Appointment ACTION-TOKEN — the key inside every Cancel/Reschedule
+// button. Minted lazily on the appointment doc; senders call this to
+// build manage links, /api/appt validates against it.
+export async function ensureApptToken(db: any, tenantId: string, apptId: string): Promise<string | null> {
+  try {
+    const ref = db.doc(`tenants/${tenantId}/appointments/${apptId}`);
+    const snap = await ref.get();
+    if (!snap.exists) return null;
+    const cur = (snap.data() as any)?.manageToken;
+    if (cur && String(cur).length >= 16) return cur;
+    const token = Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 10)).join('') + Date.now().toString(36);
+    await ref.set({ manageToken: token }, { merge: true });
+    return token;
+  } catch { return null; }
+}
+
 export type NotifyInput = {
   tenantId: string;
   channel: 'email' | 'sms';
