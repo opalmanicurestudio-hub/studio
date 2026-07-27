@@ -61,6 +61,9 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageUpload } from '../shared/ImageUpload';
 import { Textarea } from '../ui/textarea';
+import { Checkbox } from '../ui/checkbox';
+import { useSmartAvailability } from '@/hooks/useSmartAvailability';
+import { pickStaffForSlot } from '@/lib/availability';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const safeDate = (val: any): Date => {
@@ -137,8 +140,18 @@ const bookingSchema = z.object({
   clientEmail: z.string().email('Invalid email address.'),
   clientPhone: z.string().optional(),
   notes:       z.string().optional(),
+  // Deliberately left unrefined. `methods.trigger([...])` in handleNextStep
+  // validates named fields only and would never run a schema-level .refine(),
+  // so the consent/phone pairing rule is enforced there instead.
+  smsConsent:  z.boolean().optional(),
 });
 type BookingFormData = z.infer<typeof bookingSchema>;
+
+// The exact wording that is shown to the guest AND stored on the appointment.
+// Defined once so the record of what they agreed to can never drift from what
+// they actually read on screen.
+export const smsConsentWording = (studioName?: string | null) =>
+  `I agree to receive appointment reminders and confirmations by text from ${studioName || 'this studio'} at the mobile number provided. Message frequency varies. Message and data rates may apply. Reply STOP to opt out, HELP for help. Consent is not required to book.`;
 
 // ─── onConfirm result type ─────────────────────────────────────────────────────
 type ConfirmResult =
@@ -156,11 +169,29 @@ interface BookingSheetProps {
   pricingTiers:   PricingTier[];
   initialStaffId?: string;
   appointments:   Appointment[];
+  /**
+   * The studio's MARKETING events, rendered on the public page. This is NOT
+   * calendar occupancy — pass that as `calendarEvents` below.
+   */
   events:         Event[];
   scheduleProfiles: any[];
   services:       Service[];
   consentForms:   ConsentForm[];
   tenant:         Tenant | null;
+  /**
+   * Availability context. All optional: omit one and that constraint simply
+   * isn't applied, so an older caller or a preview still works. But every one
+   * of these IS enforced by the booking route, so a caller that leaves them
+   * out will offer times the server then refuses.
+   */
+  shifts?:          any[];
+  staffBlocks?:     any[];
+  dayOffBlocks?:    any[];
+  resources?:       any[];
+  tickets?:         any[];
+  maintenancePlans?: any[];
+  /** Real calendar occupancy — what the engine treats as `events`. */
+  calendarEvents?:  any[];
   onConfirm: (
     formData: { clientName: string; clientEmail: string; clientPhone?: string; notes?: string },
     appointmentDetails: Omit<Appointment, 'id' | 'clientId' | 'clientName' | 'clientEmail' | 'clientPhone'> & { depositAmount?: number; depositStatus?: string },
@@ -173,6 +204,7 @@ interface BookingSheetProps {
 export const BookingSheet: React.FC<BookingSheetProps> = ({
   open, onOpenChange, service, staff, pricingTiers, initialStaffId,
   appointments, events, scheduleProfiles, services, consentForms, tenant, onConfirm,
+  shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, calendarEvents,
 }) => {
   const isMobile = useIsMobile();
   const { headingFont, bodyFont, r, r2, r3 } = useThemeStyles();
@@ -257,96 +289,41 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     return publicScheduleProfile?.week?.[dayName] || null;
   }, [date, publicScheduleProfile]);
 
-  const { timeSlots, hotSlotMap } = useMemo(() => {
-    if (!service || !date || !publicScheduleProfile || !staff || !services) return { timeSlots: [], hotSlotMap: new Map() };
-    const bookingInterval = publicScheduleProfile.bookingSlotInterval || 15;
-    const dayName = format(date, 'eeee').toLowerCase();
+  const dateKey = useMemo(() => format(date, 'yyyy-MM-dd'), [date]);
 
-    let staffMembersToCheck = selectedStaffId === 'any' ? qualifiedStaff : qualifiedStaff.filter(s => s.id === selectedStaffId);
-    if (selectedStaffId === 'any' && selectedTierId !== 'any') {
-      staffMembersToCheck = staffMembersToCheck.filter(s => s.pricingTierId === selectedTierId);
-    }
+  // Slot generation runs through the SAME engine the booking route uses to
+  // verify. This replaces a hand-rolled scan that knew about staff hours,
+  // appointments and 'blocked' events only — it had no idea about the
+  // published shift roster, approved days off, chair capacity, urgent
+  // maintenance or staff holds, all of which the route enforces. That gap is
+  // why guests could tap a time and get refused.
+  const availability = useSmartAvailability({
+    date: dateKey,
+    serviceId: service?.id || '',
+    staffId: selectedStaffId,
+    tierId: selectedStaffId === 'any' && selectedTierId !== 'any' ? selectedTierId : undefined,
+    allAppointments: appointments || [],
+    allServices: services || [],
+    allStaff: qualifiedStaff,
+    // The engine's `events` means calendar occupancy. `events` on this
+    // component is the studio's MARKETING events shown on the page, which is a
+    // different thing entirely — passing those would be meaningless at best.
+    events: calendarEvents || [],
+    scheduleProfiles,
+    tenant,
+    shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans,
+    // Deliberately NOT set: ignoreHeuristics, ignoreShifts, ignoreResources.
+    // Those are front-desk overrides. A guest booking themselves gets the
+    // studio's real rules, including lead time from the tenant doc.
+  });
 
-    const options: Set<string> = new Set();
-    const hSlots = new Map<string, boolean>();
-    const isTightScheduling = !!tenant?.tightSchedulingEnabled;
-    const isMorningAnchor   = !!tenant?.morningAnchorEnabled;
-    const isFlashYield      = !!tenant?.flashYieldEnabled;
+  const timeSlots = availability.times;
 
-    staffMembersToCheck.forEach(staffMember => {
-      let workingHours;
-      const staffDaySchedule = staffMember?.availability?.week?.[dayName as keyof typeof staffMember.availability.week];
-      if (staffDaySchedule?.enabled) workingHours = staffDaySchedule;
-      else if (staffDaySchedule && !staffDaySchedule.enabled) return;
-      else workingHours = publicScheduleProfile?.week?.[dayName];
-      if (!workingHours || !workingHours.enabled) return;
-
-      const dayStartWithBusinessHours = timeStringToDate(workingHours.start, date);
-      const dayEndWithBusinessHours   = timeStringToDate(workingHours.end, date);
-      const busyIntervals: { start: Date; end: Date; padBefore: number; padAfter: number }[] = [];
-      const dayCancelledSlots: { start: Date; end: Date }[] = [];
-
-      appointments.filter(apt => isSameDay(apt.startTime, date) && apt.staffId === staffMember.id).forEach(apt => {
-        if (apt.status === 'cancelled') {
-          if (isFlashYield) {
-            const hoursSinceCancellation = differenceInHours(new Date(), safeDate(apt.startTime));
-            if (Math.abs(hoursSinceCancellation) < 48) dayCancelledSlots.push({ start: safeDate(apt.startTime), end: safeDate(apt.endTime) });
-          }
-          return;
-        }
-        const aptService = services.find(s => s.id === apt.serviceId);
-        busyIntervals.push({ start: apt.startTime, end: apt.endTime, padBefore: aptService?.padBefore || 0, padAfter: aptService?.padAfter || 0 });
-      });
-
-      events.filter(evt => isSameDay(evt.startTime, date) && evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === staffMember.id)).forEach(evt => {
-        busyIntervals.push({ start: evt.startTime, end: evt.endTime, padBefore: 0, padAfter: 0 });
-      });
-
-      let currentTime = dayStartWithBusinessHours;
-      const now = new Date();
-      if (isToday(date)) {
-        const minSinceStart = (now.getHours() * 60) + now.getMinutes();
-        const busStartMin   = (currentTime.getHours() * 60) + currentTime.getMinutes();
-        const skip = Math.ceil((minSinceStart - busStartMin) / bookingInterval);
-        if (skip > 0) currentTime = addMinutes(dayStartWithBusinessHours, skip * bookingInterval);
-      }
-
-      while (currentTime < dayEndWithBusinessHours) {
-        const totalServiceDuration = service.duration + (service.padBefore || 0) + (service.padAfter || 0);
-        const potentialEnd = addMinutes(currentTime, totalServiceDuration);
-        if (potentialEnd > dayEndWithBusinessHours) break;
-
-        const isOverlapping = busyIntervals.some(interval => {
-          const intervalStartWithPad = subMinutes(interval.start, interval.padBefore);
-          const intervalEndWithPad   = addMinutes(interval.end, interval.padAfter);
-          return areIntervalsOverlapping({ start: currentTime, end: potentialEnd }, { start: intervalStartWithPad, end: intervalEndWithPad }, { inclusive: false });
-        });
-
-        const isStaffActiveForSameDay = !isToday(date) || (staffMember.active && !staffMember.onBreak);
-
-        if (!isOverlapping && isStaffActiveForSameDay) {
-          const timeStr         = format(currentTime, 'HH:mm');
-          const isStartOfDaySlot = isSameDay(currentTime, dayStartWithBusinessHours) && currentTime.getTime() === dayStartWithBusinessHours.getTime();
-          const isDayEmpty       = busyIntervals.length === 0;
-          const isHotSlot        = dayCancelledSlots.some(cs => isSameDay(currentTime, cs.start) && format(currentTime, 'HH:mm') === format(cs.start, 'HH:mm'));
-
-          let allowed = true;
-          if (!isHotSlot) {
-            if (isMorningAnchor && isDayEmpty && !isStartOfDaySlot) allowed = false;
-            if (allowed && isTightScheduling && !isDayEmpty) {
-              const startsAtAnotherEnd = busyIntervals.some(interval => Math.abs(differenceInMinutes(currentTime, addMinutes(interval.end, interval.padAfter))) < 1);
-              const endsAtAnotherStart = busyIntervals.some(interval => Math.abs(differenceInMinutes(potentialEnd, subMinutes(interval.start, interval.padBefore))) < 1);
-              if (!isStartOfDaySlot && !startsAtAnotherEnd && !endsAtAnotherStart) allowed = false;
-            }
-          }
-
-          if (allowed) { options.add(timeStr); if (isHotSlot) hSlots.set(timeStr, true); }
-        }
-        currentTime = addMinutes(currentTime, bookingInterval);
-      }
-    });
-    return { timeSlots: Array.from(options).sort(), hotSlotMap: hSlots };
-  }, [date, selectedStaffId, selectedTierId, qualifiedStaff, service, staff, appointments, events, publicScheduleProfile, services, tenant]);
+  const hotSlotMap = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const t of availability.hotTimes) m.set(t, true);
+    return m;
+  }, [availability.hotTimes]);
 
   const requiredForms = useMemo(() => {
     if (!service || !consentForms) return [];
@@ -427,22 +404,28 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
 
     let finalStaffId = selectedStaffId;
     if (finalStaffId === 'any') {
-      const available = qualifiedStaff.filter(s => {
-        if (selectedTierId !== 'any' && s.pricingTierId !== selectedTierId) return false;
-        if (isToday(startDateTime) && !s.active) return false;
-        const day   = format(startDateTime, 'eeee').toLowerCase();
-        const sched = s.availability?.week?.[day as keyof typeof s.availability.week] || publicScheduleProfile?.week?.[day];
-        if (!sched?.enabled) return false;
-        const openT  = timeStringToDate(sched.start, startDateTime);
-        const closeT = timeStringToDate(sched.end, startDateTime);
-        if (startDateTime < openT || endDateTime > closeT) return false;
-        if (appointments.some(apt => apt.staffId === s.id && apt.status !== 'cancelled' && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: apt.startTime, end: apt.endTime }, { inclusive: false }))) return false;
-        if (events.some(evt => evt.type === 'blocked' && (!evt.staffId || evt.staffId === 'all' || evt.staffId === s.id) && areIntervalsOverlapping({ start: startDateTime, end: endDateTime }, { start: evt.startTime, end: evt.endTime }, { inclusive: false }))) return false;
-        return true;
+      // The engine's rotation, not a local sort. The old code here ordered by
+      // `lastServedTimestamp` — a field nothing in the codebase ever writes —
+      // so every candidate compared equal and 'Any Available' silently handed
+      // every online booking to whoever happened to be first in the array.
+      const pick = pickStaffForSlot({
+        date: dateKey,
+        time: selectedTime,
+        serviceId: service.id,
+        staffId: 'any',
+        tierId: selectedTierId !== 'any' ? selectedTierId : undefined,
+        services: services || [],
+        staff: qualifiedStaff,
+        appointments: appointments || [],
+        events: calendarEvents || [],
+        scheduleProfiles,
+        tenant,
+        shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans,
       });
-      if (available.length === 0) return { error: 'No professionals are available for this window. Please pick another time.' };
-      available.sort((a, b) => (a.lastServedTimestamp ? new Date(a.lastServedTimestamp).getTime() : 0) - (b.lastServedTimestamp ? new Date(b.lastServedTimestamp).getTime() : 0));
-      finalStaffId = available[0].id;
+      if (!pick.ok) {
+        return { error: pick.error || 'No professionals are available for this window. Please pick another time.' };
+      }
+      finalStaffId = pick.staffId;
     }
 
     const formValues   = methods.getValues();
@@ -460,9 +443,16 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
         inspirationPhotoUrl: inspirationPhotoUrl || undefined, notes: formValues.notes,
         depositAmount,
         depositStatus: depositAmount > 0 ? 'pending' : 'none',
+        // Written-out proof of consent. Storing the wording alongside the flag
+        // is the part that actually matters if the carrier ever asks how the
+        // number was collected.
+        smsConsent:       !!formValues.smsConsent,
+        smsConsentAt:     formValues.smsConsent ? new Date().toISOString() : undefined,
+        smsConsentSource: formValues.smsConsent ? 'public_booking_sheet' : undefined,
+        smsConsentText:   formValues.smsConsent ? smsConsentWording(tenant?.name) : undefined,
       },
     };
-  }, [service, selectedTime, date, selectedStaffId, selectedTierId, qualifiedStaff, publicScheduleProfile, appointments, events, methods, requiredForms, formAnswers, inspirationPhotoUrl, depositAmount]);
+  }, [service, selectedTime, dateKey, date, selectedStaffId, selectedTierId, qualifiedStaff, services, appointments, calendarEvents, scheduleProfiles, tenant, shifts, staffBlocks, dayOffBlocks, resources, tickets, maintenancePlans, methods, requiredForms, formAnswers, inspirationPhotoUrl, depositAmount]);
 
   // ── No-deposit finalize (used at the 'summary' step) ────────────────────────
   const handleConfirmBooking = () => {
@@ -563,6 +553,17 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
     if (currentStep === 'details') {
       const valid = await methods.trigger(['clientName', 'clientEmail']);
       if (!valid) return;
+      // Consent without a number to text is a dead record — and worse, it looks
+      // like permission the studio does not actually have.
+      const consentPhone = (watch('clientPhone') || '').replace(/\D/g, '');
+      if (watch('smsConsent') && consentPhone.length < 10) {
+        toast({
+          variant: 'destructive',
+          title: 'Mobile number needed',
+          description: 'Add the mobile number you want texts sent to, or uncheck text reminders.',
+        });
+        return;
+      }
       await resolveIdentity(watch('clientEmail'), watch('clientPhone'));
       if (bannedClient || existingClientWithBalance) return;
       const dayAccess = activeDaySchedule?.accessTier || 'all';
@@ -841,6 +842,23 @@ export const BookingSheet: React.FC<BookingSheetProps> = ({
                             <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1">Mobile</Label>
                             <PhoneInput name="clientPhone" label="" className="h-11 kiosk-phone-input" />
                           </div>
+                          <Controller
+                            name="smsConsent"
+                            control={methods.control}
+                            render={({ field }) => (
+                              <div style={{ borderRadius: r2 }} className="flex items-start gap-3 border-2 border-dashed bg-muted/5 p-3">
+                                <Checkbox
+                                  id="sms-consent"
+                                  checked={!!field.value}
+                                  onCheckedChange={v => field.onChange(v === true)}
+                                  className="mt-0.5 shrink-0"
+                                />
+                                <Label htmlFor="sms-consent" className="cursor-pointer text-[11px] font-medium leading-relaxed text-muted-foreground">
+                                  {smsConsentWording(tenant?.name)}
+                                </Label>
+                              </div>
+                            )}
+                          />
                           <div className="space-y-2 pt-3 border-t border-dashed">
                             <Label htmlFor="booking-notes" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground ml-1 flex items-center gap-1.5">
                               <MessageSquare className="w-3 h-3 opacity-40" />Notes (optional)
