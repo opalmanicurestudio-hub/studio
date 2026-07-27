@@ -638,33 +638,75 @@ const CompletedView = ({ tenant, client, appointment, service }: { tenant: Tenan
     );
 };
 
-const RefreshmentCard = ({ 
-    item, 
-    qty, 
-    onQtyChange, 
-    onRequest, 
-    isRequesting, 
-    hasPendingRequest, 
-    isMember, 
-    activeMembership,
-    remainingPerkUses
-}: { 
-    item: InventoryItem, 
-    qty: number, 
-    onQtyChange: (delta: number) => void, 
-    onRequest: () => void, 
-    isRequesting: boolean, 
-    hasPendingRequest: boolean, 
-    isMember: boolean,
-    activeMembership: Membership | null,
+// ── Lounge amenity shape ─────────────────────────────────────────────────────
+// What /api/guest-lounge hands back for each orderable item. Deliberately
+// narrower than InventoryItem: a guest never receives cost, supplier, margin or
+// stock counts, only whether the thing can be ordered and up to what quantity.
+type LoungeAmenity = {
+    id: string;
+    name: string;
+    description?: string;
+    category?: string;
+    price?: number;
+    imageUrl?: string;
+    isMembersOnly?: boolean;
+    maxQty?: number;
+};
+
+// What the same endpoint returns for "here is what else this studio does".
+type LoungeUpsell = {
+    id: string;
+    name: string;
+    description?: string;
+    category?: string;
+    price?: number;
+    duration?: number;
+};
+
+/**
+ * Fallback path only. A guest's browser cannot read `inventory`
+ * (firestore.rules: get, list: if isStaff) so for them `inventory` is always an
+ * empty array and the menu comes from the API. But if a signed-in staff member
+ * opens the same link on a studio device, the collection DOES resolve — this
+ * maps it into the same shape so the screen works either way.
+ */
+const toAmenity = (i: InventoryItem): LoungeAmenity => ({
+    id: i.id,
+    name: i.name,
+    description: (i as any).description || '',
+    category: i.category || '',
+    price: safeNumber((i as any).price),
+    imageUrl: (i as any).imageUrl || '',
+    isMembersOnly: (i as any).isMembersOnly === true,
+    maxQty: Math.max(1, Math.min(6, Math.floor(safeNumber(i.totalStock)) || 1)),
+});
+
+const RefreshmentCard = ({
+    item,
+    qty,
+    onQtyChange,
+    onRequest,
+    isRequesting,
+    hasPendingRequest,
+    isPerkDefinition,
+    remainingPerkUses,
+}: {
+    item: LoungeAmenity,
+    qty: number,
+    onQtyChange: (delta: number) => void,
+    onRequest: () => void,
+    isRequesting: boolean,
+    hasPendingRequest: boolean,
+    /** True when this item is one of the client's membership inclusions. */
+    isPerkDefinition: boolean,
     remainingPerkUses: number
 }) => {
-    const isSoldOut = safeNumber(item.totalStock) <= 0;
-    const isPerkDefinition = !!activeMembership?.includedProducts?.some(p => p.id === item.id);
+    const maxQty = Math.max(1, Math.floor(safeNumber(item.maxQty)) || 1);
     const isPerkAvailableNow = isPerkDefinition && remainingPerkUses >= qty;
+    const price = safeNumber(item.price);
 
     const getDynamicIcon = (name: string) => {
-        const n = name.toLowerCase();
+        const n = (name || '').toLowerCase();
         if (n.includes('charger') || n.includes('stand') || n.includes('power')) return Smartphone;
         if (n.includes('headphone') || n.includes('noise')) return Headphones;
         if (n.includes('blanket') || n.includes('pillow')) return Moon;
@@ -676,6 +718,16 @@ const RefreshmentCard = ({
 
     const Icon = getDynamicIcon(item.name);
 
+    // Rendered in one of two places depending on whether there is a photo, so
+    // the wording stays identical either way.
+    const priceLabel = isPerkAvailableNow ? (
+        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
+    ) : price > 0 ? (
+        <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${price.toFixed(2)}</p>
+    ) : (
+        <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
+    );
+
     return (
         <motion.div
             whileTap={{ scale: 0.98 }}
@@ -683,11 +735,18 @@ const RefreshmentCard = ({
         >
             <Card className={cn(
                 "rounded-[2.5rem] border-2 transition-all h-full flex flex-col overflow-hidden bg-white shadow-lg",
-                (isSoldOut || hasPendingRequest) ? "opacity-40" : "border-primary/5 hover:border-primary/30",
+                hasPendingRequest ? "opacity-40" : "border-primary/5 hover:border-primary/30",
                 isPerkAvailableNow && "border-indigo-500/20 ring-1 ring-indigo-500/10",
                 item.isMembersOnly && "border-indigo-500/30"
             )}>
-                <div className="relative aspect-square w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b">
+                {/* A full square is right when there is a real photo. With no photo
+                    it was 240px of empty grey holding one small icon, which made
+                    every card ~450px tall and the menu an endless scroll on a
+                    phone. No photo gets a short band instead. */}
+                <div className={cn(
+                    "relative w-full bg-muted/20 flex items-center justify-center overflow-hidden border-b",
+                    item.imageUrl ? "aspect-square" : "h-32 md:h-36"
+                )}>
                     {item.imageUrl ? (
                         <div className="relative w-full h-full">
                             <Image src={item.imageUrl} alt={item.name} fill className="object-cover transition-transform duration-700 hover:scale-110" />
@@ -695,7 +754,7 @@ const RefreshmentCard = ({
                     ) : (
                         <Icon className="w-12 h-12 md:w-16 md:h-16 text-primary opacity-20" />
                     )}
-                    
+
                     <div className="absolute top-4 left-4 flex flex-col gap-1.5">
                         {item.isMembersOnly && (
                             <Badge className="bg-indigo-600 text-white border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl">
@@ -707,49 +766,54 @@ const RefreshmentCard = ({
                                 "border-none text-[8px] font-black uppercase tracking-[0.2em] h-6 px-3 shadow-xl",
                                 remainingPerkUses > 0 ? "bg-primary text-white" : "bg-muted text-muted-foreground opacity-60"
                             )}>
-                                <Star className={cn("w-3 md:w-3 mr-1", remainingPerkUses > 0 && "fill-current")} /> 
+                                <Star className={cn("w-3 md:w-3 mr-1", remainingPerkUses > 0 && "fill-current")} />
                                 {remainingPerkUses > 0 ? `Perk` : "Exhausted"}
                             </Badge>
                         )}
                     </div>
 
-                    <div className="absolute bottom-4 right-4">
-                        <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
-                            {isPerkAvailableNow ? (
-                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Included</p>
-                            ) : safeNumber(item.price) > 0 ? (
-                                <p className="text-sm font-black text-slate-900 font-mono tracking-tighter">${safeNumber(item.price).toFixed(2)}</p>
-                            ) : (
-                                <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Comp</p>
-                            )}
+                    {/* A price chip floated over a photo needs the frosted panel to
+                        stay readable. Over the short no-photo band it collided
+                        with the icon, so there it moves inline under the name. */}
+                    {item.imageUrl && (
+                        <div className="absolute bottom-4 right-4">
+                            <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 px-3 shadow-xl border border-white/50">
+                                {priceLabel}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 <CardContent className="p-5 md:p-6 flex-1 flex flex-col justify-between space-y-4 text-left">
                     <div className="space-y-1.5">
-                        <h4 className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight truncate">{item.name}</h4>
+                        {/* Not `truncate`: at 390px the card is 240px wide and a
+                            real name like "Warm Almond Croissant" lost its last
+                            word to an ellipsis. Wrapping to two lines instead. */}
+                        <h4 className="font-black text-sm md:text-lg uppercase tracking-tight text-slate-900 leading-tight break-words line-clamp-2">{item.name}</h4>
+                        {!item.imageUrl && <div className="pt-0.5">{priceLabel}</div>}
                         {item.description && (
                             <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-2 italic">
-                                "{item.description}"
+                                &quot;{item.description}&quot;
                             </p>
                         )}
                     </div>
 
                     <div className="pt-4 border-t border-dashed space-y-4">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3 bg-muted/50 rounded-xl p-1 px-3 h-10 border shadow-inner">
-                                <button onClick={() => onQtyChange(-1)} disabled={isSoldOut || hasPendingRequest} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
+                        {/* Stacked on a phone, side by side from md up. Side by side
+                            at 240px forced the minus/plus buttons down to 32px of
+                            tappable height, which is under the 44px thumb minimum. */}
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                            <div className="flex items-center justify-center gap-2 bg-muted/50 rounded-xl px-1 h-12 border shadow-inner md:justify-start">
+                                <button aria-label="One fewer" onClick={() => onQtyChange(-1)} disabled={hasPendingRequest} className="flex min-h-[44px] w-11 items-center justify-center rounded-lg hover:text-primary transition-colors disabled:opacity-20"><Minus className="w-4 h-4" /></button>
                                 <span className="font-black font-mono text-base w-6 text-center">{qty}</span>
-                                <button onClick={() => onQtyChange(1)} disabled={isSoldOut || hasPendingRequest} className="p-1 hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
+                                <button aria-label="One more" onClick={() => onQtyChange(1)} disabled={hasPendingRequest || qty >= maxQty} className="flex min-h-[44px] w-11 items-center justify-center rounded-lg hover:text-primary transition-colors disabled:opacity-20"><Plus className="w-4 h-4" /></button>
                             </div>
-                            <Button 
-                                size="sm" 
-                                disabled={isRequesting || hasPendingRequest || isSoldOut}
+                            <Button
+                                disabled={isRequesting || hasPendingRequest}
                                 onClick={onRequest}
-                                className="h-10 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
+                                className="w-full md:w-auto min-h-[44px] h-12 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
                             >
-                                {hasPendingRequest ? 'Pending' : isSoldOut ? 'Void' : 'Request'}
+                                {hasPendingRequest ? 'On Its Way' : isRequesting ? 'Sending' : 'Request'}
                             </Button>
                         </div>
                     </div>
@@ -759,45 +823,265 @@ const RefreshmentCard = ({
     );
 };
 
-const ConciergeExperienceView = ({ 
-    tenant, 
-    client, 
-    inventory, 
-    activeRequests, 
-    appointment, 
-    staff, 
+/**
+ * ── While You Wait ──────────────────────────────────────────────────────────
+ * The band under the hero used to be empty. On the live site it rendered
+ * `<div className="space-y-16 py-8">` with two possible children, both of which
+ * were conditional and both of which were empty for a guest (the amenity list
+ * came back empty because `inventory` is staff-only), leaving roughly 220px of
+ * white space and nothing to read.
+ *
+ * This is the part that is always there: what is happening right now, who is
+ * looking after them, and when it should wrap up. Every value is read from the
+ * real appointment record — nothing here is invented, and any field that is
+ * missing simply does not render rather than showing a placeholder.
+ */
+const WhileYouWaitPanel = ({
+    isWaiting, stationName, staffName, serviceName, startTime, endTime, guestName, isMember, membershipName, perkTotal,
+}: {
+    isWaiting: boolean;
+    stationName: string;
+    staffName?: string | null;
+    serviceName?: string | null;
+    startTime?: string | null;
+    endTime?: string | null;
+    guestName?: string | null;
+    isMember: boolean;
+    membershipName?: string | null;
+    /** Total club perks still available this cycle, across every item. */
+    perkTotal: number;
+}) => {
+    const rows: { label: string; value: string; icon: any }[] = [];
+
+    if (serviceName) rows.push({ label: 'Today', value: serviceName, icon: Sparkles });
+    if (staffName) rows.push({ label: isWaiting ? 'Your technician' : 'With', value: staffName, icon: User });
+    rows.push({ label: isWaiting ? 'Waiting in' : 'Seated at', value: stationName, icon: MapPin });
+    if (endTime) {
+        rows.push({ label: 'Should wrap around', value: format(safeDate(endTime), 'h:mm a'), icon: Clock });
+    } else if (startTime) {
+        rows.push({ label: 'Started', value: format(safeDate(startTime), 'h:mm a'), icon: Clock });
+    }
+
+    return (
+        <div className="px-6 md:px-8 space-y-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-40 flex items-center gap-2">
+                <Info className="w-3 h-3" />
+                {guestName ? `${guestName}, here's where things stand` : 'Where things stand'}
+            </h3>
+
+            <div className="rounded-[2rem] border-2 bg-white shadow-lg overflow-hidden">
+                {/* One row per known fact. A two-column grid on a phone would
+                    squeeze a station name like "Pedicure Suite 2" into an
+                    ellipsis, so this stacks and lets the value wrap. */}
+                <div className="divide-y divide-dashed">
+                    {rows.map(row => {
+                        const RowIcon = row.icon;
+                        return (
+                            <div key={row.label} className="flex items-start gap-4 p-4 md:p-5">
+                                <div className="p-2 bg-primary/10 rounded-xl text-primary shadow-inner shrink-0">
+                                    <RowIcon className="w-4 h-4" />
+                                </div>
+                                <div className="min-w-0 flex-1 text-left">
+                                    <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-40">{row.label}</p>
+                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 leading-snug break-words">{row.value}</p>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                {isMember && (
+                    <div className="flex items-center gap-4 p-4 md:p-5 bg-indigo-50/60 border-t-2 border-indigo-200/50">
+                        <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-inner shrink-0">
+                            <Award className="w-4 h-4" />
+                        </div>
+                        <div className="min-w-0 flex-1 text-left">
+                            <p className="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-700 opacity-70">{membershipName || 'Club member'}</p>
+                            <p className="font-black text-sm uppercase tracking-tight text-indigo-900 leading-snug">
+                                {perkTotal > 0
+                                    ? `${perkTotal} club ${perkTotal === 1 ? 'perk' : 'perks'} left this cycle`
+                                    : 'Perks used for this cycle'}
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+/**
+ * ── Explore More ────────────────────────────────────────────────────────────
+ * The upsell touch point. Services are the one collection a guest genuinely can
+ * read (firestore.rules allows `get, list: if true` on services), so this is
+ * real data — the list is the studio's own active service menu with today's
+ * service filtered out.
+ *
+ * "Ask about this today" does NOT book anything and does NOT take money. It
+ * sends a notification to the assigned technician and to every owner/admin, and
+ * stamps the appointment so the interest is still visible at checkout. That is
+ * the honest version of an in-chair upsell: the guest raises their hand, a human
+ * closes it.
+ */
+const ExploreServicesPanel = ({
+    services, onAsk, askedIds, pendingId, tenantId,
+}: {
+    services: LoungeUpsell[];
+    onAsk: (svc: LoungeUpsell) => void;
+    askedIds: string[];
+    pendingId: string | null;
+    tenantId?: string | null;
+}) => {
+    if (!services.length) return null;
+
+    return (
+        <section className="space-y-4">
+            <div className="px-6 md:px-8 space-y-1">
+                <h3 className="text-[11px] md:text-sm font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    While You&apos;re Here
+                </h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 leading-relaxed">
+                    Tap anything you&apos;d like to hear about — we&apos;ll mention it before you go
+                </p>
+            </div>
+
+            <ScrollArea className="w-full">
+                <div className="flex gap-4 px-6 md:px-8 pb-6">
+                    {services.map((svc, idx) => {
+                        const asked = askedIds.includes(svc.id);
+                        const price = safeNumber(svc.price);
+                        const mins = Math.floor(safeNumber(svc.duration));
+                        return (
+                            <motion.div
+                                key={svc.id}
+                                initial={{ opacity: 0, y: 12 }}
+                                whileInView={{ opacity: 1, y: 0 }}
+                                transition={{ delay: idx * 0.05 }}
+                                viewport={{ once: true }}
+                                className="shrink-0 w-[230px] md:w-64"
+                            >
+                                <Card className="rounded-[2rem] border-2 h-full flex flex-col bg-white shadow-lg overflow-hidden">
+                                    <CardContent className="p-5 md:p-6 flex-1 flex flex-col justify-between gap-4 text-left">
+                                        <div className="space-y-2">
+                                            {svc.category && (
+                                                <p className="text-[8px] font-black uppercase tracking-[0.25em] text-muted-foreground opacity-40 truncate">{svc.category}</p>
+                                            )}
+                                            <h4 className="font-black text-sm md:text-base uppercase tracking-tight text-slate-900 leading-snug break-words">{svc.name}</h4>
+                                            <div className="flex items-center gap-3 flex-wrap">
+                                                {price > 0 && (
+                                                    <span className="font-black font-mono text-base tracking-tighter text-slate-900">${price.toFixed(2)}</span>
+                                                )}
+                                                {mins > 0 && (
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-50 flex items-center gap-1">
+                                                        <Clock className="w-3 h-3" /> {mins} min
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {svc.description && (
+                                                <p className="text-[11px] font-medium text-slate-500 leading-relaxed line-clamp-3">{svc.description}</p>
+                                            )}
+                                        </div>
+
+                                        <Button
+                                            variant={asked ? 'outline' : 'default'}
+                                            disabled={asked || pendingId === svc.id}
+                                            onClick={() => onAsk(svc)}
+                                            className="w-full min-h-[44px] h-11 rounded-xl font-black uppercase text-[9px] tracking-[0.2em] shadow-sm"
+                                        >
+                                            {asked ? (
+                                                <><Check className="w-3.5 h-3.5 mr-1.5" /> We&apos;ll Mention It</>
+                                            ) : pendingId === svc.id ? (
+                                                <><Loader className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Sending</>
+                                            ) : (
+                                                <>Ask About This <ArrowRight className="w-3.5 h-3.5 ml-1.5" /></>
+                                            )}
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            </motion.div>
+                        );
+                    })}
+                </div>
+                <ScrollBar orientation="horizontal" className="hidden" />
+            </ScrollArea>
+
+            {tenantId && (
+                <div className="px-6 md:px-8">
+                    <Button asChild variant="outline" className="w-full min-h-[44px] h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-[0.2em] bg-white shadow-sm">
+                        <Link href={`/book/${tenantId}`}>
+                            <CalendarIcon className="w-4 h-4 mr-2 opacity-40" />
+                            Book Your Next Visit
+                        </Link>
+                    </Button>
+                </div>
+            )}
+        </section>
+    );
+};
+
+const ConciergeExperienceView = ({
+    tenant,
+    client,
+    inventory,
+    activeRequests,
+    appointment,
+    staff,
     resources,
     memberships,
-    isWaiting = false
-}: { 
-    tenant: Tenant | null, 
-    client: Client | null, 
-    inventory: InventoryItem[], 
+    isWaiting = false,
+    token,
+    lounge,
+    loungeError = false,
+    onRefresh,
+}: {
+    tenant: Tenant | null,
+    client: Client | null,
+    inventory: InventoryItem[],
     activeRequests: any[],
     appointment: Appointment | null,
     staff: Staff | null,
     resources: Resource[],
     memberships: Membership[],
-    isWaiting?: boolean
+    isWaiting?: boolean,
+    /** The check-in token — every write goes through /api/guest-lounge with it. */
+    token: string,
+    /** Payload from /api/guest-lounge, or null while it loads. */
+    lounge: any,
+    loungeError?: boolean,
+    onRefresh: () => void,
 }) => {
-    const { firestore } = useFirebase();
     const { toast } = useToast();
     const [isRequesting, setIsRequesting] = useState(false);
     const [quantities, setQuantities] = useState<Record<string, number>>({});
+    const [askedServiceIds, setAskedServiceIds] = useState<string[]>([]);
+    const [askingId, setAskingId] = useState<string | null>(null);
+    const [recallingId, setRecallingId] = useState<string | null>(null);
 
-    const isMember = useMemo(() => {
-        if (!client) return false;
-        return !!(client.activeMembershipId && client.subscription?.status === 'active');
-    }, [client]);
+    // A guest is not signed in, so `client` is null for them and the API is the
+    // only source of truth about membership. On a staff device the client
+    // document does resolve, so fall back to it.
+    const isMember = lounge
+        ? lounge.guest?.isMember === true
+        : !!(client?.activeMembershipId && client?.subscription?.status === 'active');
 
     const activeMembership = useMemo(() => {
-        if (!isMember || !client?.activeMembershipId || !memberships) return null;
-        return memberships.find(m => m.id === client.activeMembershipId);
-    }, [isMember, client, memberships]);
+        if (!client?.activeMembershipId || !memberships) return null;
+        return memberships.find(m => m.id === client.activeMembershipId) || null;
+    }, [client, memberships]);
+
+    const perkMap: Record<string, number> = (lounge?.perks && typeof lounge.perks === 'object') ? lounge.perks : {};
+
+    const isPerkDefinition = (itemId: string) => {
+        if (lounge) return Object.prototype.hasOwnProperty.call(perkMap, itemId);
+        return !!activeMembership?.includedProducts?.some(p => p.id === itemId);
+    };
 
     const getRemainingPerkUses = (itemId: string) => {
+        // Server-computed for guests — the browser cannot read `memberships`.
+        if (lounge) return Math.max(0, safeNumber(perkMap[itemId]));
+
         if (!isMember || !activeMembership || !client?.subscription) return 0;
-        
         const perkDef = activeMembership.includedProducts?.find(p => p.id === itemId);
         if (!perkDef) return 0;
 
@@ -812,42 +1096,54 @@ const ConciergeExperienceView = ({
         return Math.max(0, limit - totalCycleUsage);
     };
 
-    const refreshments = useMemo(() => 
-        inventory.filter(item => 
-            item.type === 'refreshment' && 
-            item.showInConcierge !== false && 
-            safeNumber(item.totalStock) > 0 &&
-            (!item.isMembersOnly || isMember)
-        )
-    , [inventory, isMember]);
+    const perkTotal = useMemo(
+        () => Object.keys(perkMap).reduce((sum, k) => sum + Math.max(0, safeNumber(perkMap[k])), 0),
+        [lounge],
+    );
 
-    const refreshmentsByCategory = useMemo(() => {
-        const grouped: Record<string, InventoryItem[]> = {};
+    // The menu. API first (the only path that works for a guest), the live
+    // collection second (works when a staff member opens this on a studio
+    // device, where `inventory` is actually readable).
+    const amenities: LoungeAmenity[] = useMemo(() => {
+        if (Array.isArray(lounge?.amenities) && lounge.amenities.length) {
+            return lounge.amenities as LoungeAmenity[];
+        }
+        return (inventory || [])
+            .filter(item =>
+                item.type === 'refreshment' &&
+                (item as any).showInConcierge !== false &&
+                safeNumber(item.totalStock) > 0 &&
+                (!(item as any).isMembersOnly || isMember)
+            )
+            .map(toAmenity);
+    }, [lounge, inventory, isMember]);
+
+    const amenitiesByCategory = useMemo(() => {
+        const grouped: Record<string, LoungeAmenity[]> = {};
         const exclusiveKey = 'Club Exclusive Selection';
         const comfortKey = 'Comfort & Environment';
-        
-        refreshments.forEach(item => {
+
+        amenities.forEach(item => {
             let cat = item.category || 'Standard Selection';
             if (item.isMembersOnly) {
                 cat = exclusiveKey;
             } else if (cat.toLowerCase().includes('comfort') || cat.toLowerCase().includes('amenity')) {
                 cat = comfortKey;
             }
-
             if (!grouped[cat]) grouped[cat] = [];
             grouped[cat].push(item);
         });
 
-        const orderedGrouped: Record<string, InventoryItem[]> = {};
+        const orderedGrouped: Record<string, LoungeAmenity[]> = {};
         if (grouped[exclusiveKey]) orderedGrouped[exclusiveKey] = grouped[exclusiveKey];
         if (grouped[comfortKey]) orderedGrouped[comfortKey] = grouped[comfortKey];
-        
         Object.keys(grouped).sort().forEach(key => {
             if (key !== exclusiveKey && key !== comfortKey) orderedGrouped[key] = grouped[key];
         });
-
         return orderedGrouped;
-    }, [refreshments]);
+    }, [amenities]);
+
+    const upsellServices: LoungeUpsell[] = Array.isArray(lounge?.upsell) ? lounge.upsell : [];
 
     const stationName = useMemo(() => {
         if (isWaiting) return 'Lounge Area';
@@ -856,74 +1152,115 @@ const ConciergeExperienceView = ({
         return res?.name || 'Station';
     }, [appointment, resources, isWaiting]);
 
-    const handleRequest = async (item: InventoryItem) => {
-        if (!firestore || !tenant || !client || !appointment || isRequesting) return;
+    /**
+     * Ordering goes through /api/guest-lounge rather than writing to Firestore
+     * from here. The old code hard-returned on `!client`, and `client` is always
+     * null for a guest, so on the live site nothing was ever sent. The API also
+     * re-checks the stock, the members-only flag, the per-session complimentary
+     * limit and the perk balance server-side, none of which a browser can be
+     * trusted with.
+     */
+    const handleRequest = async (item: LoungeAmenity) => {
+        if (!token || isRequesting) return;
         const qty = quantities[item.id] || 1;
-        
-        const currentSessionPending = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
-        const totalSessionQty = currentSessionPending.reduce((sum, r) => sum + safeNumber(r.quantity || 1), 0);
-        const limit = tenant.complimentaryAmenityLimit || 0;
-
-        if (limit > 0 && totalSessionQty + qty > limit) {
-            toast({ variant: 'destructive', title: 'Limit Reached', description: `Complimentary limit is ${limit} items per session.` });
-            return;
-        }
-
-        const remainingPerks = getRemainingPerkUses(item.id);
-        const isRedemption = remainingPerks >= qty;
-
         setIsRequesting(true);
         try {
-            const requestId = nanoid();
-            await setDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId), {
-                id: requestId, 
-                tenantId: tenant.id, 
-                appointmentId: appointment.id, 
-                clientId: client.id, 
-                clientName: client.name, 
-                itemId: item.id, 
-                itemName: item.name, 
-                quantity: qty, 
-                status: 'pending', 
-                requestedAt: new Date().toISOString(), 
-                stationName, 
-                staffName: staff?.name || 'Unassigned', 
-                priceAtRequest: isRedemption ? 0 : safeNumber(item.price || 0),
-                isRedemption
-            }, {});
-            toast({ title: isRedemption ? "Perk Redeemed!" : "Request Dispatched" });
+            const res = await fetch('/api/guest-lounge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, action: 'request', itemId: item.id, quantity: qty }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) {
+                toast({ variant: 'destructive', title: 'Not sent', description: d?.error || 'Please let your technician know instead.' });
+                return;
+            }
+            toast({
+                title: d.request?.isRedemption ? 'Perk redeemed' : 'Request sent',
+                description: 'The team has been notified.',
+            });
             setQuantities(prev => ({ ...prev, [item.id]: 1 }));
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Request Failed" });
+            onRefresh();
+        } catch {
+            toast({ variant: 'destructive', title: 'Not sent', description: 'Please let your technician know instead.' });
         } finally {
             setIsRequesting(false);
         }
     };
 
+    /**
+     * Also server-side: `refreshmentRequests` allows `update` only for staff, so
+     * a guest tapping Recall in the browser used to fail silently and the item
+     * stayed on the list.
+     */
     const handleCancelRequest = async (requestId: string) => {
-        if (!firestore || !tenant || isRequesting) return;
+        if (!token || recallingId) return;
+        setRecallingId(requestId);
         try {
-            await updateDocumentNonBlocking(doc(firestore, `tenants/${tenant.id}/refreshmentRequests`, requestId), {
-                status: 'cancelled'
+            const res = await fetch('/api/guest-lounge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, action: 'recall', requestId }),
             });
-            toast({ title: "Request Recalled" });
-        } catch (e) {
-            toast({ variant: 'destructive', title: "Recall Failed" });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) {
+                toast({ variant: 'destructive', title: 'Could not recall', description: d?.error || 'Please ask your technician.' });
+                return;
+            }
+            toast({ title: 'Recalled' });
+            onRefresh();
+        } catch {
+            toast({ variant: 'destructive', title: 'Could not recall', description: 'Please ask your technician.' });
+        } finally {
+            setRecallingId(null);
         }
     };
 
-    const pendingRequestsForThisSession = activeRequests.filter(r => r.appointmentId === appointment.id && r.status === 'pending');
+    /** Raises the guest's hand about another service. Books nothing, charges nothing. */
+    const handleAskAboutService = async (svc: LoungeUpsell) => {
+        if (!token || askingId) return;
+        setAskingId(svc.id);
+        try {
+            const res = await fetch('/api/guest-lounge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, action: 'interest', serviceId: svc.id }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) {
+                toast({ variant: 'destructive', title: 'Could not send', description: d?.error || 'Just mention it to your technician.' });
+                return;
+            }
+            setAskedServiceIds(prev => prev.includes(svc.id) ? prev : [...prev, svc.id]);
+            toast({ title: 'Noted', description: `We'll talk to you about ${svc.name}.` });
+        } catch {
+            toast({ variant: 'destructive', title: 'Could not send', description: 'Just mention it to your technician.' });
+        } finally {
+            setAskingId(null);
+        }
+    };
+
+    // Live from the browser's own listener — `refreshmentRequests` is one of the
+    // few collections a guest CAN read, so this stays in sync when the back of
+    // house changes a status. (The API also returns a snapshot of these, used
+    // only as a cross-check on load.)
+    const pendingRequestsForThisSession = activeRequests.filter(r => r.appointmentId === appointment?.id && r.status === 'pending');
     const hasActiveRequest = pendingRequestsForThisSession.length > 0;
+
+    const guestFirstName = lounge?.guest?.firstName || (client?.name ? String(client.name).split(/\s+/)[0] : '');
+    const portalClientId = client?.id || lounge?.guest?.id || '';
+    const loungeLoading = !lounge && !loungeError;
+    const menuIsEmpty = !loungeLoading && amenities.length === 0;
 
     return (
         <ViewContainer className="max-w-4xl">
-            <ViewHeader 
-                title={isWaiting ? "Lounge Experience" : "Boutique Experience"} 
-                subtitle={isWaiting ? "Please make yourself at home" : "Your session is live"} 
-                icon={isWaiting ? Sofa : Clock} 
+            <ViewHeader
+                title={isWaiting ? "Lounge Experience" : "Boutique Experience"}
+                subtitle={isWaiting ? "Please make yourself at home" : "Your session is live"}
+                icon={isWaiting ? Sofa : Clock}
             />
-            <CardContent className="p-0 space-y-12">
-                <div className="p-8 md:p-12 text-center space-y-6 bg-primary/5 border-b-2 border-primary/10 shadow-inner relative overflow-hidden group">
+            <CardContent className="p-0 space-y-8">
+                <div className="p-6 md:p-10 text-center space-y-5 bg-primary/5 border-b-2 border-primary/10 shadow-inner relative overflow-hidden group">
                     <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity"><Sparkles className="w-32 h-32 text-primary" /></div>
                     <div className="w-20 h-20 md:w-24 md:h-24 bg-white rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl border-2 border-primary/10 rotate-6 relative z-10">
                         {isWaiting ? <Sofa className="w-10 h-10 md:w-12 md:h-12 text-primary -rotate-6" /> : <Activity className="w-10 h-10 md:w-12 md:h-12 text-primary -rotate-6" />}
@@ -933,39 +1270,57 @@ const ConciergeExperienceView = ({
                             {isWaiting ? "Comfort First" : "In Service Flow"}
                         </p>
                         <p className="text-[10px] md:text-sm font-bold text-slate-500 leading-relaxed uppercase tracking-widest opacity-60">
-                            {isWaiting 
-                                ? "Select an amenity below and our concierge will bring it to you." 
+                            {isWaiting
+                                ? "Settle in. Anything below comes straight to you."
                                 : `Assigned to ${stationName}. Relax and enjoy your treatment.`
                             }
                         </p>
                     </div>
                 </div>
 
-                <div className="space-y-16 py-8">
+                {/* The band that used to be blank. py-8 + space-y-16 gave roughly
+                    220px of padding around two conditional children that were
+                    both empty for a guest; it is now tighter and always has
+                    something real in it. */}
+                <div className="space-y-10 pb-2">
+                    <WhileYouWaitPanel
+                        isWaiting={isWaiting}
+                        stationName={stationName}
+                        staffName={staff?.name || lounge?.session?.staffName || null}
+                        serviceName={lounge?.session?.serviceName || null}
+                        startTime={lounge?.session?.startTime || (appointment as any)?.startTime || null}
+                        endTime={lounge?.session?.endTime || (appointment as any)?.endTime || null}
+                        guestName={guestFirstName || null}
+                        isMember={isMember}
+                        membershipName={lounge?.guest?.membershipName || activeMembership?.name || null}
+                        perkTotal={perkTotal}
+                    />
+
                     {hasActiveRequest && (
-                        <div className="px-8 space-y-4">
+                        <div className="px-6 md:px-8 space-y-4">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
                                 <Activity className="w-3 h-3 animate-pulse" />
-                                Current Orders
+                                On Its Way
                             </h3>
                             <div className="grid gap-3">
                                 {pendingRequestsForThisSession.map(req => (
-                                    <div key={req.id} className="flex items-center justify-between p-4 rounded-[1.5rem] border-2 bg-primary/5 border-primary/10 shadow-sm">
-                                        <div className="flex items-center gap-4">
-                                            <div className="p-2 bg-white rounded-xl shadow-inner"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
-                                            <div className="text-left">
-                                                <p className="text-xs font-black uppercase text-slate-900 leading-none mb-1">{req.itemName}</p>
-                                                <div className="flex items-center gap-2">
-                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Load: {safeNumber(req.quantity || 1)} unit</p>
+                                    <div key={req.id} className="flex items-center justify-between gap-3 p-4 rounded-[1.5rem] border-2 bg-primary/5 border-primary/10 shadow-sm">
+                                        <div className="flex items-center gap-4 min-w-0">
+                                            <div className="p-2 bg-white rounded-xl shadow-inner shrink-0"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
+                                            <div className="text-left min-w-0">
+                                                <p className="text-xs font-black uppercase text-slate-900 leading-none mb-1 truncate">{req.itemName}</p>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty {safeNumber(req.quantity || 1)}</p>
                                                     {req.isRedemption && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase shadow-sm">Club Perk</Badge>}
                                                 </div>
                                             </div>
                                         </div>
-                                        <button 
+                                        <button
                                             onClick={() => handleCancelRequest(req.id)}
-                                            className="h-9 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/10 transition-all"
+                                            disabled={recallingId === req.id}
+                                            className="min-h-[44px] h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/10 transition-all shrink-0 disabled:opacity-40"
                                         >
-                                            Recall
+                                            {recallingId === req.id ? 'Wait' : 'Recall'}
                                         </button>
                                     </div>
                                 ))}
@@ -973,15 +1328,24 @@ const ConciergeExperienceView = ({
                         </div>
                     )}
 
-                    {Object.entries(refreshmentsByCategory).map(([category, items], catIdx) => {
+                    {loungeLoading && (
+                        <div className="px-6 md:px-8">
+                            <div className="rounded-[2rem] border-2 border-dashed bg-muted/10 p-8 text-center space-y-3">
+                                <Loader className="w-5 h-5 mx-auto animate-spin text-primary opacity-60" />
+                                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-40">Loading the menu</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {Object.entries(amenitiesByCategory).map(([category, items], catIdx) => {
                         const isExclusive = category === 'Club Exclusive Selection';
                         const isComfort = category === 'Comfort & Environment';
-                        
+
                         return (
-                            <section key={category} className="space-y-6">
-                                <div className="flex items-center justify-between px-8">
+                            <section key={category} className="space-y-4">
+                                <div className="flex items-center justify-between px-6 md:px-8">
                                     <h3 className={cn(
-                                        "text-[11px] md:text-sm font-black uppercase tracking-[0.3em]",
+                                        "text-[11px] md:text-sm font-black uppercase tracking-[0.3em] leading-snug",
                                         isExclusive ? "text-indigo-600" : isComfort ? "text-primary" : "text-muted-foreground opacity-40"
                                     )}>
                                         {isExclusive && <Award className="inline-block w-4 h-4 mr-2 -mt-1" />}
@@ -991,7 +1355,7 @@ const ConciergeExperienceView = ({
                                 </div>
 
                                 <ScrollArea className="w-full">
-                                    <div className="flex gap-6 px-8 pb-8">
+                                    <div className="flex gap-6 px-6 md:px-8 pb-6">
                                         {items.map((item, idx) => {
                                             const hasPendingRequest = pendingRequestsForThisSession.some(r => r.itemId === item.id);
                                             return (
@@ -1002,18 +1366,18 @@ const ConciergeExperienceView = ({
                                                     transition={{ delay: (catIdx * 0.1) + (idx * 0.05) }}
                                                     viewport={{ once: true }}
                                                 >
-                                                    <RefreshmentCard 
-                                                        item={item} 
+                                                    <RefreshmentCard
+                                                        item={item}
                                                         qty={quantities[item.id] || 1}
                                                         onQtyChange={(delta) => {
                                                             const current = quantities[item.id] || 1;
-                                                            setQuantities(p => ({...p, [item.id]: Math.max(1, Math.min(safeNumber(item.totalStock), current + delta))}));
+                                                            const cap = Math.max(1, Math.floor(safeNumber(item.maxQty)) || 1);
+                                                            setQuantities(p => ({ ...p, [item.id]: Math.max(1, Math.min(cap, current + delta)) }));
                                                         }}
                                                         onRequest={() => handleRequest(item)}
                                                         isRequesting={isRequesting}
-                                                        hasPendingRequest={hasPendingRequest} 
-                                                        isMember={isMember}
-                                                        activeMembership={activeMembership}
+                                                        hasPendingRequest={hasPendingRequest}
+                                                        isPerkDefinition={isPerkDefinition(item.id)}
                                                         remainingPerkUses={getRemainingPerkUses(item.id)}
                                                     />
                                                 </motion.div>
@@ -1025,33 +1389,77 @@ const ConciergeExperienceView = ({
                             </section>
                         );
                     })}
-                </div>
 
-                <div className="p-8 md:p-12 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-8">
-                    {tenant?.wifiNetwork && (
-                        <div className="p-6 rounded-[2.5rem] border-2 bg-white shadow-2xl flex items-center justify-between gap-6">
-                            <div className="flex items-center gap-4 text-left">
-                                <div className="p-3 bg-primary/10 rounded-xl text-primary shadow-inner shrink-0">
-                                    <Wifi className="w-6 h-6" />
-                                </div>
-                                <div className="text-left">
-                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi Network</p>
-                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate max-w-[150px] md:max-w-none">{tenant.wifiNetwork}</p>
-                                </div>
-                            </div>
-                            <div className="text-right shrink-0">
-                                <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
+                    {/* Honest empty state. The old code was a bare .map with no
+                        fallback, which is why an empty menu rendered as nothing
+                        at all rather than as an explanation. */}
+                    {menuIsEmpty && (
+                        <div className="px-6 md:px-8">
+                            <div className="rounded-[2rem] border-2 border-dashed bg-muted/10 p-8 text-center space-y-3">
+                                <Coffee className="w-8 h-8 mx-auto text-primary opacity-20" />
+                                <p className="text-xs font-black uppercase tracking-tight text-slate-900">
+                                    {loungeError ? 'Menu unavailable right now' : 'Nothing on the menu just yet'}
+                                </p>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground opacity-40 leading-relaxed max-w-xs mx-auto">
+                                    {loungeError
+                                        ? 'Just let your technician know if you need anything.'
+                                        : 'Ask your technician if there is anything you would like.'}
+                                </p>
+                                {loungeError && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={onRefresh}
+                                        className="min-h-[44px] h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-[0.2em]"
+                                    >
+                                        <Repeat className="w-3.5 h-3.5 mr-1.5" /> Try Again
+                                    </Button>
+                                )}
                             </div>
                         </div>
                     )}
-                    <div className="pt-4 text-center">
-                        <Button asChild variant="outline" className="w-full h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
-                            <Link href={`/portal/${tenant?.id}/${client?.id}`}>
-                                <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
-                                Access Main Studio Portal
-                            </Link>
-                        </Button>
-                    </div>
+
+                    <ExploreServicesPanel
+                        services={upsellServices}
+                        onAsk={handleAskAboutService}
+                        askedIds={askedServiceIds}
+                        pendingId={askingId}
+                        tenantId={tenant?.id || null}
+                    />
+                </div>
+
+                <div className="p-6 md:p-10 bg-muted/5 border-t-2 border-dashed border-border/50 space-y-6">
+                    {tenant?.wifiNetwork && (
+                        <div className="p-5 md:p-6 rounded-[2.5rem] border-2 bg-white shadow-2xl flex items-center justify-between gap-4">
+                            <div className="flex items-center gap-4 text-left min-w-0">
+                                <div className="p-3 bg-primary/10 rounded-xl text-primary shadow-inner shrink-0">
+                                    <Wifi className="w-6 h-6" />
+                                </div>
+                                <div className="text-left min-w-0">
+                                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-40">Private WiFi Network</p>
+                                    <p className="font-black text-sm uppercase tracking-tight text-slate-900 truncate">{tenant.wifiNetwork}</p>
+                                </div>
+                            </div>
+                            {tenant.wifiPassword && (
+                                <div className="text-right shrink-0">
+                                    <Badge variant="outline" className="font-mono font-black text-xs h-10 px-4 border-2 shadow-sm rounded-xl select-all">{tenant.wifiPassword}</Badge>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {/* Only rendered when we actually know who this is. It used
+                        to render unconditionally and resolve to
+                        /portal/{tenantId}/undefined for every guest, because a
+                        guest cannot read their own client document. */}
+                    {tenant?.id && portalClientId && (
+                        <div className="pt-2 text-center">
+                            <Button asChild variant="outline" className="w-full min-h-[44px] h-14 rounded-2xl border-2 font-black uppercase text-[10px] bg-white shadow-sm">
+                                <Link href={`/portal/${tenant.id}/${portalClientId}`}>
+                                    <LayoutDashboard className="w-4 h-4 mr-2 opacity-40" />
+                                    Access Main Studio Portal
+                                </Link>
+                            </Button>
+                        </div>
+                    )}
                 </div>
             </CardContent>
         </ViewContainer>
@@ -2110,6 +2518,41 @@ export default function CheckInPage() {
     }, [firestore, tenantId, clientId]);
     const { data: clientRequests } = useCollection(allClientRequestsQuery);
 
+    // ── Guest lounge payload ─────────────────────────────────────────────────
+    // A guest opening this link is NOT signed in to Firebase, and firestore.rules
+    // denies an unauthenticated reader `inventory` (staff-only), `memberships`
+    // (catch-all deny) and `clients/{id}` (read is staff-only). That is why the
+    // waiting screen used to render an empty band: every collection it needed
+    // came back as []. /api/guest-lounge reads those server-side with the Admin
+    // SDK and returns a narrow, sanitised projection keyed off this same token —
+    // no cost prices, no supplier, no stock counts, no other tenant's data.
+    const [lounge, setLounge] = useState<any | null>(null);
+    const [loungeError, setLoungeError] = useState(false);
+    const [loungeNonce, setLoungeNonce] = useState(0);
+    const isLoungeActive = appointmentData?.checkInStatus === 'arrived' || appointmentData?.status === 'servicing';
+
+    useEffect(() => {
+        if (!token || !isLoungeActive) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`/api/guest-lounge?token=${encodeURIComponent(token)}`);
+                const d = await res.json().catch(() => ({}));
+                if (cancelled) return;
+                if (!res.ok || !d?.ok) { setLoungeError(true); return; }
+                setLounge(d);
+                setLoungeError(false);
+            } catch {
+                if (!cancelled) setLoungeError(true);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [token, isLoungeActive, loungeNonce]);
+
+    // useCallback is not imported in this file, so a plain arrow it is. It is
+    // only ever passed down as a prop, never used in a dependency array.
+    const refreshLounge = () => setLoungeNonce(n => n + 1);
+
     const clientDocRef = useMemoFirebase(() => !firestore || !tenantId || !clientId ? null : doc(firestore, `tenants/${tenantId}/clients`, clientId), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientDocRef);
     
@@ -2333,6 +2776,10 @@ export default function CheckInPage() {
                 resources={resources || []}
                 memberships={memberships || []}
                 isWaiting={appointmentData?.status !== 'servicing'}
+                token={token}
+                lounge={lounge}
+                loungeError={loungeError}
+                onRefresh={refreshLounge}
             />
         );
     }
