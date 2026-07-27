@@ -4710,8 +4710,15 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           onSendToFrontDesk={(aptId, checkoutState) => {
             if (!firestore || !tenantId) return;
             const batch = writeBatch(firestore);
+            // The checkout note is ALSO promoted to a permanent top-level field.
+            // checkoutState is rewritten wholesale on every hand-off, so a note
+            // that only lived in there would not survive. serviceNotes is what
+            // the appointment drawer reads and lets you edit later.
+            const reviewNote = typeof (checkoutState as any)?.reviewNotes === 'string'
+              ? (checkoutState as any).reviewNotes.trim() : '';
             batch.update(doc(firestore, `tenants/${tenantId}/appointments`, aptId), {
               checkoutState: JSON.parse(JSON.stringify(checkoutState)),
+              ...(reviewNote ? { serviceNotes: reviewNote, serviceNotesRecordedAt: new Date().toISOString() } : {}),
             });
             batch.commit()
               .then(() => toast({ title: 'Handed off to front desk ✓' }))
