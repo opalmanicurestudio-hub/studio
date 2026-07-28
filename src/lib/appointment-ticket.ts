@@ -25,6 +25,12 @@
 // app's Tailwind classes: the print window is a blank document that has none of
 // them, so anything styled by class name would come out as unstyled text.
 //
+// v2 adds WALK-IN tickets. A walk-in has no start time and no end time, so the
+// time box used to print "Time to be confirmed" — true, but useless to someone
+// standing in a lobby. Pass ctx.kind = 'walkin' with a queue position and a
+// rough wait and the same page prints their place in line instead. Nothing
+// changes for a caller that does not pass ctx.kind.
+//
 // Two rules that matter more than they look:
 //   1. Everything user-provided is HTML-escaped. A client named
 //      "A & B <Studio>" cannot break the layout or inject markup.
@@ -107,6 +113,32 @@ export interface TicketContext {
   footerNote?: string | null;
   /** Hide the "Powered by ClarityFlow" line. */
   hideBranding?: boolean;
+
+  /**
+   * What kind of visit this ticket is for. Omit it (or pass 'appointment') and
+   * nothing below changes — every existing caller keeps the exact ticket it has
+   * always printed.
+   *
+   * 'walkin' relabels three things for someone who arrived without a booking:
+   * the eyebrow says "Walk-in ticket", the status pill says where they are in
+   * the line, and the time box — which for a walk-in has no times in it at all
+   * and would otherwise print the rather unhelpful "Time to be confirmed" —
+   * carries their place in line and a softened wait instead.
+   */
+  kind?: 'appointment' | 'walkin' | null;
+
+  /** 1-based place in the walk-in line. Ignored unless kind is 'walkin'. */
+  queuePosition?: number | null;
+
+  /**
+   * Rough wait in minutes. Printed as "About 25 minutes", never as a countdown:
+   * paper cannot tick down, and a guest holding a stub that promised 12 minutes
+   * twenty minutes ago is a guest at the desk asking why.
+   */
+  queueWaitMinutes?: number | null;
+
+  /** Overrides the wait sentence entirely, e.g. "Maya is ready for you now". */
+  queueNote?: string | null;
 }
 
 /* ── Small helpers ───────────────────────────────────────────────────────── */
@@ -317,7 +349,24 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
     .filter(Boolean)
     .join('');
 
-  const statusLabel = titleCase(apt.checkInStatus === 'arrived' ? 'checked in' : apt.status) || 'Confirmed';
+  // ── Walk-in framing ──────────────────────────────────────────────────────
+  // All of this collapses to empty strings for a normal appointment, so the
+  // markup below is unchanged for every existing caller.
+  const isWalkIn = String(ctx.kind ?? '') === 'walkin';
+  const posNum = Number(ctx.queuePosition);
+  const queuePos = Number.isFinite(posNum) && posNum > 0 ? Math.round(posNum) : 0;
+  const waitNum = Number(ctx.queueWaitMinutes);
+  const waitMins = Number.isFinite(waitNum) && waitNum > 0 ? Math.round(waitNum) : 0;
+  const queueLine = !isWalkIn
+    ? ''
+    : String(ctx.queueNote ?? '').trim() ||
+      (waitMins ? `About ${waitMins} minutes` : 'We will come get you shortly');
+  const eyebrowLabel = isWalkIn ? 'Walk-in ticket' : 'Appointment ticket';
+  const posLabel = queuePos ? `#${queuePos} in line` : 'In line';
+
+  const statusLabel = isWalkIn
+    ? (queuePos ? `In line · #${queuePos}` : 'In line')
+    : titleCase(apt.checkInStatus === 'arrived' ? 'checked in' : apt.status) || 'Confirmed';
 
   // Printed on the guest stub, which is the half that leaves the building: the
   // address is there so someone holding the stub knows where to come back to,
@@ -477,14 +526,26 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
         <div class="st">${esc(statusLabel)}</div>
       </div>
       <div class="body">
-        <p class="eyebrow">Appointment ticket</p>
+        <p class="eyebrow">${esc(eyebrowLabel)}</p>
         <h1>${esc(clientName)}</h1>
         <p class="svc">${esc(serviceName)}</p>
 
         <div class="when">
           ${day ? `<div class="d">${esc(day)}</div>` : ''}
-          ${window_ ? `<div class="t">${esc(window_)}</div>` : '<div class="t">Time to be confirmed</div>'}
-          ${duration ? `<div class="dur">${esc(duration)}</div>` : ''}
+          ${
+            window_
+              ? `<div class="t">${esc(window_)}</div>`
+              : isWalkIn
+                ? `<div class="t">${esc(posLabel)}</div>`
+                : '<div class="t">Time to be confirmed</div>'
+          }
+          ${
+            duration
+              ? `<div class="dur">${esc(duration)}</div>`
+              : queueLine
+                ? `<div class="dur">${esc(queueLine)}</div>`
+                : ''
+          }
         </div>
 
         <div class="fields">
@@ -517,7 +578,12 @@ export function appointmentTicketHtml(apt: TicketAppointment, ctx: TicketContext
         <div class="left">
           <p class="eyebrow">${esc(studioName)}</p>
           <h3>${esc(clientName)}</h3>
-          <div class="meta">${esc([serviceName, day, window_].filter(Boolean).join(' · '))}</div>
+          <div class="meta">${esc(
+            (isWalkIn
+              ? [serviceName, posLabel, queueLine]
+              : [serviceName, day, window_]
+            ).filter(Boolean).join(' · '),
+          )}</div>
           ${codeForHumans ? `<div class="big-code">${esc(codeForHumans)}</div>` : ''}
           <div class="url">${
             checkInUrl
