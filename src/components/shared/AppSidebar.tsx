@@ -15,7 +15,7 @@ import {
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
-  MessageSquare, DoorOpen, Send,
+  MessageSquare, DoorOpen, Send, Hourglass,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -106,6 +106,13 @@ const PUBLIC_PORTALS = [
   { href: '/book',         icon: Globe,       label: 'Booking Page'     },
   // Walk-in APPOINTMENT kiosk (rebuilt) lives at /walk-in/[tenantId].
   { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in Kiosk'    },
+  // The waiting-room wall screen: who is next, roughly how long, who is free.
+  // Sits directly under the kiosk because they are one pair — the kiosk takes
+  // the guest in, this screen is what she stares at afterwards. Like every entry
+  // in this list it is rendered with isPortal, so NavItem appends the studio id
+  // and opens it in a new tab: /lobby/{tenantId}. Cast it to the lobby TV and
+  // leave it; it polls on its own.
+  { href: '/lobby',        icon: Hourglass,   label: 'Lobby Board'      },
   // The old /kiosk route is now the booth-renter CHECK-IN kiosk.
   { href: '/kiosk',        icon: DoorOpen,    label: 'Check-in Kiosk'   },
   { href: '/concierge',    icon: Coffee,      label: 'Lounge Concierge' },
