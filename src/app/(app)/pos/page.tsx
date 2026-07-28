@@ -368,8 +368,43 @@ function POSPage() {
         const service = services.find(s => s.id === apt.serviceId);
         const addOnServices = (apt.addOnIds || []).map(id => services.find(s => s.id === id)).filter((s): s is Service => !!s);
         const staffMember = staff.find(s => s.id === apt.staffId);
-        return { id: apt.id, appointment: apt, client, service, addOnServices, staff: staffMember };
-      }).filter((a): a is any => !!(a.client && a.service));
+
+        // ── WHY THIS FALLBACK EXISTS ───────────────────────────────────────────
+        // This used to end in .filter(a => !!(a.client && a.service)) — any
+        // appointment whose client or service record could not be resolved was
+        // DROPPED from the checkout queue entirely.
+        //
+        // That is a hole you lose money through. A walk-in's mirror appointment
+        // is written with clientId: walkIn.clientId || walkIn.id, so a guest who
+        // has no client record yet gets a clientId that matches no document.
+        // clients.find(...) returns undefined, the row is filtered away, and the
+        // guest who is standing at your counter after the tech pressed Finished
+        // simply is not in the queue. Nothing errors. There is just nobody to
+        // ring up. Same story if a service was deleted from the menu after the
+        // appointment was written.
+        //
+        // So instead of dropping her, stand in a minimal record built from what
+        // the appointment itself already carries. She reaches the till, you can
+        // add the correct service and price by hand, and the sale happens.
+        // A placeholder service is priced at 0 on purpose: an invented price
+        // would be worse than an obvious blank you have to fill in.
+        const safeClient = client || ({
+          id: apt.clientId || apt.id,
+          name: (apt as any).clientName || 'Walk-in Guest',
+          phone: (apt as any).clientPhone || '',
+          email: '',
+          isPlaceholder: true,
+        } as any);
+        const safeService = service || ({
+          id: apt.serviceId || 'unlisted',
+          name: (apt as any).serviceName || 'Service (add price)',
+          price: 0,
+          duration: 0,
+          isPlaceholder: true,
+        } as any);
+
+        return { id: apt.id, appointment: apt, client: safeClient, service: safeService, addOnServices, staff: staffMember };
+      });
   }, [appointmentsFromInventory, clients, services, staff]);
 
   const kpiData = useMemo(() => {
@@ -455,9 +490,55 @@ function POSPage() {
     batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
     if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
     if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
-    if (appointment.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO });
+    // The walk-in ROW, not just the mirror appointment. staffId is stamped here
+    // too: handleAssignStaff below only ever wrote `assignedStaffId`, which
+    // nothing in the app reads — the staff portal, the lobby board and
+    // /api/walkins all read `staffId` — so a Terminal-assigned guest showed as
+    // Unassigned on every other screen and the lobby board had no provider name
+    // to put next to her.
+    if (appointment.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO, ...(appointment.staffId ? { staffId: appointment.staffId } : {}) });
     batch.commit().then(() => toast({ title: "Service Started" }));
   };
+
+  /**
+   * "Finished" — the technician review dialog's Send to Front Desk.
+   *
+   * Lifted out of the JSX (it was one 900-character prop) because it now has to
+   * close TWO records, and getting that wrong is invisible until the next day.
+   *
+   * What was missing: this handler closed the mirror APPOINTMENT
+   * (apt-walkin-{id} -> ready_for_checkout) and freed the provider, but never
+   * wrote back to the walkIns document. Neither does checkout, which stamps
+   * 'completed' on the appointment alone. So the walk-in ROW sat at 'servicing'
+   * forever: yesterday's guests never cleared the floor, the lobby board kept
+   * showing them in a chair, and the provider stayed on the busy list for the
+   * next guest's assignment.
+   *
+   * Closing the row here is safe: readyForCheckoutAppointments (above) filters
+   * APPOINTMENTS on status === 'ready_for_checkout' and never looks at walkIns,
+   * so the guest still lands in the checkout queue exactly as before.
+   *
+   * The row is only touched if we can actually see it in the loaded list — a
+   * batch.update against a deleted document rejects the WHOLE batch, which would
+   * mean pressing Finished silently failed and the guest never reached the till.
+   */
+  const handleSendToFrontDesk = useCallback(async (id: string, state: any) => {
+    if (!firestore || !tenantId) return;
+    const apt = (appointmentsFromInventory || []).find(a => a.id === id);
+    const nowISO = new Date().toISOString();
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id),
+      sanitizeForFirestore({ status: 'ready_for_checkout', checkoutState: state, actualEndTime: nowISO }));
+    if (apt?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId),
+      { status: 'available', lastWalkInCompletedAt: nowISO });
+    const walkInId = id.startsWith('apt-walkin-') ? id.replace('apt-walkin-', '') : null;
+    if (walkInId && (walkIns || []).some((w: any) => w.id === walkInId)) {
+      batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId),
+        sanitizeForFirestore({ status: 'completed', completedAt: nowISO, serviceEndTime: nowISO }));
+    }
+    await batch.commit();
+    setIsTechnicianReviewOpen(false);
+  }, [firestore, tenantId, appointmentsFromInventory, walkIns]);
 
   const handleAssignStaff = useCallback((walkIn: WalkIn, staffId: string) => {
     if (!firestore || !tenantId || !services) return;
@@ -466,7 +547,13 @@ function POSPage() {
     const now = new Date(); const walkInEndsAt = addMinutes(now, estimatedDuration);
     const upcomingConflict = (appointmentsFromInventory || []).find(a => a.staffId === staffId && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > now && safeDate(a.startTime) < walkInEndsAt);
     if (upcomingConflict) { const conflictTime = format(safeDate(upcomingConflict.startTime), 'h:mm a'); const conflictClient = clients?.find(c => c.id === upcomingConflict.clientId); toast({ variant: 'destructive', title: 'Scheduling Conflict', description: `This provider has ${conflictClient?.name || 'a client'} booked at ${conflictTime} — ${estimatedDuration}m service may overlap.` }); }
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id), { assignedStaffId: staffId, status: 'notified', notifiedTimestamp: now.toISOString() });
+    // `staffId` is the field every OTHER screen reads (staff portal walk-in
+    // board, lobby board, /api/walkins). This line used to write only
+    // `assignedStaffId`, which has no reader anywhere in the codebase — so
+    // assigning a provider here left the guest reading "Unassigned" everywhere
+    // else. `assignedStaffId` is kept so any row already stored under it, and
+    // anything that may come to expect it, is undisturbed.
+    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id), { assignedStaffId: staffId, staffId, status: 'notified', notifiedTimestamp: now.toISOString() });
     const appointmentId = `apt-walkin-${walkIn.id}`;
     setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: now.toISOString(), endTime: addMinutes(now, estimatedDuration).toISOString() }, {});
     toast({ title: "Staff Assigned" + (upcomingConflict ? " ⚠ Conflict detected" : "") });
@@ -1124,7 +1211,7 @@ function POSPage() {
       )}
 
       <OverrideCancellationDialog open={isOverrideOpen} onOpenChange={setIsOverrideOpen} staff={staff || []} onConfirm={async (sid: string, res: string) => { updateDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', selectedAppointment!.id), { status: 'confirmed', checkInStatus: 'pending', checkInStatusTimestamp: new Date().toISOString(), overrideReason: res, overriddenBy: sid }); setIsOverrideOpen(false); setIsDetailsOpen(false); }} />
-      {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={async (id: string, state: any) => { if (!firestore || !tenantId) return; const apt = (appointmentsFromInventory || []).find(a => a.id === id); const batch = writeBatch(firestore); batch.update(doc(firestore, `tenants/${tenantId}/appointments`, id), sanitizeForFirestore({ status: 'ready_for_checkout', checkoutState: state, actualEndTime: new Date().toISOString() })); if (apt?.staffId) batch.update(doc(firestore, 'tenants', tenantId, 'staff', apt.staffId), { status: 'available', lastWalkInCompletedAt: new Date().toISOString() }); await batch.commit(); setIsTechnicianReviewOpen(false); }} />}
+      {appointmentToReview && <TechnicianReviewDialog open={isTechnicianReviewOpen} onOpenChange={setIsTechnicianReviewOpen} appointmentData={{ appointment: appointmentToReview, client: (clients || []).find(c => c.id === appointmentToReview.clientId), service: (services || []).find(s => s.id === appointmentToReview.serviceId) }} staff={staff || []} onSendToFrontDesk={handleSendToFrontDesk} />}
       <TillManagement open={isTillManagementOpen} onOpenChange={setIsTillManagementOpen} activeTill={activeTill} staff={staff || []} onOpenTill={handleOpenTill} onCloseTill={handleCloseTill} requireTillWitness={selectedTenant?.requireTillWitness !== false} />
       <CheckInConfirmationDialog
         open={!!pendingCheckInItem}
