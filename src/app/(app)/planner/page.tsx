@@ -2,7 +2,7 @@
 
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight } from 'lucide-react';
+import { PlusCircle, ChevronLeft, ChevronRight, Loader, Clock, BarChart, Calendar as CalendarIcon, User, Building, QrCode, Sparkles, CreditCard, AlertTriangle, Square, Undo2, ArrowRight, Hourglass } from 'lucide-react';
 import { type Appointment, type Event, type Staff, type Resource, type Membership, type AppointmentCheckoutState, Service, type Client, type Package, type Redemption, type CustomFormula } from '@/lib/data';
 import { format, addDays, subDays, startOfWeek, endOfDay, differenceInDays, isPast, isToday, startOfDay, isSameDay, subWeeks, addWeeks, eachDayOfInterval, parseISO, addMinutes, addMonths, subMonths, subMinutes } from 'date-fns';
 import { query, where, collection, doc, writeBatch, increment, arrayUnion, deleteField } from 'firebase/firestore';
@@ -21,6 +21,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { DayTimeline } from '@/components/planner/DayTimeline';
 import { WeeklyKpiSheet } from '@/components/planner/WeeklyKpiSheet';
 import { BillsDueSheet } from '@/components/planner/BillsDueSheet';
+import { WaitlistSheet } from '@/components/planner/WaitlistSheet';
 import { AppointmentDetailsSheet } from '@/components/planner/AppointmentDetailsSheet';
 import { LogPaymentDialog } from '@/components/bills/LogPaymentDialog';
 import { FloatingActionButton } from '@/components/planner/FloatingActionButton';
@@ -67,7 +68,7 @@ const IMPORT_CHECK: Record<string, any> = {
   AppHeader, Button, Badge, Label, Separator, ScrollArea, ScrollBar,
   RadioGroup, RadioGroupItem, Tooltip, TooltipProvider, TooltipTrigger, TooltipContent,
   AddAppointmentDialog, EditAppointmentDialog, AddEventDialog, DayTimeline,
-  WeeklyKpiSheet, BillsDueSheet, AppointmentDetailsSheet, LogPaymentDialog,
+  WeeklyKpiSheet, BillsDueSheet, WaitlistSheet, AppointmentDetailsSheet, LogPaymentDialog,
   FloatingActionButton, OverrideCancellationDialog, CancelAppointmentDialog,
   TechnicianReviewDialog, DebugErrorBoundary,
 };
@@ -213,6 +214,7 @@ function PlannerPageContent() {
   const [isEditEventOpen, setIsEditEventOpen] = useState(false);
   const [isKpiSheetOpen, setIsKpiSheetOpen] = useState(false);
   const [isBillsSheetOpen, setIsBillsSheetOpen] = useState(false);
+  const [isWaitlistSheetOpen, setIsWaitlistSheetOpen] = useState(false);
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
@@ -238,6 +240,21 @@ function PlannerPageContent() {
   // Lounge orders, so the printed ticket can list what the guest has already had
   // brought to them. Same plain subscription the kitchen board uses.
   const { data: refreshmentRequests } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'refreshmentRequests'), [firestore, tenantId]));
+
+  // The waiting list. Front desk writes it from Quick Book; the walk-in kiosk
+  // writes it through /api/waitlist when every chair is full. Until now nothing
+  // read it back out, so the "we'll notify you when a slot opens" promise had
+  // no machinery behind it. The sheet below is that machinery.
+  const { data: waitlistRaw } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'waitlist'), [firestore, tenantId]));
+
+  const waitlistEntries = useMemo(() => waitlistRaw || [], [waitlistRaw]);
+
+  // Badge count is people still WAITING — a booked or removed row is history,
+  // and a badge that counts history would never go down.
+  const openWaitlistCount = useMemo(() => {
+    const closed = ['booked', 'closed', 'cancelled', 'expired', 'declined', 'converted', 'done'];
+    return waitlistEntries.filter((e: any) => !closed.includes(String(e?.status || 'waiting'))).length;
+  }, [waitlistEntries]);
 
   const staff = useMemo(() => {
     // Skip "ghost" staff docs — records with no name AND no role. These are
@@ -857,6 +874,13 @@ function PlannerPageContent() {
                   <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsKpiSheetOpen(true)}><BarChart className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
                 </div>
               )}
+              {/* Outside the owner/admin gate on purpose — the waiting list is a
+                  front-desk tool, and the person who can act on it fastest is
+                  whoever is standing at the desk when a chair frees up. */}
+              <Button variant="outline" size="icon" title="Waiting list" aria-label="Waiting list" className="relative h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsWaitlistSheetOpen(true)}>
+                <Hourglass className="h-4 w-4 sm:h-5 sm:w-5" />
+                {openWaitlistCount > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 sm:h-5 sm:w-5 items-center justify-center rounded-full bg-amber-500 text-[8px] sm:text-[10px] font-black text-white shadow-lg border-2 border-white">{openWaitlistCount}</span>}
+              </Button>
               <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl sm:rounded-2xl border-2" onClick={() => setIsScannerOpen(true)}><QrCode className="h-4 w-4 sm:h-5 sm:w-5" /></Button>
             </div>
           </div>
@@ -1075,6 +1099,25 @@ function PlannerPageContent() {
       <FloatingActionButton onNewAppointmentClick={() => { setClientForNewApt(null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }} onNewEventClick={() => setIsAddEventOpen(true)} />
       <BillsDueSheet open={isBillsSheetOpen} onOpenChange={setIsBillsSheetOpen} billInstances={billInstancesWithDefinitions} isMobile={isMobile || false} onLogPaymentClick={(instance: any) => { setSelectedBill(instance); setIsBillsSheetOpen(false); }} />
       <WeeklyKpiSheet open={isKpiSheetOpen} onOpenChange={setIsKpiSheetOpen} kpis={kpis} isMobile={isMobile || false} />
+      <WaitlistSheet
+        open={isWaitlistSheetOpen}
+        onOpenChange={setIsWaitlistSheetOpen}
+        tenantId={tenantId || ''}
+        entries={waitlistEntries}
+        clients={clients || []}
+        services={services || []}
+        staff={allStaff || []}
+        isMobile={isMobile || false}
+        onBookClient={(client: any) => {
+          // Hand the person straight to the booking dialog with their record
+          // already attached — the whole point of the list is that the desk
+          // does not have to look them up a second time.
+          setAppointmentToRebook(null);
+          setClientForNewApt(client);
+          setIsWaitlistSheetOpen(false);
+          setIsAddAppointmentOpen(true);
+        }}
+      />
       {selectedBill && <LogPaymentDialog open={!!selectedBill} onOpenChange={(isOpen) => !isOpen && setSelectedBill(null)} billInstance={selectedBill} onConfirm={() => {}} />}
     </div>
   );
