@@ -28,10 +28,16 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import {
   Sparkles, ArrowRight, ArrowLeft, Loader, CheckCircle2,
-  Phone, User, Clock, Scissors, RotateCcw, Frown,
+  Phone, User, Clock, Scissors, RotateCcw, Frown, BellRing,
 } from 'lucide-react';
 
 type Step = 'welcome' | 'service' | 'details' | 'placing' | 'success' | 'full';
+
+// The "we're full" screen used to be a dead end that told the guest to go ask
+// the front desk. It now writes them onto the real waitlist itself — they have
+// already typed their name and number and picked a service seconds earlier, so
+// this is one tap with nothing to re-enter.
+type WaitState = 'idle' | 'joining' | 'joined' | 'failed';
 
 const IDLE_RESET_MS = 90 * 1000;
 const SUCCESS_RESET_MS = 25 * 1000;
@@ -55,6 +61,8 @@ export default function WalkInKioskPage() {
   const [phone, setPhone] = useState('');
   const [result, setResult] = useState<any>(null);
   const [failMessage, setFailMessage] = useState('');
+  const [waitState, setWaitState] = useState<WaitState>('idle');
+  const [waitMessage, setWaitMessage] = useState('');
 
   // ── Load tenant + walk-in-able services (same public reads the booking page uses) ──
   useEffect(() => {
@@ -78,19 +86,29 @@ export default function WalkInKioskPage() {
     return () => { cancelled = true; };
   }, [tenantId]);
 
+  // A ref, not just the `waitState` flag: two taps inside a single frame would
+  // both read the same state snapshot and both fire. A kiosk gets jabbed.
+  const joinLock = useRef(false);
+
   // ── Idle auto-reset — a kiosk must never be left mid-flow for the next guest ──
   const reset = useCallback(() => {
     setStep('welcome'); setService(null); setName(''); setPhone('');
     setResult(null); setFailMessage('');
+    setWaitState('idle'); setWaitMessage('');
+    joinLock.current = false;
   }, []);
   const idleTimer = useRef<any>(null);
   useEffect(() => {
     if (step === 'welcome') return;
-    const ms = step === 'success' || step === 'full' ? SUCCESS_RESET_MS : IDLE_RESET_MS;
+    // The "full" screen asks the guest to make one more decision, so it keeps
+    // the full idle window until they have answered it; once they're on the
+    // waitlist it clears itself as quickly as the success screen does.
+    const settled = step === 'success' || (step === 'full' && waitState === 'joined');
+    const ms = settled ? SUCCESS_RESET_MS : IDLE_RESET_MS;
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(reset, ms);
     return () => clearTimeout(idleTimer.current);
-  }, [step, name, phone, service, reset]);
+  }, [step, name, phone, service, waitState, reset]);
 
   // ── The booking: auto-turn via the shared engine ──
   const placeMe = async () => {
@@ -128,6 +146,49 @@ export default function WalkInKioskPage() {
       setStep('full');
     }
   };
+
+  // ── The consolation prize: a real waitlist row the front desk can act on ──
+  // Goes through /api/waitlist (Admin SDK) because the waitlist collection is
+  // staff-write-only in the security rules — the browser cannot write it directly.
+  const joinWaitlist = async () => {
+    if (joinLock.current || waitState === 'joining' || waitState === 'joined') return;
+    joinLock.current = true;
+    setWaitState('joining');
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          action: 'join',
+          name: name.trim(),
+          phone: phone.trim(),
+          serviceId: service?.id,
+          source: 'walkin-kiosk',
+          note: 'Walked in — no chair was open.',
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d?.ok) {
+        setWaitMessage(
+          d.alreadyOn
+            ? 'You were already on the list — you’re all set.'
+            : 'You’re on the list. We’ll reach out the moment a chair frees up.',
+        );
+        setWaitState('joined');
+      } else {
+        joinLock.current = false; // let them try again
+        setWaitMessage(d?.error || 'We couldn’t save that — please see the front desk.');
+        setWaitState('failed');
+      }
+    } catch {
+      joinLock.current = false;
+      setWaitMessage('We couldn’t save that — please see the front desk.');
+      setWaitState('failed');
+    }
+  };
+
+  const canJoinWaitlist = Boolean(name.trim() && phone.trim());
 
   const startsSoon = result?.startTime
     ? (new Date(result.startTime).getTime() - Date.now()) < 12 * 60000
@@ -298,10 +359,51 @@ export default function WalkInKioskPage() {
             <div className="space-y-2">
               <h2 className="text-2xl font-semibold tracking-tight">We’re slammed right now</h2>
               <p className="text-slate-500">{failMessage}</p>
-              <p className="text-sm text-slate-400">The front desk can add you to the waitlist or book you for later.</p>
+              {waitState !== 'joined' && (
+                <p className="text-sm text-slate-400">
+                  {canJoinWaitlist
+                    ? 'Want us to hold your place? We’ll text you the moment a chair opens.'
+                    : 'The front desk can add you to the waitlist or book you for later.'}
+                </p>
+              )}
             </div>
-            <button onClick={reset} className="mx-auto flex items-center gap-2 h-14 px-8 rounded-2xl bg-slate-900 text-white font-semibold active:scale-95 transition-all">
-              <RotateCcw className="w-4 h-4" /> Start over
+
+            {/* Waitlist offer — only when we actually have a way to reach them */}
+            {canJoinWaitlist && waitState !== 'joined' && (
+              <button
+                onClick={joinWaitlist}
+                disabled={waitState === 'joining'}
+                className="w-full h-16 rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 disabled:opacity-40 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+              >
+                {waitState === 'joining'
+                  ? <><Loader className="w-5 h-5 animate-spin" /> Adding you…</>
+                  : <><BellRing className="w-5 h-5" /> Add me to the waitlist</>}
+              </button>
+            )}
+
+            {waitState === 'joined' && (
+              <div className="w-full rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 px-6 py-5 space-y-1.5">
+                <div className="flex items-center justify-center gap-2 text-emerald-700 font-semibold">
+                  <CheckCircle2 className="w-5 h-5" /> You’re on the waitlist
+                </div>
+                <p className="text-sm text-emerald-700/80">{waitMessage}</p>
+              </div>
+            )}
+
+            {waitState === 'failed' && (
+              <p className="text-sm text-amber-600 px-4">{waitMessage}</p>
+            )}
+
+            <button
+              onClick={reset}
+              className={cn(
+                'mx-auto flex items-center gap-2 transition-all active:scale-95',
+                waitState === 'joined' || (canJoinWaitlist && waitState !== 'failed')
+                  ? 'h-12 px-6 rounded-xl border-2 border-slate-200 text-sm font-medium text-slate-500'
+                  : 'h-14 px-8 rounded-2xl bg-slate-900 text-white font-semibold',
+              )}
+            >
+              <RotateCcw className="w-4 h-4" /> {waitState === 'joined' ? 'Done — next guest' : 'Start over'}
             </button>
           </div>
         )}
