@@ -688,6 +688,7 @@ const RefreshmentCard = ({
     onRequest,
     isRequesting,
     hasPendingRequest,
+    pendingLabel,
     isPerkDefinition,
     remainingPerkUses,
 }: {
@@ -697,6 +698,9 @@ const RefreshmentCard = ({
     onRequest: () => void,
     isRequesting: boolean,
     hasPendingRequest: boolean,
+    /** What the locked button should say — tracks where that order actually is
+     *  ("Sent", "Preparing", "On Its Way"). Falls back to "On Its Way". */
+    pendingLabel?: string,
     /** True when this item is one of the client's membership inclusions. */
     isPerkDefinition: boolean,
     remainingPerkUses: number
@@ -813,7 +817,7 @@ const RefreshmentCard = ({
                                 onClick={onRequest}
                                 className="w-full md:w-auto min-h-[44px] h-12 px-6 rounded-xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl shadow-primary/20 transition-all active:scale-95"
                             >
-                                {hasPendingRequest ? 'On Its Way' : isRequesting ? 'Sending' : 'Request'}
+                                {hasPendingRequest ? (pendingLabel || 'On Its Way') : isRequesting ? 'Sending' : 'Request'}
                             </Button>
                         </div>
                     </div>
@@ -1020,6 +1024,210 @@ const ExploreServicesPanel = ({
     );
 };
 
+/**
+ * ── The amenity order ladder, guest side ─────────────────────────────────────
+ * Back of house moves a `refreshmentRequests` document along
+ *     pending -> making -> ready -> delivered
+ * on the KDS board at /kds/[tenantId]. Before that board existed nothing ever
+ * wrote a status past `pending`, so this page only ever had to recognise one
+ * value. Now that the kitchen really does advance an order, treating ONLY
+ * `pending` as live would unlock the guest's card the instant a technician
+ * tapped "Start" — and the same drink could be ordered a second time while the
+ * first one was still being made.
+ *
+ * So: anything that is neither finished nor recalled counts as live, and each
+ * live order says where it actually is.
+ *
+ * Deliberately tolerant — an unrecognised status reads as `new`, so an order can
+ * never silently vanish from the guest's list.
+ */
+type GuestOrderStage = 'new' | 'making' | 'ready' | 'delivered' | 'cancelled';
+
+const guestStageOf = (r: any): GuestOrderStage => {
+    const s = String(r?.status || '').trim().toLowerCase();
+    if (s === 'making' || s === 'preparing' || s === 'in_progress') return 'making';
+    if (s === 'ready' || s === 'ready_for_pickup') return 'ready';
+    if (s === 'delivered' || s === 'done' || s === 'completed' || s === 'complete') return 'delivered';
+    if (s === 'cancelled' || s === 'canceled' || s === 'void') return 'cancelled';
+    return 'new';
+};
+
+/** Guest-facing wording for each live stage. Nothing here mentions "kitchen
+ *  display" or any other back-of-house vocabulary. */
+const GUEST_STAGE_COPY: Record<'new' | 'making' | 'ready', { label: string; note: string }> = {
+    new: { label: 'Sent', note: 'Your request is with the team' },
+    making: { label: 'Preparing', note: 'Being made for you right now' },
+    ready: { label: 'On Its Way', note: 'Someone is bringing it over' },
+};
+
+/**
+ * ── "Need a hand" ────────────────────────────────────────────────────────────
+ * The guest end of the floor board at /floor/[tenantId].
+ *
+ * That board could already acknowledge a request, claim it, flag it for backup,
+ * escalate it, time the wait and report on all of it — but nothing anywhere in
+ * the app ever CREATED one, so it was a finished screen with no input. This is
+ * the input.
+ *
+ * Kept deliberately separate from the amenity menu further down. That one means
+ * "bring me a drink", carries stock and money, and lands on the kitchen board.
+ * This one means "come over here", and lands on the floor board where the wait
+ * timers live.
+ *
+ * One tap sends it, and the chip then reports back who picked it up — a button
+ * with no visible consequence is a button a nervous guest presses five times.
+ */
+type AssistOption = { key: string; label: string; hint: string };
+type AssistLive = { kind: string; status: string; claimedByName: string | null };
+
+const ASSIST_ICONS: Record<string, React.ElementType> = {
+    assistance: Bell,
+    comfort: SunDim,
+    timing: Clock,
+    checkout: CreditCard,
+};
+
+/** Mirrors ASSIST_KINDS in /api/guest-lounge, which is authoritative and sends
+ *  its own list as `lounge.assistOptions`. This is only what to show while that
+ *  payload is still in flight, so the panel is never briefly empty. */
+const ASSIST_FALLBACK: AssistOption[] = [
+    { key: 'assistance', label: 'I need a hand', hint: 'Someone will come to you' },
+    { key: 'comfort', label: 'Too hot / too cold', hint: 'Temperature, chair or lighting' },
+    { key: 'timing', label: "I'm short on time", hint: "We'll let your technician know" },
+    { key: 'checkout', label: 'Ready to check out', hint: 'The front desk will be ready' },
+];
+
+const AssistanceStrip = ({
+    options,
+    live,
+    sendingKind,
+    noteOpen,
+    note,
+    onNoteChange,
+    onToggleNote,
+    onSend,
+}: {
+    options: AssistOption[],
+    live: AssistLive[],
+    sendingKind: string | null,
+    noteOpen: boolean,
+    note: string,
+    onNoteChange: (v: string) => void,
+    onToggleNote: () => void,
+    onSend: (kind: string, note?: string) => void,
+}) => {
+    const liveFor = (key: string) => live.find(r => r.kind === key) || null;
+    // The free-text path rides on the generic `assistance` kind, and the server
+    // allows only one open request per kind per visit — so if that one is already
+    // on the board there is nothing honest to offer here but the truth.
+    const assistanceOpen = !!liveFor('assistance');
+    const statusLine = (row: AssistLive) =>
+        row.status === 'acknowledged'
+            ? (row.claimedByName ? `${row.claimedByName} is on the way` : 'Someone is on the way')
+            : 'Sent to the floor';
+
+    return (
+        <div className="px-6 md:px-8">
+            <div className="rounded-[2rem] border-2 border-slate-200 bg-white p-5 md:p-7 space-y-5 shadow-sm">
+                <div className="space-y-1.5">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-900 flex items-center gap-2">
+                        <Bell className="w-3 h-3 text-primary" />
+                        Need A Hand
+                    </h3>
+                    <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                        One tap and someone from the team comes to you — no need to catch anyone&apos;s eye.
+                    </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {options.map(opt => {
+                        const Icon = ASSIST_ICONS[opt.key] || Bell;
+                        const row = liveFor(opt.key);
+                        const busy = sendingKind === opt.key;
+                        return (
+                            <button
+                                key={opt.key}
+                                type="button"
+                                onClick={() => onSend(opt.key)}
+                                disabled={!!row || !!sendingKind}
+                                className={cn(
+                                    'w-full min-h-[44px] text-left rounded-[1.25rem] border-2 px-4 py-3 flex items-start gap-3 transition-all disabled:cursor-default',
+                                    row
+                                        ? 'border-primary/30 bg-primary/5'
+                                        : 'border-slate-200 bg-white hover:border-primary/40 hover:bg-primary/5 active:scale-[0.99]',
+                                )}
+                            >
+                                <span className={cn('mt-0.5 p-1.5 rounded-lg shrink-0', row ? 'bg-primary/10' : 'bg-slate-100')}>
+                                    {busy
+                                        ? <Loader className="w-3.5 h-3.5 animate-spin text-primary" />
+                                        : <Icon className={cn('w-3.5 h-3.5', row ? 'text-primary' : 'text-slate-500')} />}
+                                </span>
+                                {/* min-w-0 so a long technician name truncates inside the
+                                    chip instead of pushing it past the card edge on a phone. */}
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-[11px] font-black uppercase tracking-tight text-slate-900 leading-tight">
+                                        {opt.label}
+                                    </span>
+                                    <span className={cn(
+                                        'block text-[9px] font-bold uppercase tracking-wider mt-1 leading-tight truncate',
+                                        row ? 'text-primary' : 'text-slate-400',
+                                    )}>
+                                        {row ? statusLine(row) : opt.hint}
+                                    </span>
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {assistanceOpen ? (
+                    <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400 leading-relaxed">
+                        Someone is already on their way — you can tell them the rest in person.
+                    </p>
+                ) : noteOpen ? (
+                    <div className="space-y-3 pt-1">
+                        <Textarea
+                            value={note}
+                            onChange={(e) => onNoteChange(e.target.value.slice(0, 160))}
+                            rows={2}
+                            placeholder="Tell us in a few words"
+                            className="w-full rounded-[1.25rem] border-2 text-sm font-medium resize-none"
+                        />
+                        <div className="flex items-center gap-2">
+                            <Button
+                                onClick={() => onSend('assistance', note)}
+                                disabled={!note.trim() || !!sendingKind}
+                                className="flex-1 min-h-[44px] h-11 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                            >
+                                {sendingKind ? 'Sending' : 'Send To The Team'}
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={onToggleNote}
+                                className="min-h-[44px] h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest text-slate-400"
+                            >
+                                Cancel
+                            </Button>
+                        </div>
+                        <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                            {note.trim().length}/160
+                        </p>
+                    </div>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={onToggleNote}
+                        className="w-full min-h-[44px] rounded-xl border-2 border-dashed border-slate-200 px-4 py-3 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:border-primary/40 hover:text-primary transition-all"
+                    >
+                        <MessageSquare className="w-3 h-3" />
+                        Something Specific
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const ConciergeExperienceView = ({
     tenant,
     client,
@@ -1057,6 +1265,10 @@ const ConciergeExperienceView = ({
     const [askedServiceIds, setAskedServiceIds] = useState<string[]>([]);
     const [askingId, setAskingId] = useState<string | null>(null);
     const [recallingId, setRecallingId] = useState<string | null>(null);
+    const [assistSending, setAssistSending] = useState<string | null>(null);
+    const [assistNoteOpen, setAssistNoteOpen] = useState(false);
+    const [assistNote, setAssistNote] = useState('');
+    const [assistSentKinds, setAssistSentKinds] = useState<string[]>([]);
 
     // A guest is not signed in, so `client` is null for them and the API is the
     // only source of truth about membership. On a staff device the client
@@ -1216,6 +1428,70 @@ const ConciergeExperienceView = ({
         }
     };
 
+    // What can be asked for, and what is already open. Both come from the API
+    // because `floorRequests` is staff-only in the rules — the guest's browser
+    // can neither create one nor watch its own come back acknowledged.
+    const assistOptions: AssistOption[] = useMemo(() => {
+        const fromApi = Array.isArray(lounge?.assistOptions) ? lounge.assistOptions : [];
+        if (!fromApi.length) return ASSIST_FALLBACK;
+        return fromApi
+            .filter((o: any) => o && typeof o.key === 'string' && typeof o.label === 'string')
+            .map((o: any) => ({ key: String(o.key), label: String(o.label), hint: String(o.hint || '') }));
+    }, [lounge]);
+
+    const assistLive: AssistLive[] = useMemo(() => {
+        const rows: any[] = Array.isArray(lounge?.assist) ? lounge.assist : [];
+        const out: AssistLive[] = rows.map(r => ({
+            kind: String(r?.kind || ''),
+            status: r?.status === 'acknowledged' ? 'acknowledged' : 'new',
+            claimedByName: r?.claimedByName ? String(r.claimedByName) : null,
+        }));
+        // Optimistic, and load-bearing: the payload takes a round trip to come
+        // back, and a chip that still looks untapped is a chip that gets tapped
+        // again. The server's copy wins as soon as it arrives, so an acknowledged
+        // request still upgrades to the runner's name.
+        assistSentKinds.forEach(k => {
+            if (!out.some(r => r.kind === k)) out.push({ kind: k, status: 'new', claimedByName: null });
+        });
+        return out;
+    }, [lounge, assistSentKinds]);
+
+    /**
+     * Raises the guest's hand to the floor board. Sends no order and moves no
+     * money — this is a person walking over, nothing more.
+     *
+     * Server-side for the same reason as everything else here: `floorRequests`
+     * has no explicit rule, so the tenant catch-all makes it `write: if isStaff`
+     * and a guest's browser is refused. /api/guest-lounge writes it with Admin
+     * privileges, keyed off this token, and rejects any request type that is not
+     * one of its own.
+     */
+    const handleAssist = async (kind: string, note?: string) => {
+        if (!token || assistSending) return;
+        setAssistSending(kind);
+        try {
+            const res = await fetch('/api/guest-lounge', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, action: 'assist', kind, note: (note || '').slice(0, 160) }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok || !d?.ok) {
+                toast({ variant: 'destructive', title: 'Not sent', description: d?.error || 'Please let your technician know instead.' });
+                return;
+            }
+            setAssistSentKinds(prev => prev.includes(kind) ? prev : [...prev, kind]);
+            setAssistNote('');
+            setAssistNoteOpen(false);
+            toast({ title: 'On the way', description: 'Someone from the team will be right with you.' });
+            onRefresh();
+        } catch {
+            toast({ variant: 'destructive', title: 'Not sent', description: 'Please let your technician know instead.' });
+        } finally {
+            setAssistSending(null);
+        }
+    };
+
     /** Raises the guest's hand about another service. Books nothing, charges nothing. */
     const handleAskAboutService = async (svc: LoungeUpsell) => {
         if (!token || askingId) return;
@@ -1244,7 +1520,15 @@ const ConciergeExperienceView = ({
     // few collections a guest CAN read, so this stays in sync when the back of
     // house changes a status. (The API also returns a snapshot of these, used
     // only as a cross-check on load.)
-    const pendingRequestsForThisSession = activeRequests.filter(r => r.appointmentId === appointment?.id && r.status === 'pending');
+    // Live = on the board somewhere. Delivered and recalled orders drop out,
+    // which is also what re-enables that item's Request button — so a guest who
+    // has already had a cold brew can ask for a second one, and a guest whose
+    // drink is still being made cannot double-order it.
+    const pendingRequestsForThisSession = activeRequests.filter(r => {
+        if (r.appointmentId !== appointment?.id) return false;
+        const stage = guestStageOf(r);
+        return stage !== 'delivered' && stage !== 'cancelled';
+    });
     const hasActiveRequest = pendingRequestsForThisSession.length > 0;
 
     const guestFirstName = lounge?.guest?.firstName || (client?.name ? String(client.name).split(/\s+/)[0] : '');
@@ -1296,6 +1580,20 @@ const ConciergeExperienceView = ({
                         perkTotal={perkTotal}
                     />
 
+                    {/* Sits above the menu on purpose: needing a person is more
+                        urgent than wanting a drink, and it is the one thing on
+                        this screen a guest might be looking for in a hurry. */}
+                    <AssistanceStrip
+                        options={assistOptions}
+                        live={assistLive}
+                        sendingKind={assistSending}
+                        noteOpen={assistNoteOpen}
+                        note={assistNote}
+                        onNoteChange={setAssistNote}
+                        onToggleNote={() => setAssistNoteOpen(v => !v)}
+                        onSend={handleAssist}
+                    />
+
                     {hasActiveRequest && (
                         <div className="px-6 md:px-8 space-y-4">
                             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-primary flex items-center gap-2">
@@ -1303,27 +1601,57 @@ const ConciergeExperienceView = ({
                                 On Its Way
                             </h3>
                             <div className="grid gap-3">
-                                {pendingRequestsForThisSession.map(req => (
-                                    <div key={req.id} className="flex items-center justify-between gap-3 p-4 rounded-[1.5rem] border-2 bg-primary/5 border-primary/10 shadow-sm">
-                                        <div className="flex items-center gap-4 min-w-0">
-                                            <div className="p-2 bg-white rounded-xl shadow-inner shrink-0"><Loader className="w-4 h-4 text-primary animate-spin" /></div>
-                                            <div className="text-left min-w-0">
-                                                <p className="text-xs font-black uppercase text-slate-900 leading-none mb-1 truncate">{req.itemName}</p>
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <p className="text-[8px] font-bold text-primary/60 uppercase">Qty {safeNumber(req.quantity || 1)}</p>
-                                                    {req.isRedemption && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase shadow-sm">Club Perk</Badge>}
+                                {pendingRequestsForThisSession.map(req => {
+                                    const stage = guestStageOf(req);
+                                    const copy = GUEST_STAGE_COPY[stage as 'new' | 'making' | 'ready'] || GUEST_STAGE_COPY.new;
+                                    // /api/guest-lounge refuses a recall once the status has
+                                    // moved off `pending` (409, "Already being prepared").
+                                    // Rather than offer a button that is guaranteed to fail,
+                                    // the row says so.
+                                    const canRecall = stage === 'new';
+                                    return (
+                                        // `min-w-0` is load-bearing, not decoration: this row is a
+                                        // grid item, and a grid item's default `min-width: auto`
+                                        // refuses to shrink below its content, so on a 390px phone
+                                        // the row pushed 10px past the card edge. min-w-0 lets it
+                                        // yield to the track, and the name below truncates instead.
+                                        <div key={req.id} className="flex items-center justify-between gap-3 p-4 rounded-[1.5rem] border-2 bg-primary/5 border-primary/10 shadow-sm min-w-0">
+                                            <div className="flex items-center gap-4 min-w-0 flex-1">
+                                                <div className="p-2 bg-white rounded-xl shadow-inner shrink-0">
+                                                    {stage === 'ready'
+                                                        ? <Bell className="w-4 h-4 text-primary" />
+                                                        : stage === 'making'
+                                                            ? <Coffee className="w-4 h-4 text-primary" />
+                                                            : <Loader className="w-4 h-4 text-primary animate-spin" />}
+                                                </div>
+                                                <div className="text-left min-w-0">
+                                                    <p className="text-xs font-black uppercase text-slate-900 leading-none mb-1.5 truncate">{req.itemName}</p>
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <Badge variant="outline" className="bg-white text-primary border-primary/30 text-[7px] h-4 px-1.5 font-black uppercase tracking-widest shadow-sm">
+                                                            {copy.label}
+                                                        </Badge>
+                                                        <p className="text-[8px] font-bold text-primary/60 uppercase">Qty {safeNumber(req.quantity || 1)}</p>
+                                                        {req.isRedemption && <Badge className="bg-primary text-white border-none text-[7px] h-4 px-1.5 font-black uppercase shadow-sm">Club Perk</Badge>}
+                                                    </div>
+                                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mt-1.5 leading-tight">{copy.note}</p>
                                                 </div>
                                             </div>
+                                            {canRecall ? (
+                                                <button
+                                                    onClick={() => handleCancelRequest(req.id)}
+                                                    disabled={recallingId === req.id}
+                                                    className="min-h-[44px] h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/10 transition-all shrink-0 disabled:opacity-40"
+                                                >
+                                                    {recallingId === req.id ? 'Wait' : 'Recall'}
+                                                </button>
+                                            ) : (
+                                                <p className="shrink-0 max-w-[5.5rem] text-right text-[9px] font-black uppercase tracking-widest text-slate-400 leading-tight">
+                                                    Already Started
+                                                </p>
+                                            )}
                                         </div>
-                                        <button
-                                            onClick={() => handleCancelRequest(req.id)}
-                                            disabled={recallingId === req.id}
-                                            className="min-h-[44px] h-11 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest text-destructive hover:bg-destructive/10 transition-all shrink-0 disabled:opacity-40"
-                                        >
-                                            {recallingId === req.id ? 'Wait' : 'Recall'}
-                                        </button>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -1357,7 +1685,16 @@ const ConciergeExperienceView = ({
                                 <ScrollArea className="w-full">
                                     <div className="flex gap-6 px-6 md:px-8 pb-6">
                                         {items.map((item, idx) => {
-                                            const hasPendingRequest = pendingRequestsForThisSession.some(r => r.itemId === item.id);
+                                            // The live order for THIS item, if any. Furthest
+                                            // along wins, so two of the same drink show the
+                                            // more advanced of the two.
+                                            const liveForItem = pendingRequestsForThisSession.filter(r => r.itemId === item.id);
+                                            const hasPendingRequest = liveForItem.length > 0;
+                                            const itemStage = liveForItem.some(r => guestStageOf(r) === 'ready')
+                                                ? 'ready'
+                                                : liveForItem.some(r => guestStageOf(r) === 'making')
+                                                    ? 'making'
+                                                    : 'new';
                                             return (
                                                 <motion.div
                                                     key={item.id}
@@ -1377,6 +1714,7 @@ const ConciergeExperienceView = ({
                                                         onRequest={() => handleRequest(item)}
                                                         isRequesting={isRequesting}
                                                         hasPendingRequest={hasPendingRequest}
+                                                        pendingLabel={GUEST_STAGE_COPY[itemStage].label}
                                                         isPerkDefinition={isPerkDefinition(item.id)}
                                                         remainingPerkUses={getRemainingPerkUses(item.id)}
                                                     />
