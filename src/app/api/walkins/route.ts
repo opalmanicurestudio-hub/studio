@@ -164,7 +164,31 @@ async function rateLimit(db: any, tenantId: string, key: string, max: number): P
  */
 const OPEN_STATUSES = ['waiting', 'notified', 'arrived'];
 const isOpenRow = (status: any): boolean => OPEN_STATUSES.includes(String(status || 'waiting'));
-const isWorking = (status: any): boolean => String(status || '') === 'in_service';
+
+/**
+ * A row is in the chair right now.
+ *
+ * TWO SCREENS IN THIS APP WRITE THIS STATE WITH TWO DIFFERENT WORDS.
+ *
+ *   /staff-portal  StaffPortalPage's Start Service writes 'in_service', and its
+ *                  own walk-in query filters on 'in_service'.
+ *   /pos           the Terminal's walk-in queue panel calls handleStartService,
+ *                  which writes 'servicing' onto the same walkIns document.
+ *
+ * Recognising only one of them is how a guest disappears: start the service
+ * from the Terminal and the row is neither open (it isn't 'waiting') nor
+ * working (it isn't 'in_service'), so it falls out of every derived list. The
+ * lobby board shows an empty chair panel, inServiceCount reads 0, and the wait
+ * estimate is computed as though nobody at all were being served — which quotes
+ * every guest in the room a longer wait than the truth.
+ *
+ * Accepting both words is not tidy, but it is correct against the app as it is
+ * actually written, and it is the only change here that fixes all three
+ * symptoms at once. Renaming one screen's vocabulary would silently orphan
+ * every row already sitting in Firestore under the other spelling.
+ */
+const WORKING_STATUSES = ['in_service', 'servicing'];
+const isWorking = (status: any): boolean => WORKING_STATUSES.includes(String(status || ''));
 
 const toMs = (v: any): number => {
   if (!v) return 0;
@@ -177,9 +201,11 @@ const toMs = (v: any): number => {
 /**
  * Has this in-service row plainly been abandoned?
  *
- * Nothing in the app finishes a walk-in row, so `in_service` is a one-way door
- * — and every provider standing behind one is excluded from assignment by
- * busyIds. One forgotten tap on a Tuesday morning used to mean that provider
+ * Nothing in the app finishes a walk-in ROW. The Terminal's walk-in panel does
+ * have a Finished button, but it closes the mirror APPOINTMENT
+ * (apt-walkin-{id} -> ready_for_checkout) and never writes back to walkIns —
+ * so in-service is still a one-way door for the row itself, and every provider
+ * standing behind one is excluded from assignment by busyIds. One forgotten tap on a Tuesday morning used to mean that provider
  * never received another kiosk walk-in, ever. Rather than trust that the new
  * complete action is always called, treat an implausibly long service as over.
  * The row is left alone in Firestore unless a POST is in flight (see
@@ -1310,10 +1336,14 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
 
 // ─── complete — the missing producer ─────────────────────────────────────────
 //
-// Nothing in this application ever finished a walk-in. `in_service` was a
-// one-way door: the row stayed there forever, the provider stayed in busyIds
-// forever, and staff.lastWalkInCompletedAt — the field the staff board's own
-// turn order sorts on — was never written by anything, anywhere.
+// Nothing in this application ever finished a walk-in ROW. The Terminal's
+// walk-in panel does offer Finished, but that path (onFinishService ->
+// TechnicianReviewDialog -> onSendToFrontDesk) writes only to the mirror
+// appointment, and checkout likewise stamps 'completed' on the appointment
+// alone. The walkIns document is never touched by either. So in-service stayed
+// a one-way door for the row: it sat there forever, the provider stayed in
+// busyIds forever, and staff.lastWalkInCompletedAt — the field the staff
+// board's own turn order sorts on — was never written by anything, anywhere.
 //
 // The consequence compounded. Each provider who started a walk-in was removed
 // from assignment permanently, so after as many walk-ins as there were
