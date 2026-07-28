@@ -232,16 +232,53 @@ export const DayTimeline = ({
 
     const renderAppointment = (item: any) => {
         const dayStart = setHours(startOfDay(date), START_HOUR);
-        const service = (services || []).find(s => s.id === item.serviceId);
-        let client = (clients || []).find(c => c.id === item.clientId);
-        if (!client && item.clientName) client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' } as any;
-        if (!client || !service) return null;
-
         const startTime = safeDate(item.startTime);
         const endTime = safeDate(item.endTime);
-        const padBefore = service.padBefore || 0;
-        const totalDuration = differenceInMinutes(endTime, startTime) + padBefore + (service.padAfter || 0);
-        const top = differenceInMinutes(subMinutes(startTime, padBefore), dayStart) * (160/60);
+
+        // A walk-in is not a booked reservation and must not be measured like one.
+        // Both writers of a walk-in's card (/api/walkins and the Terminal's
+        // assign-by-hand) already bake the pad minutes INTO endTime, and its start
+        // is literally "now". See the pad maths below for why that matters.
+        const isWalkIn = item.isWalkIn === true
+            || item.source === 'walk-in'
+            || String(item.id || '').startsWith('apt-walkin-');
+
+        let service: any = (services || []).find(s => s.id === item.serviceId);
+        // Same rescue the client gets on the next line. A walk-in for a service
+        // that was renamed, archived, or never resolved used to return null here,
+        // so the card VANISHED from the planner — the guest was in the building,
+        // sitting in a chair, and invisible to whoever was running the floor.
+        // Better a card that says "Service" than no card at all.
+        if (!service) {
+            const mins = Math.max(15, differenceInMinutes(endTime, startTime) || Number(item.estimatedDuration) || 30);
+            service = {
+                id: item.serviceId || `unknown-${item.id}`,
+                name: item.serviceName || 'Service',
+                duration: mins, price: 0, category: '', description: '',
+                padBefore: 0, padAfter: 0, isActive: true,
+            } as any;
+        }
+        let client = (clients || []).find(c => c.id === item.clientId);
+        if (!client && item.clientName) client = { id: item.clientId, name: item.clientName, email: '', phone: '', avatarUrl: '', lifetimeValue: 0, lastAppointment: '' } as any;
+        if (!client) return null;
+
+        // Pads are drawn for a booked appointment because the tech needs setup and
+        // turnaround time reserved around it. For a walk-in they are already inside
+        // endTime, so adding them again made the card too tall by 2x(pad) AND
+        // shifted it UP by padBefore — which is how a guest who checked in at 2:05
+        // ended up floating ABOVE the red now-line, looking like a 1:50 booking.
+        const padBefore = isWalkIn ? 0 : (service.padBefore || 0);
+        const padAfter = isWalkIn ? 0 : (service.padAfter || 0);
+        const cardStart = subMinutes(startTime, padBefore);
+        const minsFromTop = differenceInMinutes(cardStart, dayStart);
+        // renderEvent and renderBooking have both had this guard for ages;
+        // renderAppointment did not. A bad or missing date produced a negative
+        // top and the card was drawn off the top edge of the grid, unreachable.
+        if (minsFromTop < 0) return null;
+        // Never draw a zero-height card. 10 minutes is the floor, which is still
+        // tall enough to click.
+        const totalDuration = Math.max(10, differenceInMinutes(endTime, startTime) + padBefore + padAfter);
+        const top = minsFromTop * (160/60);
         const height = totalDuration * (160/60);
         const style = { top: `${top}px`, height: `${height}px`, width: `calc(${item.layout.width} - 0.25rem)`, left: item.layout.left };
        
@@ -348,7 +385,7 @@ export const DayTimeline = ({
 
     useEffect(() => {
         if (isToday(date) && scrollContainerRef.current) {
-            const pos = (differenceInMinutes(new Date(), startOfDay(new Date())) * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
+            const pos = (differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * (160/60)) - (scrollContainerRef.current.clientHeight / 4);
             scrollContainerRef.current.scrollTo({ top: Math.max(0, pos), behavior: 'smooth' });
         }
     }, [date, columns]);
@@ -429,7 +466,7 @@ export const DayTimeline = ({
                     {isToday(date) && (
                         <div 
                             className="absolute w-full flex items-center z-20 pointer-events-none" 
-                            style={{ top: `${(differenceInMinutes(new Date(), startOfDay(new Date())) * (160 / 60))}px` }}
+                            style={{ top: `${(differenceInMinutes(new Date(), setHours(startOfDay(new Date()), START_HOUR)) * (160 / 60))}px` }}
                         >
                             <div className="h-2 w-2 sm:h-3 sm:w-3 rounded-full bg-red-500 -ml-1 sm:-ml-1.5 border-2 sm:border-4 border-white shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
                             <div className="h-0.5 w-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.3)]"></div>
