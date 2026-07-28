@@ -46,10 +46,14 @@ import {
     Minus,
     Plus,
     MessageSquare,
-    Target
+    Target,
+    Wallet,
+    Receipt,
+    AlertTriangle
 } from 'lucide-react';
+import { startOfMonth, subMonths, subYears, isAfter } from 'date-fns';
 import { useFirebase, useCollection, useMemoFirebase, useDoc, setDocumentNonBlocking } from '@/firebase';
-import { collection, query, where, doc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, query, where, doc, getDocs, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { cn, safeNumber, hexToHSLComponents } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { nanoid } from 'nanoid';
@@ -169,7 +173,15 @@ const FloatingMenuCard = ({
     remainingPerks: number
 }) => {
     const [qty, setQty] = useState(1);
-    const isPerk = activeMembership?.includedProducts?.some((p: any) => p.id === item.id) && remainingPerks > 0;
+    // A club perk only covers what the member actually has left this cycle.
+    // Three coffees against a one-a-day allowance is a paid order, and the card
+    // has to say so BEFORE the guest commits — otherwise the kiosk promises
+    // "included" and the register asks for money, which is the one thing a
+    // hospitality touch point must never do.
+    const isIncludedProduct = !!activeMembership?.includedProducts?.some((p: any) => p.id === item.id);
+    const isPerk = isIncludedProduct && remainingPerks >= qty;
+    const allowanceSpent = isIncludedProduct && remainingPerks <= 0;
+    const perkShortfall = isIncludedProduct && remainingPerks > 0 && remainingPerks < qty;
 
     const getIcon = (name: string) => {
         const n = name.toLowerCase();
@@ -204,6 +216,8 @@ const FloatingMenuCard = ({
                     <div className="absolute top-3 left-3 flex flex-col gap-1.5">
                         {item.isMembersOnly && <Badge className="bg-indigo-600 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">Club Only</Badge>}
                         {isPerk && <Badge className="bg-primary text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl animate-pulse"><Star className="w-2.5 h-2.5 md:w-3 md:h-3 mr-1 fill-current"/> Perk</Badge>}
+                        {allowanceSpent && <Badge className="bg-amber-500 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">Allowance Used</Badge>}
+                        {perkShortfall && <Badge className="bg-amber-500 text-white border-none font-black text-[7px] md:text-[8px] uppercase tracking-widest h-5 md:h-6 px-2 md:px-3 shadow-xl">{remainingPerks} Included</Badge>}
                     </div>
 
                     <div className="absolute bottom-3 right-3">
@@ -219,6 +233,16 @@ const FloatingMenuCard = ({
                     <div className="space-y-1 text-left">
                         <h4 className="font-black text-xs md:text-xl uppercase tracking-tighter text-slate-900 leading-tight truncate">{item.name}</h4>
                         {item.description && <p className="text-[10px] md:text-xs font-medium text-slate-500 italic leading-relaxed opacity-80 line-clamp-2">"{item.description}"</p>}
+                        {isIncludedProduct && (
+                            <p className={cn(
+                                "text-[9px] md:text-[10px] font-black uppercase tracking-widest pt-0.5",
+                                remainingPerks > 0 ? "text-primary/70" : "text-amber-600/80"
+                            )}>
+                                {remainingPerks > 0
+                                    ? `${remainingPerks} included left this cycle`
+                                    : 'Club allowance used for this cycle'}
+                            </p>
+                        )}
                     </div>
 
                     <div className="pt-3 md:pt-4 border-t border-dashed border-slate-900/10 flex items-center justify-between mt-auto">
@@ -271,6 +295,16 @@ function ConciergeKioskContent() {
         compAllowance: number;
     } | null>(null);
     const [sessionCompUsed, setSessionCompUsed] = useState(0);   // renter comp allowance used this session
+    // Club perks consumed on THIS kiosk session, keyed by item id. The Firestore
+    // listener catches up a moment later, so without this a member could tap the
+    // same complimentary latte twice inside five seconds and both would come
+    // through as "included".
+    const [sessionPerkUsed, setSessionPerkUsed] = useState<Record<string, number>>({});
+    // How the guest chose to settle a paid order. Nothing is ever recorded as
+    // collected revenue unless money actually moved.
+    const [settleChoice, setSettleChoice] = useState<'card_on_file' | 'balance' | 'desk'>('desk');
+    // What the success screen tells the guest about their money.
+    const [settledSummary, setSettledSummary] = useState('');
     const [stationCharging, setStationCharging] = useState(false);
     const [isVerifying, setIsVerifying] = useState(false);
     const [pendingItem, setPendingItem] = useState<{item: InventoryItem, qty: number} | null>(null);
@@ -313,6 +347,70 @@ function ConciergeKioskContent() {
         if (!identifiedClient?.activeMembershipId || !memberships) return null;
         return memberships.find(m => m.id === identifiedClient.activeMembershipId);
     }, [identifiedClient, memberships]);
+
+    // ── The club allowance, for real ────────────────────────────────────────
+    // This screen used to hand every recognised guest a flat ten perks and never
+    // look at what they had already taken, so a member could drink the menu for
+    // free all month. The billing cycle, the per-item allotment and the usage
+    // count below are the SAME arithmetic the client portal shows the member, so
+    // the kiosk and their app can never disagree about what is left.
+    const clientRequestsQuery = useMemoFirebase(
+        () => (!firestore || !tenantId || !identifiedClient?.id)
+            ? null
+            : query(collection(firestore, `tenants/${tenantId}/refreshmentRequests`), where('clientId', '==', identifiedClient.id)),
+        [firestore, tenantId, identifiedClient?.id],
+    );
+    const { data: clientRequests } = useCollection<any>(clientRequestsQuery);
+
+    const cycleStart = useMemo(() => {
+        const sub: any = (identifiedClient as any)?.subscription;
+        if (!sub?.nextBillingDate || !activeMembership) return startOfMonth(new Date());
+        const nextBilling = safeDate(sub.nextBillingDate);
+        if (isNaN(nextBilling.getTime())) return startOfMonth(new Date());
+        return startOfMonth((activeMembership as any).interval === 'yearly' ? subYears(nextBilling, 1) : subMonths(nextBilling, 1));
+    }, [identifiedClient, activeMembership]);
+
+    // itemId -> how many of that product the membership still covers this cycle.
+    const perkRemainingByItem = useMemo(() => {
+        const out: Record<string, number> = {};
+        const included: any[] = ((activeMembership as any)?.includedProducts) || [];
+        if (included.length === 0) return out;
+
+        const cycleRequests = (clientRequests || []).filter((r: any) => {
+            if (!r || r.status === 'cancelled') return false;
+            const when = safeDate(r.requestedAt);
+            return !isNaN(when.getTime()) && isAfter(when, cycleStart);
+        });
+
+        included.forEach((perk: any) => {
+            const allotted = Math.max(0, Math.floor(safeNumber(perk?.quantity)) || 0);
+            // Only the orders the studio actually treated as included count
+            // against the allowance. A latte the member paid for is not a perk
+            // they spent, so priceAtRequest > 0 is deliberately excluded.
+            const usedOnRecord = cycleRequests
+                .filter((r: any) => r.itemId === perk?.id && safeNumber(r.priceAtRequest) === 0)
+                .reduce((sum: number, r: any) => sum + Math.max(1, Math.floor(safeNumber(r.quantity)) || 1), 0);
+            const usedThisSession = Math.max(0, Math.floor(safeNumber(sessionPerkUsed[perk?.id])) || 0);
+            out[String(perk?.id)] = Math.max(0, allotted - usedOnRecord - usedThisSession);
+        });
+        return out;
+    }, [activeMembership, clientRequests, cycleStart, sessionPerkUsed]);
+
+    const perkRemainingFor = (itemId: string): number => safeNumber(perkRemainingByItem[itemId]);
+
+    // A card is only usable if it is actually there AND not expired — an expired
+    // card on file is worse than none, because the guest is told they are settled
+    // and the charge fails silently later.
+    const usableCard = useMemo(() => {
+        const card: any = (identifiedClient as any)?.cardOnFile;
+        const id = card?.paymentMethodId || card?.token;
+        if (!id) return null;
+        if (card?.expMonth && card?.expYear) {
+            const expEnd = new Date(Number(card.expYear), Number(card.expMonth), 0);
+            if (!isNaN(expEnd.getTime()) && expEnd < new Date()) return null;
+        }
+        return { brand: String(card?.brand || 'Card'), last4: String(card?.last4 || '••••') };
+    }, [identifiedClient]);
 
     useEffect(() => {
         const isFirstTime = !localStorage.getItem('clarity_concierge_onboarded');
@@ -403,13 +501,19 @@ function ConciergeKioskContent() {
 
     const handleRequest = async (item: InventoryItem, qty: number) => {
         setPendingItem({ item, qty });
+        // A fresh order must not inherit the last one's settlement wording, or a
+        // free perk shows the previous order's dollar figure on the success card.
+        setSettledSummary('');
         setStep('delivery_detail');
     };
 
     const handleDeliveryDetailSubmit = () => {
         if (!pendingItem) return;
 
-        const isPerk = activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id);
+        // Allowance-aware — see perkRemainingByItem. Asking only "does the
+        // membership include this?" is how a member ended up drinking the whole
+        // menu for free all month.
+        const isPerk = perkRemainingFor(pendingItem.item.id) >= pendingItem.qty;
         const price = safeNumber(pendingItem.item.price);
 
         // v90 — a paid item only routes to the client pay screen when nothing
@@ -422,6 +526,12 @@ function ConciergeKioskContent() {
             || (stationCharging && activeStay?.payerType === 'reservation' && activeStay?.cardOnFile);
 
         if (price > 0 && !isPerk && !withinRenterComp && !coveredByStation) {
+            // Preselect the honest default, in descending order of how little it
+            // asks of the guest: their own saved card, then their visit balance
+            // (which the front desk settles at checkout anyway), and only then
+            // paying the runner on delivery. A walk-in we have no record for gets
+            // the last one, because there is no account to put it against.
+            setSettleChoice(usableCard ? 'card_on_file' : identifiedClient?.id ? 'balance' : 'desk');
             setStep('payment');
             return;
         }
@@ -439,7 +549,11 @@ function ConciergeKioskContent() {
             // entry, so the local txn is skipped for station charges.
             let chargedToStation = false;
             const orderTotal = safeNumber(item.price) * qty;
-            const isComped = activeMembership?.includedProducts?.some((p: any) => p.id === item.id);
+            // A club perk is only a perk while the allowance covers the quantity.
+            // This used to ask only "does the membership include this product?",
+            // which handed a member unlimited free items for the life of their
+            // subscription.
+            const isComped = perkRemainingFor(item.id) >= qty;
             // Renter comp allowance: the first N paid items on a renter's station
             // are complimentary (the host covers them — no charge at all).
             const withinRenterComp = !!activeStay && activeStay.payerType === 'renter'
@@ -490,6 +604,70 @@ function ConciergeKioskContent() {
             }
 
             const compedByRenter = withinRenterComp && orderTotal > 0 && !isComped;
+
+            // ── How this order actually settles ────────────────────────────
+            // The kiosk used to book a 'Kiosk Terminal' income transaction the
+            // instant the guest tapped Authorize, behind a card form whose three
+            // inputs had no value, no onChange and no tokenization. No money
+            // moved, so every lounge order inflated revenue — and the tax
+            // numbers that come off it. There are only three honest outcomes:
+            //
+            //   card_on_file — a real Stripe charge against the client's saved
+            //                  card. Income is booked ONLY when the charge comes
+            //                  back ok, carrying the real payment intent id.
+            //   balance      — recorded as OWED (outstandingBalance + unpaidFees),
+            //                  never as collected revenue. The desk collects it
+            //                  at checkout and books the income at that point.
+            //   desk         — the guest settles when the order is brought over.
+            //                  priceAtRequest stays above zero so the runner's
+            //                  station badge shows what to collect.
+            //
+            // Raw card entry is deliberately absent: taking a card number
+            // outside Stripe's tokenized flow is a real PCI problem, and this is
+            // the same call the client portal already made for the same reason.
+            const owesAtKiosk = orderTotal > 0 && !isComped && !chargedToStation && !compedByRenter;
+            let settledBy: 'card_on_file' | 'balance' | 'desk' | null = owesAtKiosk ? settleChoice : null;
+            let stripePaymentIntentId: string | null = null;
+
+            if (owesAtKiosk && settledBy === 'card_on_file') {
+                if (!identifiedClient?.id || !usableCard) {
+                    settledBy = 'desk';
+                } else {
+                    const chargeRes = await fetch('/api/stripe/charge-card', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            tenantId,
+                            clientId: identifiedClient.id,
+                            amountCents: Math.round(orderTotal * 100),
+                            description: `Lounge order — ${item.name} (x${qty})`,
+                            category: 'Hospitality Revenue',
+                            appointmentId: null,
+                            reason: 'Concierge kiosk order (card on file)',
+                            mode: 'pos',
+                        }),
+                    }).catch(() => null);
+                    const chargeData = chargeRes ? await chargeRes.json().catch(() => ({ ok: false })) : { ok: false };
+                    if (chargeData?.ok && chargeData?.paymentIntentId) {
+                        stripePaymentIntentId = String(chargeData.paymentIntentId);
+                    } else {
+                        // A declined card is not a failed order. The guest still
+                        // gets their drink; the studio still gets a record of
+                        // what is owed — just not a record of revenue.
+                        settledBy = identifiedClient?.id ? 'balance' : 'desk';
+                        toast({
+                            variant: 'destructive',
+                            title: chargeData?.requiresAction ? 'Card needs verification' : 'Card was declined',
+                            description: chargeData?.reason || (settledBy === 'balance'
+                                ? 'Added to your balance — the front desk will settle it at checkout.'
+                                : 'Please settle at the desk.'),
+                        });
+                    }
+                }
+            }
+            // "Add to my balance" only means something for a client the studio
+            // can invoice later. A walk-in with no record settles at the desk.
+            if (owesAtKiosk && settledBy === 'balance' && !identifiedClient?.id) settledBy = 'desk';
+
             const stationName = boothParam
                 ? (activeStay?.boothName || 'Station')
                 : (seatNumber ? `Seat/Table #${seatNumber}` : (activeStay ? activeStay.boothName : 'Lounge / Waiting Area'));
@@ -513,15 +691,31 @@ function ConciergeKioskContent() {
                 renterId: (activeStay?.payerType === 'renter' ? activeStay.renterId : null) || null,
                 chargedToStation,
                 compedByRenter,
+                // A membership perk, so the KDS can say "club perk" rather than
+                // implying the studio gave it away.
+                isRedemption: isComped,
+                // How the money settled, for the runner and for the audit trail.
+                settledBy,
+                paidAtKiosk: settledBy === 'card_on_file',
+                stripePaymentIntentId,
                 guestDescription: guestDescription,
                 notes: orderNotes,
-                // Zero when already covered (station charge or renter comp) so the
-                // Command Hub delivery step never bills it a second time.
-                priceAtRequest: (chargedToStation || compedByRenter) ? 0 : safeNumber(item.price),
+                // Zero when the order is already covered — a station charge, the
+                // host's comp allowance, a club perk, a real card charge, or a
+                // balance the desk will collect. Anything left above zero is
+                // money the runner still has to take at the station, which is
+                // exactly what the KDS money badge reads.
+                priceAtRequest: (chargedToStation || compedByRenter || isComped
+                    || settledBy === 'card_on_file' || settledBy === 'balance')
+                    ? 0
+                    : safeNumber(item.price),
                 isGuestKiosk: true
             });
 
-            if (!chargedToStation && !compedByRenter && safeNumber(item.price) > 0 && !activeMembership?.includedProducts?.some((p: any) => p.id === item.id)) {
+            // Income is booked in exactly one case: a card charge that actually
+            // succeeded. Everything else is either already booked server-side
+            // (station charges) or is money the studio has not collected yet.
+            if (settledBy === 'card_on_file' && stripePaymentIntentId) {
                 const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
                 batch.set(txnRef, {
                     id: txnRef.id,
@@ -532,10 +726,29 @@ function ConciergeKioskContent() {
                     type: 'income',
                     context: 'Business',
                     category: 'Hospitality Revenue',
-                    amount: safeNumber(item.price) * qty,
-                    paymentMethod: 'Kiosk Terminal',
-                    hasReceipt: false,
+                    amount: orderTotal,
+                    paymentMethod: 'Card on File (Stripe)',
+                    stripePaymentIntentId,
+                    hasReceipt: true,
                     tenantId
+                });
+            }
+
+            // Owed, not collected. This is the same shape the aging report and
+            // the checkout screens already read, so it shows up as "Outstanding
+            // $X — settle at checkout" and gets booked as income the moment it
+            // is actually collected.
+            if (settledBy === 'balance' && identifiedClient?.id) {
+                const clientRef = doc(firestore, `tenants/${tenantId}/clients`, identifiedClient.id);
+                batch.update(clientRef, {
+                    outstandingBalance: increment(orderTotal),
+                    unpaidFees: arrayUnion({
+                        feeId: nanoid(),
+                        appointmentId: null,
+                        appointmentDate: new Date().toISOString(),
+                        feeAmount: orderTotal,
+                        reason: `Lounge order — ${item.name} (x${qty})`
+                    })
                 });
             }
 
@@ -549,8 +762,11 @@ function ConciergeKioskContent() {
                 summary: `Concierge order: ${item.name} (x${qty}) for ${guestName || 'guest'} @ ${stationName}${
                     chargedToStation ? ' — charged to station card'
                     : compedByRenter ? ' — comped (host allowance)'
-                    : isComped ? ' — comped (membership)'
-                    : orderTotal > 0 ? ` — $${orderTotal.toFixed(2)} at kiosk` : ''}`,
+                    : isComped ? ' — club perk (membership allowance)'
+                    : settledBy === 'card_on_file' ? ` — $${orderTotal.toFixed(2)} charged to card on file`
+                    : settledBy === 'balance' ? ` — $${orderTotal.toFixed(2)} added to client balance (uncollected)`
+                    : settledBy === 'desk' ? ` — $${orderTotal.toFixed(2)} to collect at the station`
+                    : ''}`,
                 amount: orderTotal,
                 actor: { type: 'system', id: 'concierge-kiosk', name: 'Concierge Kiosk', via: 'concierge-kiosk' },
                 at: new Date().toISOString(),
@@ -558,7 +774,24 @@ function ConciergeKioskContent() {
 
             await batch.commit();
             if (compedByRenter) setSessionCompUsed(n => n + 1);
-            toast({ title: "Order Dispatched", description: "Our concierge will be with you shortly." });
+            // Hold the perk locally too. The Firestore listener needs a moment to
+            // catch up, and without this a member could tap the same
+            // complimentary item twice inside five seconds and have both come
+            // through as included.
+            if (isComped) setSessionPerkUsed(prev => ({ ...prev, [item.id]: safeNumber(prev[item.id]) + qty }));
+
+            // The guest reads this on the success screen, so it has to say what
+            // actually happened to their money — not just "dispatched".
+            const summary =
+                chargedToStation ? `Charged to ${activeStay?.boothName || 'your station'}.`
+                : compedByRenter ? `Complimentary, courtesy of ${activeStay?.boothName || 'your host'}.`
+                : isComped ? 'Included with your membership.'
+                : settledBy === 'card_on_file' ? `$${orderTotal.toFixed(2)} charged to your ${usableCard?.brand || 'card'} ····${usableCard?.last4 || '••••'}.`
+                : settledBy === 'balance' ? `$${orderTotal.toFixed(2)} added to your balance — the front desk will settle it at checkout.`
+                : settledBy === 'desk' ? `$${orderTotal.toFixed(2)} due — settle with us when we bring it over.`
+                : '';
+            setSettledSummary(summary);
+            toast({ title: "Order Dispatched", description: summary || "Our concierge will be with you shortly." });
             setStep('success');
             // Reset delivery fields for next potential order, but keep seatNumber if pre-filled
             if (!seatParam) setSeatNumber('');
@@ -579,7 +812,10 @@ function ConciergeKioskContent() {
 
     // v90 — helper flags for the delivery screen's station banners.
     const pendingPrice = pendingItem ? safeNumber(pendingItem.item.price) : 0;
-    const pendingIsPerk = !!(pendingItem && activeMembership?.includedProducts?.some((p: any) => p.id === pendingItem.item.id));
+    // Allowance-aware: a product the membership *includes* is only actually a
+    // perk while the member still has enough of it left this cycle to cover the
+    // quantity in front of them.
+    const pendingIsPerk = !!(pendingItem && perkRemainingFor(pendingItem.item.id) >= pendingItem.qty);
     const renterWithinComp = !!activeStay && activeStay.payerType === 'renter'
         && activeStay.compAllowance > 0 && sessionCompUsed < activeStay.compAllowance;
 
@@ -750,7 +986,7 @@ function ConciergeKioskContent() {
                                                                 onSelect={(qty) => handleRequest(item, qty)}
                                                                 isMember={!!identifiedClient}
                                                                 activeMembership={activeMembership}
-                                                                remainingPerks={identifiedClient ? 10 : 0}
+                                                                remainingPerks={perkRemainingFor(item.id)}
                                                             />
                                                         ))}
                                                     </div>
@@ -892,18 +1128,96 @@ function ConciergeKioskContent() {
                                                 <p className="text-4xl md:text-6xl font-black text-primary tracking-tighter font-mono">${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)}</p>
                                             </div>
 
-                                            <div className="space-y-6 text-left">
-                                                <div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Card Protocol</Label><Input placeholder="•••• •••• •••• 1234" className="h-14 rounded-2xl border-2 font-mono text-lg shadow-inner bg-white/80" /></div>
-                                                <div className="grid grid-cols-2 gap-4"><div className="space-y-2 text-left"><Label className="text-[9px] md:text-[10px] font-black uppercase tracking-widest ml-1">Expiry</Label><Input placeholder="MM / YY" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div><div className="space-y-2 text-left"><Label className="text-[9px] font-black uppercase tracking-widest ml-1">CVC</Label><Input placeholder="•••" className="h-12 rounded-xl border-2 text-center bg-white/80" /></div></div>
+                                            {/* No card number is typed here on purpose. Handling a raw
+                                                card outside Stripe's tokenized flow is a real PCI
+                                                problem — and the three inputs that used to sit here
+                                                collected nothing, charged nothing, and the kiosk booked
+                                                the sale as revenue anyway. These are the only three
+                                                ways this order can honestly settle. */}
+                                            <div className="space-y-3 text-left">
+                                                <Label className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 ml-1">Settlement Method</Label>
+
+                                                {identifiedClient && usableCard && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSettleChoice('card_on_file')}
+                                                        className={cn(
+                                                            "w-full rounded-[2rem] border-2 p-4 flex items-center gap-3 md:gap-4 text-left transition-colors min-h-[44px]",
+                                                            settleChoice === 'card_on_file' ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
+                                                        )}
+                                                    >
+                                                        <span className={cn(
+                                                            "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
+                                                            settleChoice === 'card_on_file' ? "border-primary bg-primary text-white" : "border-slate-300"
+                                                        )}>{settleChoice === 'card_on_file' ? '✓' : ''}</span>
+                                                        <CreditCard className="w-5 h-5 text-primary shrink-0" />
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-sm font-black uppercase tracking-tight">Card on file</span>
+                                                            <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest truncate">{usableCard.brand} ····{usableCard.last4} · charged now</span>
+                                                        </span>
+                                                    </button>
+                                                )}
+
+                                                {identifiedClient && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSettleChoice('balance')}
+                                                        className={cn(
+                                                            "w-full rounded-[2rem] border-2 p-4 flex items-center gap-3 md:gap-4 text-left transition-colors min-h-[44px]",
+                                                            settleChoice === 'balance' ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
+                                                        )}
+                                                    >
+                                                        <span className={cn(
+                                                            "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
+                                                            settleChoice === 'balance' ? "border-primary bg-primary text-white" : "border-slate-300"
+                                                        )}>{settleChoice === 'balance' ? '✓' : ''}</span>
+                                                        <Wallet className="w-5 h-5 text-primary shrink-0" />
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-sm font-black uppercase tracking-tight">Add to my visit</span>
+                                                            <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Settled with the front desk at checkout</span>
+                                                        </span>
+                                                    </button>
+                                                )}
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSettleChoice('desk')}
+                                                    className={cn(
+                                                        "w-full rounded-[2rem] border-2 p-4 flex items-center gap-3 md:gap-4 text-left transition-colors min-h-[44px]",
+                                                        settleChoice === 'desk' ? "border-primary bg-primary/5" : "border-slate-200 bg-white/80"
+                                                    )}
+                                                >
+                                                    <span className={cn(
+                                                        "w-8 h-8 rounded-xl border-2 flex items-center justify-center text-base font-black shrink-0 transition-colors",
+                                                        settleChoice === 'desk' ? "border-primary bg-primary text-white" : "border-slate-300"
+                                                    )}>{settleChoice === 'desk' ? '✓' : ''}</span>
+                                                    <Receipt className="w-5 h-5 text-primary shrink-0" />
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block text-sm font-black uppercase tracking-tight">Pay on delivery</span>
+                                                        <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-widest">We'll take payment when we bring it over</span>
+                                                    </span>
+                                                </button>
+
+                                                {!identifiedClient && (
+                                                    <div className="flex items-start gap-2 pt-1 px-1">
+                                                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                                        <p className="text-[11px] md:text-xs font-medium text-amber-700/90 leading-snug text-left">
+                                                            We don't have you on file yet, so this order settles when we bring it over. Ask the front desk to add you and your next one can go straight to your visit.
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
 
-                                            <div className="flex items-center justify-center gap-3 opacity-40 pt-4">
-                                                <Lock className="w-4 h-4"/><span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest">Encrypted Secure Tunnel</span>
+                                            <div className="flex items-center justify-center gap-3 opacity-40 pt-2">
+                                                <Lock className="w-4 h-4"/><span className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-center">Card details stay with Stripe</span>
                                             </div>
                                         </div>
                                         <div className="p-8 md:p-10 pt-0 flex flex-col gap-3">
                                             <Button onClick={() => finalizeRequest(pendingItem.item, pendingItem.qty)} disabled={isVerifying} className="w-full h-16 rounded-[2rem] md:rounded-[2.5rem] text-sm md:text-xl font-black uppercase shadow-3xl shadow-primary/30 active:scale-95 transition-all">
-                                                {isVerifying ? <Loader className="animate-spin h-6 w-6" /> : 'Authorize Payment'}
+                                                {isVerifying ? <Loader className="animate-spin h-6 w-6" />
+                                                    : settleChoice === 'card_on_file' ? `Charge $${(safeNumber(pendingItem.item.price) * pendingItem.qty).toFixed(2)} & Dispatch`
+                                                    : settleChoice === 'balance' ? 'Add To My Visit & Dispatch'
+                                                    : 'Confirm & Dispatch'}
                                             </Button>
                                             <Button variant="ghost" onClick={() => setStep('menu')} className="w-full h-10 font-black uppercase tracking-widest text-[10px] text-slate-400">Abort Protocol</Button>
                                         </div>
@@ -922,6 +1236,15 @@ function ConciergeKioskContent() {
                                             Preparing your selection now. Please relax, we will be with you shortly.
                                         </p>
                                     </div>
+                                    {/* A guest should never have to guess whether they still owe
+                                        for something. Whatever happened to the money is stated
+                                        here in plain language. */}
+                                    {settledSummary && (
+                                        <div className="rounded-[2rem] border-2 border-primary/20 bg-primary/5 px-6 py-5 max-w-md mx-auto">
+                                            <p className="text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] text-primary/60 mb-2">Your Order</p>
+                                            <p className="text-sm md:text-base font-bold text-slate-700 leading-snug">{settledSummary}</p>
+                                        </div>
+                                    )}
                                     <Button
                                         size="lg"
                                         onClick={() => setStep('menu')}
