@@ -30,6 +30,7 @@
 // POST { token, action: 'request' }    -> place an amenity request
 // POST { token, action: 'recall' }     -> cancel an amenity request
 // POST { token, action: 'interest' }   -> tell staff the guest wants a service
+// POST { token, action: 'assist' }     -> raise the guest's hand to the floor board
 //
 // Every branch resolves the token first and derives tenantId/clientId/
 // appointmentId from the stored record — the caller never gets to name them,
@@ -41,6 +42,27 @@ import { getAdminDb } from '@/lib/firebase-admin';
 const MAX_AMENITIES = 60;
 const MAX_UPSELL = 8;
 const MAX_QTY = 6;
+const MAX_ASSIST = 12;
+
+/**
+ * The only things a guest is allowed to raise their hand about.
+ *
+ * A fixed catalogue rather than free text, because `label` is what the floor
+ * board prints in 14px black caps across the top of a card — if the guest could
+ * set it, anything they typed would land on a staff screen verbatim. What they
+ * type goes in the capped `note` instead, underneath, clearly as a quote.
+ *
+ * Each one maps to something a person can actually walk over and do. "Bring me
+ * a drink" is deliberately NOT here: that is the amenity channel, it ends on the
+ * kitchen board with stock and money attached, and duplicating it here would
+ * mean two boards racing to fill the same order.
+ */
+const ASSIST_KINDS: { key: string; label: string; guestLabel: string; hint: string }[] = [
+  { key: 'assistance', label: 'Needs assistance', guestLabel: 'I need a hand', hint: 'Someone will come to you' },
+  { key: 'comfort', label: 'Comfort adjustment', guestLabel: 'Too hot / too cold', hint: 'Temperature, chair or lighting' },
+  { key: 'timing', label: 'Guest is short on time', guestLabel: "I'm short on time", hint: "We'll let your technician know" },
+  { key: 'checkout', label: 'Ready to check out', guestLabel: 'Ready to check out', hint: 'The front desk will be ready' },
+];
 
 const num = (v: any): number => {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? ''));
@@ -87,6 +109,40 @@ async function rateLimit(db: any, tenantId: string, key: string, max: number) {
   if (stamps.length >= max) return false;
   await ref.set({ at: [...stamps, Date.now()].slice(-400) }, { merge: true });
   return true;
+}
+
+/**
+ * ── The amenity order ladder ─────────────────────────────────────────────────
+ * Back of house moves a `refreshmentRequests` document along
+ *     pending -> making -> ready -> delivered
+ * on the KDS board at /kds/[tenantId]. Before that board existed nothing ever
+ * wrote a status past `pending`, so this route only had to recognise one value.
+ *
+ * Now that the kitchen really does advance an order, "pending" is no longer the
+ * same thing as "live". Three checks in here depend on knowing the difference:
+ * the snapshot the waiting screen renders, the one-of-each duplicate guard, and
+ * the per-session complimentary cap. If any of them still meant "pending only",
+ * the guest could order a second cold brew the instant a technician tapped
+ * Start — or slip past a complimentary limit of two by waiting for the kitchen.
+ *
+ * Deliberately tolerant, and identical to the mapping the board and the guest
+ * page use: an unrecognised status counts as brand new rather than disappearing.
+ */
+type OrderStage = 'new' | 'making' | 'ready' | 'delivered' | 'cancelled';
+
+function stageOf(r: any): OrderStage {
+  const s = String(r?.status || '').trim().toLowerCase();
+  if (s === 'making' || s === 'preparing' || s === 'in_progress') return 'making';
+  if (s === 'ready' || s === 'ready_for_pickup') return 'ready';
+  if (s === 'delivered' || s === 'done' || s === 'completed' || s === 'complete') return 'delivered';
+  if (s === 'cancelled' || s === 'canceled' || s === 'void') return 'cancelled';
+  return 'new';
+}
+
+/** Still on the board somewhere: requested, being made, or waiting for a runner. */
+function isLive(r: any): boolean {
+  const stage = stageOf(r);
+  return stage !== 'delivered' && stage !== 'cancelled';
 }
 
 /**
@@ -174,6 +230,37 @@ export async function GET(req: NextRequest) {
 
     const perks = perkAllowance(membership, client, requests);
 
+    // Anything this guest has already raised their hand about, so the screen can
+    // say "Bianca is on her way" instead of pretending the tap went nowhere.
+    // `floorRequests` has no explicit rule and is not in the catch-all's
+    // exclusion list, so it resolves to `read, write: if isStaff` — the guest's
+    // own browser cannot see its own request come back acknowledged. This is the
+    // only path that can.
+    let assist: any[] = [];
+    if (appointmentId) {
+      try {
+        const fSnap = await db
+          .collection(`tenants/${tenantId}/floorRequests`)
+          .where('appointmentId', '==', appointmentId)
+          .get();
+        assist = fSnap.docs
+          .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+          .filter((r: any) => r.status !== 'done')
+          .slice(0, MAX_ASSIST)
+          .map((r: any) => ({
+            id: String(r.id),
+            kind: str(r.requestType, 40),
+            label: str(r.label, 60),
+            status: r.status === 'acknowledged' ? 'acknowledged' : 'new',
+            // Who is coming. Only a name — never the PIN-holder's id or role.
+            claimedByName: str(r.claimedByName || r.acknowledgedBy, 60) || null,
+            createdAt: str(r.createdAt, 40),
+          }));
+      } catch {
+        /* an unindexed query or a missing collection must not blank the lounge */
+      }
+    }
+
     // Sanitized amenity projection. Deliberately NOT a spread of the inventory
     // document: cost, supplier, reorder points and every other internal field
     // stay on the server. `available` is a boolean, not a stock count — a guest
@@ -241,10 +328,19 @@ export async function GET(req: NextRequest) {
       amenities,
       perks,
       upsell,
+      // The assistance channel: what can be asked for, and what is already open.
+      // Served from the constant so the wording lives in exactly one place and
+      // the browser can never invent a request type the server would reject.
+      assistOptions: ASSIST_KINDS.map(k => ({ key: k.key, label: k.guestLabel, hint: k.hint })),
+      assist,
       limits: { perSession: Math.max(0, Math.floor(num(tenantDoc?.complimentaryAmenityLimit))) },
+      // Everything still on the board, not just the untouched ones — the waiting
+      // screen shows each order's own stage now, so it needs the in-progress and
+      // ready ones too. `stage` is the normalised value; `status` stays raw for
+      // anything that wants it.
       requests: requests
         .filter(r => !appointmentId || r.appointmentId === appointmentId)
-        .filter(r => r.status === 'pending')
+        .filter(isLive)
         .map(r => ({
           id: String(r.id),
           itemId: str(r.itemId, 120),
@@ -252,6 +348,7 @@ export async function GET(req: NextRequest) {
           quantity: num(r.quantity || 1),
           isRedemption: r.isRedemption === true,
           status: str(r.status, 30),
+          stage: stageOf(r),
         })),
     });
   } catch (err) {
@@ -268,7 +365,7 @@ export async function POST(req: NextRequest) {
     if (!token || token.length > 120) {
       return NextResponse.json({ ok: false, error: 'Missing token.' }, { status: 400 });
     }
-    if (!['request', 'recall', 'interest'].includes(action)) {
+    if (!['request', 'recall', 'interest', 'assist'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
 
@@ -295,8 +392,10 @@ export async function POST(req: NextRequest) {
       if (clientId && r.clientId !== clientId) {
         return NextResponse.json({ ok: false, error: 'Not yours to recall.' }, { status: 403 });
       }
-      if (r.status !== 'pending') {
+      if (stageOf(r) !== 'new') {
         // Already picked up by the back of house — recalling now would be a lie.
+        // (The guest page hides the Recall button once an order leaves `new`, so
+        // this is the belt to that braces.)
         return NextResponse.json({ ok: false, error: 'Already being prepared — please ask your technician.' }, { status: 409 });
       }
       await ref.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'guest' }, { merge: true });
@@ -373,6 +472,126 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, notified: recipients.size });
     }
 
+    // ── Raise the guest's hand to the floor board ─────────────────────────────
+    // The board at /floor/[tenantId] could already acknowledge, claim, flag for
+    // backup, escalate, time the wait and report on it — but nothing in the whole
+    // app ever CREATED one of these documents, so it sat empty forever. This is
+    // the missing producer.
+    //
+    // It has to live on the server for the same reason everything else in this
+    // file does: `floorRequests` has no explicit rule, so the tenant catch-all
+    // makes it `read, write: if isStaff`, and the guest is not signed in.
+    //
+    // Deliberately a separate channel from the amenity request below. That one
+    // ends with a drink, carries stock and money, and belongs on the kitchen
+    // board. This one ends with a person walking over, and the floor board is
+    // where the wait timers and escalation already live. Collapsing them would
+    // put two boards in a race to fill the same request.
+    if (action === 'assist') {
+      const kind = str(body?.kind, 40);
+      const def = ASSIST_KINDS.find(k => k.key === kind);
+      if (!def) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
+      if (!appointmentId) {
+        return NextResponse.json({ ok: false, error: 'This visit is not checked in yet.' }, { status: 409 });
+      }
+      const note = str(body?.note, 160).trim();
+
+      const [clientSnap, aptSnap] = await Promise.all([
+        clientId ? db.doc(`tenants/${tenantId}/clients/${clientId}`).get() : Promise.resolve(null),
+        db.doc(`tenants/${tenantId}/appointments/${appointmentId}`).get(),
+      ]);
+      const client = clientSnap && clientSnap.exists ? (clientSnap.data() as any) : null;
+      const apt = aptSnap.exists ? (aptSnap.data() as any) : null;
+
+      // Where to walk to. The board renders `tableNumber` as the destination
+      // under a map pin; for a salon that is the station, resolved from the
+      // appointment the same way the guest screen resolves it.
+      let station = '';
+      const resourceId = Array.isArray(apt?.requiredResourceIds) ? str(apt.requiredResourceIds[0], 120) : '';
+      if (resourceId) {
+        const rSnap = await db.doc(`tenants/${tenantId}/resources/${resourceId}`).get();
+        if (rSnap.exists) station = str((rSnap.data() as any)?.name, 60);
+      }
+      if (!station) station = String(apt?.status || '') === 'servicing' ? 'Station' : 'Lounge Area';
+
+      // One open request per kind per visit. Without this an impatient guest
+      // tapping four times puts four identical cards on the board and the wait
+      // timer on the real one is lost among the copies. Filtered in memory on
+      // purpose: a single equality filter uses the automatic index, whereas
+      // adding a second `where` on status would need a composite one deploying.
+      const openSnap = await db
+        .collection(`tenants/${tenantId}/floorRequests`)
+        .where('appointmentId', '==', appointmentId)
+        .get();
+      const alreadyOpen = openSnap.docs
+        .map((d: any) => d.data() as any)
+        .some((r: any) => r.requestType === def.key && r.status !== 'done');
+      if (alreadyOpen) {
+        return NextResponse.json({ ok: false, error: 'Someone is already on their way for that.' }, { status: 409 });
+      }
+
+      const who = str(client?.name, 80) || str(ctx.checkIn?.clientName, 80) || 'A guest';
+      const now = new Date().toISOString();
+      // The label is always one of ours. Whatever the guest typed is appended as
+      // a quote so a runner can see it is the guest's words, not the studio's.
+      const message = note ? `${def.label} — "${note}"` : def.label;
+
+      const ref = db.collection(`tenants/${tenantId}/floorRequests`).doc();
+      const batch = db.batch();
+      // Shaped to the board's own FloorRequest type. `type` mirrors
+      // `requestType` because the board reads either one depending on the card.
+      batch.set(ref, {
+        id: ref.id,
+        tenantId,
+        requestType: def.key,
+        type: def.key,
+        label: def.label,
+        status: 'new',
+        createdAt: now,
+        tableNumber: station,
+        guestId: clientId || '',
+        guestName: who,
+        message,
+        requestText: note,
+        appointmentId,
+        source: 'lounge',
+      });
+
+      // Same addressing rule as `interest`: the staff portal's bell reads
+      // `where('userId','==',staffMember.id)`, so an unaddressed notification is
+      // invisible to everyone.
+      const recipients = new Set<string>();
+      if (apt?.staffId) recipients.add(String(apt.staffId));
+      try {
+        const mgrs = await db
+          .collection(`tenants/${tenantId}/staff`)
+          .where('role', 'in', ['owner', 'admin'])
+          .get();
+        mgrs.docs.forEach((d: any) => recipients.add(d.id));
+      } catch {
+        /* an empty manager list still leaves the assigned technician notified */
+      }
+      recipients.forEach(uid => {
+        const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
+        batch.set(nRef, {
+          id: nRef.id,
+          userId: uid,
+          type: 'floor_assist',
+          read: false,
+          createdAt: now,
+          link: '/floor',
+          message: `${who} at ${station}: ${message}`,
+        });
+      });
+
+      await batch.commit();
+      return NextResponse.json({
+        ok: true,
+        request: { id: ref.id, kind: def.key, label: def.label, status: 'new' },
+        notified: recipients.size,
+      });
+    }
+
     // ── Place an amenity request ──────────────────────────────────────────────
     const itemId = str(body?.itemId, 120);
     const qty = Math.max(1, Math.min(MAX_QTY, Math.floor(num(body?.quantity)) || 1));
@@ -411,13 +630,17 @@ export async function POST(req: NextRequest) {
       .where('appointmentId', '==', appointmentId)
       .get();
     const sessionRequests: any[] = sessionSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
-    const pending: any[] = sessionRequests.filter(r => r.status === 'pending');
-    if (pending.some(r => r.itemId === itemId)) {
+    // "Live", not "pending": an order the kitchen has started is still out, so it
+    // still blocks a duplicate and still counts against the per-session cap.
+    // Once it is delivered (or recalled) the guest may order that item again —
+    // which is exactly how a client asks for a second coffee mid-service.
+    const live: any[] = sessionRequests.filter(isLive);
+    if (live.some(r => r.itemId === itemId)) {
       return NextResponse.json({ ok: false, error: 'That is already on its way.' }, { status: 409 });
     }
     const limit = Math.max(0, Math.floor(num(tenant?.complimentaryAmenityLimit)));
     if (limit > 0) {
-      const alreadyOut = pending.reduce((sum, r) => sum + num(r.quantity || 1), 0);
+      const alreadyOut = live.reduce((sum, r) => sum + num(r.quantity || 1), 0);
       if (alreadyOut + qty > limit) {
         return NextResponse.json(
           { ok: false, error: `Complimentary limit is ${limit} item${limit === 1 ? '' : 's'} at a time.` },
