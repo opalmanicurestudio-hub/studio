@@ -2240,6 +2240,28 @@ const CANCEL_REASONS = [
   'Wrong service', 'Price concern', 'Other',
 ];
 
+// ─── WALK-IN STATUS VOCABULARY ────────────────────────────────────────────────
+// TWO SCREENS IN THIS APP WRITE "IN THE CHAIR" WITH TWO DIFFERENT WORDS.
+//
+//   /staff-portal  this file's startService writes 'in_service'.
+//   /pos           the Terminal's walk-in queue panel calls handleStartService,
+//                  which writes 'servicing'.
+//
+// Both land on the SAME tenants/{t}/walkIns/{id} document. So anything here that
+// recognises only 'in_service' loses the guest the instant service is started
+// from the Terminal: the row is not open (it isn't 'waiting') and not working
+// (it isn't 'in_service'), so it drops out of the queue list, out of the
+// "in service" count, out of the wait-time average, and off the tech's badge —
+// while the guest is sitting right there in the chair.
+//
+// Read BOTH words. Keep WRITING 'in_service' from this file, because renaming
+// what this screen writes would orphan every row already stored under it.
+const WALKIN_OPEN    = ['waiting', 'notified', 'arrived'];
+const WALKIN_WORKING = ['in_service', 'servicing'];
+// 5 values — Firestore allows up to 30 in an `in` filter, so this is safe.
+const WALKIN_ACTIVE  = [...WALKIN_OPEN, ...WALKIN_WORKING];
+const isWorkingWalkIn = (status: any): boolean => WALKIN_WORKING.includes(String(status || ''));
+
 function WalkInLeaderboard({
   allWalkIns, allStaff, allShifts, services,
   tenantId, firestore, currentStaffId, activityLogs,
@@ -2256,19 +2278,19 @@ function WalkInLeaderboard({
   // ── Queue: waiting + notified + arrived, sorted by checkInTime ──
   const queue = useMemo(() => {
     return (allWalkIns || [])
-      .filter((w: any) => ['waiting', 'notified', 'arrived'].includes(w.status))
+      .filter((w: any) => WALKIN_OPEN.includes(w.status))
       .sort((a: any, b: any) => safeDate(a.checkInTime).getTime() - safeDate(b.checkInTime).getTime());
   }, [allWalkIns]);
 
-  // In-service walk-ins
+  // In-service walk-ins — either spelling. See WALKIN_WORKING above.
   const inService = useMemo(() => {
-    return (allWalkIns || []).filter((w: any) => w.status === 'in_service');
+    return (allWalkIns || []).filter((w: any) => isWorkingWalkIn(w.status));
   }, [allWalkIns]);
 
   // Avg service duration for wait estimate
   const avgSvcMins = useMemo(() => {
     const durations = (allWalkIns || [])
-      .filter((w: any) => w.status === 'in_service' && w.serviceStartTime)
+      .filter((w: any) => isWorkingWalkIn(w.status) && w.serviceStartTime)
       .map((w: any) => {
         const svc = w.serviceId
           ? (services || []).find((s: any) => s.id === w.serviceId)
@@ -2300,6 +2322,12 @@ function WalkInLeaderboard({
       const now = new Date().toISOString();
       const batch = writeBatch(firestore);
       batch.update(doc(firestore, `tenants/${tenantId}/walkIns`, walkIn.id), {
+        // staffId was never stamped here. A tech tapping Start on an UNASSIGNED
+        // guest put the row in service with no owner, so the in-service card read
+        // "Tech" instead of a name, the per-tech badge below (which matches on
+        // w.staffId) never lit up, and the lobby board had no provider to show.
+        // Whoever pressed the button is the provider — record that.
+        staffId: walkIn.staffId || currentStaffId,
         status: 'in_service', serviceStartTime: now,
       });
       if (walkIn.appointmentId) {
@@ -2680,7 +2708,8 @@ function WalkInLeaderboard({
               const isMe   = tech.id === currentStaffId;
               const ts     = getTechStatus(tech);
               const myWalkIn = (allWalkIns || []).find((w: any) =>
-                w.staffId === tech.id && ['notified', 'arrived', 'in_service'].includes(w.status)
+                w.staffId === tech.id &&
+                (['notified', 'arrived'].includes(w.status) || isWorkingWalkIn(w.status))
               );
               const myApt = null; // Could wire in current appointment later
               const accepting = tech.acceptingWalkIns !== false;
@@ -2714,7 +2743,7 @@ function WalkInLeaderboard({
                         <p className="text-[8px] font-bold text-muted-foreground uppercase opacity-70">{ts.label}</p>
                         {myWalkIn && (
                           <p className="text-[8px] font-bold text-teal-600 uppercase">
-                            {myWalkIn.status === 'in_service' ? '● Walk-in in service' :
+                            {isWorkingWalkIn(myWalkIn.status) ? '● Walk-in in service' :
                              myWalkIn.status === 'arrived' ? '★ Client arrived' : '→ Walk-in assigned'}
                           </p>
                         )}
@@ -3857,8 +3886,13 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // ── Floor view queries ──
   // All today's appointments across ALL staff for floor view
   const allTodayApptsQ  = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,`tenants/${tenantId}/appointments`), where('status','in',['confirmed','servicing','ready_for_checkout','pending'])), [firestore,tenantId,refreshKey,isRenterUser]);
-  // All today's walk-ins for floor view
-  const allWalkInsQ     = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,`tenants/${tenantId}/walkIns`), where('status','in',['waiting','notified','in_service'])), [firestore,tenantId,refreshKey,isRenterUser]);
+  // All today's walk-ins for floor view.
+  // WALKIN_ACTIVE (not a hand-written list) so this fetch cannot drift from what
+  // the panel filters on. It was ['waiting','notified','in_service'], which meant
+  // a guest started from the Terminal ('servicing') was never even downloaded —
+  // she vanished off this board mid-service — and 'arrived' was never fetched
+  // either, leaving the "★ Client arrived" branches below permanently dead code.
+  const allWalkInsQ     = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : query(collection(firestore,`tenants/${tenantId}/walkIns`), where('status','in',WALKIN_ACTIVE)), [firestore,tenantId,refreshKey,isRenterUser]);
   // Staff blocks (sequential add-on time holds)
   const staffBlocksQ    = useMemoFirebase(() => (!firestore||!tenantId||isRenterUser) ? null : collection(firestore,`tenants/${tenantId}/staffBlocks`), [firestore,tenantId,refreshKey,isRenterUser]);
   // Events (studio-wide blocked time, staff meetings, etc.)
