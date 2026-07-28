@@ -525,6 +525,15 @@ export async function GET(req: NextRequest) {
       const providerOf = (row: any): string =>
         firstName(row?.staffName) || firstName(staffNameById.get(String(row?.staffId || '')) || '');
 
+      // Provider photos for the wall screen. A staff headshot is NOT guest data
+      // — it is the same picture already on the public booking page — so it is
+      // safe on a screen the whole room can see. Guests still get first names
+      // only and no photo, which does not change here.
+      const avatarById = new Map<string, string>(
+        (staff || []).map((s: any) => [String(s.id), str(s.avatarUrl, 400)]),
+      );
+      const avatarOf = (row: any): string => avatarById.get(String(row?.staffId || '')) || '';
+
       return NextResponse.json({
         ok: true,
         enabled,
@@ -539,6 +548,7 @@ export async function GET(req: NextRequest) {
           firstName: firstName(w.customerName || w.clientName) || 'Guest',
           serviceName: str(w.serviceName, 60),
           providerFirstName: providerOf(w),
+          providerAvatar: avatarOf(w),
           requested: w.isRequested === true,
           notified: String(w.status) === 'notified' || String(w.status) === 'arrived',
           waitedMin: Math.max(0, Math.round((nowMs - toMs(w.checkInTime)) / 60000)),
@@ -547,11 +557,13 @@ export async function GET(req: NextRequest) {
           firstName: firstName(w.customerName || w.clientName) || 'Guest',
           serviceName: str(w.serviceName, 60),
           providerFirstName: providerOf(w),
+          providerAvatar: avatarOf(w),
         })),
         floor: (staff || [])
           .filter((s: any) => s.isActive !== false && (!rostered || onShiftIds.has(String(s.id))))
           .map((s: any) => ({
             firstName: firstName(s.name) || 'Team',
+            avatarUrl: str(s.avatarUrl, 400),
             accepting: s.acceptingWalkIns !== false,
             busy: busyStaff.has(String(s.id)) || String(s.status || '') === 'busy',
           }))
@@ -863,24 +875,54 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
   }
   const svcMins = Number(service.duration) > 0 ? Number(service.duration) : 30;
 
-  const { rows, stale, providers, queue, working, nowMs } = await readFloor(db, tenantId, service);
+  // `staff` is destructured here (it was not before) because the zero-provider
+  // branch below has to tell "the studio has nobody for walk-ins" apart from
+  // "a skills or roster gate excluded everybody", and only the raw roster can
+  // answer that.
+  const { staff, rows, stale, providers, queue, working, nowMs } = await readFloor(db, tenantId, service);
   const nowIso = new Date(nowMs).toISOString();
 
   // Housekeeping before anything else so a chair abandoned this morning is
   // available to the person standing here now.
   await healStale(db, tenantId, stale, nowIso);
 
-  // No qualified provider on the floor with walk-ins switched on. This is the
-  // one case where the WAITLIST is the right answer: nobody can take them
-  // now, so "we'll call you" is a real offer rather than a brush-off. The
-  // kiosk makes that offer; this route just reports the situation honestly.
-  if (providers.length === 0) {
+  // ── Zero eligible providers: the bug that sent walk-ins to the waitlist ──
+  //
+  // eligibleProviders() applies FOUR filters, and any one of them can quietly
+  // return an empty list:
+  //     isActive === false
+  //     acceptingWalkIns === false
+  //     the service's requiredSkills vs the tech's skillSet
+  //     the service's certifiedStaffIds
+  //     a published shift roster for today (rosters exist -> must be on one)
+  //
+  // The last three are DATA-COMPLETENESS gates, not "the studio is closed"
+  // gates. A service saved with a required skill nobody's profile lists, or
+  // one rostered shift that accidentally excludes everybody else, made this
+  // return "Nobody is taking walk-ins" — and the kiosk's only remaining offer
+  // was the waitlist. So a guest standing in the lobby of an open studio with
+  // three techs on the floor got "we'll call you sometime". That is the
+  // opposite of a walk-in queue.
+  //
+  // So: separate the two situations.
+  //   • Genuinely nobody on the floor for walk-ins -> the waitlist IS the
+  //     honest answer, and the kiosk offers it.
+  //   • Somebody is here, but a skills / certification / roster gate excluded
+  //     them all -> the guest JOINS THE QUEUE, unassigned, flagged
+  //     needsFrontDesk. A person decides. A silent filter does not get to turn
+  //     a paying customer away.
+  const floorForWalkIns = (staff || []).filter(
+    (s: any) => s && s.isActive !== false && s.acceptingWalkIns !== false,
+  );
+  if (providers.length === 0 && floorForWalkIns.length === 0) {
     return NextResponse.json({
       ok: false, full: true,
       error: 'Nobody is taking walk-ins at the moment.',
       queueLength: queue.length,
     }, { status: 200 });
   }
+  // Somebody IS on the floor — a gate, not the studio, produced the zero.
+  const needsFrontDesk = providers.length === 0;
 
   // Two taps on a kiosk, or the same person coming back ten minutes later to
   // check, must not become two people in line. Matched on phone digits, then
@@ -993,11 +1035,16 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
 
   const holder = assigned || (waitingForRequested ? requested : null);
   const position = queue.length + 1;
+  // When a gate produced zero providers, estimateWait's divisor would be 0 and
+  // it returns 0 — which reads to the guest as "no wait at all" at the exact
+  // moment nobody is even assigned to her. Divide by who is actually on the
+  // floor instead, so the number is a real estimate rather than a lie.
+  const waitDivisor = providers.length > 0 ? providers.length : floorForWalkIns.length;
   const estWaitMin = assigned
     ? 0
     : waitingForRequested
       ? providerWait(String(requested.id), rows, nowMs, svcMins)
-      : estimateWait(queue, working.length, providers.length, svcMins);
+      : estimateWait(queue, working.length, waitDivisor, svcMins);
 
   // ── The token ────────────────────────────────────────────────────────────
   // Same shape and same generators as api/appointments/book, because the same
@@ -1107,6 +1154,12 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
       signedForms,
       patchTestWarning,
 
+      // TRUE means: this guest is in the queue but no tech currently passes the
+      // service's skill / certification / roster gate. She is NOT turned away —
+      // the front desk decides. The staff board should show this loudly, because
+      // nobody will be auto-assigned to her by the rotation.
+      needsFrontDesk,
+
       checkInTime: nowIso,
       startTime: nowIso,
       serviceStartTime: null,
@@ -1120,6 +1173,64 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
       updatedAt: nowIso,
     };
     tx.set(walkInRef, row);
+
+    // ── The planner appointment ──────────────────────────────────────────
+    // THIS IS WHAT STOPS A DOUBLE BOOKING.
+    //
+    // /api/appointments/book checks for conflicts by reading
+    // tenants/{t}/appointments in the booking window and handing them to the
+    // availability engine. It does NOT read walkIns and never has. So before
+    // this write existed, a guest the kiosk seated with Maya was invisible to
+    // online booking: the website went on offering Maya's 2:00, somebody took
+    // it, and Maya was booked twice for the same half hour — once by a screen
+    // in the lobby and once by a stranger on the internet. Nothing warned
+    // anybody until 2:00.
+    //
+    // The id convention `apt-walkin-{walkInId}` is not arbitrary. Code all
+    // over this app branches on id.startsWith('apt-walkin-') to tell a mirror
+    // from a real booking, and /pos writes the SAME id when the front desk
+    // assigns somebody by hand — so writing it here means the two paths
+    // converge on one document instead of racing to create two.
+    //
+    // Only written when a provider is actually assigned. An unassigned guest
+    // in `waiting` is holding nobody's calendar, and inventing an appointment
+    // for her would block a tech who has not agreed to take her yet.
+    if (holder) {
+      tx.set(db.doc(`tenants/${tenantId}/appointments/apt-walkin-${walkInRef.id}`), {
+        id: `apt-walkin-${walkInRef.id}`,
+        tenantId,
+        walkInId: walkInRef.id,
+        isWalkIn: true,
+        source: 'walk-in',
+        status: 'confirmed',
+        checkInStatus: 'arrived',
+        checkedInAt: nowIso,
+
+        clientId: foundId,
+        clientName: displayName,
+        clientPhone: phone || null,
+        clientEmail: email || null,
+
+        serviceId: service.id,
+        serviceIds: [service.id],
+        // serviceName is written here on purpose. /pos's own mirror omits it,
+        // which is why an unresolvable service showed up at the till as a
+        // blank line instead of a name you could read.
+        serviceName: str(service.name, 80),
+        staffId: String(holder.id),
+        staffName: str(holder.name, 80),
+
+        startTime: nowIso,
+        endTime: new Date(nowMs + svcMins * 60 * 1000).toISOString(),
+        estimatedDuration: svcMins,
+        groupSize,
+
+        checkInToken: token,
+        shortCode,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+    }
 
     // ── The check-in mirror ──────────────────────────────────────────────
     // Deliberately a PROJECTION, not a copy of the row above. The check-in
@@ -1280,10 +1391,25 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     if (holder) recipients.add(String(holder.id));
     const mgrs = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin']).get();
     mgrs.docs.forEach((d: any) => recipients.add(d.id));
+    // The owner's own uid off the tenant document, always.
+    //
+    // The query above is the ONLY thing that was feeding this, and it depends on
+    // somebody's staff record carrying role 'owner' or 'admin'. If no staff doc
+    // does — a real possibility on a studio set up by importing techs, or where
+    // the owner never made herself a staff member — then an UNASSIGNED guest
+    // produced an empty recipient set and NOBODY was told anyone had walked in.
+    // The guest sits in the lobby and the only place she exists is a screen
+    // nobody happens to be looking at.
+    const ownerUid = str(tenant?.userId || tenant?.ownerId, 120);
+    if (ownerUid) recipients.add(ownerUid);
 
     if (recipients.size) {
       const batch = db.batch();
-      const flag = patchTestWarning ? ' ⚠ Patch test not on file — confirm before starting.' : '';
+      const flag = (patchTestWarning ? ' ⚠ Patch test not on file — confirm before starting.' : '')
+        // Nobody passes this service's skill/certification/roster gate, so the
+        // rotation will never pick this guest up on its own. If this line does
+        // not appear, she waits forever while the board looks normal.
+        + (needsFrontDesk ? ' ⚠ No tech currently qualifies for this service — assign by hand.' : '');
       recipients.forEach((uid: string) => {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
         const mine = holder && uid === String(holder.id);
@@ -1322,6 +1448,10 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     waitingForRequested,
     preferredUnavailable,
     patchTestWarning,
+    // Surfaced so the kiosk can say "you're in line — please see the front desk
+    // so we can match you with the right tech" instead of pretending a provider
+    // is coming. She is in the QUEUE either way, which is the whole point.
+    needsFrontDesk,
     estWaitMin,
     serviceName: str(service.name, 80),
     durationMin: svcMins,
