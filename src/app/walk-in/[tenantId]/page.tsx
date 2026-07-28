@@ -2,34 +2,58 @@
 
 // src/app/walk-in/[tenantId]/page.tsx
 //
-// v13 — WALK-IN KIOSK, rebuilt onto the walk-in QUEUE.
+// v14 — WALK-IN KIOSK. Everything a guest standing at the counter needs, in the
+// order a person actually needs it.
 //
-// What v12 did wrong: it POSTed to /api/appointments/book and created a hard
-// appointment for a person who was standing at the counter. That silently
-// bypassed the turn board your providers actually watch, ignored each
-// provider's "accepting walk-ins" switch, and — when the engine found no
-// opening — dumped a physically-present guest onto the WAITLIST, which is the
-// list for "the day you wanted is full, we'll call you," not for someone in
-// your lobby.
+// v13 could do one thing: put a name in the line. It could not print a ticket,
+// could not recognise a returning guest, could not let anyone ask for their
+// provider by name, and collected consent nowhere — so a guest who needed a
+// waiver was assigned a chair first and asked to sign afterwards, which is the
+// wrong way round. It also had no way to show a guest their own waiting page.
 //
-// v13:
-//   · POSTs to /api/walkins, which writes a real row into tenants/{id}/walkIns.
-//     The guest appears on the turn board, in rotation, like every other
-//     walk-in. No appointment is created — the provider taps Start Service.
-//   · THE KIOSK IS OFF UNTIL THE OWNER TURNS IT ON. A tenant-level switch,
-//     tenants/{id}.walkInKiosk.enabled. Off shows a clean "not taking walk-ins
-//     right now" screen with a link to the booking page.
-//   · The owner controls it from this page. Sign in as the owner and a control
-//     bar appears at the top with the on/off switch and a live floor count.
-//     "Start kiosk mode" hides that bar on this device so a guest never sees
-//     it; five taps on the studio name brings it back.
-//   · Providers who switched off "accepting walk-ins" are never assigned one —
-//     the route enforces it, this page just reflects it.
-//   · The waitlist is now only the FALLBACK: when nobody on the floor is
-//     accepting, the guest is offered "we'll call you when we open up."
+// v14, in the order the screens appear:
 //
-// UX unchanged where it worked: giant touch targets, auto-reset after 90s
-// (25s once settled), nothing for staff to do between guests.
+//   1. NUMBER FIRST. The very first thing asked is the mobile number, because
+//      it is the one field that can answer every other question. POST
+//      action:'lookup' comes back with their first name, their usual service,
+//      the provider they had last time, and — importantly — whether they are
+//      ALREADY standing in this line, which is a far better answer than letting
+//      them join twice.
+//
+//   2. "WELCOME BACK, ANN." One tap on "Gel manicure with Maya, same as last
+//      time?" carries the service AND the provider forward. If Maya is free the
+//      provider screen is skipped entirely: that is the one-tap rebook.
+//
+//   3. ASK FOR YOUR PROVIDER. Every provider who can do this service, each with
+//      their own honest wait. Pick someone who is mid-service and the choice is
+//      made explicit on screen, never guessed at:
+//         "Wait for Maya — about 40 minutes"  vs  "Next available — about 10"
+//      Asking for someone by name does not cost that provider their turn in the
+//      rotation; the route handles that, this screen just offers the choice.
+//
+//   4. CONSENT BEFORE THE CHAIR. Required forms are signed HERE, at the kiosk,
+//      before a spot is granted. A guest who cannot finish a waiver no longer
+//      holds a chair while they work it out. The forms are rendered with the
+//      same FormFieldRenderer the check-in portal uses, so the wording is
+//      whatever the studio actually wrote. A service needing a patch test gets
+//      its own screen — told plainly, never a countdown, never a dead end.
+//
+//   5. A REAL TICKET. Joining mints a checkInToken and a short code, so the
+//      guest now has exactly what a booked client has: a printable ticket with
+//      a scannable code, and a QR that opens their own live waiting page where
+//      they can order from the lounge and see what else the studio offers. The
+//      QR is drawn on screen too, so a guest can scan it with their phone even
+//      if the printer is out of paper.
+//
+// Waits are always softened — "about 25 minutes", rounded, never a countdown.
+// A clock that ticks down in a lobby only ever creates a conversation at the
+// desk about why it lied.
+//
+// Unchanged from v13 because it worked: the kiosk is OFF until the owner turns
+// it on (tenants/{id}.walkInKiosk.enabled), the owner controls it from a bar on
+// this page, kiosk mode hides that bar on this device and five taps on the
+// studio name brings it back, giant touch targets everywhere, and the screen
+// resets itself between guests.
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
@@ -37,13 +61,30 @@ import { getApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, getDoc, getDocs, updateDoc, collection } from 'firebase/firestore';
 import { cn } from '@/lib/utils';
+import { FormFieldRenderer } from '@/components/consents/FormFieldRenderer';
+import { printAppointmentTicket } from '@/lib/appointment-ticket';
+import { qrSvg } from '@/lib/scan-codes';
 import {
   Sparkles, ArrowRight, ArrowLeft, Loader, CheckCircle2,
   Phone, User, Clock, Scissors, RotateCcw, Frown, BellRing,
-  Users, Power, Lock, Moon,
+  Users, Power, Lock, Moon, Star, Printer, ShieldCheck, PenLine,
+  AlertTriangle, UserCheck, Check, Ticket, Hourglass, ChevronRight, Coffee,
 } from 'lucide-react';
 
-type Step = 'welcome' | 'service' | 'details' | 'placing' | 'success' | 'full';
+type Step =
+  | 'welcome'
+  | 'phone'
+  | 'looking'
+  | 'recognize'
+  | 'service'
+  | 'options'
+  | 'provider'
+  | 'details'
+  | 'consent'
+  | 'patch'
+  | 'placing'
+  | 'success'
+  | 'full';
 
 // The "nobody is free" screen is not a dead end. The guest has already typed
 // their name and number seconds earlier, so joining the waitlist is one tap
@@ -58,8 +99,22 @@ type Floor = {
   estWaitMin: number;
 };
 
+type ProviderOption = {
+  id: string;
+  name: string;
+  firstName: string;
+  avatarUrl: string;
+  title: string;
+  readyNow: boolean;
+  estWaitMin: number;
+};
+
 const IDLE_RESET_MS = 90 * 1000;
-const SUCCESS_RESET_MS = 25 * 1000;
+// The consent screen is the one place a guest is genuinely reading, and reading
+// is not typing — an idle timer that cannot tell the difference would wipe a
+// half-signed waiver out from under them.
+const CONSENT_IDLE_RESET_MS = 6 * 60 * 1000;
+const SUCCESS_RESET_MS = 40 * 1000;
 const FLOOR_POLL_MS = 30 * 1000;
 const GROUP_CHOICES = [1, 2, 3, 4, 5, 6];
 
@@ -70,7 +125,63 @@ const fmtPrice = (p: any) => {
   return Number.isFinite(n) && n > 0 ? `$${n.toFixed(0)}` : '';
 };
 
-const firstName = (v: any) => String(v || '').trim().split(/\s+/)[0] || '';
+const firstNameOf = (v: any) => String(v || '').trim().split(/\s+/)[0] || '';
+
+const digitsOf = (v: any) => String(v || '').replace(/\D/g, '');
+
+/**
+ * Every wait this page shows, in words.
+ *
+ * Rounded to the nearest five minutes and prefixed with "about", because the
+ * number is an estimate built from an average service length and it should look
+ * like one. A guest told "12 minutes" starts watching a clock; a guest told
+ * "about 15 minutes" waits.
+ */
+const softWait = (mins: any): string => {
+  const n = Number(mins);
+  if (!Number.isFinite(n) || n <= 0) return 'Ready for you now';
+  if (n < 5) return 'A few minutes';
+  const rounded = Math.round(n / 5) * 5;
+  return `About ${rounded} minutes`;
+};
+
+/** The short form, for chips and cards where a sentence will not fit. */
+const shortWait = (mins: any): string => {
+  const n = Number(mins);
+  if (!Number.isFinite(n) || n <= 0) return 'Free now';
+  if (n < 5) return '~5 min';
+  return `~${Math.round(n / 5) * 5} min`;
+};
+
+const lastVisitLabel = (iso: any): string => {
+  const ms = Date.parse(String(iso || ''));
+  if (!Number.isFinite(ms)) return '';
+  const days = Math.floor((Date.now() - ms) / 86400000);
+  if (days < 0) return '';
+  if (days === 0) return 'earlier today';
+  if (days === 1) return 'yesterday';
+  if (days < 14) return `${days} days ago`;
+  if (days < 60) return `${Math.round(days / 7)} weeks ago`;
+  return `${Math.max(1, Math.round(days / 30))} months ago`;
+};
+
+/** Prettifies a 10-digit number as the guest types, and leaves anything else alone. */
+const formatPhone = (raw: string): string => {
+  const d = digitsOf(raw).slice(0, 11);
+  const n = d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+  if (n.length <= 3) return n;
+  if (n.length <= 6) return `(${n.slice(0, 3)}) ${n.slice(3)}`;
+  return `(${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6, 10)}`;
+};
+
+/** A consent field is only blocking when the studio marked it required. */
+const isBlank = (v: any): boolean => {
+  if (v === undefined || v === null) return true;
+  if (typeof v === 'string') return v.trim() === '';
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === 'boolean') return v === false;
+  return false;
+};
 
 export default function WalkInKioskPage() {
   const params = useParams();
@@ -82,14 +193,36 @@ export default function WalkInKioskPage() {
   const [floor, setFloor] = useState<Floor | null>(null);
 
   const [step, setStep] = useState<Step>('welcome');
-  const [service, setService] = useState<any>(null);
-  const [name, setName] = useState('');
+
+  // Identity
   const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
+  const [lookup, setLookup] = useState<any>(null);
+
+  // What they're having, and who with
+  const [service, setService] = useState<any>(null);
+  const [options, setOptions] = useState<any>(null);
+  const [chosen, setChosen] = useState<ProviderOption | null>(null);
+  const [preferredStaffId, setPreferredStaffId] = useState('');
+  const [waitForPreferred, setWaitForPreferred] = useState(false);
   const [groupSize, setGroupSize] = useState(1);
+
+  // Requirements
+  const [forms, setForms] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<Record<string, Record<string, any>>>({});
+  const [accepted, setAccepted] = useState<Record<string, boolean>>({});
+  const [guardians, setGuardians] = useState<Record<string, { name: string; relationship: string }>>({});
+  const [signature, setSignature] = useState('');
+  const [consentError, setConsentError] = useState('');
+  const [patchInfo, setPatchInfo] = useState<{ validityMonths: number } | null>(null);
+
+  // Outcome
   const [result, setResult] = useState<any>(null);
   const [failMessage, setFailMessage] = useState('');
   const [waitState, setWaitState] = useState<WaitState>('idle');
   const [waitMessage, setWaitMessage] = useState('');
+  const [printError, setPrintError] = useState('');
+  const [printed, setPrinted] = useState(false);
 
   // Owner controls
   const [isOwner, setIsOwner] = useState(false);
@@ -222,9 +355,15 @@ export default function WalkInKioskPage() {
 
   // ── Idle auto-reset — a kiosk must never be left mid-flow for the next guest ──
   const reset = useCallback(() => {
-    setStep('welcome'); setService(null); setName(''); setPhone('');
-    setGroupSize(1); setResult(null); setFailMessage('');
+    setStep('welcome');
+    setPhone(''); setName(''); setLookup(null);
+    setService(null); setOptions(null); setChosen(null);
+    setPreferredStaffId(''); setWaitForPreferred(false); setGroupSize(1);
+    setForms([]); setAnswers({}); setAccepted({}); setGuardians({});
+    setSignature(''); setConsentError(''); setPatchInfo(null);
+    setResult(null); setFailMessage('');
     setWaitState('idle'); setWaitMessage('');
+    setPrintError(''); setPrinted(false);
     joinLock.current = false;
   }, []);
 
@@ -235,52 +374,308 @@ export default function WalkInKioskPage() {
     // the full idle window until they have answered it; once they're on the
     // waitlist it clears itself as quickly as the success screen does.
     const settled = step === 'success' || (step === 'full' && waitState === 'joined');
-    const ms = settled ? SUCCESS_RESET_MS : IDLE_RESET_MS;
+    const reading = step === 'consent' || step === 'patch';
+    const ms = settled ? SUCCESS_RESET_MS : reading ? CONSENT_IDLE_RESET_MS : IDLE_RESET_MS;
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(reset, ms);
     return () => clearTimeout(idleTimer.current);
-  }, [step, name, phone, service, groupSize, waitState, reset]);
+  }, [step, name, phone, service, groupSize, waitState, chosen, signature, answers, accepted, reset]);
 
-  // ── Joining the line ──
-  const joinQueue = async () => {
+  const post = useCallback(async (payload: any) => {
+    const res = await fetch('/api/walkins', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, ...payload }),
+    });
+    return await res.json().catch(() => ({} as any));
+  }, [tenantId]);
+
+  // ── 1. The number ─────────────────────────────────────────────────────────
+  const submitPhone = async () => {
+    if (digitsOf(phone).length < 7) return;
+    setStep('looking');
+    try {
+      const d = await post({ action: 'lookup', phone });
+      setLookup(d?.ok ? d : null);
+      // Already standing in this line? Show them their spot instead of letting
+      // them take a second one.
+      if (d?.ok && d.found && d.alreadyInLine?.walkInId) {
+        setResult({
+          alreadyInLine: true,
+          position: Number(d.alreadyInLine.position) || 1,
+          estWaitMin: Number(d.alreadyInLine.estWaitMin) || 0,
+          checkInToken: d.alreadyInLine.checkInToken || '',
+          shortCode: d.alreadyInLine.shortCode || '',
+          serviceName: d.alreadyInLine.serviceName || '',
+          staffName: '',
+          clientName: d.firstName || '',
+        });
+        setName(d.firstName || '');
+        setStep('success');
+        return;
+      }
+      if (d?.ok && d.found) {
+        setName(d.firstName || '');
+        setStep(d.usual?.serviceId ? 'recognize' : 'service');
+        return;
+      }
+      setStep('service');
+    } catch {
+      // A failed lookup is not a failed visit — carry on as a new guest.
+      setLookup(null);
+      setStep('service');
+    }
+  };
+
+  // ── 2/3. Service, then who takes them ─────────────────────────────────────
+  const chooseService = async (svc: any, preferredId?: string | null) => {
+    if (!svc?.id) return;
+    setService(svc);
+    setOptions(null);
+    setChosen(null);
+    setPreferredStaffId('');
+    setWaitForPreferred(false);
+    setStep('options');
+    try {
+      const d = await post({ action: 'options', serviceId: svc.id, phone });
+      if (!d?.ok) {
+        setFailMessage(d?.error || 'That service is not available for walk-ins right now.');
+        setStep('full');
+        return;
+      }
+      setOptions(d);
+      setForms(Array.isArray(d.consent?.forms) ? d.consent.forms : []);
+
+      const list: ProviderOption[] = Array.isArray(d.providers) ? d.providers : [];
+      if (!list.length) {
+        setFailMessage('Nobody is taking walk-ins for that service at the moment.');
+        setStep('full');
+        return;
+      }
+      // The one-tap rebook: they asked for the provider they had last time and
+      // that provider is free right now, so there is nothing left to decide.
+      if (preferredId) {
+        const p = list.find(x => String(x.id) === String(preferredId)) || null;
+        if (p) {
+          setChosen(p);
+          if (p.readyNow) {
+            setPreferredStaffId(p.id);
+            setWaitForPreferred(false);
+            setStep('details');
+            return;
+          }
+          // Busy — the choice gets made on screen, in words, on the next step.
+          setStep('provider');
+          return;
+        }
+      }
+      setStep('provider');
+    } catch {
+      setFailMessage('Something hiccuped — please see the front desk and we’ll get you in.');
+      setStep('full');
+    }
+  };
+
+  const takeNextAvailable = () => {
+    setPreferredStaffId('');
+    setWaitForPreferred(false);
+    setChosen(null);
+    setStep('details');
+  };
+
+  const confirmWaitFor = (p: ProviderOption) => {
+    setPreferredStaffId(p.id);
+    setWaitForPreferred(true);
+    setStep('details');
+  };
+
+  const pickProvider = (p: ProviderOption) => {
+    setChosen(p);
+    if (p.readyNow) {
+      setPreferredStaffId(p.id);
+      setWaitForPreferred(false);
+      setStep('details');
+    }
+    // Not ready: stay on this step and let the two-way choice panel render.
+  };
+
+  // ── 4. What still has to happen before a chair ────────────────────────────
+  const outstandingFormIds: string[] = useMemo(
+    () => (Array.isArray(options?.consent?.formIds) ? options.consent.formIds.map((s: any) => String(s)) : []),
+    [options],
+  );
+  const patchNeeded = !!options?.consent?.patchTestRequired && !options?.consent?.patchTestOnFile;
+
+  const afterDetails = () => {
+    if (outstandingFormIds.length) { setStep('consent'); return; }
+    if (patchNeeded) { setStep('patch'); return; }
+    void join(false);
+  };
+
+  const submitConsent = () => {
+    setConsentError('');
+    if (!signature.trim() || signature.trim().length < 2) {
+      setConsentError('Please type your name to sign.');
+      return;
+    }
+    for (const f of forms) {
+      if (!accepted[f.id]) {
+        setConsentError('Please agree to each form before continuing.');
+        return;
+      }
+      const missing = (Array.isArray(f.fields) ? f.fields : []).some(
+        (fl: any) => fl?.required === true && isBlank(answers[f.id]?.[fl.id]),
+      );
+      if (missing) {
+        setConsentError('Please answer every required question.');
+        return;
+      }
+      if (f.requiresGuardianSignature && !String(guardians[f.id]?.name || '').trim()) {
+        setConsentError('A parent or guardian needs to sign this one.');
+        return;
+      }
+    }
+    if (patchNeeded) { setStep('patch'); return; }
+    void join(false);
+  };
+
+  // ── 5. Joining the line ───────────────────────────────────────────────────
+  const join = async (acknowledgePatchTest: boolean) => {
     if (!service || !name.trim() || !phone.trim()) return;
     if (joinLock.current) return;
     joinLock.current = true;
     setStep('placing');
+
+    const signedForms = forms.map((f: any) => ({
+      formId: f.id,
+      formTitle: f.title || '',
+      formData: {
+        ...(answers[f.id] || {}),
+        signedName: signature.trim(),
+        signedVia: 'walk-in kiosk',
+      },
+      ...(f.requiresGuardianSignature
+        ? {
+            guardianName: String(guardians[f.id]?.name || '').trim(),
+            guardianRelationship: String(guardians[f.id]?.relationship || '').trim(),
+          }
+        : {}),
+    }));
+
     try {
-      const res = await fetch('/api/walkins', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tenantId,
-          action: 'join',
-          name: name.trim(),
-          phone: phone.trim(),
-          serviceId: service.id,
-          groupSize,
-        }),
+      const d = await post({
+        action: 'join',
+        name: name.trim(),
+        phone: phone.trim(),
+        serviceId: service.id,
+        groupSize,
+        preferredStaffId,
+        waitForPreferred,
+        acknowledgePatchTest,
+        ...(signedForms.length ? { signedForms } : {}),
       });
-      const d = await res.json().catch(() => ({} as any));
       joinLock.current = false;
+
+      // The route re-checks requirements at join time, which is the only check
+      // that counts — the options call happened a minute and several taps ago.
+      if (d && d.ok === false && d.consentRequired) {
+        setForms(Array.isArray(d.forms) ? d.forms : forms);
+        setConsentError(d.error || 'Please finish the consent form for this service.');
+        setStep('consent');
+        return;
+      }
+      if (d && d.ok === false && d.patchTestRequired) {
+        setPatchInfo({ validityMonths: Number(d.validityMonths) || 6 });
+        setStep('patch');
+        return;
+      }
       if (d?.ok) {
         setResult(d);
         setStep('success');
         refreshFloor();
-      } else if (d?.closed) {
+        return;
+      }
+      if (d?.closed) {
         setFailMessage('Walk-ins have just been switched off — please see the front desk.');
-        setStep('full');
-        refreshFloor();
       } else {
         setFailMessage(d?.error || 'Nobody is free to take you right now.');
-        setStep('full');
-        refreshFloor();
       }
+      setStep('full');
+      refreshFloor();
     } catch {
       joinLock.current = false;
       setFailMessage('Something hiccuped — please see the front desk and we’ll get you in.');
       setStep('full');
     }
   };
+
+  // ── The ticket ────────────────────────────────────────────────────────────
+  // The walk-in row carries a checkInToken and a short code exactly like a
+  // booked appointment, so the same printer this studio already uses at the
+  // front desk produces the same ticket — a scannable studio copy and a guest
+  // stub whose QR opens their own waiting page.
+  const printTicket = useCallback((): boolean => {
+    if (!result?.checkInToken && !result?.shortCode) return false;
+    const t: any = tenant || {};
+    const svcName = result.serviceName || service?.name || '';
+    const dollars = Number(service?.price);
+    const opened = printAppointmentTicket(
+      {
+        id: result.walkInId || null,
+        clientName: result.clientName || name || null,
+        checkInToken: result.checkInToken || null,
+        shortCode: result.shortCode || null,
+        status: 'confirmed',
+        checkInStatus: 'arrived',
+      },
+      {
+        kind: 'walkin',
+        queuePosition: Number(result.position) || 0,
+        queueWaitMinutes: result.assigned ? 0 : Number(result.estWaitMin) || 0,
+        queueNote: result.assigned
+          ? `${firstNameOf(result.staffName) || 'Your provider'} is ready for you now`
+          : result.waitingForRequested
+            ? `Waiting for ${firstNameOf(result.staffName) || 'your provider'} · ${softWait(result.estWaitMin)}`
+            : '',
+        studioName: t.name || null,
+        studioPhone: t.phone || null,
+        studioEmail: t.email || null,
+        studioAddress: t.address || null,
+        clientName: result.clientName || name || null,
+        clientPhone: phone || null,
+        serviceName: svcName || null,
+        staffName: result.staffName || null,
+        priceCents: Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : null,
+        origin: typeof window !== 'undefined' ? window.location.origin : null,
+        footerNote: groupSize > 1 ? `Party of ${groupSize}` : null,
+      },
+    );
+    return opened;
+  }, [result, tenant, service, name, phone, groupSize]);
+
+  const handlePrint = () => {
+    const opened = printTicket();
+    setPrinted(opened);
+    setPrintError(
+      opened
+        ? ''
+        : 'Your browser blocked the ticket window. Allow popups for this site, then tap Print again.',
+    );
+  };
+
+  // One quiet automatic attempt, so a kiosk with a printer beside it does the
+  // obvious thing. A blocked popup is NOT surfaced here — the guest did not ask
+  // for it yet, and a scary red banner on a success screen is worse than no
+  // paper. The button below is the one that reports failures.
+  const autoPrinted = useRef('');
+  useEffect(() => {
+    if (step !== 'success') return;
+    const token = String(result?.checkInToken || result?.shortCode || '');
+    if (!token || autoPrinted.current === token) return;
+    autoPrinted.current = token;
+    if (result?.alreadyInLine) return;
+    try { if (printTicket()) setPrinted(true); } catch { /* the button is still there */ }
+  }, [step, result, printTicket]);
 
   // ── The fallback: a real waitlist row the front desk can act on ──
   // Goes through /api/waitlist (Admin SDK) because the waitlist collection is
@@ -331,11 +726,30 @@ export default function WalkInKioskPage() {
   const kioskOff = floor !== null && !floor.enabled;
   const showOwnerBar = isOwner && !kioskMode;
 
-  const waitLine = useMemo(() => {
-    const n = Number(result?.estWaitMin) || 0;
-    if (result?.assigned) return 'Ready for you now';
-    return n > 0 ? `About ${n} min` : 'Just a few minutes';
+  const providerList: ProviderOption[] = useMemo(
+    () => (Array.isArray(options?.providers) ? options.providers : []),
+    [options],
+  );
+  const nextAvail = options?.nextAvailable || null;
+
+  const checkInUrl = useMemo(() => {
+    const token = String(result?.checkInToken || '').trim();
+    if (!token) return '';
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return origin ? `${origin}/check-in/${token}` : '';
   }, [result]);
+
+  const qrMarkup = useMemo(() => {
+    if (!checkInUrl) return '';
+    try { return qrSvg(checkInUrl, 132) || ''; } catch { return ''; }
+  }, [checkInUrl]);
+
+  const waitLine = useMemo(() => {
+    if (result?.assigned) return 'Ready for you now';
+    return softWait(result?.estWaitMin);
+  }, [result]);
+
+  const needsName = !lookup?.found;
 
   return (
     <div className="min-h-dvh bg-gradient-to-b from-rose-50 via-white to-white text-slate-900 flex flex-col">
@@ -398,7 +812,7 @@ export default function WalkInKioskPage() {
         </button>
       </header>
 
-      <main className="flex-1 flex flex-col items-center justify-center px-6 pb-10 w-full max-w-lg mx-auto">
+      <main className="flex-1 flex flex-col items-center justify-center px-5 sm:px-6 pb-10 w-full max-w-lg mx-auto">
 
         {/* ── KIOSK SWITCHED OFF ── */}
         {kioskOff && (
@@ -424,7 +838,7 @@ export default function WalkInKioskPage() {
         {/* ── WELCOME ── */}
         {!kioskOff && step === 'welcome' && (
           <button
-            onClick={() => setStep('service')}
+            onClick={() => setStep('phone')}
             disabled={loading}
             className="w-full text-center space-y-8 py-10 active:scale-[0.99] transition-transform"
           >
@@ -440,7 +854,7 @@ export default function WalkInKioskPage() {
                 <Clock className="w-4 h-4" />
                 <span>
                   {floor.queueLength > 0
-                    ? `${floor.queueLength} ahead of you · about ${floor.estWaitMin || 5} min`
+                    ? `${floor.queueLength} ahead of you · ${softWait(floor.estWaitMin || 5).toLowerCase()}`
                     : 'No wait right now'}
                 </span>
               </div>
@@ -449,6 +863,104 @@ export default function WalkInKioskPage() {
               {loading ? <Loader className="w-5 h-5 animate-spin" /> : <>Tap to start <ArrowRight className="w-5 h-5" /></>}
             </div>
           </button>
+        )}
+
+        {/* ── PHONE FIRST ── one field, and it unlocks everything else ── */}
+        {!kioskOff && step === 'phone' && (
+          <div className="w-full space-y-6">
+            <div className="text-center space-y-1.5">
+              <div className="w-16 h-16 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto mb-3">
+                <Phone className="w-8 h-8 text-rose-500" />
+              </div>
+              <h2 className="text-2xl font-semibold tracking-tight">What’s your mobile number?</h2>
+              <p className="text-sm text-slate-400">
+                Been here before? We’ll pull up your usual. New here? This is how we’ll reach you when it’s your turn.
+              </p>
+            </div>
+            <div className="relative">
+              <input
+                value={phone}
+                onChange={e => setPhone(formatPhone(e.target.value))}
+                onKeyDown={e => { if (e.key === 'Enter') submitPhone(); }}
+                placeholder="(555) 123-4567"
+                inputMode="tel"
+                autoComplete="off"
+                autoFocus
+                className="w-full h-20 min-h-[44px] px-5 rounded-2xl border-2 border-slate-200 bg-white text-center text-3xl font-semibold tracking-wide focus:border-rose-300 focus:outline-none"
+              />
+            </div>
+            <button
+              onClick={submitPhone}
+              disabled={digitsOf(phone).length < 7}
+              className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 disabled:opacity-30 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              Continue <ArrowRight className="w-5 h-5" />
+            </button>
+            <button onClick={reset} className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5">
+              <ArrowLeft className="w-4 h-4" /> Start over
+            </button>
+          </div>
+        )}
+
+        {/* ── LOOKING / LOADING OPTIONS ── */}
+        {!kioskOff && (step === 'looking' || step === 'options') && (
+          <div className="text-center space-y-5 py-16">
+            <Loader className="w-10 h-10 animate-spin text-rose-400 mx-auto" />
+            <p className="text-lg font-medium text-slate-500">
+              {step === 'looking' ? 'One moment…' : 'Checking who’s free…'}
+            </p>
+          </div>
+        )}
+
+        {/* ── WELCOME BACK ── the one-tap rebook ── */}
+        {!kioskOff && step === 'recognize' && lookup?.usual && (
+          <div className="w-full space-y-6">
+            <div className="text-center space-y-1.5">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-3">
+                <UserCheck className="w-8 h-8 text-emerald-600" />
+              </div>
+              <h2 className="text-3xl font-semibold tracking-tight">
+                Welcome back{lookup.firstName ? `, ${lookup.firstName}` : ''}
+              </h2>
+              <p className="text-sm text-slate-400">
+                {lookup.usual.lastVisit
+                  ? `You were in ${lastVisitLabel(lookup.usual.lastVisit)}.`
+                  : 'Good to see you again.'}
+              </p>
+            </div>
+
+            <button
+              onClick={() => {
+                const svc = services.find((s: any) => s.id === lookup.usual.serviceId)
+                  || { id: lookup.usual.serviceId, name: lookup.usual.serviceName, duration: lookup.usual.durationMin };
+                chooseService(svc, lookup.usual.staffAvailableToday ? lookup.usual.staffId : null);
+              }}
+              className="w-full text-left p-5 rounded-2xl border-2 border-slate-900 bg-slate-900 text-white active:scale-[0.99] transition-all"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Same as last time</p>
+              <p className="text-xl font-semibold mt-1.5">{lookup.usual.serviceName || 'Your usual'}</p>
+              {lookup.usual.staffFirstName && (
+                <p className="text-sm text-slate-300 mt-1 flex items-center gap-1.5">
+                  <Star className="w-3.5 h-3.5" />
+                  with {lookup.usual.staffFirstName}
+                  {lookup.usual.staffAvailableToday === false && ' — not in today, we’ll find you someone'}
+                </p>
+              )}
+              <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold">
+                Yes, that please <ArrowRight className="w-4 h-4" />
+              </span>
+            </button>
+
+            <button
+              onClick={() => setStep('service')}
+              className="w-full min-h-[44px] h-14 rounded-2xl border-2 border-slate-200 bg-white text-base font-semibold text-slate-700 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              Something else today <ChevronRight className="w-4 h-4" />
+            </button>
+            <button onClick={reset} className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5">
+              <ArrowLeft className="w-4 h-4" /> Not you? Start over
+            </button>
+          </div>
         )}
 
         {/* ── SERVICE PICK ── */}
@@ -467,7 +979,7 @@ export default function WalkInKioskPage() {
               {services.map((s: any) => (
                 <button
                   key={s.id}
-                  onClick={() => { setService(s); setStep('details'); }}
+                  onClick={() => chooseService(s, null)}
                   className="w-full min-h-[44px] flex items-center gap-4 p-5 rounded-2xl border-2 border-slate-100 bg-white text-left hover:border-rose-200 active:scale-[0.99] transition-all"
                 >
                   <div className="w-11 h-11 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0">
@@ -487,42 +999,161 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── DETAILS ── */}
+        {/* ── WHO TAKES THEM ── */}
+        {!kioskOff && step === 'provider' && (
+          <div className="w-full space-y-5">
+            <div className="text-center space-y-1">
+              <h2 className="text-2xl font-semibold tracking-tight">Anyone in mind?</h2>
+              <p className="text-sm text-slate-400">
+                {options?.serviceName || service?.name}
+                {options?.durationMin ? ` · about ${options.durationMin} min` : ''}
+              </p>
+            </div>
+
+            {/* The explicit two-way choice. This panel is the whole point: a
+                guest who asks for someone mid-service is told what waiting for
+                them actually costs, in minutes, and offered the alternative in
+                the same breath. Nothing is decided for them. */}
+            {chosen && !chosen.readyNow && (
+              <div className="w-full rounded-2xl border-2 border-amber-200 bg-amber-50/70 p-5 space-y-4">
+                <div className="flex items-start gap-3">
+                  <Hourglass className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900">
+                      {chosen.firstName} is with someone right now
+                    </p>
+                    <p className="text-sm text-slate-600 mt-0.5">
+                      You can wait for {chosen.firstName}, or take whoever is free first. Either way you keep your place in line.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => confirmWaitFor(chosen)}
+                  className="w-full min-h-[44px] h-16 rounded-2xl bg-slate-900 text-white font-semibold active:scale-[0.99] transition-all flex items-center justify-between px-5"
+                >
+                  <span className="flex items-center gap-2"><Star className="w-4 h-4" /> Wait for {chosen.firstName}</span>
+                  <span className="text-sm font-medium text-slate-300">{softWait(chosen.estWaitMin)}</span>
+                </button>
+                <button
+                  onClick={takeNextAvailable}
+                  className="w-full min-h-[44px] h-16 rounded-2xl border-2 border-slate-300 bg-white font-semibold text-slate-800 active:scale-[0.99] transition-all flex items-center justify-between px-5"
+                >
+                  <span className="flex items-center gap-2"><Sparkles className="w-4 h-4 text-rose-500" /> Next available</span>
+                  <span className="text-sm font-medium text-slate-400">
+                    {nextAvail?.readyNow ? 'Ready now' : softWait(nextAvail?.estWaitMin)}
+                  </span>
+                </button>
+                <button
+                  onClick={() => setChosen(null)}
+                  className="w-full min-h-[44px] text-sm text-slate-500 py-1 flex items-center justify-center gap-1.5"
+                >
+                  <ArrowLeft className="w-4 h-4" /> Pick someone else
+                </button>
+              </div>
+            )}
+
+            {!chosen && (
+              <>
+                <button
+                  onClick={takeNextAvailable}
+                  className="w-full flex items-center gap-4 p-5 rounded-2xl border-2 border-slate-900 bg-slate-900 text-white text-left active:scale-[0.99] transition-all min-h-[44px]"
+                >
+                  <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-lg">Next available</p>
+                    <p className="text-sm text-slate-300">
+                      {nextAvail?.readyNow
+                        ? `${nextAvail.providerFirstName || 'Someone'} can take you now`
+                        : softWait(nextAvail?.estWaitMin)}
+                    </p>
+                  </div>
+                  <ArrowRight className="w-5 h-5 shrink-0" />
+                </button>
+
+                {providerList.length > 0 && (
+                  <p className="text-center text-xs font-medium uppercase tracking-[0.18em] text-slate-400 pt-1">
+                    Or ask for someone
+                  </p>
+                )}
+
+                <div className="space-y-2.5 max-h-[42dvh] overflow-y-auto pr-1">
+                  {providerList.map((p: ProviderOption) => {
+                    const isUsual = !!lookup?.usual?.staffId && String(lookup.usual.staffId) === String(p.id);
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => pickProvider(p)}
+                        className="w-full min-h-[44px] flex items-center gap-4 p-4 rounded-2xl border-2 border-slate-100 bg-white text-left hover:border-rose-200 active:scale-[0.99] transition-all"
+                      >
+                        <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center shrink-0 overflow-hidden">
+                          {p.avatarUrl
+                            ? <img src={p.avatarUrl} alt="" className="w-full h-full object-cover" />
+                            : <span className="text-base font-semibold">{(p.firstName || '?').slice(0, 1)}</span>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-lg truncate flex items-center gap-1.5">
+                            {p.firstName || p.name}
+                            {isUsual && <Star className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                          </p>
+                          <p className="text-sm text-slate-400 truncate">
+                            {p.readyNow ? 'Free now' : `Busy · ${shortWait(p.estWaitMin)}`}
+                            {p.title ? ` · ${p.title}` : ''}
+                          </p>
+                        </div>
+                        {p.readyNow
+                          ? <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 shrink-0">Free</span>
+                          : <span className="text-sm font-medium text-slate-400 shrink-0">{shortWait(p.estWaitMin)}</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            <button onClick={() => setStep('service')} className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5">
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+          </div>
+        )}
+
+        {/* ── DETAILS ── name only if we don't already know them ── */}
         {!kioskOff && step === 'details' && service && (
           <div className="w-full space-y-6">
             <div className="text-center space-y-1">
               <h2 className="text-2xl font-semibold tracking-tight">Almost there</h2>
-              <p className="text-sm text-slate-400">{service.name}{service.duration ? ` · ${service.duration} min` : ''}</p>
+              <p className="text-sm text-slate-400">
+                {options?.serviceName || service.name}
+                {chosen?.firstName ? ` · with ${chosen.firstName}` : ''}
+              </p>
             </div>
+
+            {!needsName && (
+              <div className="rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 px-5 py-4 flex items-center gap-3">
+                <UserCheck className="w-5 h-5 text-emerald-600 shrink-0" />
+                <p className="text-sm text-emerald-800">
+                  We have you as <span className="font-semibold">{name || 'a returning guest'}</span>.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-500 px-1">Your first &amp; last name</label>
-                <div className="relative">
-                  <User className="w-5 h-5 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="Jordan Lee"
-                    autoComplete="off"
-                    className="w-full h-16 min-h-[44px] pl-12 pr-4 rounded-2xl border-2 border-slate-200 bg-white text-xl font-medium focus:border-rose-300 focus:outline-none"
-                  />
+              {needsName && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-slate-500 px-1">Your first &amp; last name</label>
+                  <div className="relative">
+                    <User className="w-5 h-5 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      placeholder="Jordan Lee"
+                      autoComplete="off"
+                      className="w-full h-16 min-h-[44px] pl-12 pr-4 rounded-2xl border-2 border-slate-200 bg-white text-xl font-medium focus:border-rose-300 focus:outline-none"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-slate-500 px-1">Mobile number <span className="text-slate-300">(so we can text you)</span></label>
-                <div className="relative">
-                  <Phone className="w-5 h-5 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
-                  <input
-                    value={phone}
-                    onChange={e => setPhone(e.target.value.replace(/[^\d() \-+]/g, '').slice(0, 18))}
-                    placeholder="(555) 123-4567"
-                    inputMode="tel"
-                    autoComplete="off"
-                    className="w-full h-16 min-h-[44px] pl-12 pr-4 rounded-2xl border-2 border-slate-200 bg-white text-xl font-medium tracking-wide focus:border-rose-300 focus:outline-none"
-                  />
-                </div>
-                <p className="text-[11px] text-slate-400 px-1">Been here before? Use the same number and we’ll recognize you.</p>
-              </div>
+              )}
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-500 px-1">How many in your party?</label>
                 {/* A fixed six-column grid, not flex-wrap: wrapping would let a
@@ -546,15 +1177,185 @@ export default function WalkInKioskPage() {
                 </div>
               </div>
             </div>
+
+            {outstandingFormIds.length > 0 && (
+              <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 flex items-start gap-3">
+                <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-slate-600">
+                  One quick form to sign next — it takes a moment and then you’re in line.
+                </p>
+              </div>
+            )}
+
             <button
-              onClick={joinQueue}
-              disabled={!name.trim() || !phone.trim()}
+              onClick={afterDetails}
+              disabled={!name.trim()}
               className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 disabled:opacity-30 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
             >
-              Put me in line <ArrowRight className="w-5 h-5" />
+              {outstandingFormIds.length > 0 ? 'Next' : 'Put me in line'} <ArrowRight className="w-5 h-5" />
             </button>
-            <button onClick={() => setStep('service')} className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5">
+            <button
+              onClick={() => setStep('provider')}
+              className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5"
+            >
               <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+          </div>
+        )}
+
+        {/* ── CONSENT, BEFORE A CHAIR IS GIVEN AWAY ── */}
+        {!kioskOff && step === 'consent' && (
+          <div className="w-full space-y-5">
+            <div className="text-center space-y-1.5">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-2">
+                <ShieldCheck className="w-8 h-8 text-slate-600" />
+              </div>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                {forms.length > 1 ? 'A couple of quick forms' : 'One quick form'}
+              </h2>
+              <p className="text-sm text-slate-400">
+                {options?.serviceName || service?.name} needs this on file before we start.
+              </p>
+            </div>
+
+            <div className="space-y-4 max-h-[52dvh] overflow-y-auto pr-1">
+              {forms.map((f: any) => (
+                <div key={f.id} className="rounded-2xl border-2 border-slate-100 bg-white p-5 space-y-4">
+                  <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+                    <PenLine className="w-4 h-4 text-rose-500 shrink-0" />
+                    <h3 className="text-base font-semibold leading-tight">{f.title}</h3>
+                  </div>
+
+                  {(Array.isArray(f.fields) ? f.fields : []).map((fl: any) => (
+                    <FormFieldRenderer
+                      key={fl.id}
+                      field={fl}
+                      value={answers[f.id]?.[fl.id]}
+                      onChange={(val: any) =>
+                        setAnswers(prev => ({ ...prev, [f.id]: { ...(prev[f.id] || {}), [fl.id]: val } }))
+                      }
+                    />
+                  ))}
+
+                  {f.requiresGuardianSignature && (
+                    <div className="pt-3 border-t border-dashed border-slate-200 space-y-2.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+                        Parent or guardian
+                      </p>
+                      <input
+                        value={guardians[f.id]?.name || ''}
+                        onChange={e =>
+                          setGuardians(prev => ({
+                            ...prev,
+                            [f.id]: { name: e.target.value, relationship: prev[f.id]?.relationship || '' },
+                          }))
+                        }
+                        placeholder="Guardian full name"
+                        className="w-full h-14 min-h-[44px] px-4 rounded-xl border-2 border-slate-200 bg-white text-base focus:border-rose-300 focus:outline-none"
+                      />
+                      <input
+                        value={guardians[f.id]?.relationship || ''}
+                        onChange={e =>
+                          setGuardians(prev => ({
+                            ...prev,
+                            [f.id]: { name: prev[f.id]?.name || '', relationship: e.target.value },
+                          }))
+                        }
+                        placeholder="Relationship to guest"
+                        className="w-full h-14 min-h-[44px] px-4 rounded-xl border-2 border-slate-200 bg-white text-base focus:border-rose-300 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setAccepted(prev => ({ ...prev, [f.id]: !prev[f.id] }))}
+                    className={cn(
+                      'w-full min-h-[44px] flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all active:scale-[0.99]',
+                      accepted[f.id] ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200 bg-white',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 mt-0.5',
+                        accepted[f.id] ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300',
+                      )}
+                    >
+                      {accepted[f.id] && <Check className="w-4 h-4" />}
+                    </span>
+                    <span className="text-sm font-medium text-slate-700">
+                      I have read and agree to {f.title}.
+                    </span>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-slate-500 px-1">Type your name to sign</label>
+              <input
+                value={signature}
+                onChange={e => setSignature(e.target.value)}
+                placeholder={name || 'Your full name'}
+                autoComplete="off"
+                className="w-full h-16 min-h-[44px] px-4 rounded-2xl border-2 border-slate-200 bg-white text-xl focus:border-rose-300 focus:outline-none"
+                style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}
+              />
+              <p className="text-[11px] text-slate-400 px-1">
+                Signed today at the kiosk. Valid for 18 months, so you won’t be asked again next time.
+              </p>
+            </div>
+
+            {consentError && (
+              <p className="text-sm text-rose-600 flex items-center gap-1.5 px-1">
+                <AlertTriangle className="w-4 h-4 shrink-0" /> {consentError}
+              </p>
+            )}
+
+            <button
+              onClick={submitConsent}
+              className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              Sign and get in line <ArrowRight className="w-5 h-5" />
+            </button>
+            <button onClick={() => setStep('details')} className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5">
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+          </div>
+        )}
+
+        {/* ── PATCH TEST ── told plainly, not a dead end ── */}
+        {!kioskOff && step === 'patch' && (
+          <div className="w-full space-y-6">
+            <div className="text-center space-y-2">
+              <div className="w-20 h-20 rounded-[1.75rem] bg-amber-50 flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-10 h-10 text-amber-500" />
+              </div>
+              <h2 className="text-2xl font-semibold tracking-tight">This one needs a patch test</h2>
+              <p className="text-slate-500">
+                {options?.serviceName || service?.name} needs a patch test at least 24 hours beforehand, and we don’t
+                have a recent one on file for you.
+              </p>
+              <p className="text-sm text-slate-400">
+                If you’ve had one done here in the last {patchInfo?.validityMonths || 6} months, the front desk can
+                confirm it and we’ll get you straight in.
+              </p>
+            </div>
+
+            <button
+              onClick={() => join(true)}
+              className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              I’ve had one — get in line <ArrowRight className="w-5 h-5" />
+            </button>
+            <p className="text-center text-[11px] text-slate-400 px-4">
+              Your provider will confirm this with you before starting.
+            </p>
+            <button onClick={() => setStep('service')} className="w-full min-h-[44px] h-14 rounded-2xl border-2 border-slate-200 bg-white text-base font-semibold text-slate-700 flex items-center justify-center gap-2 active:scale-[0.99] transition-all">
+              Pick a different service
+            </button>
+            <button onClick={reset} className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5">
+              <ArrowLeft className="w-4 h-4" /> Start over
             </button>
           </div>
         )}
@@ -567,24 +1368,38 @@ export default function WalkInKioskPage() {
           </div>
         )}
 
-        {/* ── SUCCESS ── */}
+        {/* ── SUCCESS ── ticket, code, and the QR that opens their waiting page ── */}
         {!kioskOff && step === 'success' && result && (
-          <div className="w-full text-center space-y-7">
+          <div className="w-full text-center space-y-6">
             <div className="w-24 h-24 rounded-[2rem] bg-emerald-50 flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-12 h-12 text-emerald-500" />
             </div>
             <div className="space-y-2">
               <h2 className="text-3xl font-semibold tracking-tight">
-                You’re in line{firstName(name) ? `, ${firstName(name)}` : ''}!
+                You’re in line{firstNameOf(name) ? `, ${firstNameOf(name)}` : ''}
               </h2>
               <p className="text-lg text-slate-500">
                 {result.alreadyInLine
                   ? 'You were already on the list — you’re all set.'
-                  : result.staffName
-                    ? <><span className="font-semibold text-slate-800">{firstName(result.staffName)}</span> has you — have a seat and they’ll come get you.</>
-                    : 'Have a seat — the next provider free will come get you.'}
+                  : result.waitingForRequested
+                    ? <><span className="font-semibold text-slate-800">{firstNameOf(result.staffName)}</span> will come get you as soon as they’re free.</>
+                    : result.staffName
+                      ? <><span className="font-semibold text-slate-800">{firstNameOf(result.staffName)}</span> has you — have a seat and they’ll come get you.</>
+                      : 'Have a seat — the next provider free will come get you.'}
               </p>
             </div>
+
+            {result.preferredUnavailable && (
+              <p className="text-sm text-amber-700 bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3">
+                The provider you asked for isn’t taking walk-ins right now, so we’ve put you with the next available.
+              </p>
+            )}
+            {result.patchTestWarning && (
+              <p className="text-sm text-amber-700 bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                Your provider will check the patch test with you before starting.
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border-2 border-slate-100 bg-white px-4 py-5">
@@ -594,15 +1409,68 @@ export default function WalkInKioskPage() {
               </div>
               <div className="rounded-2xl border-2 border-slate-100 bg-white px-4 py-5">
                 <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400">Wait</p>
-                <p className="text-3xl font-semibold mt-1">{result.assigned ? 'Now' : `${Number(result.estWaitMin) || 5}`}</p>
-                <p className="text-xs text-slate-400 mt-0.5">{result.assigned ? 'ready for you' : 'minutes, roughly'}</p>
+                <p className="text-xl font-semibold mt-1 leading-tight">{waitLine}</p>
+                {/* "Ready for you now · roughly" reads like a hedge on something
+                    that is not an estimate at all. Only soften a real estimate. */}
+                {waitLine !== 'Ready for you now' && (
+                  <p className="text-xs text-slate-400 mt-0.5">roughly</p>
+                )}
               </div>
             </div>
+
+            {/* Their code, and the QR that opens their own waiting page — where
+                they can order from the lounge and see what else is on offer.
+                Shown on screen as well as printed, so an empty paper tray is an
+                inconvenience rather than a dead end. */}
+            {(result.shortCode || qrMarkup) && (
+              <div className="rounded-2xl border-2 border-slate-900 bg-white p-5 space-y-4">
+                {result.shortCode && (
+                  <div>
+                    <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-slate-400">Your code</p>
+                    <p className="text-3xl font-semibold tracking-[0.2em] mt-1 font-mono">
+                      {String(result.shortCode).toUpperCase()}
+                    </p>
+                  </div>
+                )}
+                {qrMarkup && (
+                  <>
+                    <div
+                      className="flex items-center justify-center"
+                      aria-hidden="true"
+                      dangerouslySetInnerHTML={{ __html: qrMarkup }}
+                    />
+                    <p className="text-sm text-slate-500 flex items-center justify-center gap-2 flex-wrap">
+                      <Coffee className="w-4 h-4 text-rose-500 shrink-0" />
+                      Scan to follow your visit and order from the lounge
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={handlePrint}
+              className="w-full h-16 min-h-[44px] rounded-2xl border-2 border-slate-900 bg-white text-lg font-semibold text-slate-900 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              <Printer className="w-5 h-5" /> {printed ? 'Print again' : 'Print my ticket'}
+            </button>
+            {printError && (
+              <p className="text-sm text-rose-600 flex items-start gap-1.5 text-left px-1">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {printError}
+              </p>
+            )}
+            {checkInUrl && (
+              <a
+                href={checkInUrl}
+                className="w-full h-14 min-h-[44px] rounded-2xl bg-slate-900 text-white font-semibold flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
+              >
+                <Ticket className="w-5 h-5" /> Open my waiting screen
+              </a>
+            )}
 
             {groupSize > 1 && (
               <p className="text-sm text-slate-400">Party of {groupSize} — let the front desk know if that changes.</p>
             )}
-            <p className="sr-only">{waitLine}</p>
 
             <div className="flex items-center justify-center gap-1.5 text-sm text-slate-400">
               <Clock className="w-4 h-4" />
