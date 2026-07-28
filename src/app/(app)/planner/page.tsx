@@ -27,6 +27,8 @@ import { FloatingActionButton } from '@/components/planner/FloatingActionButton'
 import { OverrideCancellationDialog } from '@/components/planner/OverrideCancellationDialog';
 import { CancelAppointmentDialog } from '@/components/planner/CancelAppointmentDialog';
 import { TechnicianReviewDialog } from '@/components/planner/TechnicianReviewDialog';
+import { ScanCheckInDialog } from '@/components/planner/ScanCheckInDialog';
+import { printAppointmentTicket } from '@/lib/appointment-ticket';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -232,6 +234,10 @@ function PlannerPageContent() {
   const { data: scheduleProfilesData } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : query(collection(firestore, `tenants/${tenantId}/scheduleProfiles`), where("isPublic", "==", true)), [firestore, tenantId]));
   const { data: resourcesData } = useCollection<Resource>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'resources'), [firestore, tenantId]));
   const publicScheduleProfile = useMemo(() => scheduleProfilesData?.find(p => p.isActive), [scheduleProfilesData]);
+
+  // Lounge orders, so the printed ticket can list what the guest has already had
+  // brought to them. Same plain subscription the kitchen board uses.
+  const { data: refreshmentRequests } = useCollection<any>(useMemoFirebase(() => !firestore || !tenantId ? null : collection(firestore, 'tenants', tenantId, 'refreshmentRequests'), [firestore, tenantId]));
 
   const staff = useMemo(() => {
     // Skip "ghost" staff docs — records with no name AND no role. These are
@@ -639,6 +645,101 @@ function PlannerPageContent() {
 
   const handleFinishService = (apt: Appointment) => { setSelectedAppointment(apt); setIsTechnicianReviewOpen(true); };
 
+  /**
+   * Prints the guest ticket.
+   *
+   * The appointment document stores IDs, not names — there is no serviceName and
+   * no price on it — so everything the ticket displays is resolved here from the
+   * collections this page already holds in memory, and handed to the printer as
+   * plain strings. `onPrintTicket` is called with the appointment alone, which is
+   * why this resolution cannot live in the caller.
+   */
+  const handlePrintTicket = useCallback((aptArg: any) => {
+    // Prefer the live copy from state: the row a card was rendered with can be a
+    // few seconds stale, and the check-in status is exactly what changes.
+    const apt = (appointments || []).find((a: any) => a?.id === aptArg?.id) || aptArg;
+    if (!apt) return;
+
+    const client = (clients || []).find((c: any) => c.id === apt.clientId) || null;
+    const service = (services || []).find((s: any) => s.id === apt.serviceId) || null;
+    const provider = (allStaff || []).find((s: any) => s.id === apt.staffId) || null;
+
+    // Tiered pricing, resolved the same way the checkout resolves it, so the
+    // ticket never quotes a price the register will not charge.
+    const tierPrice = (service as any)?.serviceTiers?.find(
+      (t: any) => t.tierId === (provider as any)?.pricingTierId
+    )?.price;
+    const dollars = tierPrice ?? (service as any)?.price;
+    const priceCents = typeof dollars === 'number' && isFinite(dollars) ? Math.round(dollars * 100) : null;
+
+    const addOnNames = ((apt.addOnIds || []) as string[])
+      .map((id) => (services || []).find((s: any) => s.id === id)?.name)
+      .filter((n): n is string => !!n);
+
+    const resourceNames = ((apt.requiredResourceIds || []) as string[])
+      .map((id) => (resourcesData || []).find((r: any) => r.id === id)?.name)
+      .filter((n): n is string => !!n);
+
+    // Lounge orders for THIS visit only, and never a cancelled one.
+    const amenities = (refreshmentRequests || [])
+      .filter((r: any) => r && r.appointmentId && r.appointmentId === apt.id)
+      .filter((r: any) => !['cancelled', 'canceled', 'recalled'].includes(String(r.status || '').toLowerCase()))
+      .map((r: any) => ({ name: r.itemName || 'Amenity', quantity: safeNumber(r.quantity || 1) || 1, status: r.status || null }));
+
+    const t: any = selectedTenant || {};
+    const opened = printAppointmentTicket(apt, {
+      studioName: t.name || null,
+      studioPhone: t.phone || null,
+      studioEmail: t.email || null,
+      studioAddress: t.address || null,
+      clientName: (client as any)?.name || null,
+      clientPhone: (client as any)?.phone || null,
+      serviceName: (service as any)?.name || null,
+      addOnNames,
+      staffName: (provider as any)?.name || null,
+      resourceNames,
+      priceCents,
+      amenities,
+      origin: typeof window !== 'undefined' ? window.location.origin : null,
+    });
+
+    // A blocked popup is silent — without this the owner presses Print and
+    // nothing at all appears to happen.
+    if (!opened) {
+      toast({
+        variant: 'destructive',
+        title: 'Allow popups to print',
+        description: 'Your browser blocked the ticket window. Allow popups for this site, then press Print again.',
+      });
+    }
+  }, [appointments, clients, services, allStaff, resourcesData, refreshmentRequests, selectedTenant, toast]);
+
+  /**
+   * Marks a guest as arrived from the front desk.
+   *
+   * Only the top-level `appointmentCheckIns` mirror is written here, never the
+   * scoped `tenants/{id}/appointmentCheckIns` copy — that one is `allow write: if
+   * false` in firestore.rules, so touching it would fail the whole batch and the
+   * check-in would silently not happen.
+   */
+  const handleDeskCheckIn = useCallback((aptArg: any) => {
+    if (!firestore || !tenantId || !aptArg?.id) return;
+    const apt = (appointments || []).find((a: any) => a?.id === aptArg.id) || aptArg;
+    const now = new Date().toISOString();
+    const batch = writeBatch(firestore);
+    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), {
+      checkInStatus: 'arrived',
+      checkInStatusTimestamp: now,
+      checkedInAt: now,
+    });
+    if (apt.checkInToken) {
+      batch.set(doc(firestore, 'appointmentCheckIns', apt.checkInToken), { checkInStatus: 'arrived', checkInStatusTimestamp: now, checkedInAt: now, tenantId }, { merge: true });
+    }
+    batch.commit()
+      .then(() => toast({ title: 'Checked in', description: `${(clients || []).find((c: any) => c.id === apt.clientId)?.name || 'Guest'} is marked as arrived.` }))
+      .catch(() => toast({ variant: 'destructive', title: 'Check-in failed', description: 'The arrival was not saved. Try again.' }));
+  }, [firestore, tenantId, appointments, clients, toast]);
+
   const handleUpdateAppointment = (apt: Appointment) => {
     if (!firestore || !tenantId) return;
     updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', apt.id), apt);
@@ -875,7 +976,7 @@ function PlannerPageContent() {
           allStaff={allStaff || []} mobileSelectedColumnId={mobileSelectedColumnId} onMobileColumnChange={onMobileColumnChange}
           onCompleteClick={a => router.push(`/pos?checkout_id=${a.id}`)} onUpdateStatus={handleUpdateStatus}
           onDeleteAppointment={id => deleteDocumentNonBlocking(doc(firestore!, 'tenants', tenantId!, 'appointments', id))}
-          onPrintReceipt={() => {}} onPrintTicket={() => {}}
+          onPrintReceipt={() => {}} onPrintTicket={handlePrintTicket}
           onEditAppointment={a => { setSelectedAppointment(a); setIsEditAppointmentOpen(true); }}
           onEditEvent={e => { setSelectedEvent(e); setIsEditEventOpen(true); }} onChecklistItemToggle={() => {}} onChecklistItemToggleCallback={() => {}} onUpdateEvent={() => {}}
           dailyTransactions={transactions?.filter(t => isSameDay(safeDate(t.date), currentDate)) || []} allTransactions={transactions || []} onAddTransaction={() => {}}
@@ -902,7 +1003,7 @@ function PlannerPageContent() {
           onCancel={id => { setSelectedAppointment((appointments || []).find(a => a.id === id) || null); setIsCancelDialogOpen(true); }}
           onRebook={a => { setAppointmentToRebook(a); setClientForNewApt(null); setIsAddAppointmentOpen(true); }}
           onBookNewForClient={id => { setClientForNewApt(clients?.find(c => c.id === id) || null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }}
-          onPrintTicket={() => {}} onOverride={handleOverrideConfirm}
+          onPrintTicket={handlePrintTicket} onOverride={handleOverrideConfirm}
           onWaiveFee={(id: string, aut: any, res: string) => {
             if (!firestore || !tenantId) return;
             const apt = (appointments || []).find(a => a.id === id);
@@ -953,6 +1054,22 @@ function PlannerPageContent() {
           toast({ title: "Event Added" });
         }}
         staff={allStaff || []}
+      />
+
+      {/* The QR button in the header opens this. Before now that button set the
+          state to true and nothing ever rendered or closed it. */}
+      <ScanCheckInDialog
+        open={isScannerOpen}
+        onOpenChange={setIsScannerOpen}
+        firestore={firestore}
+        tenantId={tenantId || ''}
+        appointments={appointments || []}
+        clients={clients || []}
+        services={services || []}
+        staff={allStaff || []}
+        onSelect={(a: any) => { setSelectedAppointment(a); setIsScannerOpen(false); setIsDetailsOpen(true); }}
+        onCheckIn={handleDeskCheckIn}
+        onPrintTicket={handlePrintTicket}
       />
 
       <FloatingActionButton onNewAppointmentClick={() => { setClientForNewApt(null); setAppointmentToRebook(null); setIsAddAppointmentOpen(true); }} onNewEventClick={() => setIsAddEventOpen(true)} />
