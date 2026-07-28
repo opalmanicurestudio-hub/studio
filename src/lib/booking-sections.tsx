@@ -1033,7 +1033,7 @@ function HeroSection({ config, style, data, isPreview, sectionId, onFieldTap }: 
   }
  
   if (layout === 'kinetic') {
-    const words = (config.headline || 'Book Your Experience').split(' ');
+    const words: string[] = String(config.headline || 'Book Your Experience').split(' ');
     return (
       <section id="hero" className="relative overflow-hidden flex flex-col"
         style={{ background: hasBg ? '#0a0a0a' : '#0f0f0f', minHeight: '100dvh' }}>
@@ -1128,6 +1128,85 @@ const TRUST_ICON_MAP: Record<string, React.ElementType> = {
   shield: Shield, trending: TrendingUp, crown: Crown,
   scissors: Scissors, users: Users, gift: Gift,
 };
+// v47 — every one of TrustSection's five layouts renders <JackpotNumber/>, and
+// the component was never written. React does not care until the branch runs,
+// so this sat quietly: the moment an owner adds a Trust Strip in the page
+// builder, her public booking page throws "JackpotNumber is not defined" and
+// the whole page goes white. This is that component.
+//
+// It rolls the number up from zero the way a scoreboard does, then stops on the
+// exact string the owner typed — including whatever she wrapped it in. "500+"
+// keeps its plus, "4.9" keeps its one decimal, "$1.2M" keeps both the dollar
+// sign and the M, and a value with no digits at all ("Award Winning") just
+// renders as written instead of animating to NaN.
+function JackpotNumber({ target, visible, delay = 0, className, style }: {
+  target: any; visible: boolean; delay?: number; className?: string; style?: React.CSSProperties;
+}) {
+  const raw = String(target ?? '');
+
+  // Split "$1.2M" into "$", 1.2, "M". The number is the first run of digits
+  // (with an optional decimal tail); anything before it and after it is copy
+  // the owner chose and gets reproduced verbatim.
+  const parsed = useMemo(() => {
+    const m = raw.match(/-?\d[\d,]*(\.\d+)?/);
+    if (!m) return null;
+    const numText = m[0];
+    const value = parseFloat(numText.replace(/,/g, ''));
+    if (!isFinite(value)) return null;
+    const dot = numText.indexOf('.');
+    return {
+      prefix: raw.slice(0, m.index || 0),
+      suffix: raw.slice((m.index || 0) + numText.length),
+      value,
+      decimals: dot === -1 ? 0 : numText.length - dot - 1,
+      grouped: numText.includes(','),
+    };
+  }, [raw]);
+
+  const [shown, setShown] = useState(0);
+
+  // Someone who has asked their device to stop animating things should get the
+  // final number immediately, not a count-up they did not consent to.
+  const reduced = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  useEffect(() => {
+    if (!parsed) return;
+    if (!visible) { setShown(0); return; }
+    if (reduced) { setShown(parsed.value); return; }
+
+    let frame = 0;
+    let start = 0;
+    const DURATION = 1100;
+    const timer = window.setTimeout(() => {
+      const step = (now: number) => {
+        if (!start) start = now;
+        const t = Math.min(1, (now - start) / DURATION);
+        // Ease-out cubic: fast off the line, gentle at the end, which reads as
+        // a number settling rather than a number stopping dead.
+        const eased = 1 - Math.pow(1 - t, 3);
+        setShown(parsed.value * eased);
+        if (t < 1) frame = window.requestAnimationFrame(step);
+        else setShown(parsed.value);
+      };
+      frame = window.requestAnimationFrame(step);
+    }, Math.max(0, delay));
+
+    return () => { window.clearTimeout(timer); if (frame) window.cancelAnimationFrame(frame); };
+  }, [parsed, visible, delay, reduced]);
+
+  if (!parsed) return <span className={className} style={style}>{raw}</span>;
+
+  const body = parsed.grouped
+    ? shown.toLocaleString(undefined, { minimumFractionDigits: parsed.decimals, maximumFractionDigits: parsed.decimals })
+    : shown.toFixed(parsed.decimals);
+
+  return (
+    <span className={className} style={style}>{parsed.prefix}{body}{parsed.suffix}</span>
+  );
+}
+
 function TrustSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
   const { ref, visible } = useInView(0.2);
   const layout = config.layout || 'strip';
@@ -4309,20 +4388,264 @@ function InstagramSection({ config, style, isPreview, sectionId, onFieldTap }: S
 }
 
 // ─── WaitlistSection ──────────────────────────────────────────────────────────
-function WaitlistSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
+// v47 — this section used to be a lie. It rendered a lone email box whose value
+// was never read and a button that just re-opened the booking sheet, so a guest
+// who typed their address and pressed Join was told nothing and recorded
+// nowhere. It now writes a real row to the studio's waiting list, the same list
+// the front desk works from in the planner.
+//
+// It posts to /api/waitlist rather than writing Firestore directly, because the
+// waitlist collection is staff-write-only in the security rules — a visitor's
+// browser has no permission to touch it. The route de-duplicates, so a guest
+// who submits twice stays one entry instead of appearing to the desk as two
+// different people.
+function WaitlistSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
   const hasBg = !!config.bgImage;
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [state, setState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
+  const [message, setMessage] = useState('');
+
+  // The route needs a name plus at least one way to reach the person; without
+  // that the entry is just a name on a list nobody can act on.
+  const canSubmit = !!name.trim() && (!!phone.trim() || /\S+@\S+\.\S+/.test(email.trim()));
+
+  const submit = async () => {
+    if (state === 'sending' || state === 'done' || !canSubmit) return;
+    // In the page builder the owner is previewing her own site. Submitting here
+    // would put fake people on the real waiting list, so it stops at the door.
+    if (isPreview) {
+      setState('done');
+      setMessage('This is how it will look to a guest. Nothing was saved from the preview.');
+      return;
+    }
+    setState('sending');
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId: data.tenantId,
+          action: 'join',
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim(),
+          source: 'booking-page',
+          note: 'Joined the waiting list from the booking page.',
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (d?.ok) {
+        setMessage(d.alreadyOn
+          ? 'You were already on the list — we have you.'
+          : 'You are on the list. We will reach out the moment something opens up.');
+        setState('done');
+      } else {
+        setMessage(d?.error || 'That did not save. Please call the studio and we will add you.');
+        setState('error');
+      }
+    } catch {
+      setMessage('That did not save. Please call the studio and we will add you.');
+      setState('error');
+    }
+  };
+
+  const fieldStyle: React.CSSProperties = {
+    borderRadius: br(style),
+    border: `2px solid ${hasBg ? 'rgba(255,255,255,0.3)' : ac(style) + '40'}`,
+    fontFamily: bf(style),
+    background: hasBg ? 'rgba(255,255,255,0.1)' : 'white',
+    color: hasBg ? 'white' : 'inherit',
+  };
+  const subColor = hasBg ? 'rgba(255,255,255,0.75)' : '#64748b';
+
   return (
     <section className={cn(py(style), 'relative')} style={{ background: hasBg ? `url(${config.bgImage}) center/cover no-repeat` : style.bgColor }}>
       {hasBg && <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.55)' }}/>}
       <div className="relative max-w-lg mx-auto px-6 md:px-16 text-center space-y-8">
         <div className="space-y-4">
           <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-3xl md:text-5xl font-light" style={{ fontFamily: hf(style), color: hasBg ? 'white' : '#0f172a' }}>{config.heading || 'Fully Booked?'}</FieldTap>
-          {config.subheading && <p className="text-base" style={{ fontFamily: bf(style), color: hasBg ? 'rgba(255,255,255,0.75)' : '#64748b' }}>{config.subheading}</p>}
+          {config.subheading && <p className="text-base" style={{ fontFamily: bf(style), color: subColor }}>{config.subheading}</p>}
         </div>
-        <div className="flex gap-2">
-          <input type="email" placeholder="your@email.com" className="flex-1 px-4 py-3 text-sm focus:outline-none" style={{ borderRadius: br(style), border: `2px solid ${hasBg ? 'rgba(255,255,255,0.3)' : ac(style)+'40'}`, fontFamily: bf(style), background: hasBg ? 'rgba(255,255,255,0.1)' : 'white', color: hasBg ? 'white' : 'inherit' }}/>
-          <button onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)} className="px-6 py-3 font-black text-sm uppercase tracking-widest whitespace-nowrap hover:opacity-90 transition-all" style={{ ...btnStyle(style), fontFamily: bf(style) }}>{config.ctaText || 'Join'}</button>
+
+        {state === 'done' ? (
+          <div className="px-6 py-8 space-y-2" style={{ borderRadius: br(style, 1.5), border: `2px solid ${hasBg ? 'rgba(255,255,255,0.35)' : ac(style) + '35'}`, background: hasBg ? 'rgba(255,255,255,0.12)' : 'white' }}>
+            <p className="text-lg font-light" style={{ fontFamily: hf(style), color: hasBg ? 'white' : '#0f172a' }}>
+              {config.successHeading || 'You are on the list'}
+            </p>
+            <p className="text-sm" style={{ fontFamily: bf(style), color: subColor }}>{message}</p>
+          </div>
+        ) : (
+          <div className="space-y-2 text-left">
+            <input
+              type="text" value={name} onChange={(e) => setName(e.target.value)}
+              placeholder="Your name" autoComplete="name" aria-label="Your name"
+              className="w-full px-4 py-3 text-sm focus:outline-none" style={fieldStyle}
+            />
+            <input
+              type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
+              placeholder="Phone number" autoComplete="tel" aria-label="Phone number"
+              className="w-full px-4 py-3 text-sm focus:outline-none" style={fieldStyle}
+            />
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+                placeholder="your@email.com" autoComplete="email" aria-label="Email address"
+                className="flex-1 min-w-0 px-4 py-3 text-sm focus:outline-none" style={fieldStyle}
+              />
+              <button
+                type="button" onClick={submit} disabled={!canSubmit || state === 'sending'}
+                className="px-6 py-3 font-black text-sm uppercase tracking-widest whitespace-nowrap hover:opacity-90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ ...btnStyle(style), fontFamily: bf(style) }}
+              >
+                {state === 'sending' ? 'Adding…' : (config.ctaText || 'Join')}
+              </button>
+            </div>
+            <p className="text-xs pt-1" style={{ fontFamily: bf(style), color: subColor }}>
+              {state === 'error'
+                ? message
+                : 'Leave a phone number or an email and we will let you know the moment something opens up.'}
+            </p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─── GiftCardsSection ─────────────────────────────────────────────────────────
+// v47 — SectionRenderer has always had a `case 'giftcards'` and the page builder
+// has always offered "Gift Cards" as an addable section, but the component it
+// pointed at did not exist anywhere in this file. Adding that section to a page
+// took the whole public site down with a ReferenceError. This is the component
+// that case was always reaching for.
+//
+// The amounts are editable copy, not a live product catalogue, and the button
+// runs through the same `cta` helper every other section uses — so it does
+// whatever the owner points it at (open the booking sheet, jump to Contact, or
+// link out to wherever cards are actually sold). It does not pretend to take a
+// payment on its own.
+function GiftCardsSection({ config, style, isPreview, sectionId, onFieldTap }: SectionProps) {
+  const cards = [1, 2, 3].map(n => ({
+    amount: config[`card${n}Amount`] || ['$50', '$100', '$200'][n - 1],
+    label: config[`card${n}Label`] || ['A little treat', 'The classic', 'The whole day'][n - 1],
+    note: config[`card${n}Note`] || '',
+    featured: n === 2 ? (config.card2Featured !== undefined ? !!config.card2Featured : true) : false,
+  }));
+  return (
+    <section className={py(style)} style={{ background: style.bgColor }}>
+      <div className="max-w-5xl mx-auto px-6 md:px-16">
+        <div className="text-center mb-16 space-y-4">
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Gift Cards'}</FieldTap>
+          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
         </div>
+        <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-6">
+          {cards.map((card, i) => (
+            <div
+              key={i}
+              className={cn('p-8 text-center space-y-4 hover:shadow-xl hover:-translate-y-1 transition-all duration-300', card.featured && 'md:scale-105')}
+              style={{ borderRadius: br(style, 1.5), border: `2px solid ${card.featured ? ac(style) : ac(style) + '25'}`, background: card.featured ? ac(style) : 'white' }}
+            >
+              <Gift className="w-6 h-6 mx-auto" style={{ color: card.featured ? 'rgba(255,255,255,0.8)' : ac(style) }}/>
+              <p className="text-4xl font-light" style={{ fontFamily: hf(style), color: card.featured ? 'white' : '#0f172a' }}>{card.amount}</p>
+              <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: card.featured ? 'rgba(255,255,255,0.65)' : ac(style) }}>{card.label}</p>
+              {card.note && <p className="text-xs" style={{ fontFamily: bf(style), color: card.featured ? 'rgba(255,255,255,0.7)' : '#94a3b8' }}>{card.note}</p>}
+              <button
+                onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
+                className="block w-full py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all"
+                style={{ background: card.featured ? 'white' : ac(style), color: card.featured ? ac(style) : 'white', borderRadius: br(style), fontFamily: bf(style) }}
+              >
+                {config.ctaText || 'Get this card'}
+              </button>
+            </div>
+          ))}
+        </div>
+        {config.footnote && <p className="text-center text-xs text-slate-400 mt-10" style={{ fontFamily: bf(style) }}>{config.footnote}</p>}
+      </div>
+    </section>
+  );
+}
+
+// ─── EventsSection ────────────────────────────────────────────────────────────
+// v47 — the other half of the same bug: `case 'events'` pointed at a component
+// that was never written, so adding an Events section crashed the page.
+//
+// Unlike Gift Cards this one shows real data — the studio events the owner has
+// already created — so it deliberately filters two things out. Drafts never
+// appear, because a draft is by definition not announced yet, and anything that
+// has finished is dropped, because a public page advertising last month's event
+// is worse than showing nothing. When nothing qualifies, the section renders
+// nothing at all rather than an empty "Upcoming Events" heading.
+function EventsSection({ config, style, data, isPreview, sectionId, onFieldTap }: SectionProps) {
+  const evDate = (e: any): Date | null => {
+    const raw = e?.date || e?.startTime || e?.startsAt;
+    if (!raw) return null;
+    const d = typeof raw === 'object' && raw && 'seconds' in raw ? new Date(raw.seconds * 1000) : new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const upcoming = (data.events || [])
+    .map((e: any) => ({ e, d: evDate(e) }))
+    .filter(({ e, d }: any) => {
+      const status = String(e?.status || 'upcoming');
+      if (status === 'draft' || status === 'completed' || status === 'cancelled') return false;
+      if (!d) return false;
+      // Keep today's event visible all day rather than hiding it at its start time.
+      const endOfDay = new Date(d); endOfDay.setHours(23, 59, 59, 999);
+      return endOfDay.getTime() >= Date.now();
+    })
+    .sort((a: any, b: any) => a.d.getTime() - b.d.getTime())
+    .slice(0, Number(config.maxItems) > 0 ? Number(config.maxItems) : 6);
+
+  // In the builder the owner needs to see the section she just added even
+  // before she has created an event, otherwise it looks like it failed.
+  if (!upcoming.length && !isPreview) return null;
+
+  return (
+    <section className={py(style)} style={{ background: '#f8fafc' }}>
+      <div className="max-w-4xl mx-auto px-6 md:px-16">
+        <div className="text-center mb-16 space-y-4">
+          <FieldTap sectionId={sectionId} fieldKey="heading" isPreview={isPreview} onFieldTap={onFieldTap} as="h2" className="text-4xl md:text-6xl font-light" style={{ fontFamily: hf(style), color: '#0f172a' }}>{config.heading || 'Upcoming Events'}</FieldTap>
+          {config.subheading && <p className="text-base text-slate-500" style={{ fontFamily: bf(style) }}>{config.subheading}</p>}
+        </div>
+
+        {!upcoming.length ? (
+          <p className="text-center text-sm text-slate-400" style={{ fontFamily: bf(style) }}>
+            Events you create in the studio will appear here. Visitors see nothing until then.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {upcoming.map(({ e, d }: any) => (
+              <div
+                key={e.id}
+                className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 p-6 bg-white hover:shadow-xl transition-all duration-300"
+                style={{ borderRadius: br(style, 1.5), border: `2px solid ${ac(style)}25` }}
+              >
+                <div className="shrink-0 w-16 text-center" style={{ color: ac(style) }}>
+                  <p className="text-[10px] font-black uppercase tracking-widest">{d.toLocaleDateString(undefined, { month: 'short' })}</p>
+                  <p className="text-3xl font-light leading-none" style={{ fontFamily: hf(style), color: '#0f172a' }}>{d.getDate()}</p>
+                </div>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <p className="text-lg font-light truncate" style={{ fontFamily: hf(style), color: '#0f172a' }}>{e.title || e.name || 'Studio event'}</p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500" style={{ fontFamily: bf(style) }}>
+                    <span className="inline-flex items-center gap-1.5"><Clock3 className="w-3 h-3 shrink-0"/>{d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</span>
+                    {e.location && <span className="inline-flex items-center gap-1.5 min-w-0"><MapPin className="w-3 h-3 shrink-0"/><span className="truncate">{e.location}</span></span>}
+                  </div>
+                  {e.description && <p className="text-sm text-slate-500 line-clamp-2" style={{ fontFamily: bf(style) }}>{e.description}</p>}
+                </div>
+                <button
+                  onClick={cta((config.ctaLink as string) || config.ctaAction, config.ctaUrl)}
+                  className="shrink-0 px-6 py-3 text-[11px] font-black uppercase tracking-widest hover:opacity-90 transition-all"
+                  style={{ ...btnStyle(style), fontFamily: bf(style) }}
+                >
+                  {config.ctaText || 'Enquire'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );
