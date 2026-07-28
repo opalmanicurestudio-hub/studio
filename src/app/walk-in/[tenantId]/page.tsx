@@ -69,6 +69,7 @@ import {
   Phone, User, Clock, Scissors, RotateCcw, Frown, BellRing,
   Users, Power, Lock, Moon, Star, Printer, ShieldCheck, PenLine,
   AlertTriangle, UserCheck, Check, Ticket, Hourglass, ChevronRight, Coffee,
+  Mail,
 } from 'lucide-react';
 
 type Step =
@@ -128,6 +129,19 @@ const fmtPrice = (p: any) => {
 const firstNameOf = (v: any) => String(v || '').trim().split(/\s+/)[0] || '';
 
 const digitsOf = (v: any) => String(v || '').replace(/\D/g, '');
+
+/**
+ * Is this worth saving as an email address?
+ *
+ * Deliberately loose — one @, something before it, a dot after it, no spaces.
+ * A kiosk is not the place to argue with a guest about their own address, but a
+ * half-typed one is worse than none: it lands on the client record and quietly
+ * bounces every receipt and reminder after that.
+ */
+const looksLikeEmail = (v: any): boolean => {
+  const s = String(v || '').trim();
+  return s.length >= 6 && s.length <= 120 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
+};
 
 /**
  * Every wait this page shows, in words.
@@ -197,6 +211,13 @@ export default function WalkInKioskPage() {
   // Identity
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
+  // Email. /api/walkins has ALWAYS been able to store this — it dedupes a client
+  // on email as well as phone, stamps clientEmail on the check-in record and on
+  // bookingCompletions — and this screen never asked for it, so every one of
+  // those fields sat empty. A walk-in with no email cannot be sent a receipt, a
+  // rebooking reminder, or a review request. It is optional on purpose: nobody
+  // should be blocked from a haircut over a typo.
+  const [email, setEmail] = useState('');
   const [lookup, setLookup] = useState<any>(null);
 
   // What they're having, and who with
@@ -356,7 +377,7 @@ export default function WalkInKioskPage() {
   // ── Idle auto-reset — a kiosk must never be left mid-flow for the next guest ──
   const reset = useCallback(() => {
     setStep('welcome');
-    setPhone(''); setName(''); setLookup(null);
+    setPhone(''); setName(''); setEmail(''); setLookup(null);
     setService(null); setOptions(null); setChosen(null);
     setPreferredStaffId(''); setWaitForPreferred(false); setGroupSize(1);
     setForms([]); setAnswers({}); setAccepted({}); setGuardians({});
@@ -567,6 +588,10 @@ export default function WalkInKioskPage() {
         action: 'join',
         name: name.trim(),
         phone: phone.trim(),
+        // Only sent when it looks like an address. An empty string or a typo
+        // like "jordan@" would otherwise be written onto the client record and
+        // then bounce every receipt from that day forward.
+        ...(looksLikeEmail(email) ? { email: email.trim() } : {}),
         serviceId: service.id,
         groupSize,
         preferredStaffId,
@@ -631,10 +656,15 @@ export default function WalkInKioskPage() {
       {
         kind: 'walkin',
         queuePosition: Number(result.position) || 0,
-        queueWaitMinutes: result.assigned ? 0 : Number(result.estWaitMin) || 0,
+        queueWaitMinutes: (result.assigned || result.needsFrontDesk) ? 0 : Number(result.estWaitMin) || 0,
         queueNote: result.assigned
           ? `${firstNameOf(result.staffName) || 'Your provider'} is ready for you now`
-          : result.waitingForRequested
+          // No tech qualifies for this service on the floor right now, so the
+          // ticket must not print a wait time we cannot stand behind. Send them
+          // to a human instead.
+          : result.needsFrontDesk
+            ? 'Please check in at the front desk'
+            : result.waitingForRequested
             ? `Waiting for ${firstNameOf(result.staffName) || 'your provider'} · ${softWait(result.estWaitMin)}`
             : '',
         studioName: t.name || null,
@@ -746,6 +776,11 @@ export default function WalkInKioskPage() {
 
   const waitLine = useMemo(() => {
     if (result?.assigned) return 'Ready for you now';
+    // needsFrontDesk means the route put her in the queue but could not find a
+    // tech the service rules allow — usually a required skill or certification
+    // nobody's profile lists. There is no honest estimate to give, so we do not
+    // invent one. "See the desk" is the true answer.
+    if (result?.needsFrontDesk) return 'See the desk';
     return softWait(result?.estWaitMin);
   }, [result]);
 
@@ -1154,6 +1189,33 @@ export default function WalkInKioskPage() {
                   </div>
                 </div>
               )}
+              {/* Email — optional, and it says so, because the tap-through rate
+                  on a required email at a kiosk is where guests give up and walk
+                  out. The Continue button below is NOT gated on it. */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-500 px-1">
+                  Email <span className="text-slate-300 font-normal">— optional, for your receipt</span>
+                </label>
+                <div className="relative">
+                  <Mail className="w-5 h-5 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="you@email.com"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    className="w-full h-16 min-h-[44px] pl-12 pr-12 rounded-2xl border-2 border-slate-200 bg-white text-lg font-medium focus:border-rose-300 focus:outline-none"
+                  />
+                  {/* A quiet tick once it parses. No red error state — nagging a
+                      guest about a field they were told was optional is rude. */}
+                  {looksLikeEmail(email) && (
+                    <Check className="w-5 h-5 text-emerald-500 absolute right-4 top-1/2 -translate-y-1/2" />
+                  )}
+                </div>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-slate-500 px-1">How many in your party?</label>
                 {/* A fixed six-column grid, not flex-wrap: wrapping would let a
@@ -1381,6 +1443,8 @@ export default function WalkInKioskPage() {
               <p className="text-lg text-slate-500">
                 {result.alreadyInLine
                   ? 'You were already on the list — you’re all set.'
+                  : result.needsFrontDesk
+                  ? 'You’re on the list. Please say hello at the front desk so we can match you with the right provider.'
                   : result.waitingForRequested
                     ? <><span className="font-semibold text-slate-800">{firstNameOf(result.staffName)}</span> will come get you as soon as they’re free.</>
                     : result.staffName
@@ -1389,6 +1453,19 @@ export default function WalkInKioskPage() {
               </p>
             </div>
 
+            {/* The old behaviour here was the bug Jessica hit head-on: a service
+                with a required skill nobody's profile listed produced zero
+                eligible providers, the route refused the join, and the kiosk's
+                only remaining offer was the WAITLIST — "we'll call you" — while
+                three techs stood on the floor. She is in the queue now, and this
+                is the one honest sentence to show her. */}
+            {result.needsFrontDesk && (
+              <p className="text-sm text-slate-700 bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
+                <User className="w-4 h-4 shrink-0 mt-0.5" />
+                You’re in the queue. A team member will assign your provider in person, so we
+                haven’t put a time on this one yet.
+              </p>
+            )}
             {result.preferredUnavailable && (
               <p className="text-sm text-amber-700 bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3">
                 The provider you asked for isn’t taking walk-ins right now, so we’ve put you with the next available.
