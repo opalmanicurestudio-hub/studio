@@ -88,7 +88,18 @@ type Step =
   | 'patch'
   | 'placing'
   | 'success'
-  | 'full';
+  | 'full'
+  // The three screens that make one kiosk serve every reason someone walks in.
+  // 'checkin' is a guest who already holds a booking today; 'booth' is a day or
+  // hourly renter; 'announced' confirms either one landed.
+  | 'checkin'
+  | 'booth'
+  | 'announced'
+  // 'trouble' exists because 'full' was doing two jobs: "nobody is free right
+  // now" AND "something broke". Every failure path routed to 'full', so a
+  // network hiccup told the guest the studio was full and offered them the
+  // notify-me list. Those are different sentences and only one of them is true.
+  | 'trouble';
 
 // The "nobody is free" screen is not a dead end. The guest has already typed
 // their name and number seconds earlier, so joining the waitlist is one tap
@@ -259,6 +270,12 @@ export default function WalkInKioskPage() {
 
   // Outcome
   const [result, setResult] = useState<any>(null);
+
+  // Copy for the two new terminal screens. `troubleNote` is deliberately
+  // allowed to be empty — the trouble screen has a safe generic fallback, and
+  // a server error string is only shown when it is actually useful to a guest.
+  const [announceNote, setAnnounceNote] = useState('');
+  const [troubleNote, setTroubleNote] = useState('');
   const [failMessage, setFailMessage] = useState('');
   const [waitState, setWaitState] = useState<WaitState>('idle');
   const [waitMessage, setWaitMessage] = useState('');
@@ -407,6 +424,7 @@ export default function WalkInKioskPage() {
     setForms([]); setAnswers({}); setAccepted({}); setGuardians({});
     setSignature(''); setConsentError(''); setPatchInfo(null);
     setResult(null); setFailMessage('');
+    setAnnounceNote(''); setTroubleNote('');
     setWaitState('idle'); setWaitMessage('');
     setPrintError(''); setPrinted(false); setPrintedKeys([]);
     joinLock.current = false;
@@ -418,7 +436,10 @@ export default function WalkInKioskPage() {
     // The "full" screen asks the guest to make one more decision, so it keeps
     // the full idle window until they have answered it; once they're on the
     // waitlist it clears itself as quickly as the success screen does.
-    const settled = step === 'success' || (step === 'full' && waitState === 'joined');
+    // 'announced' is terminal — the guest has checked in or been announced to
+    // the desk and has nothing left to decide, so it clears on the short window
+    // rather than holding the kiosk for ninety seconds behind them.
+    const settled = step === 'success' || step === 'announced' || (step === 'full' && waitState === 'joined');
     const reading = step === 'consent' || step === 'patch';
     const ms = settled ? SUCCESS_RESET_MS : reading ? CONSENT_IDLE_RESET_MS : IDLE_RESET_MS;
     clearTimeout(idleTimer.current);
@@ -439,15 +460,38 @@ export default function WalkInKioskPage() {
   }, [tenantId]);
 
   // ── 1. The number ─────────────────────────────────────────────────────────
+  //
+  // ONE question, four answers. The phone number already disambiguates every
+  // reason a person walks through the door, so there is no need for a screen
+  // per purpose at the front of house — the kiosk asks once and the server
+  // says which paths exist.
+  //
+  // The order matters and it is the server's `paths` array, not this file's
+  // opinion: already in line beats everything (never let someone take a second
+  // spot), then a booking they already hold, then a booth they already rent,
+  // then the walk-in flow. A guest who is genuinely here for something else
+  // gets an explicit "something else today" out of the check-in screen rather
+  // than being forced down a path the system guessed for her.
   const submitPhone = async () => {
     if (digitsOf(phone).length < 7) return;
     setStep('looking');
     try {
       const d = await post({ action: 'lookup', phone });
       setLookup(d?.ok ? d : null);
-      // Already standing in this line? Show them their spot instead of letting
-      // them take a second one.
-      if (d?.ok && d.found && d.alreadyInLine?.walkInId) {
+
+      if (!d?.ok) {
+        // A lookup that fails is NOT a studio that is full. See the note on the
+        // trouble screen: routing every error to 'full' told guests nobody was
+        // free and pushed them onto the notify-me list, which is very likely a
+        // second reason people kept ending up on a waitlist they never chose.
+        setTroubleNote('');
+        setStep('trouble');
+        return;
+      }
+
+      if (d.found) setName(d.firstName || '');
+
+      if (d.alreadyInLine?.walkInId) {
         setResult({
           alreadyInLine: true,
           position: Number(d.alreadyInLine.position) || 1,
@@ -458,22 +502,96 @@ export default function WalkInKioskPage() {
           staffName: '',
           clientName: d.firstName || '',
         });
-        setName(d.firstName || '');
         setStep('success');
         return;
       }
-      if (d?.ok && d.found) {
-        setName(d.firstName || '');
-        setStep(d.usual?.serviceId ? 'recognize' : 'service');
-        return;
-      }
+
+      if (d.appointmentToday?.appointmentId) { setStep('checkin'); return; }
+      if (d.boothToday?.reservationId) { setStep('booth'); return; }
+
+      if (d.found) { setStep(d.usual?.serviceId ? 'recognize' : 'service'); return; }
       setStep('service');
     } catch {
-      // A failed lookup is not a failed visit — carry on as a new guest.
+      // A network blip is not a failed visit — an unrecognised number carries on
+      // as a new guest, which is the overwhelmingly common case.
       setLookup(null);
       setStep('service');
     }
   };
+
+  // ── 1a. The guest who already has a booking ───────────────────────────────
+  //
+  // Posts the appointmentId back with the phone number. The server re-resolves
+  // the number to a client and requires the appointment's own clientId to match
+  // before it writes anything — neither half is a credential on its own, which
+  // is why the lookup was willing to name a time but not a provider.
+  const confirmCheckIn = async () => {
+    const apt = lookup?.appointmentToday;
+    if (!apt?.appointmentId) return;
+    setLoading(true);
+    try {
+      const d = await post({ action: 'checkin', phone, appointmentId: apt.appointmentId });
+      if (!d?.ok) {
+        setTroubleNote(d?.error || '');
+        setStep('trouble');
+        return;
+      }
+      const who = d.staffFirstName ? ` ${d.staffFirstName} will be with you shortly.` : '';
+      setAnnounceNote(`You're checked in${d.serviceName ? ` for your ${d.serviceName}` : ''}.${who}`);
+      setStep('announced');
+    } catch {
+      setTroubleNote('');
+      setStep('trouble');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── 1b. The renter who booked a chair ─────────────────────────────────────
+  //
+  // This announces them to the desk; it does NOT start their session. A booth
+  // check-in starts a billable clock and can trigger overage and settlement,
+  // and this screen has verified nothing beyond possession of a phone number.
+  // Starting a paid clock from an unverified tap is the one thing in this system
+  // that would cost somebody real money by mistake, so a human closes the loop.
+  const confirmBooth = async () => {
+    const r = lookup?.boothToday;
+    if (!r?.reservationId) return;
+    setLoading(true);
+    try {
+      const d = await post({ action: 'booth-arrived', phone, reservationId: r.reservationId });
+      if (!d?.ok) {
+        setTroubleNote(d?.error || '');
+        setStep('trouble');
+        return;
+      }
+      setAnnounceNote(`The front desk knows you're here for ${r.boothName}. They'll start your session.`);
+      setStep('announced');
+    } catch {
+      setTroubleNote('');
+      setStep('trouble');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Label helpers for the two new screens. Kept out of the JSX so a bad
+  // timestamp cannot throw mid-render on a wall-mounted iPad.
+  const aptTimeLabel = (() => {
+    const iso = lookup?.appointmentToday?.startTime;
+    if (!iso) return 'your booked time';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return 'your booked time';
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  })();
+
+  const boothSlotLabel = (() => {
+    const r = lookup?.boothToday;
+    if (!r) return '';
+    if (r.slotLabel) return String(r.slotLabel);
+    if (r.startTime && r.endTime) return `${r.startTime}\u2013${r.endTime}`;
+    return r.bookingType === 'daily' ? 'All day' : '';
+  })();
 
   // ── 2/3. Service, then who takes them ─────────────────────────────────────
   const chooseService = async (svc: any, preferredId?: string | null) => {
@@ -1065,8 +1183,8 @@ export default function WalkInKioskPage() {
               <Sparkles className="w-12 h-12 text-rose-500" />
             </div>
             <div className="space-y-3">
-              <h1 className="text-4xl font-semibold tracking-tight">Walk right in</h1>
-              <p className="text-slate-500 text-lg">No appointment? No problem.<br />Get in line and we’ll take you in turn.</p>
+              <h1 className="text-4xl font-semibold tracking-tight">Tap to start</h1>
+              <p className="text-slate-500 text-lg">Checking in, renting a space,<br />or just walking in &mdash; start here.</p>
             </div>
             {floor && floor.open && (
               <div className="inline-flex items-center gap-2 text-sm text-slate-400">
@@ -1919,6 +2037,118 @@ export default function WalkInKioskPage() {
             </div>
             <button onClick={reset} className="mx-auto flex items-center gap-2 h-12 min-h-[44px] px-6 rounded-xl border-2 border-slate-200 text-sm font-medium text-slate-500 active:scale-95 transition-all">
               <RotateCcw className="w-4 h-4" /> Done — next guest
+            </button>
+          </div>
+        )}
+
+        {!kioskOff && step === 'checkin' && lookup?.appointmentToday && (
+          <div className="w-full text-center space-y-6">
+            <div className="w-24 h-24 rounded-[2rem] bg-emerald-50 flex items-center justify-center mx-auto">
+              <UserCheck className="w-12 h-12 text-emerald-500" />
+            </div>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold tracking-tight">
+                {name ? `Hi ${name}` : 'Welcome back'}
+              </h1>
+              <p className="text-slate-500 text-lg">
+                You have a booking today at{' '}
+                <span className="font-semibold text-slate-900">{aptTimeLabel}</span>.
+              </p>
+              {lookup.appointmentToday.alreadyArrived && (
+                <p className="text-emerald-600 text-base font-medium">You&rsquo;re already checked in — have a seat.</p>
+              )}
+              {!lookup.appointmentToday.checkInOpen && lookup.appointmentToday.earlyByMin > 0 && (
+                <p className="text-slate-400 text-base">
+                  You&rsquo;re a little early. Check-in opens 45 minutes before.
+                </p>
+              )}
+            </div>
+
+            {lookup.appointmentToday.checkInOpen && !lookup.appointmentToday.alreadyArrived && (
+              <button
+                onClick={confirmCheckIn}
+                disabled={loading}
+                className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
+              >
+                {loading ? <Loader className="w-5 h-5 animate-spin" /> : <>Check in <ArrowRight className="w-5 h-5" /></>}
+              </button>
+            )}
+
+            <button
+              onClick={() => setStep('service')}
+              className="w-full min-h-[44px] h-14 rounded-2xl border-2 border-slate-200 bg-white text-base font-semibold text-slate-700 flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
+            >
+              <Sparkles className="w-4 h-4" /> Something else today
+            </button>
+
+            <button onClick={reset} className="w-full min-h-[44px] text-sm text-slate-400 py-1">
+              Not you? Start over
+            </button>
+          </div>
+        )}
+
+        {!kioskOff && step === 'booth' && lookup?.boothToday && (
+          <div className="w-full text-center space-y-6">
+            <div className="w-24 h-24 rounded-[2rem] bg-indigo-50 flex items-center justify-center mx-auto">
+              <Ticket className="w-12 h-12 text-indigo-500" />
+            </div>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold tracking-tight">
+                {name ? `Hi ${name}` : 'Welcome'}
+              </h1>
+              <p className="text-slate-500 text-lg">
+                <span className="font-semibold text-slate-900">{lookup.boothToday.boothName}</span>
+                {boothSlotLabel ? <> &middot; {boothSlotLabel}</> : null}
+              </p>
+              {lookup.boothToday.checkedIn && (
+                <p className="text-emerald-600 text-base font-medium">Your session is already running.</p>
+              )}
+            </div>
+
+            {!lookup.boothToday.checkedIn && (
+              <button
+                onClick={confirmBooth}
+                disabled={loading}
+                className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 flex items-center justify-center gap-2 active:scale-[0.99] transition-all disabled:opacity-60"
+              >
+                {loading ? <Loader className="w-5 h-5 animate-spin" /> : <>I&rsquo;m here <ArrowRight className="w-5 h-5" /></>}
+              </button>
+            )}
+
+            <button onClick={reset} className="w-full min-h-[44px] text-sm text-slate-400 py-1">
+              Not you? Start over
+            </button>
+          </div>
+        )}
+
+        {!kioskOff && step === 'announced' && (
+          <div className="w-full text-center space-y-6">
+            <div className="w-24 h-24 rounded-[2rem] bg-emerald-50 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-12 h-12 text-emerald-500" />
+            </div>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold tracking-tight">You&rsquo;re all set</h1>
+              <p className="text-slate-500 text-lg">{announceNote}</p>
+            </div>
+          </div>
+        )}
+
+        {!kioskOff && step === 'trouble' && (
+          <div className="w-full text-center space-y-6">
+            <div className="w-24 h-24 rounded-[2rem] bg-slate-100 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-12 h-12 text-slate-400" />
+            </div>
+            <div className="space-y-3">
+              <h1 className="text-3xl font-semibold tracking-tight">Let&rsquo;s get someone to help</h1>
+              <p className="text-slate-500 text-lg">
+                {troubleNote || 'Something went wrong on our end. Please see the front desk — they can get you in.'}
+              </p>
+            </div>
+            <button
+              onClick={reset}
+              className="w-full min-h-[44px] h-14 rounded-2xl border-2 border-slate-200 bg-white text-base font-semibold text-slate-700 flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
+            >
+              <RotateCcw className="w-4 h-4" /> Start over
             </button>
           </div>
         )}
