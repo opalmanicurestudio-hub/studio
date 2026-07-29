@@ -81,6 +81,9 @@ type Step =
   | 'options'
   | 'provider'
   | 'details'
+  // Who else walked in with them. Only reached when the party stepper says more
+  // than one, so a solo guest never sees it.
+  | 'party'
   | 'consent'
   | 'patch'
   | 'placing'
@@ -91,6 +94,13 @@ type Step =
 // their name and number seconds earlier, so joining the waitlist is one tap
 // with nothing to re-enter.
 type WaitState = 'idle' | 'joining' | 'joined' | 'failed';
+
+// One person in the party who is NOT holding the tablet. Contact is a single
+// field on purpose: three inputs times five guests is a form nobody finishes
+// standing up, and one line split on "does this look like an address" gets the
+// same two fields onto the row. Both are optional — a first name is enough to
+// print them a ticket and put them on the board.
+type PartyGuest = { name: string; contact: string };
 
 type Floor = {
   enabled: boolean;
@@ -129,6 +139,12 @@ const fmtPrice = (p: any) => {
 const firstNameOf = (v: any) => String(v || '').trim().split(/\s+/)[0] || '';
 
 const digitsOf = (v: any) => String(v || '').replace(/\D/g, '');
+
+// Which ticket is which, for "has this person's paper actually come out yet".
+// Module level on purpose: the auto-print effect depends on it, and a function
+// re-made every render would re-fire the effect.
+const ticketKey = (g: any, i: number) =>
+  String(g?.checkInToken || g?.walkInId || `seat-${i}`);
 
 /**
  * Is this worth saving as an email address?
@@ -227,6 +243,10 @@ export default function WalkInKioskPage() {
   const [preferredStaffId, setPreferredStaffId] = useState('');
   const [waitForPreferred, setWaitForPreferred] = useState(false);
   const [groupSize, setGroupSize] = useState(1);
+  // The other people in the party, one entry per chair beyond the first. Kept
+  // exactly groupSize - 1 long by chooseGroupSize below, so the names screen
+  // never renders a row the stepper does not account for.
+  const [guests, setGuests] = useState<PartyGuest[]>([]);
 
   // Requirements
   const [forms, setForms] = useState<any[]>([]);
@@ -244,6 +264,10 @@ export default function WalkInKioskPage() {
   const [waitMessage, setWaitMessage] = useState('');
   const [printError, setPrintError] = useState('');
   const [printed, setPrinted] = useState(false);
+  // Whose paper has actually come out. A party's lead auto-prints on arrival, so
+  // a button that flipped to "Print again" at that moment would tell a party of
+  // four that four tickets exist when one does. Tracked per person instead.
+  const [printedKeys, setPrintedKeys] = useState<string[]>([]);
 
   // Owner controls
   const [isOwner, setIsOwner] = useState(false);
@@ -379,12 +403,12 @@ export default function WalkInKioskPage() {
     setStep('welcome');
     setPhone(''); setName(''); setEmail(''); setLookup(null);
     setService(null); setOptions(null); setChosen(null);
-    setPreferredStaffId(''); setWaitForPreferred(false); setGroupSize(1);
+    setPreferredStaffId(''); setWaitForPreferred(false); setGroupSize(1); setGuests([]);
     setForms([]); setAnswers({}); setAccepted({}); setGuardians({});
     setSignature(''); setConsentError(''); setPatchInfo(null);
     setResult(null); setFailMessage('');
     setWaitState('idle'); setWaitMessage('');
-    setPrintError(''); setPrinted(false);
+    setPrintError(''); setPrinted(false); setPrintedKeys([]);
     joinLock.current = false;
   }, []);
 
@@ -399,8 +423,11 @@ export default function WalkInKioskPage() {
     const ms = settled ? SUCCESS_RESET_MS : reading ? CONSENT_IDLE_RESET_MS : IDLE_RESET_MS;
     clearTimeout(idleTimer.current);
     idleTimer.current = setTimeout(reset, ms);
+    // `guests` is in the dependency list for the same reason `name` is: typing
+    // four names takes longer than the ninety-second window, and a kiosk that
+    // wipes the party half-entered is worse than one that never asked.
     return () => clearTimeout(idleTimer.current);
-  }, [step, name, phone, service, groupSize, waitState, chosen, signature, answers, accepted, reset]);
+  }, [step, name, phone, service, groupSize, guests, waitState, chosen, signature, answers, accepted, reset]);
 
   const post = useCallback(async (payload: any) => {
     const res = await fetch('/api/walkins', {
@@ -527,10 +554,35 @@ export default function WalkInKioskPage() {
   );
   const patchNeeded = !!options?.consent?.patchTestRequired && !options?.consent?.patchTestOnFile;
 
-  const afterDetails = () => {
+  // The stepper and the names screen have to agree, so one handler owns both.
+  // Tapping 4 gives three blank rows; tapping back down to 2 keeps the first
+  // name already typed rather than starting over.
+  const chooseGroupSize = (n: number) => {
+    setGroupSize(n);
+    setGuests(prev => {
+      const next = prev.slice(0, Math.max(0, n - 1));
+      while (next.length < n - 1) next.push({ name: '', contact: '' });
+      return next;
+    });
+  };
+
+  const setGuestField = (i: number, field: keyof PartyGuest, v: string) =>
+    setGuests(prev => prev.map((g, gi) => (gi === i ? { ...g, [field]: v } : g)));
+
+  // Everything between "that's us" and a chair. Shared by the details screen and
+  // the names screen so the two paths cannot drift apart.
+  const requirementsThenJoin = () => {
     if (outstandingFormIds.length) { setStep('consent'); return; }
     if (patchNeeded) { setStep('patch'); return; }
     void join(false);
+  };
+
+  const afterDetails = () => {
+    // Names come before the consent forms, not after. The person holding the
+    // tablet signs for the service they are having; being asked for three more
+    // names once they have already signed reads like the flow restarted.
+    if (groupSize > 1) { setStep('party'); return; }
+    requirementsThenJoin();
   };
 
   const submitConsent = () => {
@@ -583,6 +635,23 @@ export default function WalkInKioskPage() {
         : {}),
     }));
 
+    // One contact line each, split the same way the lead's is: an address goes
+    // in as an email, anything else as a phone. A guest with neither is still a
+    // real row — the front desk fills in the rest at the chair.
+    const partyGuests = guests
+      .map(g => {
+        const contact = g.contact.trim();
+        return {
+          name: g.name.trim(),
+          ...(looksLikeEmail(contact)
+            ? { email: contact }
+            : contact
+              ? { phone: contact }
+              : {}),
+        };
+      })
+      .filter(g => g.name.length > 0);
+
     try {
       const d = await post({
         action: 'join',
@@ -594,6 +663,12 @@ export default function WalkInKioskPage() {
         ...(looksLikeEmail(email) ? { email: email.trim() } : {}),
         serviceId: service.id,
         groupSize,
+        // One row per person, all sharing a groupId, so a party of four is four
+        // tickets and four chairs instead of one row with a "4" beside it. A
+        // blank row is a slot they tapped past on the stepper rather than a
+        // person, so it is dropped here — the party size above still tells the
+        // board how many walked in.
+        ...(partyGuests.length ? { guests: partyGuests } : {}),
         preferredStaffId,
         waitForPreferred,
         acknowledgePatchTest,
@@ -639,57 +714,130 @@ export default function WalkInKioskPage() {
   // booked appointment, so the same printer this studio already uses at the
   // front desk produces the same ticket — a scannable studio copy and a guest
   // stub whose QR opens their own waiting page.
-  const printTicket = useCallback((): boolean => {
-    if (!result?.checkInToken && !result?.shortCode) return false;
+  //
+  // The route replies with a `guests` list that has one entry for a solo walk-in
+  // and one per person for a party, so this screen loops over it without
+  // branching. The fallback below only matters for the seconds after a deploy,
+  // when a tab still holds the older reply that had no list at all.
+  const ticketPeople = useMemo(() => {
+    if (!result) return [] as any[];
+    const list = Array.isArray(result.guests) ? result.guests.filter(Boolean) : [];
+    if (list.length) return list;
+    return [{
+      walkInId: result.walkInId || null,
+      name: result.clientName || name || '',
+      isLead: true,
+      guestNumber: 0,
+      position: result.position,
+      staffName: result.staffName || '',
+      assigned: !!result.assigned,
+      needsFrontDesk: !!result.needsFrontDesk,
+      estWaitMin: result.estWaitMin,
+      serviceName: result.serviceName || service?.name || '',
+      checkInToken: result.checkInToken || null,
+      shortCode: result.shortCode || null,
+    }];
+  }, [result, name, service]);
+
+  // Whose number is on whose ticket. The lead's came off the phone screen; a
+  // guest's came off the names screen, matched back by name because that is the
+  // only thing the route echoes for them.
+  const contactFor = useCallback((g: any): string => {
+    if (g?.isLead) return phone.trim();
+    const key = String(g?.name || '').trim().toLowerCase();
+    const typed = guests.find(x => x.name.trim().toLowerCase() === key);
+    const c = String(typed?.contact || '').trim();
+    return looksLikeEmail(c) ? '' : c;
+  }, [phone, guests]);
+
+  const printOne = useCallback((g: any, index: number, total: number): boolean => {
+    if (!g?.checkInToken && !g?.shortCode) return false;
     const t: any = tenant || {};
-    const svcName = result.serviceName || service?.name || '';
-    const dollars = Number(service?.price);
-    const opened = printAppointmentTicket(
+    const svcName = g.serviceName || service?.name || '';
+    // Only the lead's price is known on this screen. A guest on a different
+    // service would otherwise print somebody else's number, so the price is left
+    // off unless the two services match.
+    const sameService = String(svcName) === String(service?.name || '');
+    const dollars = sameService ? Number(service?.price) : NaN;
+    const partyOfN = Number(result?.groupSize) || groupSize || total;
+    return printAppointmentTicket(
       {
-        id: result.walkInId || null,
-        clientName: result.clientName || name || null,
-        checkInToken: result.checkInToken || null,
-        shortCode: result.shortCode || null,
+        id: g.walkInId || null,
+        clientName: g.name || null,
+        checkInToken: g.checkInToken || null,
+        shortCode: g.shortCode || null,
         status: 'confirmed',
         checkInStatus: 'arrived',
       },
       {
         kind: 'walkin',
-        queuePosition: Number(result.position) || 0,
-        queueWaitMinutes: (result.assigned || result.needsFrontDesk) ? 0 : Number(result.estWaitMin) || 0,
-        queueNote: result.assigned
-          ? `${firstNameOf(result.staffName) || 'Your provider'} is ready for you now`
+        queuePosition: Number(g.position) || 0,
+        queueWaitMinutes: (g.assigned || g.needsFrontDesk) ? 0 : Number(g.estWaitMin) || 0,
+        queueNote: g.assigned
+          ? `${firstNameOf(g.staffName) || 'Your provider'} is ready for you now`
           // No tech qualifies for this service on the floor right now, so the
           // ticket must not print a wait time we cannot stand behind. Send them
           // to a human instead.
-          : result.needsFrontDesk
+          : g.needsFrontDesk
             ? 'Please check in at the front desk'
-            : result.waitingForRequested
-            ? `Waiting for ${firstNameOf(result.staffName) || 'your provider'} · ${softWait(result.estWaitMin)}`
+            : (g.isLead && result?.waitingForRequested)
+            ? `Waiting for ${firstNameOf(g.staffName) || 'your provider'} · ${softWait(g.estWaitMin)}`
             : '',
         studioName: t.name || null,
         studioPhone: t.phone || null,
         studioEmail: t.email || null,
         studioAddress: t.address || null,
-        clientName: result.clientName || name || null,
-        clientPhone: phone || null,
+        clientName: g.name || null,
+        clientPhone: contactFor(g) || null,
         serviceName: svcName || null,
-        staffName: result.staffName || null,
+        staffName: g.staffName || null,
         priceCents: Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : null,
         origin: typeof window !== 'undefined' ? window.location.origin : null,
-        footerNote: groupSize > 1 ? `Party of ${groupSize}` : null,
+        // "Guest 2 of 4" is what stops four near-identical tickets being handed
+        // to the wrong four people at the shampoo bowl. When only one ticket
+        // exists but more people walked in — nobody typed the other names — the
+        // party size is still worth printing for whoever is seating them.
+        footerNote: total > 1
+          ? `Guest ${index + 1} of ${total} · party of ${partyOfN}`
+          : partyOfN > 1
+            ? `Party of ${partyOfN}`
+            : null,
       },
     );
-    return opened;
-  }, [result, tenant, service, name, phone, groupSize]);
+  }, [result, tenant, service, groupSize, contactFor]);
 
-  const handlePrint = () => {
-    const opened = printTicket();
-    setPrinted(opened);
+  const handlePrintOne = (g: any, index: number) => {
+    let opened = false;
+    try { opened = printOne(g, index, ticketPeople.length); } catch { opened = false; }
+    if (opened) {
+      setPrinted(true);
+      const k = ticketKey(g, index);
+      setPrintedKeys(prev => (prev.includes(k) ? prev : [...prev, k]));
+    }
     setPrintError(
       opened
         ? ''
         : 'Your browser blocked the ticket window. Allow popups for this site, then tap Print again.',
+    );
+  };
+
+  const handlePrint = () => {
+    const total = ticketPeople.length;
+    let opened = 0;
+    const done: string[] = [];
+    ticketPeople.forEach((g: any, i: number) => {
+      try {
+        if (printOne(g, i, total)) { opened += 1; done.push(ticketKey(g, i)); }
+      } catch { /* counted as blocked */ }
+    });
+    setPrinted(opened > 0);
+    if (done.length) setPrintedKeys(prev => Array.from(new Set([...prev, ...done])));
+    setPrintError(
+      opened === 0
+        ? 'Your browser blocked the ticket window. Allow popups for this site, then tap Print again.'
+        : opened < total
+          ? `Only ${opened} of ${total} tickets opened — your browser blocked the rest. Print the missing ones one at a time below.`
+          : '',
     );
   };
 
@@ -704,8 +852,23 @@ export default function WalkInKioskPage() {
     if (!token || autoPrinted.current === token) return;
     autoPrinted.current = token;
     if (result?.alreadyInLine) return;
-    try { if (printTicket()) setPrinted(true); } catch { /* the button is still there */ }
-  }, [step, result, printTicket]);
+    // For a party this prints the FIRST ticket only. Four tabs opening on their
+    // own is exactly what a popup blocker exists to stop, and it would take the
+    // quiet attempt with it — the rest are one tap away on the screen below.
+    try {
+      const lead = ticketPeople[0];
+      if (lead && printOne(lead, 0, ticketPeople.length)) {
+        setPrinted(true);
+        setPrintedKeys([ticketKey(lead, 0)]);
+      }
+    } catch { /* the buttons are still there */ }
+  }, [step, result, ticketPeople, printOne]);
+
+  // "Print again" is only honest once every name on the list has come out. Until
+  // then the button still offers the ones that have not.
+  const allTicketsPrinted =
+    ticketPeople.length > 0 &&
+    ticketPeople.every((g: any, i: number) => printedKeys.includes(ticketKey(g, i)));
 
   // ── The fallback: a real waitlist row the front desk can act on ──
   // Goes through /api/waitlist (Admin SDK) because the waitlist collection is
@@ -1225,7 +1388,7 @@ export default function WalkInKioskPage() {
                     <button
                       key={n}
                       type="button"
-                      onClick={() => setGroupSize(n)}
+                      onClick={() => chooseGroupSize(n)}
                       className={cn(
                         'h-14 min-h-[44px] rounded-2xl border-2 text-lg font-semibold transition-all active:scale-95',
                         groupSize === n
@@ -1240,24 +1403,108 @@ export default function WalkInKioskPage() {
               </div>
             </div>
 
-            {outstandingFormIds.length > 0 && (
+            {outstandingFormIds.length > 0 ? (
               <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 flex items-start gap-3">
                 <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
                 <p className="text-sm text-slate-600">
-                  One quick form to sign next — it takes a moment and then you’re in line.
+                  {groupSize > 1
+                    ? 'Who’s with you next, then one quick form to sign — and then you’re in line.'
+                    : 'One quick form to sign next — it takes a moment and then you’re in line.'}
                 </p>
               </div>
-            )}
+            ) : groupSize > 1 ? (
+              /* Without this the button just says "Next" and nothing says next
+                 to what. A party expects to be put in line on this tap. */
+              <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 flex items-start gap-3">
+                <Users className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+                <p className="text-sm text-slate-600">
+                  Who’s with you next, so everyone gets their own ticket — and then you’re in line.
+                </p>
+              </div>
+            ) : null}
 
             <button
               onClick={afterDetails}
               disabled={!name.trim()}
               className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 disabled:opacity-30 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
             >
-              {outstandingFormIds.length > 0 ? 'Next' : 'Put me in line'} <ArrowRight className="w-5 h-5" />
+              {groupSize > 1 ? 'Next' : outstandingFormIds.length > 0 ? 'Next' : 'Put me in line'} <ArrowRight className="w-5 h-5" />
             </button>
             <button
               onClick={() => setStep('provider')}
+              className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back
+            </button>
+          </div>
+        )}
+
+        {/* ── WHO ELSE WALKED IN ──
+            A party of four used to be one row, one provider and one ticket, with
+            the other three people existing only as the number "4" on a card. Each
+            name typed here becomes its own row in the queue, its own chair with
+            its own tech, and its own printed ticket. */}
+        {!kioskOff && step === 'party' && (
+          <div className="w-full space-y-6">
+            <div className="text-center space-y-1">
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-2">
+                <Users className="w-8 h-8 text-slate-600" />
+              </div>
+              <h2 className="text-2xl font-semibold tracking-tight">Who’s with you?</h2>
+              <p className="text-sm text-slate-400">
+                Party of {groupSize} — you plus {groupSize - 1}. We’ll spread you across whoever is free.
+              </p>
+            </div>
+
+            <div className="space-y-5">
+              {guests.map((g, i) => (
+                <div key={i} className="space-y-2">
+                  <label className="text-sm font-medium text-slate-500 px-1">
+                    Guest {i + 2} of {groupSize}
+                  </label>
+                  <div className="relative">
+                    <User className="w-5 h-5 text-slate-300 absolute left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      value={g.name}
+                      onChange={e => setGuestField(i, 'name', e.target.value)}
+                      placeholder="First and last name"
+                      autoComplete="off"
+                      className="w-full h-16 min-h-[44px] pl-12 pr-4 rounded-2xl border-2 border-slate-200 bg-white text-xl font-medium focus:border-rose-300 focus:outline-none"
+                    />
+                  </div>
+                  {/* One line for either. Whichever they type, that guest gets
+                      their own "your chair is ready" message instead of everyone
+                      relying on the one phone that checked the party in. */}
+                  <input
+                    value={g.contact}
+                    onChange={e => setGuestField(i, 'contact', e.target.value)}
+                    placeholder="Mobile or email — optional"
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    className="w-full h-14 min-h-[44px] px-4 rounded-2xl border-2 border-slate-200 bg-white text-base font-medium focus:border-rose-300 focus:outline-none"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl border-2 border-slate-100 bg-slate-50 px-5 py-4 flex items-start gap-3">
+              <Ticket className="w-5 h-5 text-slate-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-slate-600">
+                A ticket prints for each name you give us. Leave a row blank if
+                they’d rather give their details at the desk — you’ll still be
+                down as a party of {groupSize}.
+              </p>
+            </div>
+
+            <button
+              onClick={requirementsThenJoin}
+              className="w-full h-16 min-h-[44px] rounded-2xl bg-slate-900 text-white text-lg font-semibold shadow-xl shadow-slate-900/15 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+            >
+              {outstandingFormIds.length > 0 ? 'Next' : 'Put us in line'} <ArrowRight className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setStep('details')}
               className="w-full min-h-[44px] text-sm text-slate-400 py-1 flex items-center justify-center gap-1.5"
             >
               <ArrowLeft className="w-4 h-4" /> Back
@@ -1525,11 +1772,92 @@ export default function WalkInKioskPage() {
               </div>
             )}
 
+            {/* Only said when a message actually left the building. The route
+                reports what it managed to send rather than what it intended to,
+                because "check your texts" to a guest who never got one is the
+                start of a complaint at the desk. */}
+            {result.messageSent && (
+              <p className="text-sm text-slate-500 flex items-center justify-center gap-2">
+                {result.messageChannel === 'email'
+                  ? <Mail className="w-4 h-4 text-slate-400 shrink-0" />
+                  : <BellRing className="w-4 h-4 text-slate-400 shrink-0" />}
+                {result.messageChannel === 'email'
+                  ? 'We’ve emailed you your place in line'
+                  : 'We’ve texted you your place in line'}
+              </p>
+            )}
+
+            {/* One row per person, each with their own code and their own ticket.
+                The tech calling the next guest forward reads a name off a ticket,
+                so four people sharing one piece of paper is four chances to seat
+                the wrong one. */}
+            {ticketPeople.length > 1 && (
+              <div className="rounded-2xl border-2 border-slate-100 bg-white text-left divide-y divide-slate-100">
+                <div className="px-4 py-3 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-slate-500 shrink-0" />
+                  <p className="text-sm font-semibold text-slate-700">Your party — a ticket each</p>
+                </div>
+                {ticketPeople.map((g: any, i: number) => (
+                  <div key={String(g.checkInToken || g.walkInId || i)} className="px-4 py-3 flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {firstNameOf(g.name) || `Guest ${i + 1}`}
+                        </p>
+                        {/* So whoever is handing paper out can see at a glance
+                            which ones are still to come. */}
+                        {printedKeys.includes(ticketKey(g, i)) && (
+                          <span className="text-[11px] font-semibold text-emerald-600 shrink-0">
+                            ✓ printed
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">
+                        {g.assigned
+                          ? `${firstNameOf(g.staffName) || 'A provider'} is ready now`
+                          : g.needsFrontDesk
+                            ? 'The desk will match them with a provider'
+                            : `#${Number(g.position) || i + 1} in line · ${softWait(g.estWaitMin)}`}
+                      </p>
+                      {g.shortCode && (
+                        <p className="text-xs font-mono tracking-[0.18em] text-slate-400 mt-0.5">
+                          {String(g.shortCode).toUpperCase()}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handlePrintOne(g, i)}
+                      className="h-11 min-h-[44px] px-3 rounded-xl border-2 border-slate-200 text-xs font-semibold text-slate-600 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+                    >
+                      <Printer className="w-4 h-4" /> Ticket
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Names we were given that did not become a chair. Said out loud
+                rather than dropped quietly — somebody standing in a lobby nobody
+                is expecting them in is the worst version of this. */}
+            {Number(result.guestsSkipped) > 0 && (
+              <p className="text-sm text-amber-700 bg-amber-50 border-2 border-amber-100 rounded-xl px-4 py-3 flex items-start gap-2 text-left">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                {Number(result.guestsSkipped) === 1
+                  ? 'One name we couldn’t add — they may already be in line. Please check with the front desk.'
+                  : `${Number(result.guestsSkipped)} names we couldn’t add — they may already be in line. Please check with the front desk.`}
+              </p>
+            )}
+
             <button
               onClick={handlePrint}
               className="w-full h-16 min-h-[44px] rounded-2xl border-2 border-slate-900 bg-white text-lg font-semibold text-slate-900 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
             >
-              <Printer className="w-5 h-5" /> {printed ? 'Print again' : 'Print my ticket'}
+              <Printer className="w-5 h-5" />
+              {allTicketsPrinted
+                ? 'Print again'
+                : ticketPeople.length > 1
+                  ? `Print all ${ticketPeople.length} tickets`
+                  : 'Print my ticket'}
             </button>
             {printError && (
               <p className="text-sm text-rose-600 flex items-start gap-1.5 text-left px-1">
@@ -1546,7 +1874,9 @@ export default function WalkInKioskPage() {
             )}
 
             {groupSize > 1 && (
-              <p className="text-sm text-slate-400">Party of {groupSize} — let the front desk know if that changes.</p>
+              <p className="text-sm text-slate-400">
+                Party of {Number(result.groupSize) || groupSize} — let the front desk know if that changes.
+              </p>
             )}
 
             <div className="flex items-center justify-center gap-1.5 text-sm text-slate-400">
