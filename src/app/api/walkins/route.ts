@@ -800,6 +800,72 @@ export async function GET(req: NextRequest) {
       try { dispatched = await dispatchCallForwards(db, tenantId, tenant, publicOrigin(tenant, req), rows); }
       catch { /* the board must render even if a provider is down */ }
 
+      // ── "Free now" has to actually mean free now ───────────────────────────
+      //
+      // acceptingCount came straight from providers.length, and eligibleProviders
+      // only rejects `isActive === false` — an opt-out on what is an ACCOUNT flag.
+      // So the wall screen counted every rostered provider as free whether or not
+      // they had clocked in, whether or not they were on a break, and whether or
+      // not they were mid-service. On a screen the whole waiting room reads, that
+      // was the boldest claim on the board and the least true one.
+      //
+      // Both spellings are rejected here on purpose. The POS terminal filters on
+      // `s.active` and this route filters on `s.isActive`; the two names almost
+      // certainly mean different things (account enabled vs clocked in), but a
+      // provider who is FALSE under either one does not belong in a count of who
+      // is free, so testing both is correct no matter which is which. It can only
+      // ever remove someone the old count wrongly included.
+      const isDeactivated = (p: any) => p?.isActive === false || p?.active === false;
+      const isUnavailable = (p: any) => p?.onBreak === true
+        || busyStaff.has(String(p?.id || ''))
+        || String(p?.status || '') === 'busy';
+      const freeNow = (providers || []).filter((p: any) => !isDeactivated(p) && !isUnavailable(p));
+
+      // ── A party occupies one row, not four ────────────────────────────────
+      //
+      // The board pages at six and rotates. A party of four ate four of those six
+      // slots, which could push a solo guest onto a page she never happened to
+      // look up during. Only the party's first row is emitted, carrying its size,
+      // and `position` stays the lead's real place in line so the wall agrees with
+      // the number the kiosk quoted them.
+      const groupCounts = new Map<string, number>();
+      queue.forEach((w: any) => {
+        const g = String(w?.groupId || '');
+        if (g) groupCounts.set(g, (groupCounts.get(g) || 0) + 1);
+      });
+      const seenGroups = new Set<string>();
+
+      const boardQueue: any[] = [];
+      for (let i = 0; i < queue.length && boardQueue.length < 20; i++) {
+        const w: any = queue[i];
+        const g = String(w?.groupId || '');
+        if (g) {
+          if (seenGroups.has(g)) continue;
+          seenGroups.add(g);
+        }
+        boardQueue.push({
+          position: i + 1,
+          firstName: firstName(w.customerName || w.clientName) || 'Guest',
+          partySize: g ? (groupCounts.get(g) || 1) : 1,
+          serviceName: str(w.serviceName, 60),
+          providerFirstName: providerOf(w),
+          providerAvatar: avatarOf(w),
+          requested: w.isRequested === true,
+          // `checkInStatus` too: handleUpdateStatus writes 'arrived' to THAT
+          // field, never to `status`, so the old `status === 'arrived'` test was
+          // dead code and an arrived guest never got the green treatment.
+          notified: String(w.status) === 'notified'
+            || String(w.status) === 'arrived'
+            || String(w.checkInStatus || '') === 'arrived',
+          waitedMin: Math.max(0, Math.round((nowMs - toMs(w.checkInTime)) / 60000)),
+          // THIS guest's wait, not the room's. The board-level estWaitMin passes
+          // the whole queue as `ahead`, which makes it the wait for somebody who
+          // has not arrived yet — a number that is wrong for every single person
+          // standing in the room, and most wrong for the one at the front.
+          estWaitMin: estimateWait(queue.slice(0, i), working.length, freeNow.length || providers.length, 30),
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         enabled,
@@ -807,22 +873,18 @@ export async function GET(req: NextRequest) {
         queueLength: queue.length,
         inServiceCount: working.length,
         estWaitMin,
+        // acceptingCount is left as it was so a board still running the previous
+        // build does not go blank between the two deploys. freeNowCount is the
+        // honest one and is what the screen should read.
         acceptingCount: providers.length,
+        freeNowCount: freeNow.length,
+        rosteredCount: (providers || []).length,
         generatedAt: new Date(nowMs).toISOString(),
         // How many guests this poll actually reached. The board does not draw
         // it; it is here so the owner can watch the messages fire from the
         // network tab when she asks "is it really texting them?".
         messagesSent: dispatched,
-        queue: queue.slice(0, 20).map((w: any, i: number) => ({
-          position: i + 1,
-          firstName: firstName(w.customerName || w.clientName) || 'Guest',
-          serviceName: str(w.serviceName, 60),
-          providerFirstName: providerOf(w),
-          providerAvatar: avatarOf(w),
-          requested: w.isRequested === true,
-          notified: String(w.status) === 'notified' || String(w.status) === 'arrived',
-          waitedMin: Math.max(0, Math.round((nowMs - toMs(w.checkInTime)) / 60000)),
-        })),
+        queue: boardQueue,
         inService: working.slice(0, 20).map((w: any) => ({
           firstName: firstName(w.customerName || w.clientName) || 'Guest',
           serviceName: str(w.serviceName, 60),
@@ -830,7 +892,7 @@ export async function GET(req: NextRequest) {
           providerAvatar: avatarOf(w),
         })),
         floor: (staff || [])
-          .filter((s: any) => s.isActive !== false && (!rostered || onShiftIds.has(String(s.id))))
+          .filter((s: any) => s.isActive !== false && s.active !== false && (!rostered || onShiftIds.has(String(s.id))))
           .map((s: any) => ({
             firstName: firstName(s.name) || 'Team',
             avatarUrl: str(s.avatarUrl, 400),
