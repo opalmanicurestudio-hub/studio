@@ -607,7 +607,11 @@ async function readFloor(db: any, tenantId: string, service: any) {
   const [staffSnap, shiftSnap, queueSnap] = await Promise.all([
     db.collection(`tenants/${tenantId}/staff`).get(),
     db.collection(`tenants/${tenantId}/shifts`).get(),
-    db.collection(`tenants/${tenantId}/walkIns`).get(),
+    // 48-hour window: yesterday + today. Catches services that started just
+    // before midnight, avoids a full-collection scan as the collection grows.
+    db.collection(`tenants/${tenantId}/walkIns`)
+      .where('checkInTime', '>=', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+      .get(),
   ]);
   const staff = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
   const shifts = shiftSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
@@ -759,6 +763,40 @@ export async function GET(req: NextRequest) {
     // can read. First names only. No phone, no email, no note, and absolutely
     // no internalNotes — that field never leaves the staff side of the app.
     if (view === 'board') {
+      // Clear stale in-service rows so the lobby board doesn't keep showing
+      // yesterday's services. This is the only path that runs while the
+      // board is open but nobody is actively joining the queue.
+      await healStale(db, tenantId, stale, new Date(nowMs).toISOString());
+
+      // Expire held waitlist slots that were never claimed.
+      //
+      // notifyWaitlistClient sets holdExpiresAt N minutes from now. If the
+      // client doesn't confirm, their row sits as 'notified' forever, the
+      // slot is effectively locked, and the guest behind them waits
+      // indefinitely. The board polls every 5s, making this the right place
+      // to sweep — it runs continuously without anyone having to join the
+      // queue. Belt-and-suspenders with the POS client-side sweep.
+      try {
+        const nowIso2 = new Date(nowMs).toISOString();
+        const expiredHolds = rows.filter((r: any) =>
+          String(r?.status || '') === 'notified' &&
+          r?.holdExpiresAt &&
+          String(r.holdExpiresAt) < nowIso2,
+        );
+        if (expiredHolds.length) {
+          const expBatch = db.batch();
+          for (const r of expiredHolds.slice(0, 20)) {
+            expBatch.set(db.doc(`tenants/${tenantId}/walkIns/${r.id}`), {
+              status: 'waiting',
+              holdExpiresAt: null,
+              notifiedAt: null,
+              notifiedTimestamp: null,
+              updatedAt: nowIso2,
+            }, { merge: true });
+          }
+          await expBatch.commit();
+        }
+      } catch { /* expiry is best-effort; board must render regardless */ }
       const day = todayStr();
       const onShiftIds = new Set(
         (shifts || [])
