@@ -86,11 +86,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { generateShortCode } from '@/lib/short-code';
+import { sendNotification } from '@/lib/notify';
 import { nanoid } from 'nanoid';
 
 export const dynamic = 'force-dynamic';
 
 const MAX_GROUP = 12;
+
+/**
+ * How many pending call-forwards one board poll is allowed to send.
+ *
+ * The lobby board polls every 12 seconds, so a cap here is not a limit on how
+ * many guests can be called — it is a limit on how much work any single request
+ * does. Five is more than a studio will ever flip at once, and it keeps a
+ * pathological case (someone bulk-editing statuses in the Firebase console)
+ * from turning one page load into a hundred outbound messages.
+ */
+const DISPATCH_PER_POLL = 5;
 
 /** Consent signatures go stale at 18 months — the same window QuickBookForm's
  *  formStatuses uses (differenceInMonths(...) >= 18). Kept identical on purpose:
@@ -153,6 +165,250 @@ async function rateLimit(db: any, tenantId: string, key: string, max: number): P
   if (stamps.length >= max) return false;
   await ref.set({ at: [...stamps, Date.now()].slice(-400) }, { merge: true });
   return true;
+}
+
+/* ─── Telling the guest ───────────────────────────────────────────────────────
+ *
+ * Before this block, a walk-in guest received NOTHING. Not a text, not an
+ * email, not at any point — the only notification the route produced was an
+ * in-app bell for staff, and the lobby board was the only call-forward. A guest
+ * who stepped outside for coffee simply lost their turn, and there was no way
+ * for them to find out.
+ *
+ * Two messages, and only two, because a queue that messages you constantly is
+ * worse than one that doesn't message you at all:
+ *
+ *   queued — "you're #3, roughly 25 minutes, here's your live place in line"
+ *   ready  — "your chair is ready, please come to the front"
+ *
+ * Channel choice is deliberate, not a fallback chain by accident:
+ *   • A phone number gets a text. A guest in a lobby is looking at their phone,
+ *     not refreshing a mailbox.
+ *   • SMS is not live yet (A2P 10DLC registration is still outstanding), so
+ *     when the text cannot go out and we hold an email address, the email goes
+ *     instead. This is the whole reason the studio is not silent TODAY. The day
+ *     the A2P registration clears, texts start flowing with no code change.
+ *   • The `queued` email is sent alongside a successful text on purpose: it is
+ *     the copy that survives, carries the tracking link, and doubles as a
+ *     receipt of what the studio told them. `ready` never doubles up — nobody
+ *     needs a mailbox copy of "come to the front desk".
+ *
+ * Every attempt lands in tenants/{id}/messageLog through sendNotification, so
+ * "did we actually tell her?" has one auditable answer instead of a shrug.
+ */
+
+/** The public address of this studio, for links a guest taps on their phone.
+ *  Same resolution order /api/cron/reminders uses, plus the request's own
+ *  origin — a kiosk POST arrives from the studio's real domain, which is the
+ *  most reliable source of the three and the only one that works on a preview
+ *  deployment. */
+function publicOrigin(tenant: any, req?: NextRequest | null): string {
+  const fromTenant = str(tenant?.publicOrigin, 200).trim();
+  if (fromTenant) return fromTenant.replace(/\/+$/, '');
+  // Defensive about `headers` as well as `req`: a missing origin must degrade to
+  // a link-less message, never throw and cost the guest their place in line.
+  const fromReq = (req && req.headers && typeof req.headers.get === 'function')
+    ? str(req.headers.get('origin'), 200).trim()
+    : '';
+  if (/^https?:\/\//i.test(fromReq)) return fromReq.replace(/\/+$/, '');
+  const prod = str(process.env.VERCEL_PROJECT_PRODUCTION_URL, 200).trim();
+  return prod ? `https://${prod}`.replace(/\/+$/, '') : '';
+}
+
+/** Wait language for a guest, never a countdown. Paper and text messages
+ *  cannot tick down, and a guest holding "12 minutes" from twenty minutes ago
+ *  is a guest at the desk asking why. */
+function softWaitText(mins: any): string {
+  const n = Number(mins);
+  if (!Number.isFinite(n) || n <= 0) return 'We can take you now';
+  if (n < 5) return 'Just a few minutes';
+  return `Roughly ${Math.round(n / 5) * 5} minutes`;
+}
+
+type GuestMessage = { subject: string; text: string };
+
+function queuedMessage(o: {
+  studioName: string; guestName: string; serviceName: string;
+  position: number; estWaitMin: number; providerName: string;
+  link: string; needsFrontDesk: boolean;
+}): GuestMessage {
+  const who = firstName(o.guestName) || 'there';
+  const studio = o.studioName || 'the studio';
+  const bits: string[] = [`Hi ${who} — you're in line at ${studio}.`];
+  if (o.position > 0) bits.push(`You're number ${o.position} for ${o.serviceName || 'your service'}.`);
+  else bits.push(`We have you down for ${o.serviceName || 'your service'}.`);
+  if (o.needsFrontDesk) {
+    // Nobody on the floor passes this service's skill or certification gate, so
+    // a wait estimate here would be a number we cannot stand behind.
+    bits.push('Please check in with the front desk so we can match you with the right tech.');
+  } else if (o.providerName) {
+    bits.push(`${firstName(o.providerName)} is ready for you now.`);
+  } else {
+    bits.push(`${softWaitText(o.estWaitMin)}.`);
+  }
+  bits.push("We'll message you the moment your chair is ready.");
+  if (o.link) bits.push(o.link);
+  return { subject: `You're in line at ${studio}`, text: bits.join(' ') };
+}
+
+function readyMessage(o: {
+  studioName: string; guestName: string; providerName: string; link: string;
+}): GuestMessage {
+  const who = firstName(o.guestName) || 'there';
+  const studio = o.studioName || 'the studio';
+  const by = firstName(o.providerName);
+  const bits = [
+    `Hi ${who} — your chair is ready at ${studio}.`,
+    by ? `${by} is waiting for you.` : 'Your provider is ready for you.',
+    'Please come to the front when you can.',
+  ];
+  if (o.link) bits.push(o.link);
+  return { subject: `Your chair is ready at ${studio}`, text: bits.join(' ') };
+}
+
+/**
+ * One guest, one message, both channels considered.
+ *
+ * Returns what actually happened rather than a boolean, because the caller
+ * stamps the row from it and "we tried and the provider is not configured" must
+ * not be recorded as "the guest was told".
+ */
+async function messageGuest(
+  db: any,
+  tenantId: string,
+  o: {
+    kind: 'queued' | 'ready';
+    msg: GuestMessage;
+    phone: string;
+    email: string;
+    clientId: string;
+    clientName: string;
+    walkInId: string;
+  },
+): Promise<{ sentSms: boolean; sentEmail: boolean; delivered: boolean }> {
+  const kind = o.kind === 'ready' ? 'walkin_ready' : 'walkin_queued';
+  const who = {
+    kind,
+    // A walk-in has no appointment id of its own until a provider is assigned,
+    // and the mirror's id is derived, so the row id is the honest handle.
+    appointmentId: o.walkInId ? `apt-walkin-${o.walkInId}` : null,
+    clientId: o.clientId || null,
+    clientName: o.clientName || null,
+    recipientType: 'client' as const,
+    recipientId: o.clientId || null,
+    recipientName: o.clientName || null,
+  };
+
+  let sentSms = false;
+  if (o.phone) {
+    try {
+      const r = await sendNotification(db, {
+        tenantId, channel: 'sms', to: o.phone, text: o.msg.text, ...who,
+      });
+      sentSms = r.ok;
+    } catch { sentSms = false; }
+  }
+
+  // Email when we have one AND either (a) this is the queued message, whose
+  // written copy is worth keeping, or (b) the text did not go out, which today
+  // is every single time.
+  let sentEmail = false;
+  const wantEmail = !!o.email && (o.kind === 'queued' || !sentSms);
+  if (wantEmail) {
+    try {
+      const r = await sendNotification(db, {
+        tenantId, channel: 'email', to: o.email,
+        subject: o.msg.subject, text: o.msg.text, ...who,
+      });
+      sentEmail = r.ok;
+    } catch { sentEmail = false; }
+  }
+
+  return { sentSms, sentEmail, delivered: sentSms || sentEmail };
+}
+
+/**
+ * Send the "your chair is ready" message for rows somebody flipped to
+ * `notified` outside this route.
+ *
+ * This exists because of a hard constraint, not a preference. Every surface
+ * that calls a guest forward — the staff board, the POS walk-in panel — writes
+ * `status: 'notified'` straight to Firestore from the browser. There is no
+ * server hook to hang a message on, and a Hobby-plan cron runs once a day,
+ * which is useless for "your chair is ready".
+ *
+ * So the dispatcher rides along on the one request this app makes constantly
+ * and reliably: the lobby board's 12-second poll. The board is on a screen in
+ * the lobby all day, which makes it the most dependable heartbeat in the
+ * system. A GET with a side effect is not lovely, but a guest who never learns
+ * their chair is ready is worse.
+ *
+ * Safety: the claim is a transaction that re-reads the row and bails if
+ * guestNotifiedAt is already set, so two boards polling at the same instant
+ * cannot double-text anybody. The stamp is written BEFORE the send — a message
+ * we might have sent twice is worse than one we might have missed once, and the
+ * miss is visible in messageLog either way.
+ */
+async function dispatchCallForwards(
+  db: any, tenantId: string, tenant: any, base: string, rows: any[],
+): Promise<number> {
+  const pending = rows.filter(
+    (r: any) => String(r?.status || '') === 'notified'
+      && !r?.guestNotifiedAt
+      && (str(r?.phone, 40) || str(r?.email, 160))
+      // A guest called forward hours ago should not be texted because a board
+      // came back online. Only rows flipped recently are still news.
+      && Date.now() - toMs(r?.notifiedAt || r?.updatedAt || r?.checkInTime) < 60 * 60 * 1000,
+  ).slice(0, DISPATCH_PER_POLL);
+  if (!pending.length) return 0;
+
+  const studioName = str(tenant?.name || tenant?.businessName, 80);
+  let sent = 0;
+
+  for (const row of pending) {
+    const id = str(row?.id, 200);
+    if (!id) continue;
+    const ref = db.doc(`tenants/${tenantId}/walkIns/${id}`);
+    const nowIso = new Date().toISOString();
+
+    // Claim it, or discover somebody else already did.
+    let claimed = false;
+    try {
+      claimed = await db.runTransaction(async (tx: any) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return false;
+        const cur = (snap.data() as any) || {};
+        if (cur.guestNotifiedAt) return false;
+        if (String(cur.status || '') !== 'notified') return false;
+        tx.set(ref, { guestNotifiedAt: nowIso, updatedAt: nowIso }, { merge: true });
+        return true;
+      });
+    } catch { claimed = false; }
+    if (!claimed) continue;
+
+    const token = str(row?.checkInToken, 40);
+    const r = await messageGuest(db, tenantId, {
+      kind: 'ready',
+      msg: readyMessage({
+        studioName,
+        guestName: str(row?.customerName || row?.clientName, 80),
+        providerName: str(row?.staffName, 80),
+        link: base && token ? `${base}/check-in/${token}` : '',
+      }),
+      phone: str(row?.phone, 40),
+      email: str(row?.email, 160),
+      clientId: str(row?.clientId, 120),
+      clientName: str(row?.customerName || row?.clientName, 80),
+      walkInId: id,
+    });
+    if (r.delivered) sent++;
+    else {
+      // Nothing went out. Record that on the row so the staff board can show
+      // "not reached" instead of implying the guest has been told.
+      try { await ref.set({ guestNotifyFailedAt: new Date().toISOString() }, { merge: true }); } catch { /* logged already */ }
+    }
+  }
+  return sent;
 }
 
 /**
@@ -534,6 +790,16 @@ export async function GET(req: NextRequest) {
       );
       const avatarOf = (row: any): string => avatarById.get(String(row?.staffId || '')) || '';
 
+      // Send any outstanding "your chair is ready" messages. Awaited rather
+      // than fired and forgotten because a serverless function is frozen the
+      // instant it returns a response — a dangling promise here would be
+      // killed mid-flight and the guest would never be told. It costs this
+      // request a moment; the board is a wall screen refreshing every twelve
+      // seconds and nobody is watching a spinner.
+      let dispatched = 0;
+      try { dispatched = await dispatchCallForwards(db, tenantId, tenant, publicOrigin(tenant, req), rows); }
+      catch { /* the board must render even if a provider is down */ }
+
       return NextResponse.json({
         ok: true,
         enabled,
@@ -543,6 +809,10 @@ export async function GET(req: NextRequest) {
         estWaitMin,
         acceptingCount: providers.length,
         generatedAt: new Date(nowMs).toISOString(),
+        // How many guests this poll actually reached. The board does not draw
+        // it; it is here so the owner can watch the messages fire from the
+        // network tab when she asks "is it really texting them?".
+        messagesSent: dispatched,
         queue: queue.slice(0, 20).map((w: any, i: number) => ({
           position: i + 1,
           firstName: firstName(w.customerName || w.clientName) || 'Guest',
@@ -597,7 +867,7 @@ export async function POST(req: NextRequest) {
     const action = str(body?.action, 20) || 'join';
 
     if (!tenantId) return NextResponse.json({ ok: false, error: 'Missing studio.' }, { status: 400 });
-    if (!['join', 'lookup', 'options', 'complete'].includes(action)) {
+    if (!['join', 'lookup', 'options', 'complete', 'notify'].includes(action)) {
       return NextResponse.json({ ok: false, error: 'Unknown action.' }, { status: 400 });
     }
 
@@ -607,6 +877,10 @@ export async function POST(req: NextRequest) {
     const tenant = (tenantSnap.data() as any) || {};
 
     if (action === 'complete') return await handleComplete(db, tenantId, body);
+    // Staff calling a guest forward, same side of the line as `complete`: it
+    // acts on a row that already exists, so turning the kiosk off must not
+    // strand the people already in the queue.
+    if (action === 'notify') return await handleNotify(db, tenantId, tenant, body, publicOrigin(tenant, req));
 
     // Everything a guest can do at the kiosk is gated on the owner's switch.
     // `complete` is above this line because it's the staff board closing out a
@@ -621,7 +895,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'lookup') return await handleLookup(db, tenantId, body);
     if (action === 'options') return await handleOptions(db, tenantId, body);
-    return await handleJoin(db, tenantId, tenant, body);
+    return await handleJoin(db, tenantId, tenant, body, publicOrigin(tenant, req));
   } catch {
     return NextResponse.json({ ok: false, error: 'Something went wrong.' }, { status: 500 });
   }
@@ -848,13 +1122,15 @@ function rotate(providers: any[], rows: any[], busyIds: Set<string>): any[] {
 
 // ─── join — taking a place in line ───────────────────────────────────────────
 
-async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
+async function handleJoin(db: any, tenantId: string, tenant: any, body: any, base: string) {
   const name = str(body?.name, 80).trim();
   const phone = str(body?.phone, 40).trim();
   const email = str(body?.email, 160).trim();
   const serviceId = str(body?.serviceId, 120);
   const note = str(body?.note, 300).trim();
-  const groupSize = Math.min(MAX_GROUP, Math.max(1, Math.round(Number(body?.groupSize) || 1)));
+  // What the guest TAPPED on the party stepper. It is not the same thing as
+  // how many people we end up with rows for — see the party block below.
+  const groupSaid = Math.min(MAX_GROUP, Math.max(1, Math.round(Number(body?.groupSize) || 1)));
   const preferredStaffId = str(body?.preferredStaffId, 120);
   const waitForPreferred = body?.waitForPreferred === true;
   const acknowledgePatchTest = body?.acknowledgePatchTest === true;
@@ -991,6 +1267,111 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
   }
   const patchTestWarning = reqs.patchTestRequired && !reqs.patchTestOnFile;
 
+  // ── The rest of the party ────────────────────────────────────────────────
+  //
+  // Until now `groupSize` was decorative. A party of four became ONE row: one
+  // provider, one ticket, one name. The board showed "Group · 4" and three of
+  // those four people existed nowhere in the system — no client record, no
+  // consent trail, no ticket of their own, and nobody's calendar showed them,
+  // so online booking went on offering the chairs they were about to sit in.
+  //
+  // From here every guest is their own row, sharing a `groupId` so the floor
+  // can still see them as one party. `body.guests` carries the EXTRA guests
+  // only — the person holding the tablet is seat 1 and is described by the
+  // fields above.
+  //
+  // A guest is dropped rather than duplicated when they already have a place in
+  // line, or when they repeat somebody else in the same party. A blank name is a
+  // slot the guest tapped past on the stepper, not a person.
+  const rawGuests: any[] = Array.isArray(body?.guests) ? body.guests.slice(0, MAX_GROUP - 1) : [];
+  const takenKeys = new Set<string>();
+  if (wantPhone) takenKeys.add(`p:${wantPhone}`);
+  if (wantEmail) takenKeys.add(`e:${wantEmail}`);
+  takenKeys.add(`n:${name.toLowerCase()}`);
+  const openRows = rows.filter((r: any) => isOpenRow(r.status) || isWorking(r.status));
+
+  const party: {
+    name: string; phone: string; email: string;
+    service: any; svcMins: number; ownService: boolean; reqs: any;
+  }[] = [];
+
+  for (const g of rawGuests) {
+    if (party.length >= MAX_GROUP - 1) break;
+    const gName = str(g?.name, 80).trim();
+    if (!gName) continue;
+    const gPhone = str(g?.phone, 40).trim();
+    const gEmailRaw = str(g?.email, 160).trim();
+    const gEmail = isEmail(gEmailRaw) ? gEmailRaw : '';
+    const gDigits = digits(gPhone);
+    const gMail = gEmail.toLowerCase();
+
+    // Contact details identify a person; a bare first name does not. Two
+    // sisters both called in as "Ana" are two chairs, so the name key is only
+    // used to dedupe when there is nothing better to go on.
+    const keys = (gDigits || gMail)
+      ? [...(gDigits ? [`p:${gDigits}`] : []), ...(gMail ? [`e:${gMail}`] : [])]
+      : [`n:${gName.toLowerCase()}`];
+    if (keys.some(k => takenKeys.has(k))) continue;
+    const alreadyHere = openRows.find((r: any) => {
+      if (gDigits && digits(r.phone || r.clientPhone) === gDigits) return true;
+      if (gMail && str(r.email || r.clientEmail, 160).trim().toLowerCase() === gMail) return true;
+      return false;
+    });
+    if (alreadyHere) continue;
+    keys.forEach(k => takenKeys.add(k));
+
+    // A guest may want something different from whoever is holding the tablet.
+    // Only the LEAD's service was measured against every tech's skills,
+    // certifications and today's roster, so a different service means that seat
+    // joins unassigned and flagged for the front desk. A person matches them
+    // instead of the rotation guessing.
+    const gSvcId = str(g?.serviceId, 120);
+    let gService = service;
+    let ownService = false;
+    if (gSvcId && gSvcId !== service.id) {
+      try {
+        const gSnap = await db.doc(`tenants/${tenantId}/services/${gSvcId}`).get();
+        const gData: any = gSnap.exists ? { id: gSnap.id, ...((gSnap.data() as any) || {}) } : null;
+        if (gData && gData.isActive !== false && gData.walkInEnabled !== false) {
+          gService = gData;
+          ownService = true;
+        }
+      } catch {
+        // An unreadable service is not a reason to turn somebody away. They
+        // join on the party's service and the front desk sorts it out.
+      }
+    }
+
+    // Consent, on their own terms. The signature taken at the kiosk covers the
+    // LEAD and nobody else — a waiver signed by someone else's finger is not a
+    // waiver. So each guest's outstanding forms go onto their OWN check-in link,
+    // which the portal already knows how to present, and they sign from their
+    // own phone while they wait. Deferred, not skipped: the row carries
+    // consentPending so the provider sees it before they start.
+    const gExisting = await findClient(db, tenantId, gPhone, gEmail);
+    const gReqs = await readRequirements(db, tenantId, gService, gExisting?.id || '', gExisting?.data || null);
+
+    party.push({
+      name: gName,
+      phone: gPhone,
+      email: gEmail,
+      service: gService,
+      svcMins: Number(gService.duration) > 0 ? Number(gService.duration) : 30,
+      ownService,
+      reqs: gReqs,
+    });
+  }
+
+  const partySize = 1 + party.length;
+  // What every row records. The stepper number wins when it is LARGER than the
+  // names we were given — "party of 4" with two names typed in still says 4 on
+  // the board, because the other two are standing right there — and it is never
+  // allowed to be smaller than the rows we actually created.
+  const groupSize = Math.min(MAX_GROUP, Math.max(groupSaid, partySize));
+  // Null for a single guest, so nothing that reads it has to special-case a
+  // party of one.
+  const groupId = party.length ? `grp-${nanoid(10)}` : null;
+
   // ── Who takes them ───────────────────────────────────────────────────────
   const busyIds = busySet(rows, nowMs);
   const free = rotate(providers, rows, busyIds);
@@ -1069,49 +1450,161 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
       } : {}),
     }));
 
-  // Client dedupe + the queue row in one transaction, so two guests tapping
-  // at the same instant can't mint two profiles for the same phone number.
-  // Reads first, writes second — Firestore's rule, not a style choice.
-  const clientId: string = await db.runTransaction(async (tx: any) => {
-    let foundId = '';
-    let foundName = '';
-    if (phone) {
-      const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', phone).limit(1));
-      if (!hit.empty) { foundId = hit.docs[0].id; foundName = str((hit.docs[0].data() as any)?.name, 80); }
-    }
-    if (!foundId && isEmail(email)) {
-      const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', email).limit(1));
-      if (!hit.empty) { foundId = hit.docs[0].id; foundName = str((hit.docs[0].data() as any)?.name, 80); }
+  // ── One seat per guest ───────────────────────────────────────────────────
+  //
+  // Distribution rides on the SAME rotation the lead used. `free` is already
+  // sorted longest-since-their-last-walk-in, so handing each guest the next
+  // provider off the front of that list IS the even spread she asked for — not
+  // four people stacked onto one tech while the others stand idle. One guest per
+  // provider. When the party is bigger than the free floor the remainder join
+  // unassigned, in order, and the next tech to finish picks them up.
+  const takenStaff = new Set<string>();
+  if (holder) takenStaff.add(String(holder.id));
+  const pool = free.filter((p: any) => !takenStaff.has(String(p.id)));
+
+  type Seat = {
+    index: number; isLead: boolean;
+    name: string; phone: string; email: string;
+    service: any; svcMins: number;
+    holder: any; assigned: boolean;
+    isRequested: boolean; waitingForRequested: boolean; needsFrontDesk: boolean;
+    position: number; estWaitMin: number;
+    token: string; shortCode: string; ref: any;
+    signedForms: any[]; patchTestWarning: boolean; reqs: any; consentPending: boolean;
+  };
+
+  const seats: Seat[] = [{
+    index: 1, isLead: true,
+    name, phone, email,
+    service, svcMins,
+    holder, assigned: !!assigned,
+    isRequested, waitingForRequested, needsFrontDesk,
+    position, estWaitMin,
+    token, shortCode, ref: walkInRef,
+    signedForms, patchTestWarning, reqs, consentPending: false,
+  }];
+
+  // The wait quoted to the people behind the lead has to include the party
+  // itself. Without this, guest four is told the same number as guest one and
+  // three of them were quoted something that was never true.
+  //
+  // A seat that DID get a provider counts too, just differently. That guest is
+  // not standing in the line ahead of anybody, but she has taken a chair, and
+  // the chair is the thing the people behind her are actually waiting for.
+  // Counting only the unassigned seats is how guest two of a party of three,
+  // with one tech on the floor, was quoted "we can take you now" at the exact
+  // moment that tech sat down with guest one.
+  const pseudoAhead: any[] = [];
+  let pseudoWorking = 0;
+  if (assigned) pseudoWorking += 1;
+  else pseudoAhead.push({ estimatedDuration: svcMins });
+
+  party.forEach((g, i) => {
+    const seatHolder = (g.ownService || needsFrontDesk) ? null : (pool.shift() || null);
+    if (seatHolder) takenStaff.add(String(seatHolder.id));
+    const seatWait = seatHolder
+      ? 0
+      : estimateWait([...queue, ...pseudoAhead], working.length + pseudoWorking, waitDivisor, g.svcMins);
+    if (seatHolder) pseudoWorking += 1;
+    else pseudoAhead.push({ estimatedDuration: g.svcMins });
+    seats.push({
+      index: i + 2, isLead: false,
+      name: g.name, phone: g.phone, email: g.email,
+      service: g.service, svcMins: g.svcMins,
+      holder: seatHolder, assigned: !!seatHolder,
+      isRequested: false, waitingForRequested: false,
+      // They asked for a service the floor was never checked against, so no
+      // rotation can honour it. Running out of free techs is NOT this — that
+      // guest simply waits, exactly as an unassigned lead does.
+      needsFrontDesk: needsFrontDesk || g.ownService,
+      position: queue.length + 1 + (i + 1),
+      estWaitMin: seatWait,
+      token: nanoid(16),
+      shortCode: generateShortCode(),
+      ref: db.collection(`tenants/${tenantId}/walkIns`).doc(),
+      signedForms: [],
+      patchTestWarning: g.reqs.patchTestRequired && !g.reqs.patchTestOnFile,
+      reqs: g.reqs,
+      consentPending: g.reqs.outstandingIds.length > 0,
+    });
+  });
+
+  // Client dedupe + every queue row in ONE transaction, so two guests tapping
+  // at the same instant can't mint two profiles for the same phone number, and
+  // a party either lands whole or not at all.
+  //
+  // ALL READS FIRST, THEN ALL WRITES. That is Firestore's rule for a
+  // transaction, not a style choice, and it is the reason this is shaped as two
+  // passes over `seats` instead of one loop that reads and writes per guest.
+  const clientIds: string[] = await db.runTransaction(async (tx: any) => {
+    // ── Pass one: reads, and nothing else ────────────────────────────────
+    const found: { id: string; name: string }[] = [];
+    for (const seat of seats) {
+      let fid = '';
+      let fname = '';
+      if (seat.phone) {
+        const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('phone', '==', seat.phone).limit(1));
+        if (!hit.empty) { fid = hit.docs[0].id; fname = str((hit.docs[0].data() as any)?.name, 80); }
+      }
+      if (!fid && isEmail(seat.email)) {
+        const hit = await tx.get(db.collection(`tenants/${tenantId}/clients`).where('email', '==', seat.email).limit(1));
+        if (!hit.empty) { fid = hit.docs[0].id; fname = str((hit.docs[0].data() as any)?.name, 80); }
+      }
+      found.push({ id: fid, name: fname });
     }
 
-    if (!foundId) {
-      const cRef = db.collection(`tenants/${tenantId}/clients`).doc();
-      foundId = cRef.id;
-      // `clients` is one of the few collections with `allow create: if true`,
-      // so this shape matches what the booking route writes for a first-time
-      // guest — same fields, so the client list doesn't grow two dialects.
-      tx.set(cRef, {
-        id: foundId,
-        name,
-        email: email || null,
-        phone: phone || null,
-        status: 'active',
-        lifetimeValue: 0,
-        lastAppointment: nowIso,
-        lastServiceId: service.id,
-        createdVia: 'walkin-kiosk',
-      });
-    } else {
-      // Keep the "same as last time" suggestion current for their next visit.
-      // Merge, so nothing else on a long-standing client record is disturbed.
-      tx.set(db.doc(`tenants/${tenantId}/clients/${foundId}`), {
-        lastAppointment: nowIso,
-        lastServiceId: service.id,
-        ...(holder ? { lastStaffId: String(holder.id) } : {}),
-      }, { merge: true });
-    }
+    // ── Pass two: writes ─────────────────────────────────────────────────
+    const ids: string[] = [];
+    for (let si = 0; si < seats.length; si++) {
+      const seat = seats[si];
+      let foundId = found[si].id;
+      const foundName = found[si].name;
 
-    const displayName = foundName || name;
+      if (!foundId) {
+        const cRef = db.collection(`tenants/${tenantId}/clients`).doc();
+        foundId = cRef.id;
+        // `clients` is one of the few collections with `allow create: if true`,
+        // so this shape matches what the booking route writes for a first-time
+        // guest — same fields, so the client list doesn't grow two dialects.
+        tx.set(cRef, {
+          id: foundId,
+          name: seat.name,
+          email: seat.email || null,
+          phone: seat.phone || null,
+          status: 'active',
+          lifetimeValue: 0,
+          lastAppointment: nowIso,
+          lastServiceId: seat.service.id,
+          createdVia: 'walkin-kiosk',
+          // A guest added by first name only, with no phone and no email. This
+          // is deliberately NOT merged onto an existing record with the same
+          // name: welding two different people's history — their notes, their
+          // allergies, their spend — together to save one duplicate row is a
+          // trade nobody would agree to if you asked them out loud. Two visible
+          // stubs the front desk can merge on purpose is the better failure.
+          ...(!seat.isLead && !seat.phone && !seat.email
+            ? { isPartyGuestStub: true, needsContactInfo: true }
+            : {}),
+        });
+      } else {
+        // Keep the "same as last time" suggestion current for their next visit.
+        // Merge, so nothing else on a long-standing client record is disturbed.
+        tx.set(db.doc(`tenants/${tenantId}/clients/${foundId}`), {
+          lastAppointment: nowIso,
+          lastServiceId: seat.service.id,
+          ...(seat.holder ? { lastStaffId: String(seat.holder.id) } : {}),
+        }, { merge: true });
+      }
+      ids.push(foundId);
+
+      const displayName = foundName || seat.name;
+      const seatEnd = new Date(nowMs + seat.svcMins * 60 * 1000).toISOString();
+      // Every seat is created in the same instant and the board sorts the queue
+      // on checkInTime, so identical stamps would let a party reshuffle itself
+      // on every render. One millisecond per seat is invisible to a person and
+      // holds the party in the order the names were typed. The lead keeps the
+      // exact shared timestamp.
+      const seatIso = si === 0 ? nowIso : new Date(nowMs + si).toISOString();
 
     // ── The queue row ────────────────────────────────────────────────────
     // Every field here is one the existing readers already look for. The
@@ -1121,58 +1614,70 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     // estimatedDuration for the floor's average, serviceIds for the
     // notification line, and startTime for the planner timeline.
     const row: any = {
-      id: walkInRef.id,
+      id: seat.ref.id,
       tenantId,
-      status: assigned ? 'notified' : 'waiting',
-      staffId: holder ? String(holder.id) : null,
-      staffName: holder ? str(holder.name, 80) : null,
-      notifiedAt: assigned ? nowIso : null,
+      status: seat.assigned ? 'notified' : 'waiting',
+      staffId: seat.holder ? String(seat.holder.id) : null,
+      staffName: seat.holder ? str(seat.holder.name, 80) : null,
+      notifiedAt: seat.assigned ? nowIso : null,
 
       clientId: foundId,
       clientName: displayName,
       customerName: displayName,
-      phone: phone || null,
-      email: email || null,
+      phone: seat.phone || null,
+      email: seat.email || null,
 
-      serviceId: service.id,
-      serviceIds: [service.id],
-      serviceName: str(service.name, 80),
-      estimatedDuration: svcMins,
+      serviceId: seat.service.id,
+      serviceIds: [seat.service.id],
+      serviceName: str(seat.service.name, 80),
+      estimatedDuration: seat.svcMins,
       groupSize,
 
-      // v2 — the handle everything guest-facing hangs on.
-      checkInToken: token,
-      shortCode,
+      // v3 — the party. The POS terminal's walk-in panel already READS
+      // groupId; this is the first thing in the application that writes it.
+      groupId,
+      groupIndex: seat.index,
+      groupLeadId: groupId ? walkInRef.id : null,
+      isGroupLead: seat.isLead,
+
+      // v2 — the handle everything guest-facing hangs on. Per SEAT, which is
+      // what gives every guest in a party their own ticket, their own QR and
+      // their own waiting screen.
+      checkInToken: seat.token,
+      shortCode: seat.shortCode,
 
       // v2 — a requested provider is recorded separately from the assigned
       // one, because the two mean different things to the rotation.
-      isRequested,
-      requestedStaffId: requested ? String(requested.id) : null,
-      requestedStaffName: requested ? str(requested.name, 80) : null,
-      waitingForRequested,
+      isRequested: seat.isRequested,
+      requestedStaffId: (seat.isLead && requested) ? String(requested.id) : null,
+      requestedStaffName: (seat.isLead && requested) ? str(requested.name, 80) : null,
+      waitingForRequested: seat.waitingForRequested,
 
-      signedForms,
-      patchTestWarning,
+      signedForms: seat.signedForms,
+      patchTestWarning: seat.patchTestWarning,
+      // v3 — this guest's waiver is waiting on their own phone, unsigned. The
+      // provider has to see that before they start, not after.
+      consentPending: seat.consentPending,
 
       // TRUE means: this guest is in the queue but no tech currently passes the
       // service's skill / certification / roster gate. She is NOT turned away —
       // the front desk decides. The staff board should show this loudly, because
       // nobody will be auto-assigned to her by the rotation.
-      needsFrontDesk,
+      needsFrontDesk: seat.needsFrontDesk,
 
-      checkInTime: nowIso,
-      startTime: nowIso,
+      checkInTime: seatIso,
+      startTime: seatIso,
       serviceStartTime: null,
       completedAt: null,
       appointmentId: null,
       isEscalated: false,
       location: 'lobby',
-      note,
+      note: seat.isLead ? note : '',
       source: 'walkin-kiosk',
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-    tx.set(walkInRef, row);
+    tx.set(seat.ref, row);
 
     // ── The planner appointment ──────────────────────────────────────────
     // THIS IS WHAT STOPS A DOUBLE BOOKING.
@@ -1195,11 +1700,11 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     // Only written when a provider is actually assigned. An unassigned guest
     // in `waiting` is holding nobody's calendar, and inventing an appointment
     // for her would block a tech who has not agreed to take her yet.
-    if (holder) {
-      tx.set(db.doc(`tenants/${tenantId}/appointments/apt-walkin-${walkInRef.id}`), {
-        id: `apt-walkin-${walkInRef.id}`,
+    if (seat.holder) {
+      tx.set(db.doc(`tenants/${tenantId}/appointments/apt-walkin-${seat.ref.id}`), {
+        id: `apt-walkin-${seat.ref.id}`,
         tenantId,
-        walkInId: walkInRef.id,
+        walkInId: seat.ref.id,
         isWalkIn: true,
         source: 'walk-in',
         status: 'confirmed',
@@ -1208,25 +1713,27 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
 
         clientId: foundId,
         clientName: displayName,
-        clientPhone: phone || null,
-        clientEmail: email || null,
+        clientPhone: seat.phone || null,
+        clientEmail: seat.email || null,
 
-        serviceId: service.id,
-        serviceIds: [service.id],
+        serviceId: seat.service.id,
+        serviceIds: [seat.service.id],
         // serviceName is written here on purpose. /pos's own mirror omits it,
         // which is why an unresolvable service showed up at the till as a
         // blank line instead of a name you could read.
-        serviceName: str(service.name, 80),
-        staffId: String(holder.id),
-        staffName: str(holder.name, 80),
+        serviceName: str(seat.service.name, 80),
+        staffId: String(seat.holder.id),
+        staffName: str(seat.holder.name, 80),
 
         startTime: nowIso,
-        endTime: new Date(nowMs + svcMins * 60 * 1000).toISOString(),
-        estimatedDuration: svcMins,
+        endTime: seatEnd,
+        estimatedDuration: seat.svcMins,
         groupSize,
+        groupId,
+        groupIndex: seat.index,
 
-        checkInToken: token,
-        shortCode,
+        checkInToken: seat.token,
+        shortCode: seat.shortCode,
         createdAt: nowIso,
         updatedAt: nowIso,
       });
@@ -1248,31 +1755,33 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     // write would conjure a phantom appointment into the planner. Setting it
     // here makes that effect early-return instead.
     const mirror: any = {
-      id: walkInRef.id,
+      id: seat.ref.id,
       tenantId,
-      walkInId: walkInRef.id,
+      walkInId: seat.ref.id,
       appointmentId: null,
       isWalkIn: true,
       source: 'walkin-kiosk',
 
-      checkInToken: token,
-      shortCode,
+      checkInToken: seat.token,
+      shortCode: seat.shortCode,
 
       clientId: foundId,
       clientName: displayName,
-      clientPhone: phone || null,
-      clientEmail: email || null,
+      clientPhone: seat.phone || null,
+      clientEmail: seat.email || null,
 
-      serviceId: service.id,
-      serviceIds: [service.id],
-      serviceName: str(service.name, 80),
-      staffId: holder ? String(holder.id) : null,
-      staffName: holder ? str(holder.name, 80) : null,
+      serviceId: seat.service.id,
+      serviceIds: [seat.service.id],
+      serviceName: str(seat.service.name, 80),
+      staffId: seat.holder ? String(seat.holder.id) : null,
+      staffName: seat.holder ? str(seat.holder.name, 80) : null,
 
       startTime: nowIso,
-      endTime: new Date(nowMs + svcMins * 60 * 1000).toISOString(),
-      estimatedDuration: svcMins,
+      endTime: seatEnd,
+      estimatedDuration: seat.svcMins,
       groupSize,
+      groupId,
+      groupIndex: seat.index,
 
       status: 'confirmed',
       checkInStatus: 'arrived',
@@ -1282,11 +1791,11 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
       createdAt: nowIso,
       updatedAt: nowIso,
     };
-    tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${token}`), mirror);
+    tx.set(db.doc(`tenants/${tenantId}/appointmentCheckIns/${seat.token}`), mirror);
     // resolveToken in /api/guest-lounge reads the top-level copy FIRST, and the
     // check-in portal reads it directly. Written until the legacy rule closes,
     // exactly as api/appointments/book does.
-    tx.set(db.doc(`appointmentCheckIns/${token}`), mirror);
+    tx.set(db.doc(`appointmentCheckIns/${seat.token}`), mirror);
 
     // ── The completion record ────────────────────────────────────────────
     // Consent is already satisfied by the time we get here, so this exists for
@@ -1297,28 +1806,37 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     // at the chair, there is no deposit to authorise — which is precisely what
     // makes the portal's isCompletionPending false when nothing is owed, so
     // this never puts a gate screen in front of a guest with nothing to do.
-    tx.set(db.doc(`tenants/${tenantId}/bookingCompletions/${token}`), {
-      token,
+    //
+    // requiredConsentFormIds is EMPTY for the lead because the lead signed at
+    // the kiosk before they were given a place. For anybody else in the party
+    // it carries whatever they still owe, which is what turns their check-in
+    // link into "please sign this" on their own phone.
+    tx.set(db.doc(`tenants/${tenantId}/bookingCompletions/${seat.token}`), {
+      token: seat.token,
       tenantId,
       appointmentId: null,
-      walkInId: walkInRef.id,
+      walkInId: seat.ref.id,
       clientId: foundId,
       clientName: displayName,
-      clientEmail: email ? email.toLowerCase() : null,
-      serviceId: service.id,
-      serviceName: str(service.name, 80),
+      clientEmail: seat.email ? seat.email.toLowerCase() : null,
+      serviceId: seat.service.id,
+      serviceName: str(seat.service.name, 80),
       depositAmountCents: 0,
-      requiredConsentFormIds: [],
+      requiredConsentFormIds: seat.isLead ? [] : seat.reqs.outstandingIds,
       skipCardStep: true,
       cardAlreadyOnFile: false,
-      fileRequirements: reqs.fileRequirements,
+      fileRequirements: seat.reqs.fileRequirements,
       appointmentStartTime: nowIso,
       source: 'walkin-kiosk',
       createdAt: nowIso,
     });
+    }
 
-    return foundId;
+    return ids;
   });
+  // Seat one is the person who was standing at the kiosk. Every response field
+  // that existed before a party was possible still describes them.
+  const clientId: string = clientIds[0];
 
   // ── Persist the signatures somewhere permanent ────────────────────────────
   // Both stores, because two different screens read two different ones:
@@ -1386,9 +1904,13 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
   // everyone. The assigned provider gets one; managers get one either way, so
   // an unassigned guest isn't left standing there because every provider
   // happened to be mid-service.
+  const seatedCount = seats.filter(s => s.assigned).length;
   try {
     const recipients = new Set<string>();
-    if (holder) recipients.add(String(holder.id));
+    // Every provider who was handed one of these guests, not just the lead's.
+    // A party spread across four techs where only one of them is told is a
+    // party where three people sit there while their tech waits for a name.
+    seats.forEach(s => { if (s.holder) recipients.add(String(s.holder.id)); });
     const mgrs = await db.collection(`tenants/${tenantId}/staff`).where('role', 'in', ['owner', 'admin']).get();
     mgrs.docs.forEach((d: any) => recipients.add(d.id));
     // The owner's own uid off the tenant document, always.
@@ -1410,10 +1932,18 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
         // rotation will never pick this guest up on its own. If this line does
         // not appear, she waits forever while the board looks normal.
         + (needsFrontDesk ? ' ⚠ No tech currently qualifies for this service — assign by hand.' : '');
+      // A party is described as a party. "Walk-in: Dana joined the queue" four
+      // times over reads like four unrelated people, and the front desk plans
+      // for four chairs together very differently from four strangers.
+      const partyTail = party.length ? ` · party of ${partySize}` : '';
       recipients.forEach((uid: string) => {
         const nRef = db.collection(`tenants/${tenantId}/notifications`).doc();
-        const mine = holder && uid === String(holder.id);
+        // Which of these guests, if any, was handed to the person reading this.
+        const mySeat = seats.find(s => s.holder && uid === String(s.holder.id)) || null;
+        const mine = !!mySeat;
         const askedFor = isRequested || waitingForRequested;
+        const partySummary = `Party of ${partySize} walked in: ${name} + ${party.length} more · ${
+          service.name || 'a service'} · ${seatedCount} seated, ${partySize - seatedCount} waiting.${flag}`;
         batch.set(nRef, {
           id: nRef.id,
           userId: uid,
@@ -1422,10 +1952,16 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
           createdAt: nowIso,
           link: 'today',
           message: mine
-            ? (waitingForRequested
-              ? `${name} asked for you and is happy to wait · ${service.name || 'service'} · about ${estWaitMin} min.${flag}`
-              : `Walk-in ${askedFor ? 'requested you' : 'assigned'}: ${name} · ${service.name || 'service'} · ready for you now.${flag}`)
-            : `Walk-in: ${name} joined the queue for ${service.name || 'a service'}${holder ? ` — ${askedFor ? 'asked for' : 'sent to'} ${holder.name || 'a provider'}.` : ' — nobody free yet.'}${flag}`,
+            ? (mySeat!.isLead
+              ? (waitingForRequested
+                ? `${name} asked for you and is happy to wait · ${service.name || 'service'} · about ${estWaitMin} min.${partyTail}${flag}`
+                : `Walk-in ${askedFor ? 'requested you' : 'assigned'}: ${name} · ${service.name || 'service'} · ready for you now.${partyTail}${flag}`)
+              : `Walk-in assigned: ${mySeat!.name} · ${mySeat!.service?.name || 'service'} · ready for you now. Guest ${
+                mySeat!.index} of ${partySize} in ${name}'s party.${mySeat!.consentPending ? ' ⚠ Consent form not signed yet.' : ''}${
+                mySeat!.patchTestWarning ? ' ⚠ Patch test not on file — confirm before starting.' : ''}`)
+            : (party.length
+              ? partySummary
+              : `Walk-in: ${name} joined the queue for ${service.name || 'a service'}${holder ? ` — ${askedFor ? 'asked for' : 'sent to'} ${holder.name || 'a provider'}.` : ' — nobody free yet.'}${flag}`),
         });
       });
       await batch.commit();
@@ -1434,6 +1970,92 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     // A notification that fails to send must never undo a guest's place in
     // line. They are in the queue; the board will show them regardless.
   }
+
+  // ── Tell the GUESTS ──────────────────────────────────────────────────────
+  //
+  // Before this, a walk-in guest received nothing. Not a text, not an email,
+  // not on joining and not when their chair came free — the only place their
+  // place in line existed was a screen on the wall. So a guest who stepped out
+  // for a coffee had no way of knowing anything, and the studio had no record
+  // of ever having told them.
+  //
+  // Two messages and no more, because a queue that texts you four times is a
+  // queue people mute. On joining: where you are in line, roughly how long, and
+  // a link to your own live status. When your chair is ready: come in.
+  //
+  // A guest whose seat already has a provider is being called forward right
+  // now, so they get the "ready" message and their row is stamped
+  // guestNotifiedAt — which is what stops the lobby board's dispatcher from
+  // saying the same thing again a few seconds later.
+  const studioName = str(tenant?.name || tenant?.businessName, 80);
+  const guestSends: { seat: Seat; delivered: boolean; sentSms: boolean; sentEmail: boolean }[] = [];
+  for (let si = 0; si < seats.length; si++) {
+    const seat = seats[si];
+    // A guest added to a party by first name alone has nowhere to be reached.
+    // That is a front-desk conversation, not a failure.
+    if (!seat.phone && !seat.email) {
+      guestSends.push({ seat, delivered: false, sentSms: false, sentEmail: false });
+      continue;
+    }
+    const link = base ? `${base}/check-in/${seat.token}` : '';
+    const msg = seat.assigned
+      ? readyMessage({
+        studioName,
+        guestName: seat.name,
+        providerName: seat.holder ? str(seat.holder.name, 80) : '',
+        link,
+      })
+      : queuedMessage({
+        studioName,
+        guestName: seat.name,
+        serviceName: str(seat.service.name, 80),
+        position: seat.position,
+        estWaitMin: seat.estWaitMin,
+        providerName: '',
+        link,
+        needsFrontDesk: seat.needsFrontDesk,
+      });
+    let r = { sentSms: false, sentEmail: false, delivered: false };
+    try {
+      r = await messageGuest(db, tenantId, {
+        kind: seat.assigned ? 'ready' : 'queued',
+        msg,
+        phone: seat.phone,
+        email: seat.email,
+        clientId: clientIds[si] || '',
+        clientName: seat.name,
+        walkInId: seat.ref.id,
+      });
+    } catch {
+      // A provider outage must never cost a guest their place in line.
+    }
+    guestSends.push({ seat, ...r });
+  }
+
+  // Stamp what happened, so the staff board can say "texted" or "not reached"
+  // instead of leaving a provider to guess whether the guest knows.
+  try {
+    const stampable = guestSends.filter(g => g.seat.assigned || g.delivered);
+    if (stampable.length) {
+      const batch = db.batch();
+      for (const g of stampable) {
+        batch.set(g.seat.ref, {
+          // Assigned seats are claimed either way — a send that failed must not
+          // leave the row looking un-notified, or the board's dispatcher will
+          // try the same dead number on every poll for the next hour.
+          ...(g.seat.assigned ? { guestNotifiedAt: nowIso } : {}),
+          ...(g.delivered ? { guestQueuedMessageAt: nowIso } : { guestNotifyFailedAt: nowIso }),
+          updatedAt: nowIso,
+        }, { merge: true });
+      }
+      await batch.commit();
+    }
+  } catch {
+    // Bookkeeping. The guest was messaged (or wasn't) regardless, and
+    // messageLog already holds the auditable copy.
+  }
+
+  const lead = guestSends[0];
 
   return NextResponse.json({
     ok: true,
@@ -1448,6 +2070,10 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     waitingForRequested,
     preferredUnavailable,
     patchTestWarning,
+    // What the guest was actually told, so the kiosk can print "we texted you"
+    // rather than promising something that never left the building.
+    messageSent: !!lead?.delivered,
+    messageChannel: lead?.sentSms ? 'sms' : lead?.sentEmail ? 'email' : 'none',
     // Surfaced so the kiosk can say "you're in line — please see the front desk
     // so we can match you with the right tech" instead of pretending a provider
     // is coming. She is in the QUEUE either way, which is the whole point.
@@ -1461,6 +2087,42 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any) {
     checkInToken: token,
     shortCode,
     clientName: name,
+
+    // ── The party ────────────────────────────────────────────────────────
+    // groupId is null for a single guest and `guests` is a one-entry list, so
+    // the kiosk can loop over `guests` unconditionally and print one ticket per
+    // person without branching. Every field the ticket printer needs is here,
+    // so printing a party of four costs no extra round trips.
+    groupId,
+    groupSize,
+    partySize,
+    guests: seats.map(s => ({
+      walkInId: s.ref.id,
+      clientId: clientIds[seats.indexOf(s)] || '',
+      name: s.name,
+      isLead: s.isLead,
+      guestNumber: s.index,
+      position: s.position,
+      staffName: s.holder ? str(s.holder.name, 80) : '',
+      staffFirstName: s.holder ? firstName(s.holder.name) : '',
+      assigned: s.assigned,
+      needsFrontDesk: s.needsFrontDesk,
+      consentPending: s.consentPending,
+      patchTestWarning: s.patchTestWarning,
+      estWaitMin: s.estWaitMin,
+      serviceName: str(s.service.name, 80),
+      durationMin: s.svcMins,
+      checkInToken: s.token,
+      shortCode: s.shortCode,
+      messageSent: !!guestSends.find(g => g.seat === s)?.delivered,
+    })),
+    // Guests the kiosk asked for who are NOT in the list above, and why. Said
+    // out loud rather than silently dropped — a name that vanishes with no
+    // explanation is how somebody ends up standing in a lobby nobody expects
+    // them in.
+    guestsSkipped: Math.max(0, (Array.isArray(body?.guests)
+      ? body.guests.filter((g: any) => str(g?.name, 80).trim()).length
+      : 0) - party.length),
   });
 }
 
@@ -1558,5 +2220,111 @@ async function handleComplete(db: any, tenantId: string, body: any) {
     walkInId,
     completedAt: nowIso,
     rotationAdvanced: !!staffId && row.isRequested !== true,
+  });
+}
+
+// ─── notify — calling one guest forward, on purpose ──────────────────────────
+//
+// The board's 12-second poll already sends this message for any row somebody
+// flips to `notified` in Firestore. This action is the front door for the same
+// thing: a button can call it and get a straight answer about whether the guest
+// was actually reached, instead of flipping a status and hoping a wall screen
+// happens to be on.
+//
+// It is also the ONLY way to deliberately re-send. A guest who says they never
+// got the text gets `resend: true` and one more message, which is a great deal
+// better than the front desk toggling a status back and forth to trick the
+// dispatcher into firing again.
+
+async function handleNotify(db: any, tenantId: string, tenant: any, body: any, base: string) {
+  const walkInId = str(body?.walkInId, 200);
+  const resend = body?.resend === true;
+  if (!walkInId) return NextResponse.json({ ok: false, error: 'Missing walk-in.' }, { status: 400 });
+  if (!(await rateLimit(db, tenantId, 'walkInNotifyRate', 240))) {
+    return NextResponse.json({ ok: false, error: 'Too many requests. Please try again shortly.' }, { status: 429 });
+  }
+
+  const ref = db.doc(`tenants/${tenantId}/walkIns/${walkInId}`);
+  const snap = await ref.get();
+  if (!snap.exists) return NextResponse.json({ ok: false, error: 'That walk-in could not be found.' }, { status: 404 });
+  const row = (snap.data() as any) || {};
+
+  if (['completed', 'cancelled', 'canceled', 'no_show'].includes(String(row.status || '').toLowerCase())) {
+    return NextResponse.json({ ok: false, error: 'That guest is no longer in the queue.' }, { status: 409 });
+  }
+
+  const phone = str(row.phone || row.clientPhone, 40);
+  const email = str(row.email || row.clientEmail, 160);
+  if (!phone && !email) {
+    // Nothing to send to. Say so plainly rather than reporting a send that
+    // never had a destination — the front desk needs to walk over and tell them.
+    return NextResponse.json({
+      ok: false, noContact: true,
+      error: 'We have no phone or email for this guest — please call them forward in person.',
+    }, { status: 200 });
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // Claim, exactly as the poll-driven dispatcher does, so a button press and a
+  // board poll landing in the same second cannot both send.
+  let claimed = false;
+  try {
+    claimed = await db.runTransaction(async (tx: any) => {
+      const s = await tx.get(ref);
+      if (!s.exists) return false;
+      const cur = (s.data() as any) || {};
+      if (cur.guestNotifiedAt && !resend) return false;
+      tx.set(ref, {
+        status: 'notified',
+        notifiedAt: cur.notifiedAt || nowIso,
+        guestNotifiedAt: nowIso,
+        updatedAt: nowIso,
+        ...(resend ? { guestNotifyResentAt: nowIso } : {}),
+      }, { merge: true });
+      return true;
+    });
+  } catch { claimed = false; }
+
+  if (!claimed) {
+    return NextResponse.json({
+      ok: true, alreadyNotified: true,
+      notifiedAt: str(row.guestNotifiedAt, 40),
+      message: 'This guest has already been called forward.',
+    });
+  }
+
+  const token = str(row.checkInToken, 40);
+  const r = await messageGuest(db, tenantId, {
+    kind: 'ready',
+    msg: readyMessage({
+      studioName: str(tenant?.name || tenant?.businessName, 80),
+      guestName: str(row.customerName || row.clientName, 80),
+      providerName: str(row.staffName, 80) || str(body?.staffName, 80),
+      link: base && token ? `${base}/check-in/${token}` : '',
+    }),
+    phone,
+    email,
+    clientId: str(row.clientId, 120),
+    clientName: str(row.customerName || row.clientName, 80),
+    walkInId,
+  });
+
+  if (!r.delivered) {
+    try { await ref.set({ guestNotifyFailedAt: new Date().toISOString() }, { merge: true }); } catch { /* logged */ }
+  }
+
+  return NextResponse.json({
+    ok: true,
+    walkInId,
+    notifiedAt: nowIso,
+    sentSms: r.sentSms,
+    sentEmail: r.sentEmail,
+    delivered: r.delivered,
+    // FALSE means the message did not leave the building. The button should say
+    // "go tell them in person" rather than a green tick.
+    message: r.delivered
+      ? (r.sentSms ? 'Texted them.' : 'Emailed them.')
+      : 'Marked as called, but we could not reach them — please tell them in person.',
   });
 }
