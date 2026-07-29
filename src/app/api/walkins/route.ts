@@ -894,11 +894,87 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'lookup') return await handleLookup(db, tenantId, body);
+    if (action === 'checkin') return await handleCheckIn(db, tenantId, body);
+    if (action === 'booth-arrived') return await handleBoothArrived(db, tenantId, body);
     if (action === 'options') return await handleOptions(db, tenantId, body);
     return await handleJoin(db, tenantId, tenant, body, publicOrigin(tenant, req));
   } catch {
     return NextResponse.json({ ok: false, error: 'Something went wrong.' }, { status: 500 });
   }
+}
+
+// ─── Is this number a booth renter with a booking today? ─────────────────────
+//
+// A day or hourly booth renter is very often NOT a client. /api/portal/renter
+// resolves them by "contact footprint": it scans tenants/{id}/renters, then
+// falls back to boothReservations, because a guest who booked a chair once with
+// just a name and a phone number has no renter document at all. That is exactly
+// why handleLookup could not simply be extended in place — it returned
+// found:false the moment findClient missed, and walked a renter standing at the
+// front desk into the new-walk-in flow.
+//
+// Reservations store startDate/endDate as local YYYY-MM-DD strings, so "today"
+// is a plain string comparison and there is no timezone arithmetic to get
+// wrong. Matching is on the last ten digits of the phone, because a chair
+// booking and a client record are written by different flows and one of them
+// may carry a +1.
+//
+// WHAT THIS RETURNS, AND WHAT IT WILL NOT:
+//   · A first name, the booth name, and today's slot. Enough for the kiosk to
+//     say "Booth 3, 10 to 6 — start your day?"
+//   · NO money. Not amountCents, not balanceDueCents, not credits, not
+//     invoices, not overage. This function answers to a bare phone number
+//     with no verification whatsoever; a renter's financial position is the
+//     portal's business and the portal makes them prove control of the
+//     contact first.
+//   · NO portal token, for the same reason handleLookup will not hand out a
+//     checkInToken: it is a capability, not an identifier.
+
+async function findBoothToday(db: any, tenantId: string, phone: string) {
+  const want = digits(phone);
+  if (want.length < 7) return null;
+  const tail = want.slice(-10);
+  const day = todayStr();
+
+  let docs: any[] = [];
+  try {
+    const snap = await db.collection(`tenants/${tenantId}/boothReservations`)
+      .where('endDate', '>=', day).get();
+    docs = snap.docs || [];
+  } catch {
+    // A missing index or a tenant with no booth program is not an error here —
+    // it just means there is no renter path for this number.
+    return null;
+  }
+
+  const ACTIVE = ['confirmed', 'checked_in'];
+  const mine = docs
+    .map((d: any) => ({ id: d.id, ...((d.data() as any) || {}) }))
+    .filter((r: any) => {
+      const p = digits(r.phone);
+      if (!p || p.slice(-10) !== tail) return false;
+      if (!ACTIVE.includes(String(r.status || ''))) return false;
+      return String(r.startDate || '') <= day && String(r.endDate || '') >= day;
+    })
+    .sort((a: any, b: any) => String(a.startTime || '').localeCompare(String(b.startTime || '')));
+
+  const r = mine[0];
+  if (!r) return null;
+
+  return {
+    firstName: firstName(r.name),
+    reservation: {
+      reservationId: String(r.id),
+      boothName: str(r.boothName, 80) || 'Space',
+      bookingType: str(r.bookingType, 20) || 'daily',
+      startDate: str(r.startDate, 12),
+      endDate: str(r.endDate, 12),
+      startTime: str(r.startTime, 12) || null,
+      endTime: str(r.endTime, 12) || null,
+      slotLabel: str(r.slotLabel, 60) || null,
+      checkedIn: String(r.status || '') === 'checked_in',
+    },
+  };
 }
 
 // ─── lookup — "Welcome back, Ann" ────────────────────────────────────────────
@@ -921,17 +997,30 @@ async function handleLookup(db: any, tenantId: string, body: any) {
     return NextResponse.json({ ok: false, error: 'Too many lookups. Please try again shortly.' }, { status: 429 });
   }
 
-  const found = await findClient(db, tenantId, phone, '');
-  if (!found) return NextResponse.json({ ok: true, found: false });
+  // The kiosk asks one question — what is your number — and this function has
+  // to be able to answer it four ways: you are already in line, you have a
+  // booking today, you have a booth today, or you are new. That means checking
+  // the directories INDEPENDENTLY. The old version returned found:false the
+  // instant findClient missed, which is why a booth renter and an
+  // appointment-holder both fell through into the new-walk-in flow.
+  const [found, booth] = await Promise.all([
+    findClient(db, tenantId, phone, ''),
+    findBoothToday(db, tenantId, phone),
+  ]);
 
-  const clientId = found.id;
-  const client = found.data;
+  if (!found && !booth) return NextResponse.json({ ok: true, found: false });
+
+  const clientId = found ? found.id : '';
+  const client = found ? found.data : null;
 
   // Are they already standing in this line? Telling them so is much better
   // than letting them join twice and then quietly deduping them.
   const { rows, queue, working, providers } = await readFloor(db, tenantId, null);
-  const mine = rows.find((r: any) =>
-    String(r.clientId || '') === clientId && (isOpenRow(r.status) || isWorking(r.status)));
+  // `clientId ?` guards a real false positive: with no client match clientId is
+  // '', and a walk-in row with no clientId of its own would satisfy '' === ''
+  // and be reported back as "you are already in line" to a stranger.
+  const mine = clientId ? rows.find((r: any) =>
+    String(r.clientId || '') === clientId && (isOpenRow(r.status) || isWorking(r.status))) : null;
 
   // Their usual. Appointments are the richer record (they carry the provider),
   // so they win; client.lastServiceId is the fallback for a guest whose history
@@ -1064,10 +1153,20 @@ async function handleLookup(db: any, tenantId: string, body: any) {
   return NextResponse.json({
     ok: true,
     found: true,
-    clientId,
-    firstName: firstName(client?.name),
+    clientId: clientId || null,
+    firstName: firstName(client?.name) || booth?.firstName || '',
     usual,
     appointmentToday,
+    boothToday: booth ? booth.reservation : null,
+    // Which screens the kiosk should offer, in the order it should offer them.
+    // Computed here rather than on the kiosk so one place decides and every
+    // surface agrees — the same reason the queue now has one comparator.
+    paths: [
+      ...(mine ? ['in-line'] : []),
+      ...(appointmentToday ? ['check-in'] : []),
+      ...(booth ? ['booth'] : []),
+      ...(found ? ['walk-in'] : []),
+    ],
     alreadyInLine: mine ? {
       walkInId: String(mine.id),
       status: str(mine.status, 20),
@@ -1079,6 +1178,134 @@ async function handleLookup(db: any, tenantId: string, body: any) {
         working.length, providers.length, 30),
     } : null,
   });
+}
+
+// ─── checkin — the guest who already has a booking ───────────────────────────
+//
+// handleLookup told the kiosk an appointmentId. This does NOT trust it coming
+// back. The phone number is resolved to a client again and the appointment's
+// own clientId must match it — otherwise anyone who learned an appointment id
+// could check in a stranger, or worse, walk the id space. The pair is the
+// credential; neither half is one on its own.
+//
+// This is also the point where it becomes safe to name the provider and the
+// service. Up to here the guest had proved nothing, so handleLookup returned a
+// bare time. Having now demonstrated possession of the number AND matched the
+// booking, they can be told who they are seeing.
+
+async function handleCheckIn(db: any, tenantId: string, body: any) {
+  const phone = str(body?.phone, 40).trim();
+  const appointmentId = str(body?.appointmentId, 120).trim();
+  if (!phone || !appointmentId) {
+    return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 200 });
+  }
+  if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) {
+    return NextResponse.json({ ok: false, error: 'Too many attempts. Please try again shortly.' }, { status: 429 });
+  }
+
+  const found = await findClient(db, tenantId, phone, '');
+  if (!found) {
+    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+  }
+
+  const ref = db.doc(`tenants/${tenantId}/appointments/${appointmentId}`);
+  const snap = await ref.get();
+  if (!snap.exists) {
+    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+  }
+  const a: any = (snap.data() as any) || {};
+
+  // THE guard. Everything else here is politeness.
+  if (String(a.clientId || '') !== String(found.id)) {
+    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+  }
+  if (!['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase())) {
+    return NextResponse.json({ ok: false, error: 'Please see the front desk about this booking.' }, { status: 200 });
+  }
+
+  const nowIso = new Date().toISOString();
+  const already = ['arrived', 'checked_in', 'checkedIn'].includes(String(a.checkInStatus || ''));
+  if (!already) {
+    await ref.set({ checkInStatus: 'arrived', arrivedAt: nowIso, updatedAt: nowIso }, { merge: true });
+  }
+
+  let staffFirstName = '';
+  let serviceName = '';
+  try {
+    if (a.staffId) {
+      const sSnap = await db.doc(`tenants/${tenantId}/staff/${a.staffId}`).get();
+      staffFirstName = firstName((sSnap.data() as any)?.name);
+    }
+    const svcId = str(a.serviceId, 120) || str((a.serviceIds || [])[0], 120);
+    if (svcId) {
+      const vSnap = await db.doc(`tenants/${tenantId}/services/${svcId}`).get();
+      serviceName = str((vSnap.data() as any)?.name, 80);
+    }
+  } catch { /* names are decoration — the check-in already landed */ }
+
+  return NextResponse.json({
+    ok: true,
+    checkedIn: true,
+    alreadyArrived: already,
+    firstName: firstName(found.data?.name),
+    startTime: a.startTime ? new Date(toMs(a.startTime)).toISOString() : null,
+    staffFirstName,
+    serviceName,
+  });
+}
+
+// ─── booth-arrived — the renter who booked a chair ───────────────────────────
+//
+// This announces the renter to the front desk. It deliberately does NOT start
+// their session.
+//
+// A booth check-in starts a billable clock and can trigger settlement, overage
+// and credit. /api/portal/renter gates that behind proof of contact control (a
+// 6-digit code) for exactly that reason, and this endpoint answers to a bare
+// phone number with no proof of anything. Starting a paid clock from here would
+// be the one place in this whole system where an unverified tap costs somebody
+// money, so it does not. The renter gets a clear "you're checked in with the
+// desk" and a human closes the loop.
+//
+// The proper fix is a device credential — a kioskToken provisioned once on the
+// front-of-house tablet, which /api/portal/renter accepts in place of a session
+// for check-in and check-out only. Physical presence at the studio's own iPad IS
+// the second factor. That is a change to the renter route, not this one.
+
+async function handleBoothArrived(db: any, tenantId: string, body: any) {
+  const phone = str(body?.phone, 40).trim();
+  const reservationId = str(body?.reservationId, 120).trim();
+  if (!phone || !reservationId) {
+    return NextResponse.json({ ok: false, error: 'Missing details.' }, { status: 200 });
+  }
+  if (!(await rateLimit(db, tenantId, 'walkInLookupRate', 60))) {
+    return NextResponse.json({ ok: false, error: 'Too many attempts. Please try again shortly.' }, { status: 429 });
+  }
+
+  // Resolved from the phone number again, not from the id the kiosk sent back.
+  const booth = await findBoothToday(db, tenantId, phone);
+  if (!booth || booth.reservation.reservationId !== reservationId) {
+    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+  }
+
+  const r = booth.reservation;
+  const slot = r.slotLabel || [r.startTime, r.endTime].filter(Boolean).join('-') || 'today';
+  try {
+    const ref = db.collection(`tenants/${tenantId}/notifications`).doc();
+    await ref.set({
+      id: ref.id,
+      userId: null, // owners/admins inbox, same as the renter-code relay
+      read: false,
+      createdAt: new Date().toISOString(),
+      type: 'renter_arrived',
+      link: 'inbox',
+      message: `${booth.firstName || 'A renter'} has arrived at the kiosk for ${r.boothName} (${slot}). Start their session when you're ready.`,
+    });
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Please see the front desk.' }, { status: 200 });
+  }
+
+  return NextResponse.json({ ok: true, announced: true, firstName: booth.firstName, reservation: r });
 }
 
 // ─── options — "wait for Maya, or take the next person free?" ────────────────
