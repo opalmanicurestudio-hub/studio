@@ -12,7 +12,7 @@ import { WalkInQueue } from '@/components/pos/WalkInQueue';
 import { TeamStatus } from '@/components/pos/TeamStatus';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { useFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking, deleteDocumentNonBlocking } from '@/firebase';
 import { collection, doc, writeBatch, increment, arrayUnion, getDocs, query, where, deleteField, limit } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useToast } from '@/hooks/use-toast';
@@ -310,7 +310,7 @@ function POSPage() {
   // aren't scrolling past the whole queue every time they need retail, and
   // vice versa. Persisted only for the session (not saved), defaults to
   // Floor since that's the higher-frequency screen.
-  const [activeFloorTab, setActiveFloorTab] = useState<'floor' | 'retail'>('floor');
+  const [activeFloorTab, setActiveFloorTab] = useState<'floor' | 'retail' | 'waitlist'>('floor');
   const [isScanLookupOpen, setIsScanLookupOpen] = useState(false);
   const [isCameraScanOpen, setIsCameraScanOpen] = useState(false);
   const [scanQuery, setScanQuery] = useState('');
@@ -328,11 +328,30 @@ function POSPage() {
   const [newWalkInAlert, setNewWalkInAlert] = useState<string | null>(null);
   const prevWalkInCountRef = useRef<number>(0);
 
+  // ── The waiting list ───────────────────────────────────────────────────────
+  // tenants/{id}/waitlist — the notify-me list, the one /api/waitlist already
+  // writes when the kiosk finds nobody free, and the one the planner's
+  // WaitlistSheet already reads.
+  //
+  // useWaitlist used to be pointed at `walkIns` instead, with its own header
+  // calling that a feature ("No new collection needed"). It is not a feature:
+  // walkIns is the live queue of people physically in the studio, and the two
+  // lists then shared the status word `notified`. A walk-in called to a chair
+  // was picked up as a waitlist entry and rendered a SECOND time in the panel
+  // under the floor board; a waitlist client offered a Thursday slot was
+  // rendered ON the floor board as though she were standing in the lobby.
+  // Separate lists, separate collections.
+  const { data: waitlistRaw } = useCollection<any>(useMemoFirebase(
+    () => (!firestore || !tenantId) ? null : collection(firestore, 'tenants', tenantId, 'waitlist'),
+    [firestore, tenantId],
+  ));
+  const waitlistEntries = useMemo(() => waitlistRaw || [], [waitlistRaw]);
+
   // ── Waitlist hook ──────────────────────────────────────────────────────────
   const waitlist = useWaitlist({
     tenantId,
     firestore,
-    walkIns: walkIns || [],
+    waitlist: waitlistEntries,
     appointments: appointmentsFromInventory || [],
     services: services || [],
     staff: staff || [],
@@ -654,21 +673,38 @@ function POSPage() {
     const now = new Date(); const walkInEndsAt = addMinutes(now, estimatedDuration);
     const upcomingConflict = (appointmentsFromInventory || []).find(a => a.staffId === staffId && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > now && safeDate(a.startTime) < walkInEndsAt);
     if (upcomingConflict) { const conflictTime = format(safeDate(upcomingConflict.startTime), 'h:mm a'); const conflictClient = clients?.find(c => c.id === upcomingConflict.clientId); toast({ variant: 'destructive', title: 'Scheduling Conflict', description: `This provider has ${conflictClient?.name || 'a client'} booked at ${conflictTime} — ${estimatedDuration}m service may overlap.` }); }
-    // `staffId` is the field every OTHER screen reads (staff portal walk-in
-    // board, lobby board, /api/walkins). This line used to write only
-    // `assignedStaffId`, which has no reader anywhere in the codebase — so
-    // assigning a provider here left the guest reading "Unassigned" everywhere
-    // else. `assignedStaffId` is kept so any row already stored under it, and
-    // anything that may come to expect it, is undisturbed.
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id), { assignedStaffId: staffId, staffId, status: 'notified', notifiedTimestamp: now.toISOString(), notifiedAt: now.toISOString() });
     const appointmentId = `apt-walkin-${walkIn.id}`;
     const w = walkIn as any;
+
+    // ONE BATCH. These were two separate fire-and-forget writes —
+    // updateDocumentNonBlocking on the walkIn row and setDocumentNonBlocking on
+    // the mirror appointment — with nothing tying them together. Either could
+    // land without the other, leaving a guest marked `notified` with no
+    // appointment for the desk to start, or an appointment on a provider's
+    // calendar for a guest still sitting in the waiting lane. handleStartService
+    // in this same file already uses a batch for exactly this reason; assignment
+    // was the one step that did not.
+    //
+    // `staffId` is the field every OTHER screen reads (staff portal walk-in
+    // board, lobby board, /api/walkins). This once wrote only `assignedStaffId`,
+    // which has no reader anywhere — so assigning a provider here left the guest
+    // reading "Unassigned" everywhere else, and made the Called card render
+    // blank. `assignedStaffId` is kept so any row already stored under it is
+    // undisturbed.
+    //
     // checkInToken / shortCode are carried onto the mirror. Without them, a
     // guest assigned at the desk had a printed ticket that nothing could look
     // up: the scan searches these two fields, and the row's copy of them never
-    // reached the appointment the scan lands on. Also mirrors serviceIds, phone
-    // and email so the mirror is a complete record rather than a stub.
-    setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({
+    // reached the appointment the scan lands on.
+    const batch = writeBatch(firestore);
+    batch.set(doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id), sanitizeForFirestore({
+      assignedStaffId: staffId,
+      staffId,
+      status: 'notified',
+      notifiedTimestamp: now.toISOString(),
+      notifiedAt: now.toISOString(),
+    }), { merge: true });
+    batch.set(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({
       id: appointmentId,
       tenantId,
       clientId: walkIn.clientId || walkIn.id,
@@ -686,24 +722,96 @@ function POSPage() {
       ...(w.groupId ? { groupId: w.groupId } : {}),
       ...((w.customerPhone || w.phone) ? { clientPhone: w.customerPhone || w.phone } : {}),
       ...((w.customerEmail || w.email) ? { clientEmail: w.customerEmail || w.email } : {}),
-    }), {});
-    toast({ title: "Staff Assigned" + (upcomingConflict ? " ⚠ Conflict detected" : "") });
+    }), { merge: true });
+
+    batch.commit()
+      .then(() => toast({ title: "Staff Assigned" + (upcomingConflict ? " \u26a0 Conflict detected" : "") }))
+      .catch((e: any) => toast({ variant: 'destructive', title: 'Assignment failed', description: e?.message || 'Nothing was changed — the guest is still waiting.' }));
   }, [firestore, tenantId, services, appointmentsFromInventory, clients, toast]);
 
   const handleAssignNext = useCallback(() => {
     if (!firestore || !tenantId || !walkIns || !staff || !services) return;
-    const waitingQueue = [...walkIns].filter(w => w.status === 'waiting').sort((a, b) => (a.queueOrder || safeDate(a.checkInTime).getTime()) - (b.queueOrder || safeDate(b.checkInTime).getTime()));
+
+    // ONE comparator, matching the floor board's exactly. This used to be a
+    // second, independent sort, and BOTH of them mixed `queueOrder` (a small
+    // counting number: 1, 2, 3) with `checkInTime` epoch milliseconds
+    // (~1.75e12) inside a single expression:
+    //
+    //     (a.queueOrder || safeDate(a.checkInTime).getTime())
+    //
+    // Any row that had ever been manually reordered therefore sorted a
+    // trillion places ahead of every row that had not — and because the board
+    // ran its own copy of this, the board and this button could disagree about
+    // who was next. That is the worst disagreement a queue can have.
+    const OVERRIDE_CEILING = 1000000;
+    const overrideRank = (val: any): number => {
+      const n = Number(val);
+      return Number.isFinite(n) && n > 0 && n < OVERRIDE_CEILING ? n : Number.MAX_SAFE_INTEGER;
+    };
+    const waitingQueue = [...walkIns]
+      .filter(w => w.status === 'waiting')
+      .sort((a, b) => {
+        const oa = overrideRank((a as any).queueOrder);
+        const ob = overrideRank((b as any).queueOrder);
+        if (oa !== ob) return oa - ob;
+        return safeDate(a.checkInTime).getTime() - safeDate(b.checkInTime).getTime();
+      });
     if (waitingQueue.length === 0) return;
-    const nextGuest = waitingQueue[0];
+
     const idleStaff = staff.filter((s: any) => s.active && !s.onBreak && (s.status === 'idle' || s.status === 'available' || !s.status) && s.acceptingWalkIns !== false);
-    if (idleStaff.length === 0) return;
-    const walkInDuration = nextGuest.serviceIds.reduce((acc: number, sid: string) => { const svc = services.find((ser: Service) => ser.id === sid); return acc + (svc?.duration || 0) + (svc?.padBefore || 0) + (svc?.padAfter || 0); }, 0);
-    const walkInEndsAt = addMinutes(new Date(), walkInDuration);
-    const qualified = idleStaff.filter((s: any) => { const hasSkills = nextGuest.serviceIds.every((sid: string) => { const svc = services.find((ser: Service) => ser.id === sid); return !svc?.requiredSkills?.length || svc.requiredSkills.every((skill: string) => (s.skillSet || []).includes(skill)); }); if (!hasSkills) return false; const hasConflict = (appointmentsFromInventory || []).some(a => a.staffId === s.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > new Date() && safeDate(a.startTime) < walkInEndsAt); return !hasConflict; });
-    if (qualified.length === 0) return;
-    const selected = [...qualified].sort((a: any, b: any) => { if (assignmentMode === 'ordered_list') return (a.turnOrder || 999) - (b.turnOrder || 999); const aTime = a.lastWalkInCompletedAt ? new Date(a.lastWalkInCompletedAt).getTime() : a.lastServedTimestamp ? parseISO(a.lastServedTimestamp).getTime() : 0; const bTime = b.lastWalkInCompletedAt ? new Date(b.lastWalkInCompletedAt).getTime() : b.lastServedTimestamp ? parseISO(b.lastServedTimestamp).getTime() : 0; return aTime - bTime; })[0];
-    handleAssignStaff(nextGuest, selected.id);
-  }, [firestore, tenantId, walkIns, staff, services, assignmentMode, appointmentsFromInventory, handleAssignStaff]);
+    if (idleStaff.length === 0) {
+      toast({ title: 'Nobody is free', description: 'Every provider is mid-service, on a break, or not taking walk-ins.' });
+      return;
+    }
+
+    const now = new Date();
+
+    // WALK the queue instead of stopping at its head. The old version read
+    // waitingQueue[0] and returned outright if nobody could serve HER — so a
+    // single guest needing a skill nobody on the floor had blocked every guest
+    // behind her, indefinitely, and the button just did nothing when pressed.
+    for (const guest of waitingQueue) {
+      const g = guest as any;
+      const duration = (guest.serviceIds || []).reduce((acc: number, sid: string) => {
+        const svc = services.find((ser: Service) => ser.id === sid);
+        return acc + (svc?.duration || 0) + (svc?.padBefore || 0) + (svc?.padAfter || 0);
+      }, 0);
+      const endsAt = addMinutes(now, duration);
+
+      let qualified = idleStaff.filter((s: any) => {
+        const hasSkills = (guest.serviceIds || []).every((sid: string) => {
+          const svc = services.find((ser: Service) => ser.id === sid);
+          return !svc?.requiredSkills?.length || svc.requiredSkills.every((skill: string) => (s.skillSet || []).includes(skill));
+        });
+        if (!hasSkills) return false;
+        const hasConflict = (appointmentsFromInventory || []).some(a => a.staffId === s.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > now && safeDate(a.startTime) < endsAt);
+        return !hasConflict;
+      });
+
+      // The kiosk has recorded these two fields since v14 and nothing in the
+      // application has ever read either one. A guest who chose to wait for one
+      // particular provider must not be handed to somebody else by an automatic
+      // turn — choosing to wait IS the decision she made. She stays in line
+      // until her person is free, and the loop moves on to the next guest.
+      const requestedId = g.requestedStaffId || g.preferredStaffId || null;
+      const holdingOut = !!requestedId && (g.waitingForRequested === true || g.waitForPreferred === true);
+      if (holdingOut) qualified = qualified.filter((s: any) => String(s.id) === String(requestedId));
+
+      if (qualified.length === 0) continue;
+
+      const selected = [...qualified].sort((a: any, b: any) => {
+        if (assignmentMode === 'ordered_list') return (a.turnOrder || 999) - (b.turnOrder || 999);
+        const aTime = a.lastWalkInCompletedAt ? safeDate(a.lastWalkInCompletedAt).getTime() : a.lastServedTimestamp ? safeDate(a.lastServedTimestamp).getTime() : 0;
+        const bTime = b.lastWalkInCompletedAt ? safeDate(b.lastWalkInCompletedAt).getTime() : b.lastServedTimestamp ? safeDate(b.lastServedTimestamp).getTime() : 0;
+        return aTime - bTime;
+      })[0];
+
+      handleAssignStaff(guest, selected.id);
+      return;
+    }
+
+    toast({ title: 'Nobody can be seated yet', description: 'Everyone waiting either needs a skill nobody free has, or is holding out for a provider who is still busy.' });
+  }, [firestore, tenantId, walkIns, staff, services, assignmentMode, appointmentsFromInventory, handleAssignStaff, toast]);
 
   const handleUpdateStatus = (id: string, isWalkIn: boolean, status: string, lateMinutes?: number) => {
     if (!firestore || !tenantId || !selectedTenant) return;
@@ -1284,6 +1392,21 @@ function POSPage() {
     >
       <ShoppingCart className="w-3 h-3" /> Retail
     </button>
+    <button
+      onClick={() => setActiveFloorTab('waitlist')}
+      className={cn(
+        'h-8 px-3.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5',
+        activeFloorTab === 'waitlist' ? 'bg-white shadow-sm text-slate-900' : 'text-muted-foreground hover:text-slate-600',
+      )}
+    >
+      <BookOpen className="w-3 h-3" /> Waitlist
+      {waitlist.waitlistClients.length > 0 && (
+        <span className={cn(
+          'w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black leading-none',
+          activeFloorTab === 'waitlist' ? 'bg-primary text-white' : 'bg-slate-200 text-slate-600',
+        )}>{waitlist.waitlistClients.length}</span>
+      )}
+    </button>
   </div>
 
   {cartItemCount > 0 && (
@@ -1300,7 +1423,11 @@ function POSPage() {
 
                 <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: (item.stationName || (item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds[0])?.name : undefined)) }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={walkInGroupSizes} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { /* unarrived booked appointments go through check-in first; already-arrived skip straight to the full sheet */ const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
 
-                {/* ── WAITLIST MANAGER — new feature ───────────────────────────── */}
+              </div>
+            )}
+
+            {activeFloorTab === 'waitlist' && (
+              <div className="space-y-4 text-left">
                 <WaitlistManager
                   {...waitlist}
                   services={services || []}
