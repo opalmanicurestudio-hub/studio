@@ -1025,7 +1025,7 @@ async function handleOptions(db: any, tenantId: string, body: any) {
   }
   const svcMins = Number(service.duration) > 0 ? Number(service.duration) : 30;
 
-  const { rows, providers, queue, working, nowMs } = await readFloor(db, tenantId, service);
+  const { staff, rows, providers, queue, working, nowMs } = await readFloor(db, tenantId, service);
 
   const busyIds = busySet(rows, nowMs);
   const nextFree = rotate(providers, rows, busyIds)[0] || null;
@@ -1033,16 +1033,48 @@ async function handleOptions(db: any, tenantId: string, body: any) {
   const found = (phone || email) ? await findClient(db, tenantId, phone, email) : null;
   const reqs = await readRequirements(db, tenantId, service, found?.id || '', found?.data || null);
 
+  // ── The same two-way split `join` makes, made one step EARLIER ──────────────
+  //
+  // This is why kiosk walk-ins were still landing on the waitlist. `join` was
+  // fixed to tell "genuinely nobody on the floor" apart from "a skills /
+  // certification / roster gate excluded everybody", and to QUEUE the second kind
+  // of guest as needsFrontDesk. But the kiosk asks `options` first, and `options`
+  // only ever reported `providers` — so an empty list here sent the guest to the
+  // waitlist before `join` ever got the chance to do the right thing.
+  //
+  // `floorCount` is how many people are on the floor for walk-ins at all,
+  // regardless of whether they clear this service's gates. `needsFrontDesk` means
+  // exactly what it means in `join`: the studio is open and staffed, this guest
+  // belongs in the queue, and a human at the desk picks who takes them.
+  const floorForWalkIns = (staff || []).filter(
+    (s: any) => s && s.isActive !== false && s.acceptingWalkIns !== false,
+  );
+  const floorCount = floorForWalkIns.length;
+  const needsFrontDesk = providers.length === 0 && floorCount > 0;
+
   return NextResponse.json({
     ok: true,
+    // `open` stays "can we seat this guest for this service", so nothing already
+    // reading it changes meaning. The kiosk decides what to do using
+    // canQueue / needsFrontDesk below.
     open: providers.length > 0,
+    // Can this guest join the walk-in queue at all? True whenever anybody is on
+    // the floor for walk-ins — the ONLY honest reason to fall back to a waitlist
+    // is that nobody is.
+    canQueue: providers.length > 0 || floorCount > 0,
+    needsFrontDesk,
+    floorCount,
     queueLength: queue.length,
     serviceName: str(service.name, 80),
     durationMin: svcMins,
     // "Next available" — the option that always exists when anyone is on the
     // floor, and the one the kiosk should present first because it is fastest.
     nextAvailable: {
-      estWaitMin: nextFree ? 0 : estimateWait(queue, working.length, providers.length, svcMins),
+      // When a gate excluded every provider but people ARE on the floor, the wait
+      // is still a real number — estimate it against the floor rather than
+      // returning a flat 0, which would read as "no wait at all" next to a screen
+      // that also says the desk has to match you.
+      estWaitMin: nextFree ? 0 : estimateWait(queue, working.length, providers.length > 0 ? providers.length : floorCount, svcMins),
       providerFirstName: nextFree ? firstName(nextFree.name) : '',
       readyNow: !!nextFree,
     },
