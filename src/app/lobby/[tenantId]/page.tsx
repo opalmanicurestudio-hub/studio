@@ -52,7 +52,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import {
-  Users, Clock, Scissors, Star, Sparkles, Hourglass,
+  Users, Scissors, Star, Hourglass,
   Coffee, Wifi, AlertTriangle, CheckCircle2, BellRing, User,
   Moon, SunDim,
 } from 'lucide-react';
@@ -68,6 +68,14 @@ type QueueRow = {
   requested?: boolean;
   notified?: boolean;
   waitedMin?: number;
+  /* This guest's own wait. The board-level estWaitMin passes the whole queue as
+   * "ahead of you", making it the wait for somebody who has not walked in yet —
+   * wrong for every person actually standing in the room, and most wrong for
+   * the one at the front of it. */
+  estWaitMin?: number;
+  /* A party arrives as one row carrying its size, rather than as four rows
+   * eating four of the six slots the board pages through. */
+  partySize?: number;
 };
 
 type ServiceRow = {
@@ -92,6 +100,12 @@ type Board = {
   inServiceCount?: number;
   estWaitMin?: number;
   acceptingCount?: number;
+  /* freeNowCount excludes anyone deactivated under EITHER spelling of the staff
+   * flag, on a break, or mid-service. acceptingCount was none of those things —
+   * it counted the whole roster — which is why "Free now" was the least true
+   * claim on a screen the entire waiting room can read. */
+  freeNowCount?: number;
+  rosteredCount?: number;
   generatedAt?: string;
   queue?: QueueRow[];
   inService?: ServiceRow[];
@@ -101,7 +115,11 @@ type Board = {
 /* ── timings ───────────────────────────────────────────────────────────────
  * 12s polling is often enough that the room believes it is live, and light
  * enough that a screen left on all day is a rounding error on the bill. */
-const POLL_MS = 12 * 1000;
+/* 5s, not 12s. Until texting clears A2P 10DLC this screen IS the call-forward,
+ * and a guest whose chair is ready was waiting up to twelve seconds to find out
+ * on the only channel telling her. The rest of the board would be fine at 12s;
+ * the one banner that matters would not. Still a rounding error on the bill. */
+const POLL_MS = 5 * 1000;
 const CLOCK_MS = 20 * 1000;
 const ROTATE_MS = 9 * 1000;
 const PAGE_SIZE = 6;
@@ -388,7 +406,6 @@ export default function LobbyBoardPage() {
   const shown = pages[Math.min(pageIdx, pages.length - 1)] || [];
   const stale = lastOkAt > 0 && Date.now() - lastOkAt > STALE_MS;
   const studioName = String(board?.studioName || '').trim();
-  const freeCount = floor.filter(f => f.accepting !== false && f.busy !== true).length;
 
   /* ── the states before there is a board to draw ───────────────────────── */
 
@@ -504,7 +521,7 @@ export default function LobbyBoardPage() {
       )}
 
       {/* ── THE THREE NUMBERS ─────────────────────────────────────────────── */}
-      <div className="px-4 sm:px-6 pt-4 grid grid-cols-3 gap-3">
+      <div className="px-4 sm:px-6 pt-4 grid grid-cols-2 gap-3">
         <Stat
           t={t}
           label="In line"
@@ -514,18 +531,10 @@ export default function LobbyBoardPage() {
         />
         <Stat
           t={t}
-          label="Typical wait"
-          value={softWait(board?.estWaitMin)}
-          note={Number(board?.estWaitMin) > 0 ? 'roughly' : 'right now'}
-          icon={<Clock className="w-4 h-4" />}
-          small
-        />
-        <Stat
-          t={t}
-          label="Free now"
-          value={String(freeCount)}
-          note={freeCount === 1 ? 'provider' : 'providers'}
-          icon={<Sparkles className="w-4 h-4" />}
+          label="Now serving"
+          value={String(Number(board?.inServiceCount) || 0)}
+          note={Number(board?.inServiceCount) === 1 ? 'guest' : 'guests'}
+          icon={<Scissors className="w-4 h-4" />}
         />
       </div>
 
@@ -583,7 +592,10 @@ export default function LobbyBoardPage() {
                       sideways on a phone. */}
                   <div className="min-w-0 flex-1">
                     <p className={cn('flex items-center gap-2 min-w-0 text-xl sm:text-3xl font-semibold', t.strong)}>
-                      <span className="truncate min-w-0">{q.firstName || 'Guest'}</span>
+                      <span className="truncate min-w-0">
+                        {q.firstName || 'Guest'}
+                        {Number(q.partySize) > 1 ? ` +${Number(q.partySize) - 1}` : ''}
+                      </span>
                       {q.requested === true && (
                         <Star className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 text-amber-400" />
                       )}
@@ -609,8 +621,10 @@ export default function LobbyBoardPage() {
                   </div>
                   {/* The narrowest phone gives this up rather than squeeze the
                       name, which is the thing the guest is looking for. */}
-                  <p className={cn('hidden sm:block shrink-0 text-sm text-right whitespace-nowrap', t.faint)}>
-                    {waitedLabel(q.waitedMin)}
+                  <p className={cn('hidden sm:block shrink-0 text-sm sm:text-base text-right whitespace-nowrap', t.faint)}>
+                    {q.estWaitMin === undefined || q.estWaitMin === null
+                      ? waitedLabel(q.waitedMin)
+                      : softWait(q.estWaitMin)}
                   </p>
                 </li>
               ))}
