@@ -936,6 +936,42 @@ async function handleLookup(db: any, tenantId: string, body: any) {
   // Their usual. Appointments are the richer record (they carry the provider),
   // so they win; client.lastServiceId is the fallback for a guest whose history
   // predates that field.
+  // ── Are they here for a booking they already have? ───────────────────────
+  //
+  // The kiosk has been appointment-blind: its welcome screen reads "No
+  // appointment? No problem" and its only other button sends an
+  // already-booked guest off to book a SECOND one. Someone arriving at 1:55
+  // for a 2:00 had no path through the kiosk at all and had to wait for the
+  // front desk, which is the exact thing the kiosk exists to prevent.
+  //
+  // WHAT THIS DELIBERATELY DOES NOT RETURN, and why:
+  //
+  //   · No provider name and no service name. This function is an
+  //     unauthenticated phone-number oracle — see the note above it. It is
+  //     willing to disclose a first name, because the guest would have typed
+  //     that in ten seconds later anyway. "Ann is booked with Maya for a full
+  //     set at 2pm" is a different order of disclosure and nobody standing at
+  //     an unattended iPad needs it. The kiosk shows the TIME, the guest taps
+  //     to check in, and the detail arrives after.
+  //
+  //   · Never the checkInToken. That token is a capability, not an
+  //     identifier: it unlocks the check-in portal, the guest lounge and the
+  //     consent gate, all of which resolve a guest by token alone. Handing it
+  //     out in exchange for a phone number would turn this oracle into a
+  //     privilege escalation. The kiosk performs check-in by posting the
+  //     appointmentId back with the phone number, and the server re-verifies
+  //     the pair.
+  const EARLY_CHECKIN_MIN = 45;
+  const LATE_CHECKIN_MIN = 30;
+  const localDayOf = (v: any): string => {
+    const ms = toMs(v);
+    if (!ms) return '';
+    const d = new Date(ms);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+
+  let appointmentToday: any = null;
   let usual: any = null;
   try {
     const apts = await db.collection(`tenants/${tenantId}/appointments`).where('clientId', '==', clientId).get();
@@ -963,6 +999,41 @@ async function handleLookup(db: any, tenantId: string, body: any) {
       };
     } else if (client?.lastServiceId) {
       usual = { serviceId: str(client.lastServiceId, 120), staffId: '', lastVisit: null };
+    }
+
+    // Built from the SAME fetch as `usual`, so this costs no extra read.
+    // Walk-in mirror rows (apt-walkin-*) are excluded — a guest already in
+    // the queue is reported through alreadyInLine, not as a booking.
+    const dayKey = todayStr();
+    const nowMs = Date.now();
+    const todays = apts.docs
+      .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
+      .filter((a: any) => !a.isWalkIn
+        && localDayOf(a.startTime) === dayKey
+        && ['confirmed', 'deposit_pending'].includes(String(a.status || '').toLowerCase()))
+      .sort((a: any, b: any) => toMs(a.startTime) - toMs(b.startTime));
+
+    // The one they are most plausibly standing here for: the earliest that
+    // has not already finished. A guest with a 10am and a 3pm who walks in at
+    // 2:50 should be offered the 3pm, not the one they already sat through.
+    const candidate = todays.find((a: any) => toMs(a.endTime || a.startTime) >= nowMs - 15 * 60 * 1000)
+      || todays[0] || null;
+
+    if (candidate) {
+      const startMs = toMs(candidate.startTime);
+      const minutesUntil = startMs ? Math.round((startMs - nowMs) / 60000) : 0;
+      const checkInStatus = String(candidate.checkInStatus || 'pending');
+      appointmentToday = {
+        appointmentId: String(candidate.id),
+        startTime: startMs ? new Date(startMs).toISOString() : null,
+        minutesUntil,
+        alreadyArrived: ['arrived', 'checked_in', 'checkedIn'].includes(checkInStatus),
+        // Too early to check in is a real answer, and a kinder one than a
+        // dead end: the kiosk can say "you're early, back at 1:15".
+        checkInOpen: minutesUntil <= EARLY_CHECKIN_MIN && minutesUntil >= -LATE_CHECKIN_MIN,
+        earlyByMin: minutesUntil > EARLY_CHECKIN_MIN ? minutesUntil - EARLY_CHECKIN_MIN : 0,
+        lateByMin: minutesUntil < 0 ? Math.abs(minutesUntil) : 0,
+      };
     }
   } catch {
     if (client?.lastServiceId) usual = { serviceId: str(client.lastServiceId, 120), staffId: '', lastVisit: null };
@@ -996,6 +1067,7 @@ async function handleLookup(db: any, tenantId: string, body: any) {
     clientId,
     firstName: firstName(client?.name),
     usual,
+    appointmentToday,
     alreadyInLine: mine ? {
       walkInId: String(mine.id),
       status: str(mine.status, 20),
