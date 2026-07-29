@@ -1648,10 +1648,31 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
     const row: any = {
       id: seat.ref.id,
       tenantId,
-      status: seat.assigned ? 'notified' : 'waiting',
+      // v4 — EVERY row is created `waiting`. Full stop.
+      //
+      // This used to read `seat.assigned ? 'notified' : 'waiting'`, so any
+      // guest who arrived while a qualified provider happened to be free
+      // was born already called. On a quiet morning that is EVERY guest,
+      // which is why nothing ever appeared in the Waiting lane and the
+      // board looked broken. It also overloaded `notified` with two
+      // different events: `the system pre-matched a provider at join` and
+      // `a human at the desk called this guest forward`. Those are not the
+      // same thing and the floor cannot act on a status that means both.
+      //
+      // `notified` now has exactly one meaning: somebody called this guest.
+      // The pre-match is not lost — it is carried on staffId and readyNow,
+      // so the board can show `Maya - ready now` on a row sitting in
+      // Waiting, and one tap moves her forward.
+      status: 'waiting',
       staffId: seat.holder ? String(seat.holder.id) : null,
       staffName: seat.holder ? str(seat.holder.name, 80) : null,
-      notifiedAt: seat.assigned ? nowIso : null,
+      notifiedAt: null,
+
+      // v4 — TRUE means a qualified provider was free at the moment this
+      // guest joined, so the desk can seat her immediately instead of
+      // waiting for a turn to come round. It is a hint for the board, never
+      // a status.
+      readyNow: !!seat.assigned,
 
       clientId: foundId,
       clientName: displayName,
@@ -1732,7 +1753,19 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
     // Only written when a provider is actually assigned. An unassigned guest
     // in `waiting` is holding nobody's calendar, and inventing an appointment
     // for her would block a tech who has not agreed to take her yet.
-    if (seat.holder) {
+    // v4 — `seat.assigned`, NOT `seat.holder`. `holder` is also truthy for a
+    // guest who asked for Maya, found Maya busy, and chose to wait: that
+    // guest was minting a `confirmed` appointment on Maya's calendar
+    // starting now, for a service nobody had agreed to start. It blocked
+    // Maya against the conflict check, it drew a phantom block on the
+    // planner timeline, and when the guest changed her mind and the walkIn
+    // row was cancelled, this appointment was left behind — which is the
+    // row that lingers on the planner with nothing to remove it.
+    //
+    // Scanning is unaffected: the appointmentCheckIns projection below is
+    // written for EVERY seat regardless, so a printed ticket resolves from
+    // the moment it leaves the printer.
+    if (seat.assigned) {
       tx.set(db.doc(`tenants/${tenantId}/appointments/apt-walkin-${seat.ref.id}`), {
         id: `apt-walkin-${seat.ref.id}`,
         tenantId,
