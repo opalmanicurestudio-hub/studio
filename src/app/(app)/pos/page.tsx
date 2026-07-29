@@ -29,6 +29,11 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, safeNumber } from '@/lib/utils';
+// parseScan / codeVariants are what make a scanned ticket resolve at all: they
+// keep a mixed-case check-in token intact, pull the token out of a scanned
+// check-in URL, and hand back every spelling of a short code worth trying,
+// because Firestore equality is case-sensitive.
+import { parseScan, codeVariants } from '@/lib/scan-codes';
 import { type Transaction } from '@/lib/financial-data';
 import { resolveDepositPolicy, resolveDepositOutcome, hoursUntilStart, rolloverExpiryISO, isCreditExpired, computeDepositCents } from '@/lib/deposit-policy';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -481,23 +486,125 @@ function POSPage() {
     });
   }, []);
 
+  /**
+   * "Start service" — the single most load-bearing write in the walk-in flow,
+   * because the LOBBY BOARD reads its result.
+   *
+   * The lobby's "Ready for you now" list is every walkIns row whose status is
+   * still one of waiting/notified/arrived; its "In the chair" list is every row
+   * whose status is in_service/servicing. So if this handler fails to move the
+   * walkIns ROW to 'servicing', the guest is shouted at forever and the in-service
+   * panel stays empty. That is exactly what was happening, for two reasons:
+   *
+   * 1. `batch.update(doc(firestore, 'appointmentCheckIns', token), ...)` — an
+   *    UPDATE against a TOP-LEVEL doc that usually does not exist. The walk-in
+   *    engine writes `tenants/{t}/appointmentCheckIns/{token}` (and the legacy
+   *    top-level copy) only for a seat that got a provider at kiosk time. A
+   *    Firestore update against a missing document rejects the ENTIRE batch — so
+   *    the walkIns write on the next line never landed either. Every write here
+   *    is now `set(..., { merge: true })`, which creates-or-updates and cannot
+   *    reject for that reason, and both paths are written so whichever one the
+   *    guest's check-in screen is watching stays in step.
+   *
+   * 2. `if (!appointment) return;` — a silent no-op. A guest who is still
+   *    unassigned has NO mirror appointment at all (the engine gates that write
+   *    on a provider being seated), and a just-assigned one may not have streamed
+   *    into the local cache yet. Pressing Start did nothing and said nothing.
+   *    Now the walkIns row is found on its own, the mirror appointment is created
+   *    from it if missing (so the In Service lane and checkout still work), and a
+   *    genuinely unknown id says so out loud instead of swallowing the press.
+   */
   const handleStartService = (appointmentId: string) => {
-    if (!firestore || !tenantId || !appointmentsFromInventory) return;
-    const appointment = (appointmentsFromInventory || []).find(a => a.id === appointmentId) || (appointmentsFromInventory || []).find(a => a.id === `apt-walkin-${appointmentId}`);
-    if (!appointment) return;
+    if (!firestore || !tenantId) return;
     const nowISO = new Date().toISOString();
+    const now = new Date();
+    const apts = appointmentsFromInventory || [];
+    const rows: any[] = (walkIns as any[]) || [];
+
+    const appointment: any =
+      apts.find(a => a.id === appointmentId) ||
+      apts.find(a => a.id === `apt-walkin-${appointmentId}`) ||
+      null;
+
+    // Work out the walk-in row id from whichever handle we were given.
+    const bareId = String(appointmentId).startsWith('apt-walkin-')
+      ? String(appointmentId).replace('apt-walkin-', '')
+      : String(appointmentId);
+    const row: any =
+      rows.find(w => w && w.id === bareId) ||
+      (appointment?.isWalkIn ? rows.find(w => w && w.id === String(appointment.id).replace('apt-walkin-', '')) : null) ||
+      null;
+
+    if (!appointment && !row) {
+      toast({ variant: 'destructive', title: 'Could not start service', description: 'That ticket is no longer on this terminal. Refresh the queue and try again.' });
+      return;
+    }
+
+    const walkInId: string | null = row ? String(row.id) : (appointment?.isWalkIn ? String(appointment.id).replace('apt-walkin-', '') : null);
+    const staffId: string | undefined = appointment?.staffId || row?.staffId || row?.assignedStaffId || undefined;
+    const token: string | undefined = appointment?.checkInToken || row?.checkInToken || undefined;
+    const aptId = appointment?.id || (walkInId ? `apt-walkin-${walkInId}` : null);
+    if (!aptId) return;
+
     const batch = writeBatch(firestore);
-    batch.update(doc(firestore, 'tenants', tenantId, 'appointments', appointment.id), { status: 'servicing', actualStartTime: nowISO });
-    if (appointment.checkInToken) batch.update(doc(firestore, 'appointmentCheckIns', appointment.checkInToken), { status: 'servicing', tenantId });
-    if (appointment.staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', appointment.staffId), { status: 'busy' }, { merge: true });
+
+    if (appointment) {
+      batch.set(doc(firestore, 'tenants', tenantId, 'appointments', aptId), { status: 'servicing', actualStartTime: nowISO }, { merge: true });
+    } else if (row) {
+      // No mirror appointment exists (unassigned kiosk guest, or the mirror has
+      // not reached this browser yet). Create it from the row, otherwise the POS
+      // In Service lane — which filters APPOINTMENTS on status 'servicing' — and
+      // the checkout queue after it would both never see this guest.
+      const ids: string[] = Array.isArray(row.serviceIds) ? row.serviceIds : (row.serviceId ? [row.serviceId] : []);
+      const picked = ids.map((id: string) => (services || []).find((s: Service) => s.id === id)).filter(Boolean) as Service[];
+      const dur = picked.reduce((acc, s) => acc + (s.duration || 0) + (s.padBefore || 0) + (s.padAfter || 0), 0) || safeNumber(row.estimatedDuration) || 30;
+      batch.set(doc(firestore, 'tenants', tenantId, 'appointments', aptId), sanitizeForFirestore({
+        id: aptId,
+        tenantId,
+        clientId: row.clientId || row.id,
+        clientName: row.clientName || row.customerName || 'Walk-in guest',
+        serviceId: ids[0],
+        serviceIds: ids,
+        ...(staffId ? { staffId } : {}),
+        status: 'servicing',
+        source: 'walk-in',
+        isWalkIn: true,
+        startTime: now.toISOString(),
+        endTime: addMinutes(now, dur).toISOString(),
+        actualStartTime: nowISO,
+        ...(row.checkInToken ? { checkInToken: row.checkInToken } : {}),
+        ...(row.shortCode ? { shortCode: row.shortCode } : {}),
+        ...(row.groupId ? { groupId: row.groupId } : {}),
+      }), { merge: true });
+    }
+
+    // set/merge, not update: these two documents may legitimately not exist yet,
+    // and an update against a missing doc would reject every write above.
+    if (token) {
+      batch.set(doc(firestore, 'tenants', tenantId, 'appointmentCheckIns', token), { status: 'servicing', tenantId, appointmentId: aptId, updatedAt: nowISO }, { merge: true });
+      batch.set(doc(firestore, 'appointmentCheckIns', token), { status: 'servicing', tenantId, appointmentId: aptId, updatedAt: nowISO }, { merge: true });
+    }
+
+    if (staffId) batch.set(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'busy' }, { merge: true });
+
     // The walk-in ROW, not just the mirror appointment. staffId is stamped here
     // too: handleAssignStaff below only ever wrote `assignedStaffId`, which
     // nothing in the app reads — the staff portal, the lobby board and
     // /api/walkins all read `staffId` — so a Terminal-assigned guest showed as
     // Unassigned on every other screen and the lobby board had no provider name
     // to put next to her.
-    if (appointment.isWalkIn) batch.update(doc(firestore, 'tenants', tenantId, 'walkIns', appointment.id.replace('apt-walkin-', '')), { status: 'servicing', serviceStartTime: nowISO, ...(appointment.staffId ? { staffId: appointment.staffId } : {}) });
-    batch.commit().then(() => toast({ title: "Service Started" }));
+    if (walkInId && row) {
+      batch.set(doc(firestore, 'tenants', tenantId, 'walkIns', walkInId), sanitizeForFirestore({
+        status: 'servicing',
+        serviceStartTime: nowISO,
+        needsFrontDesk: false,
+        ...(staffId ? { staffId, assignedStaffId: staffId } : {}),
+      }), { merge: true });
+    }
+
+    batch.commit()
+      .then(() => toast({ title: 'Service Started' }))
+      .catch((e) => { console.error('[handleStartService]', e); toast({ variant: 'destructive', title: 'Could not start service', description: 'Nothing was changed. Try again in a moment.' }); });
   };
 
   /**
@@ -553,9 +660,33 @@ function POSPage() {
     // assigning a provider here left the guest reading "Unassigned" everywhere
     // else. `assignedStaffId` is kept so any row already stored under it, and
     // anything that may come to expect it, is undisturbed.
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id), { assignedStaffId: staffId, staffId, status: 'notified', notifiedTimestamp: now.toISOString() });
+    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', walkIn.id), { assignedStaffId: staffId, staffId, status: 'notified', notifiedTimestamp: now.toISOString(), notifiedAt: now.toISOString() });
     const appointmentId = `apt-walkin-${walkIn.id}`;
-    setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), { id: appointmentId, tenantId, clientId: walkIn.clientId || walkIn.id, clientName: walkIn.customerName, serviceId: walkIn.serviceIds[0], staffId, status: 'confirmed', source: 'walk-in', isWalkIn: true, startTime: now.toISOString(), endTime: addMinutes(now, estimatedDuration).toISOString() }, {});
+    const w = walkIn as any;
+    // checkInToken / shortCode are carried onto the mirror. Without them, a
+    // guest assigned at the desk had a printed ticket that nothing could look
+    // up: the scan searches these two fields, and the row's copy of them never
+    // reached the appointment the scan lands on. Also mirrors serviceIds, phone
+    // and email so the mirror is a complete record rather than a stub.
+    setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'appointments', appointmentId), sanitizeForFirestore({
+      id: appointmentId,
+      tenantId,
+      clientId: walkIn.clientId || walkIn.id,
+      clientName: w.clientName || w.customerName || 'Walk-in guest',
+      serviceId: (walkIn.serviceIds || [])[0],
+      serviceIds: walkIn.serviceIds || [],
+      staffId,
+      status: 'confirmed',
+      source: 'walk-in',
+      isWalkIn: true,
+      startTime: now.toISOString(),
+      endTime: addMinutes(now, estimatedDuration).toISOString(),
+      ...(w.checkInToken ? { checkInToken: w.checkInToken } : {}),
+      ...(w.shortCode ? { shortCode: w.shortCode } : {}),
+      ...(w.groupId ? { groupId: w.groupId } : {}),
+      ...((w.customerPhone || w.phone) ? { clientPhone: w.customerPhone || w.phone } : {}),
+      ...((w.customerEmail || w.email) ? { clientEmail: w.customerEmail || w.email } : {}),
+    }), {});
     toast({ title: "Staff Assigned" + (upcomingConflict ? " ⚠ Conflict detected" : "") });
   }, [firestore, tenantId, services, appointmentsFromInventory, clients, toast]);
 
@@ -845,103 +976,140 @@ function POSPage() {
   const handleRevertToReady = (appointmentId: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/appointments`, appointmentId), { status: 'ready_for_checkout' }); toast({ title: "Status Reverted" }); };
 
   // ── Scan / code lookup ─────────────────────────────────────────────────────
-  // Resolves an 8-char check-in code (or a full token) two ways:
-  //   1. In-memory match against appointmentsFromInventory — instant, covers
-  //      the overwhelming majority of scans (today's and recent tickets).
-  //   2. Firestore fallback — only fires on an in-memory miss. Handles
-  //      tickets that exist in the DB but, for whatever reason, aren't
-  //      matching in memory (e.g. rotated checkInToken, stale local cache).
-  //      NOTE: this does not fix every possible "not found" — if the
-  //      appointment document itself has no checkInToken field, or was
-  //      deleted, no query will find it. Confirm that in the Firestore
-  //      console for a specific failing ticket before assuming this alone
-  //      resolves it.
+  /**
+   * Why this was rewritten: a printed walk-in ticket scanned here always said
+   * "No appointment found". Three separate reasons, all of them fatal on their own.
+   *
+   * 1. THE CODE WAS BEING DESTROYED BEFORE THE LOOKUP RAN. The old first line was
+   *    `raw.trim().toUpperCase()`, and the input box uppercased every keystroke on
+   *    top of that. A check-in token is a 16-character nanoid — MIXED case, and it
+   *    can contain `-` and `_`. Firestore equality is case-sensitive, so a token
+   *    like `k9pQjOjvKnqZc-hY` went to the database as `K9PQJOJVKNQZC-HY` and
+   *    matched nothing, ever. `parseScan` + `codeVariants` from lib/scan-codes
+   *    exist precisely for this and are now used, exactly as the planner's scan
+   *    dialog already does. A pasted or scanned check-in URL also resolves now.
+   *
+   * 2. IT ONLY EVER SEARCHED APPOINTMENTS. A walk-in lives in `walkIns`. Both
+   *    collections are searched now, appointments first.
+   *
+   * 3. AN UNASSIGNED WALK-IN HAS NO APPOINTMENT TO FIND. The walk-in engine writes
+   *    the `apt-walkin-{id}` mirror only once a provider is seated, so a guest
+   *    still waiting their turn had a ticket with no appointment behind it. Their
+   *    walkIns row is the record, and it is now what the scan returns.
+   *
+   * A walk-in hit comes back flagged with `__walkIn: true` so the caller knows it
+   * is a queue row rather than an appointment.
+   */
   const resolveScanCode = React.useCallback(async (raw: string) => {
-    const code = raw.trim().toUpperCase();
-    if (!code) return;
+    const parsed = parseScan(raw);
+    if (parsed.kind === 'empty') { setScanResult(null); setScanNotFound(false); return; }
+    const value = parsed.value;
+    const needle = value.toUpperCase();
 
-    // 1. In-memory match (fast path)
-    const inMemory = (appointmentsFromInventory || []).find((a: any) => {
-      if (!a.checkInToken) return false;
-      const full = a.checkInToken.toUpperCase();
-      return full === code || full.slice(-8) === code.slice(-8);
-    });
-    if (inMemory) {
-      setScanResult(inMemory);
-      setScanNotFound(false);
-      return;
-    }
+    /** Does this record carry the scanned code, in any spelling? */
+    const carries = (r: any): boolean => {
+      if (!r) return false;
+      const code = String(r.shortCode ?? '').trim().toUpperCase();
+      const token = String(r.checkInToken ?? '').trim();
+      if (parsed.kind === 'token') return token === value || token.toUpperCase() === needle || (!!code && code === needle);
+      return (!!code && code === needle) || token.toUpperCase() === needle;
+    };
 
-    // 2. Firestore fallback
-    if (!firestore || !tenantId) {
-      setScanResult(null);
-      setScanNotFound(true);
-      return;
-    }
+    // 1. In-memory (instant) — appointments first, then the walk-in queue.
+    const localApt = (appointmentsFromInventory || []).find(carries);
+    if (localApt) { setScanResult({ ...(localApt as any) }); setScanNotFound(false); return; }
+    const localRow = ((walkIns as any[]) || []).find(carries);
+    if (localRow) { setScanResult({ ...(localRow as any), __walkIn: true }); setScanNotFound(false); return; }
+
+    // 2. Firestore.
+    if (!firestore || !tenantId) { setScanResult(null); setScanNotFound(true); return; }
 
     setIsScanResolving(true);
     try {
-      // Exact full-token match — works today with zero schema changes, since
-      // the printed/QR code is derived from checkInToken.
-      let snap = await getDocs(query(
-        collection(firestore, 'tenants', tenantId, 'appointments'),
-        where('checkInToken', '==', code),
-        limit(1),
-      ));
+      const variants = codeVariants(value);
+      const hit = async (collectionName: 'appointments' | 'walkIns') => {
+        const col = collection(firestore, 'tenants', tenantId, collectionName);
+        // A token is exact and unique, so try it first when that is what we have.
+        if (parsed.kind === 'token') {
+          const byToken = await getDocs(query(col, where('checkInToken', '==', value), limit(1)));
+          if (!byToken.empty) return byToken.docs[0];
+        }
+        if (variants.length) {
+          // `in` accepts up to 30 values; codeVariants returns at most three.
+          const byCode = await getDocs(query(col, where('shortCode', 'in', variants), limit(1)));
+          if (!byCode.empty) return byCode.docs[0];
+        }
+        if (parsed.kind !== 'token') {
+          const byTokenExact = await getDocs(query(col, where('checkInToken', 'in', variants), limit(1)));
+          if (!byTokenExact.empty) return byTokenExact.docs[0];
+        }
+        return null;
+      };
 
-      // Forward-compat: once appointments persist a permanent `shortCode`
-      // field at booking time, this becomes the reliable 8-char lookup.
-      // Firestore can't do "checkInToken ends with X", so the 8-char case
-      // only works via exact match today, or via this separate field once
-      // it exists on newly-booked appointments.
-      if (snap.empty) {
-        snap = await getDocs(query(
-          collection(firestore, 'tenants', tenantId, 'appointments'),
-          where('shortCode', '==', code),
-          limit(1),
-        ));
-      }
-
-      if (!snap.empty) {
-        const docSnap = snap.docs[0];
-        const raw = docSnap.data() as any;
-        setScanResult({
-          id: docSnap.id,
-          ...raw,
-          checkInStatus: raw.checkInStatus || 'pending',
-        });
+      const aptDoc = await hit('appointments');
+      if (aptDoc) {
+        const data = aptDoc.data() as any;
+        setScanResult({ id: aptDoc.id, ...data, checkInStatus: data.checkInStatus || 'pending' });
         setScanNotFound(false);
-      } else {
-        setScanResult(null);
-        setScanNotFound(true);
+        return;
       }
+
+      const rowDoc = await hit('walkIns');
+      if (rowDoc) {
+        const data = rowDoc.data() as any;
+        setScanResult({ id: rowDoc.id, ...data, __walkIn: true, checkInStatus: data.checkInStatus || 'pending' });
+        setScanNotFound(false);
+        return;
+      }
+
+      setScanResult(null);
+      setScanNotFound(true);
     } catch (e) {
-      console.error('[resolveScanCode] Firestore fallback failed:', e);
+      console.error('[resolveScanCode] lookup failed:', e);
       setScanResult(null);
       setScanNotFound(true);
     } finally {
       setIsScanResolving(false);
     }
-  }, [appointmentsFromInventory, firestore, tenantId]);
+  }, [appointmentsFromInventory, walkIns, firestore, tenantId]);
 
-  // Barcode scanners emulate keyboard typing at ~50ms/char. When the whole
-  // code arrives within 80ms of the 8th character, auto-resolve without
-  // requiring the staff member to press Enter.
+  // A wedge scanner types the whole code then stops, so a short idle window is a
+  // reliable end-of-scan signal. 80ms was too tight for anyone typing by hand: it
+  // fired a lookup on their half-typed code and flashed "not found" at them while
+  // they were still going. 300ms is still imperceptible after a scan.
   const scanTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleScanInput = React.useCallback((val: string) => {
     setScanQuery(val); setScanNotFound(false); setScanResult(null);
     if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
-    if (val.length >= 8) scanTimerRef.current = setTimeout(() => resolveScanCode(val), 80);
+    if (val.trim().length >= 6) scanTimerRef.current = setTimeout(() => resolveScanCode(val), 300);
   }, [resolveScanCode]);
 
   const handleScanConfirm = React.useCallback(() => {
     if (!scanResult) return;
+    const hit = scanResult;
     setIsScanLookupOpen(false);
     setScanQuery(''); setScanResult(null); setScanNotFound(false);
-    const notYetArrived = !scanResult.checkInStatus || scanResult.checkInStatus === 'pending' || scanResult.checkInStatus === 'confirmed';
-    if (notYetArrived) { setPendingCheckInItem(scanResult); }
-    else { setSelectedAppointment(scanResult); setIsDetailsOpen(true); }
-  }, [scanResult]);
+
+    // A walk-in queue row. If they are already in a chair or done, open the mirror
+    // appointment instead so the desk sees the live record; otherwise send them
+    // through the same arrival confirmation an appointment gets — that dialog
+    // already handles walk-in rows (it branches on `serviceIds`).
+    if (hit.__walkIn) {
+      const status = String(hit.status || '').toLowerCase();
+      if (status === 'servicing' || status === 'in_service' || status === 'ready_for_checkout' || status === 'completed') {
+        const mirror = (appointmentsFromInventory || []).find((a: any) => a.id === `apt-walkin-${hit.id}`);
+        if (mirror) { setSelectedAppointment(mirror as any); setIsDetailsOpen(true); return; }
+        toast({ title: 'Already in service', description: `${hit.clientName || hit.customerName || 'This guest'} is with a provider — find them in the In Service lane.` });
+        return;
+      }
+      setPendingCheckInItem(hit);
+      return;
+    }
+
+    const notYetArrived = !hit.checkInStatus || hit.checkInStatus === 'pending' || hit.checkInStatus === 'confirmed';
+    if (notYetArrived) { setPendingCheckInItem(hit); }
+    else { setSelectedAppointment(hit); setIsDetailsOpen(true); }
+  }, [scanResult, appointmentsFromInventory, toast]);
   const handleOpenTill = (data: any) => { if (!firestore || !tenantId) return; const sessionRef = doc(collection(firestore, 'tenants', tenantId, 'tillSessions')); const newSession: any = { ...data, id: sessionRef.id, openedAt: new Date().toISOString(), status: 'open', expectedCash: data.openingFloat, totalCashSales: 0, totalCashTips: 0, totalCashRefunds: 0, cashTipsByStaff: {} }; setDocumentNonBlocking(sessionRef, sanitizeForFirestore(newSession), {}); toast({ title: "Till Session Initialized" }); };
   const handleCloseTill = (data: any) => {
     if (!firestore || !tenantId || !activeTill) return;
@@ -1363,23 +1531,33 @@ function POSPage() {
               <QrCode className="w-5 h-5 text-emerald-600" /> Scan or Enter Code
             </DialogTitle>
             <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-              8-character code from the printed ticket or confirmation screen. Barcode scanner supported.
+              Code from any printed ticket — appointment or walk-in. Barcode scanner supported.
             </DialogDescription>
           </DialogHeader>
           <div className="p-6 space-y-4">
+            {/*
+              This box used to uppercase every keystroke and carried an `uppercase`
+              class on top. A check-in token is a mixed-case 16-character string, so
+              that silently corrupted the very thing being looked up and every
+              walk-in ticket came back "not found". The value is now passed through
+              exactly as scanned or typed; the lookup handles case itself.
+              maxLength is generous because a scanned QR hands over a full URL.
+            */}
             <Input
               ref={scanInputRef}
               value={scanQuery}
-              onChange={e => handleScanInput(e.target.value.toUpperCase())}
+              onChange={e => handleScanInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') resolveScanCode(scanQuery); }}
               placeholder="e.g. 7QX2K9LM"
               className={cn(
-                'h-14 text-center text-2xl font-black font-mono tracking-[0.3em] rounded-2xl border-4 uppercase',
+                'h-14 text-center font-black font-mono rounded-2xl border-4',
+                scanQuery.length > 14 ? 'text-sm tracking-normal' : 'text-2xl tracking-[0.3em]',
                 scanResult ? 'border-emerald-400 bg-emerald-50' : scanNotFound ? 'border-red-300 bg-red-50' : 'border-slate-200',
               )}
-              maxLength={21}
+              maxLength={160}
               autoComplete="off"
               autoCorrect="off"
+              autoCapitalize="none"
               spellCheck={false}
             />
 
@@ -1391,26 +1569,38 @@ function POSPage() {
             )}
 
             {scanResult && (() => {
+              const isRow = scanResult.__walkIn === true;
               const c = clients?.find((cl: any) => cl.id === scanResult.clientId);
-              const svc = services?.find((s: any) => s.id === scanResult.serviceId);
-              const isArrived = scanResult.checkInStatus && !['pending','confirmed'].includes(scanResult.checkInStatus);
+              // A walk-in row keeps its services in `serviceIds`; an appointment in
+              // `serviceId`. Reading only one of the two showed a blank line for
+              // every walk-in ticket.
+              const ids: string[] = Array.isArray(scanResult.serviceIds) ? scanResult.serviceIds : (scanResult.serviceId ? [scanResult.serviceId] : []);
+              const svcNames = ids.map((id: string) => services?.find((s: any) => s.id === id)?.name).filter(Boolean) as string[];
+              const rowStatus = String(scanResult.status || '').toLowerCase();
+              const inChair = isRow && (rowStatus === 'servicing' || rowStatus === 'in_service');
+              const isArrived = !isRow && scanResult.checkInStatus && !['pending','confirmed'].includes(scanResult.checkInStatus);
+              const when = isRow ? (scanResult.checkInTime || scanResult.startTime) : scanResult.startTime;
               return (
                 <div className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-1.5">
-                  <p className="text-[10px] font-black uppercase text-emerald-700 tracking-widest">Match found</p>
-                  <p className="text-sm font-black text-slate-900">{c?.name || scanResult.clientName || 'Unknown client'}</p>
-                  <p className="text-xs text-slate-500">{svc?.name || 'Service'}</p>
-                  <p className="text-[10px] text-slate-400">{scanResult.startTime ? format(safeDate(scanResult.startTime), 'EEE MMM d · h:mm a') : ''}</p>
+                  <p className="text-[10px] font-black uppercase text-emerald-700 tracking-widest">
+                    {isRow ? 'Walk-in ticket found' : 'Match found'}
+                  </p>
+                  <p className="text-sm font-black text-slate-900 break-words">{c?.name || scanResult.clientName || scanResult.customerName || 'Unknown guest'}</p>
+                  <p className="text-xs text-slate-500 break-words">{svcNames.join(' + ') || 'Service'}</p>
+                  <p className="text-[10px] text-slate-400">{when ? format(safeDate(when), 'EEE MMM d · h:mm a') : ''}</p>
+                  {inChair && <Badge className="bg-purple-100 text-purple-700 border-none text-[9px]">In service — opens full record</Badge>}
+                  {!inChair && isRow && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">In the walk-in queue — opens check-in</Badge>}
                   {isArrived && <Badge className="bg-blue-100 text-blue-700 border-none text-[9px]">Already checked in — opens full record</Badge>}
-                  {!isArrived && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">Not yet arrived — opens check-in</Badge>}
+                  {!isRow && !isArrived && <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px]">Not yet arrived — opens check-in</Badge>}
                 </div>
               );
             })()}
             {scanNotFound && !isScanResolving && (
-              <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-center gap-3">
-                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+              <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-4 flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] font-black uppercase text-red-700">No appointment found</p>
-                  <p className="text-[10px] text-red-500">Check the code and try again, or search by name in the queue.</p>
+                  <p className="text-[10px] font-black uppercase text-red-700">No ticket found</p>
+                  <p className="text-[10px] text-red-500">Appointments and the walk-in queue were both searched. Check the code, or find the guest by name in the queue.</p>
                 </div>
               </div>
             )}
@@ -1421,7 +1611,7 @@ function POSPage() {
                 disabled={!scanResult}
                 className="flex-[2] h-12 rounded-xl font-black uppercase text-[10px] shadow-lg shadow-emerald-500/20 bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                {scanResult ? 'Open Appointment' : 'Scan or type code above'}
+                {scanResult ? (scanResult.__walkIn ? 'Open Walk-in' : 'Open Appointment') : 'Scan or type code above'}
               </Button>
             </div>
           </div>
