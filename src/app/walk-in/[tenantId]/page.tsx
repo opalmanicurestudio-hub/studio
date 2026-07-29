@@ -496,6 +496,27 @@ export default function WalkInKioskPage() {
 
       const list: ProviderOption[] = Array.isArray(d.providers) ? d.providers : [];
       if (!list.length) {
+        // No provider clears this service's gates. That is NOT the same as the
+        // studio being closed, and treating it as the same is what was pushing
+        // kiosk walk-ins onto the waitlist instead of into the walk-in queue.
+        //
+        // A service saved with a required skill nobody's profile lists, one
+        // certification list, or a single rostered shift that happens to exclude
+        // everyone else all produce an empty list while three people stand on the
+        // floor ready to work. The engine already knows the difference and tells
+        // us: `canQueue` is true whenever anybody is taking walk-ins at all.
+        //
+        // So when the studio is staffed, skip provider selection and take the
+        // guest straight to their details. They join the walk-in queue unassigned
+        // and flagged for the front desk, and a person decides who takes them. The
+        // waitlist is only offered when literally nobody is on the floor.
+        if (d.canQueue) {
+          setPreferredStaffId('');
+          setWaitForPreferred(false);
+          setChosen(null);
+          setStep('details');
+          return;
+        }
         setFailMessage('Nobody is taking walk-ins for that service at the moment.');
         setStep('full');
         return;
@@ -1326,6 +1347,19 @@ export default function WalkInKioskPage() {
                 {chosen?.firstName ? ` · with ${chosen.firstName}` : ''}
               </p>
             </div>
+
+            {/* The guest skipped provider selection because no tech cleared this
+                service's skill / certification / roster gates. They are still
+                joining the walk-in queue — say so plainly rather than letting them
+                reach the end wondering who they're seeing. */}
+            {options?.needsFrontDesk && (
+              <div className="rounded-2xl border-2 border-amber-100 bg-amber-50/60 px-5 py-4 flex items-start gap-3">
+                <UserCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-sm text-amber-900">
+                  You&rsquo;re joining the walk-in queue now. Our front desk will match you with the right person for this service.
+                </p>
+              </div>
+            )}
 
             {!needsName && (
               <div className="rounded-2xl border-2 border-emerald-100 bg-emerald-50/60 px-5 py-4 flex items-center gap-3">
