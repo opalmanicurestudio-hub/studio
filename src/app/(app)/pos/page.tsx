@@ -348,6 +348,62 @@ function POSPage() {
   const waitlistEntries = useMemo(() => waitlistRaw || [], [waitlistRaw]);
 
   // ── Waitlist hook ──────────────────────────────────────────────────────────
+  // Auto-assign walk-ins that arrived with a pre-matched provider.
+  //
+  // The kiosk shows the guest "Maya is free now" and lets them confirm.
+  // The route records `staffId` and `readyNow: true` on the row, then
+  // creates it as `waiting` (never `notified`). Until now nothing in the
+  // POS read either field — the desk still had to press Assign Session or
+  // AUTO-TURN manually, and AUTO-TURN would pick whoever was at the front
+  // of the rotation, ignoring the specific provider the guest already
+  // chose on screen. This effect closes that gap.
+  //
+  // Guarded by a ref so each row is only auto-assigned once per session,
+  // and only when every dependency is ready — a row arriving before the
+  // staff list loads simply waits for the next walkIns change.
+  // Expire held slots that were never claimed.
+  //
+  // When a waitlist client is offered a slot they get a hold (holdExpiresAt).
+  // If they don't confirm within the window — default 15 minutes — that slot
+  // sits indefinitely as 'notified' and the guest behind them waits forever.
+  // The route's healStale only clears in-service rows, not held waitlist rows.
+  // This sweep runs whenever walkIns updates and sends expired holds back to
+  // waiting so they re-enter the queue. Belt-and-suspenders alongside the
+  // route-level expiry that fires on each board poll.
+  useEffect(() => {
+    if (!walkIns || !firestore || !tenantId) return;
+    const nowMs = Date.now();
+    for (const w of walkIns) {
+      const ww = w as any;
+      if (ww.status !== 'notified') continue;
+      if (!ww.holdExpiresAt) continue;
+      const expiry = new Date(ww.holdExpiresAt).getTime();
+      if (!expiry || expiry > nowMs) continue;
+      // Return to waiting so they stay in the queue rather than disappearing.
+      updateDocumentNonBlocking(
+        doc(firestore, 'tenants', tenantId, 'walkIns', w.id),
+        { status: 'waiting', holdExpiresAt: null, notifiedAt: null, notifiedTimestamp: null },
+      );
+      toast({ title: 'Hold expired', description: `${ww.customerName || ww.clientName || 'Guest'} did not claim their slot — returned to the queue.` });
+    }
+  }, [walkIns, firestore, tenantId, toast]);
+
+  const autoAssignedIds = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!walkIns || !staff || !services || !firestore || !tenantId) return;
+    for (const w of walkIns) {
+      const ww = w as any;
+      if (ww.status !== 'waiting') continue;
+      if (!ww.readyNow || !ww.staffId) continue;
+      if (autoAssignedIds.current.has(w.id)) continue;
+      // Confirm the provider is still on the floor before assigning.
+      const provider = (staff as any[]).find(s => s.id === ww.staffId);
+      if (!provider || provider.onBreak || provider.acceptingWalkIns === false) continue;
+      autoAssignedIds.current.add(w.id);
+      handleAssignStaff(w, ww.staffId);
+    }
+  }, [walkIns, staff, services, firestore, tenantId, handleAssignStaff]);
+
   const waitlist = useWaitlist({
     tenantId,
     firestore,
@@ -806,7 +862,64 @@ function POSPage() {
         return aTime - bTime;
       })[0];
 
+      // Seat the lead.
       handleAssignStaff(guest, selected.id);
+
+      // Seat the rest of the party in the same press.
+      //
+      // A party of four with four free techs used to require four presses of
+      // AUTO-TURN. Each press seated the lead and left the others waiting,
+      // which the next press treated as separate unrelated guests and seated
+      // the next lead. At a Saturday-morning rush with three groups checking
+      // in at once, that is twelve presses of a button that should be one.
+      //
+      // The group reads: same groupId, status still 'waiting', still in the
+      // rotation. `takenIds` prevents doubling up on a provider that was just
+      // used. We sort the remaining pool the same way the lead selection did.
+      const groupId = (guest as any).groupId;
+      if (groupId) {
+        const groupMembers = waitingQueue.filter(
+          w => (w as any).groupId === groupId && w.id !== guest.id && w.status === 'waiting',
+        );
+        if (groupMembers.length > 0) {
+          const takenIds = new Set<string>([selected.id]);
+          let remainingPool = [...qualified.filter((s: any) => !takenIds.has(String(s.id)))];
+          // Refresh to include any staff that was excluded for the lead's
+          // service specifically but may be fine for a party member with a
+          // different service.
+          remainingPool = [...idleStaff.filter((s: any) => !takenIds.has(String(s.id)))];
+
+          for (const member of groupMembers) {
+            const m = member as any;
+            const mDuration = (member.serviceIds || []).reduce((acc: number, sid: string) => {
+              const svc = services.find((ser: Service) => ser.id === sid);
+              return acc + (svc?.duration || 0) + (svc?.padBefore || 0) + (svc?.padAfter || 0);
+            }, 0);
+            const mEndsAt = addMinutes(now, mDuration);
+            const mQualified = remainingPool.filter((s: any) => {
+              const hasSkills = (member.serviceIds || []).every((sid: string) => {
+                const svc = services.find((ser: Service) => ser.id === sid);
+                return !svc?.requiredSkills?.length || svc.requiredSkills.every((skill: string) => (s.skillSet || []).includes(skill));
+              });
+              if (!hasSkills) return false;
+              const hasConflict = (appointmentsFromInventory || []).some(a => a.staffId === s.id && (a.status === 'confirmed' || a.status === 'deposit_pending') && safeDate(a.startTime) > now && safeDate(a.startTime) < mEndsAt);
+              return !hasConflict;
+            });
+            const mHoldingOut = !!(m.preferredStaffId && (m.waitForPreferred === true || m.waitingForRequested === true));
+            const mPool = mHoldingOut ? mQualified.filter((s: any) => String(s.id) === String(m.preferredStaffId)) : mQualified;
+            if (mPool.length === 0) continue;
+            const mSelected = [...mPool].sort((a: any, b: any) => {
+              if (assignmentMode === 'ordered_list') return (a.turnOrder || 999) - (b.turnOrder || 999);
+              const aT = a.lastWalkInCompletedAt ? safeDate(a.lastWalkInCompletedAt).getTime() : 0;
+              const bT = b.lastWalkInCompletedAt ? safeDate(b.lastWalkInCompletedAt).getTime() : 0;
+              return aT - bT;
+            })[0];
+            takenIds.add(String(mSelected.id));
+            remainingPool = remainingPool.filter((s: any) => !takenIds.has(String(s.id)));
+            handleAssignStaff(member, mSelected.id);
+          }
+        }
+      }
       return;
     }
 
@@ -1052,7 +1165,33 @@ function POSPage() {
     }
     setIsCancelDialogOpen(false);
     setIsDetailsOpen(false);
-  }, [onCancellationConfirm, clients, selectedAppointment]);
+
+    // When a booked appointment frees a slot, check the notify-me list for
+    // the best-matching candidate and toast the desk. The hook already does
+    // the scoring (service match, provider preference, time-of-day, wait
+    // length); all we do here is read the result and surface it.
+    //
+    // Only fires for booked appointments that had a staffId and a startTime —
+    // a walk-in cancellation frees a provider but not a specific slot, and
+    // a front-desk add-back handles that naturally via the queue.
+    const cancelled = selectedAppointment as any;
+    if (cancelled && !cancelled.isWalkIn && cancelled.staffId && cancelled.startTime) {
+      const d = safeDate(cancelled.startTime);
+      const freedSlot = {
+        staffId: String(cancelled.staffId),
+        date: d.toISOString().slice(0, 10),
+        time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
+        serviceId: String(cancelled.serviceId || ''),
+      };
+      const candidate = waitlist.autoFillOnCancellation(freedSlot);
+      if (candidate) {
+        toast({
+          title: 'Slot opened — waitlist match',
+          description: `${candidate.clientName} is waiting for this exact time. Book them in?`,
+        });
+      }
+    }
+  }, [onCancellationConfirm, clients, selectedAppointment, waitlist, toast]);
 
   const handleConfirmRefund = useCallback(async () => {
     if (!pendingRefund || !tenantId) return;
@@ -1421,7 +1560,13 @@ function POSPage() {
               <div className="grid gap-8 grid-cols-1">
                 <TeamStatus staff={staff} onStatusChange={(id: any, act: any) => {}} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} services={services} onReorder={(newOrder: any) => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); newOrder.forEach((s: any, idx: number) => { batch.set(doc(firestore, 'tenants', tenantId, 'staff', s.id), { turnOrder: idx }, { merge: true }); }); batch.commit(); }} assignmentMode={assignmentMode} onAssignmentModeChange={setAssignmentMode} resources={resources || []} onForceIdle={(staffId: string) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'staff', staffId), { status: 'idle' }, { merge: true }); toast({ title: "Staff Reset" }); }} />
 
-                <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: (item.stationName || (item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds[0])?.name : undefined)) }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={walkInGroupSizes} onToggleWaitForStaff={() => {}} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { /* unarrived booked appointments go through check-in first; already-arrived skip straight to the full sheet */ const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
+                <WalkInQueue walkIns={walkIns} appointments={appointmentsFromInventory?.filter(a => isToday(safeDate(a.startTime)))} readyForCheckoutAppointments={readyForCheckoutAppointments} selectedAppointmentIds={selectedAppointmentIds} onSelectAppointment={handleSelectAppointment} services={services} staff={staff} onAssignStaff={handleAssignStaff} onAssignNext={handleAssignNext} onCancel={handleCancelAction} onStartService={handleStartService} orderedWaitingQueue={[]} onReorder={() => {}} assignmentMode={assignmentMode} onPrintTicket={(id: string) => { const item = (walkIns || []).find(w => w.id === id) || (appointmentsFromInventory || []).find(a => a.id === id); if (item) { const client = clients?.find(c => c.id === item.clientId); const service = services?.find(s => s.id === (item.serviceId || item.serviceIds?.[0])); const addOnServices = (item.addOnIds || []).map((aid: string) => services?.find(s => s.id === aid)).filter(Boolean); const staffMember = staff?.find(s => s.id === item.staffId); if (client && service) { setTicketToPrint({ business: { name: selectedTenant?.name || 'Studio', phone: selectedTenant?.twilioPhoneNumber || '' }, client, service, appointment: item, addOnServices, staffName: staffMember?.name, previousFormula: getPreviousFormula(client.id, service.id), visitCount: getVisitCount(client.id), stationName: (item.stationName || (item.requiredResourceIds?.[0] ? (resources || []).find((r: any) => r.id === item.requiredResourceIds[0])?.name : undefined)) }); setIsPrintDialogOpen(true); } } }} onSkip={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'skipped' }); }} onReturnToQueue={(id: string) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'walkIns', id), { status: 'waiting' }); }} groupSizes={walkInGroupSizes} onToggleWaitForStaff={(walkInId: string, wait: boolean) => {
+                  if (!firestore || !tenantId) return;
+                  updateDocumentNonBlocking(
+                    doc(firestore, 'tenants', tenantId, 'walkIns', walkInId),
+                    { waitForPreferred: wait, waitForPreferredStaff: wait },
+                  );
+                }} onFinishService={(apt: any) => { setAppointmentToReview(apt); setIsTechnicianReviewOpen(true); }} onUpdateStatus={handleUpdateStatus} onRevertToReady={handleRevertToReady} onRevertToService={handleRevertToService} onResolve={(item: any) => { if (item.isPotentialAlias && item.matchedClient) { setPendingIdentityMatch(item); } else if (item.type === 'walk-in') { setPendingCheckInItem(item); } else { /* unarrived booked appointments go through check-in first; already-arrived skip straight to the full sheet */ const notYetArrived = !item.checkInStatus || item.checkInStatus === 'pending' || item.checkInStatus === 'confirmed'; if (notYetArrived) { setPendingCheckInItem(item); } else { setSelectedAppointment(item); setIsDetailsOpen(true); } } }} />
 
               </div>
             )}
