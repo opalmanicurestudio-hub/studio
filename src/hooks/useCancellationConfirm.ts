@@ -1,7 +1,44 @@
 'use client';
 
 /**
- * useCancellationConfirm (v4)
+ * useCancellationConfirm (v5)
+ *
+ * v5 — WALK-IN CANCELLATION. Cancelling a walk-in did not work in either
+ * direction, and the two failures had opposite symptoms.
+ *
+ *   FROM THE FLOOR BOARD. A card in Waiting or Called calls
+ *   onCancel(walkIn.id), so `appointment.id` arrived here as the walkIn
+ *   row's own id — `abc123`, not `apt-walkin-abc123`. This hook built
+ *   `appointments/abc123`, a document that has never existed, and called
+ *   batch.update() on it. Firestore rejects an update against a missing
+ *   document by failing the WHOLE batch, so nothing was written at all:
+ *   no cancellation, no audit log, no cancellationEvent. The guest stayed
+ *   on the board and the dialog sat open, because the rejection was never
+ *   caught.
+ *
+ *   FROM A SERVICE CARD. That path passes `apt-walkin-abc123`, and the POS
+ *   terminal's handleCancelAction stamps `isWalkIn: false` on it (its
+ *   `effectiveIsWalkIn` is deliberately false for prefixed ids). So the
+ *   `if (appointment.isWalkIn)` branch below never ran, the mirror
+ *   appointment was cancelled, and `walkIns/abc123` was left untouched —
+ *   still carrying the startTime the walk-in engine writes, which is why a
+ *   guest who changed her mind kept drawing a block on the planner with
+ *   nothing left anywhere to remove it.
+ *
+ * Both are fixed by deriving the pair of ids from the id we were handed
+ * instead of trusting a caller-supplied flag, checking whether the mirror
+ * appointment exists before updating it, and always closing both documents.
+ *
+ * v5 also stops walk-ins from touching deposits. Step 3 looked up ANY
+ * available depositCredit for the client and forfeited the newest one. A
+ * walk-in never carries a deposit, so on a walk-in cancellation that query
+ * would happily find the deposit the client had paid on a DIFFERENT, future
+ * booking and forfeit it — real money, taken for the wrong reason. Deposit
+ * resolution is now skipped entirely for walk-ins.
+ *
+ * And batch.commit() is wrapped: a rejected write now surfaces as a
+ * destructive toast instead of an unhandled rejection that leaves the
+ * cancel dialog hanging open.
  *
  * Changes from v3:
  *  - RESOLVED the architectural gap v3 flagged: /api/stripe/studio-cancel-refund
@@ -41,6 +78,7 @@ import {
   writeBatch,
   increment,
   arrayUnion,
+  getDoc,
   getDocs,
   query,
   where,
@@ -187,13 +225,34 @@ export function useCancellationConfirm(
       const now     = new Date().toISOString();
       const batch   = writeBatch(firestore);
 
+      // ── Which documents is this cancellation actually about? ─────────────
+      // Derived from the id itself, never from a caller-supplied isWalkIn
+      // flag — the POS terminal sets that flag to false for `apt-walkin-`
+      // ids, which is exactly the case where the walkIn row most needs
+      // closing. A walk-in always has a walkIns row; it only has a mirror
+      // appointment once a provider was seated.
+      const rawId = String(appointment.id);
+      const isWalkInCancel = !!(appointment as any).isWalkIn || rawId.startsWith('apt-walkin-');
+      const walkInId = isWalkInCancel ? rawId.replace('apt-walkin-', '') : null;
+      const appointmentDocId = isWalkInCancel ? `apt-walkin-${walkInId}` : rawId;
+
       const appointmentRef = doc(
         firestore,
         `tenants/${tenantId}/appointments`,
-        appointment.id,
+        appointmentDocId,
       );
 
-      batch.update(appointmentRef, {
+      // An unassigned walk-in has no mirror appointment. batch.update()
+      // against a missing document rejects the entire batch, so ask first
+      // rather than lose the cancellation, the audit log and the client
+      // notification along with it.
+      let appointmentExists = true;
+      if (isWalkInCancel) {
+        try { appointmentExists = (await getDoc(appointmentRef)).exists(); }
+        catch { appointmentExists = false; }
+      }
+
+      if (appointmentExists) batch.update(appointmentRef, {
         status:                  'cancelled',
         cancelledAt:             now,
         cancellationAudit,
@@ -207,10 +266,12 @@ export function useCancellationConfirm(
         }),
       });
 
-      if (appointment.isWalkIn) {
-        const walkInId  = String(appointment.id).replace('apt-walkin-', '');
+      // Always, for both entry points. set+merge rather than update: the
+      // row is guaranteed to exist, but merge keeps this from being the
+      // thing that fails a batch if it somehow does not.
+      if (walkInId) {
         const walkInRef = doc(firestore, `tenants/${tenantId}/walkIns`, walkInId);
-        batch.update(walkInRef, { status: 'cancelled', cancelledAt: now });
+        batch.set(walkInRef, { status: 'cancelled', cancelledAt: now }, { merge: true });
       }
 
       // Balance update only for client/no-show paths with a fee
@@ -246,7 +307,8 @@ export function useCancellationConfirm(
       batch.set(eventRef, {
         id:                    eventId,
         tenantId,
-        appointmentId:         appointment.id,
+        appointmentId:         appointmentDocId,
+        walkInId:              walkInId,
         clientId:              client.id,
         clientName:            client.name,
         clientEmail:           client.email || null,
@@ -279,7 +341,18 @@ export function useCancellationConfirm(
         errorMessage:   null,
       });
 
-      await batch.commit();
+      try {
+        await batch.commit();
+      } catch (e: any) {
+        // Previously uncaught, so a rejected batch left the cancel dialog
+        // open with no explanation and the guest still on the board.
+        toast({
+          variant:     'destructive',
+          title:       'Cancellation Failed',
+          description: e?.message || 'Nothing was changed. Please try again.',
+        });
+        return;
+      }
 
       // ── Step 3: Deposit-credit resolution for CLIENT and NO-SHOW cancellations ─
       // Best-effort, non-blocking — the appointment is already cancelled by
@@ -291,8 +364,11 @@ export function useCancellationConfirm(
       // stance as handle-no-show-action's deposit handling, applied here too
       // so a no-show confirmed via this dialog (rather than via a flagged
       // notification) doesn't leave the deposit untouched.
+      // `&& !isWalkInCancel` — see the v5 header. Without it, cancelling a
+      // walk-in forfeits whatever available deposit the client happens to
+      // be holding for a completely different appointment.
       let depositNote: string | null = null;
-      if (isClientCancel || isNoShowCancel) {
+      if ((isClientCancel || isNoShowCancel) && !isWalkInCancel) {
         try {
           const creditsCol = collection(firestore, `tenants/${tenantId}/depositCredits`);
           let creditSnap = appointment.clientId
