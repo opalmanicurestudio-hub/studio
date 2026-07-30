@@ -607,11 +607,16 @@ async function readFloor(db: any, tenantId: string, service: any) {
   const [staffSnap, shiftSnap, queueSnap] = await Promise.all([
     db.collection(`tenants/${tenantId}/staff`).get(),
     db.collection(`tenants/${tenantId}/shifts`).get(),
-    // 48-hour window: yesterday + today. Catches services that started just
-    // before midnight, avoids a full-collection scan as the collection grows.
-    db.collection(`tenants/${tenantId}/walkIns`)
-      .where('checkInTime', '>=', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
-      .get(),
+    // 48-hour window — requires a Firestore composite index on (checkInTime).
+    // The query is wrapped in a try-catch at the allRows assignment below so
+    // the board never goes blank just because the index hasn't been created
+    // yet. Once the index exists (Firebase console → one-click link on the
+    // first 500 error), the full collection scan stops running.
+    (async () => { try {
+      return await db.collection(`tenants/${tenantId}/walkIns`)
+        .where('checkInTime', '>=', new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString())
+        .get();
+    } catch { return db.collection(`tenants/${tenantId}/walkIns`).get(); } })()
   ]);
   const staff = staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
   const shifts = shiftSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
