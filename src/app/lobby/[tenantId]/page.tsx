@@ -360,17 +360,58 @@ export default function LobbyBoardPage() {
       }
       setFatal('');
       setBoard(d as Board);
-      setLastOkAt(Date.now());
+      const t = Date.now();
+      setLastOkAt(t);
+      lastOkRef.current = t;
       setLoading(false);
     } catch {
       if (mounted.current) setLoading(false);
     }
   }, [tenantId]);
 
+  // Track last-ok time in a ref too so the rAF loop can read it without
+  // causing re-renders on every animation frame.
+  const lastOkRef = useRef<number>(0);
+
+  // How long without a successful poll before rAF forces a reload.
+  // Longer than STALE_MS so the stale indicator always shows first.
+  const FREEZE_MS = 90 * 1000;
+
   useEffect(() => {
     void load();
     const id = setInterval(() => { void load(); }, POLL_MS);
-    return () => clearInterval(id);
+
+    // A. Visibility — fires when a wall display wakes from screen-saver or
+    // the browser un-throttles a background tab. Reload immediately so the
+    // first thing anyone sees is current data, not whatever was on screen
+    // when the display went dark.
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    // B. Network recovery — reload the moment connectivity returns rather
+    // than waiting up to STALE_MS for the next poll to succeed.
+    const onOnline = () => { void load(); };
+    window.addEventListener('online', onOnline);
+
+    // C. Freeze detection — browsers throttle setInterval for long-lived
+    // pages. requestAnimationFrame is tied to the display refresh and is
+    // never throttled, so it catches intervals that silently stopped firing.
+    // If we haven't had a successful poll in FREEZE_MS, force one now.
+    let rafId: number;
+    const tick = () => {
+      if (Date.now() - lastOkRef.current > FREEZE_MS && lastOkRef.current > 0) {
+        void load();
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+      cancelAnimationFrame(rafId);
+    };
   }, [load]);
 
   // The clock is set on the client only, so the server and the browser never
@@ -405,6 +446,18 @@ export default function LobbyBoardPage() {
   }, [pageIdx, pages.length]);
 
   const shown = pages[Math.min(pageIdx, pages.length - 1)] || [];
+  // Hard reload as last resort: if the board has been stale for 10 minutes
+  // something is genuinely broken (zombie interval, leaked memory, crashed
+  // service worker). A full page reload fixes all of those and costs nothing
+  // on a dedicated wall screen.
+  useEffect(() => {
+    if (!stale) return;
+    const id = setTimeout(() => {
+      if (Date.now() - lastOkAt > 10 * 60 * 1000) window.location.reload();
+    }, 10 * 60 * 1000);
+    return () => clearTimeout(id);
+  }, [stale, lastOkAt]);
+
   const stale = lastOkAt > 0 && Date.now() - lastOkAt > STALE_MS;
   const studioName = String(board?.studioName || '').trim();
 
