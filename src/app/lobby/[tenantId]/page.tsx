@@ -83,6 +83,7 @@ type ServiceRow = {
   serviceName?: string;
   providerFirstName?: string;
   providerAvatar?: string;
+  startedMinutesAgo?: number | null;
 };
 
 type FloorRow = {
@@ -661,7 +662,9 @@ export default function LobbyBoardPage() {
                       {s.firstName || 'Guest'}
                     </span>
                     <span className={cn('shrink-0 text-xs sm:text-sm truncate', t.muted)}>
-                      {s.providerFirstName ? `with ${s.providerFirstName}` : s.serviceName || ''}
+                      {s.providerFirstName
+                        ? `with ${s.providerFirstName}${s.startedMinutesAgo != null ? ` · ${s.startedMinutesAgo}m` : ''}`
+                        : s.serviceName || ''}
                     </span>
                   </li>
                 ))}
