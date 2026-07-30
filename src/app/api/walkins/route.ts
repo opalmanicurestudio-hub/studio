@@ -873,9 +873,12 @@ export async function GET(req: NextRequest) {
       });
       const seenGroups = new Set<string>();
 
+      // notified rows render in the call-forward banner, not as waiting rows.
+      // Including them in both caused a guest to appear twice on the board.
       const boardQueue: any[] = [];
       for (let i = 0; i < queue.length && boardQueue.length < 20; i++) {
         const w: any = queue[i];
+        if (String(w?.status || '') === 'notified') continue;
         const g = String(w?.groupId || '');
         if (g) {
           if (seenGroups.has(g)) continue;
@@ -923,12 +926,26 @@ export async function GET(req: NextRequest) {
         // network tab when she asks "is it really texting them?".
         messagesSent: dispatched,
         queue: boardQueue,
-        inService: working.slice(0, 20).map((w: any) => ({
-          firstName: firstName(w.customerName || w.clientName) || 'Guest',
-          serviceName: str(w.serviceName, 60),
-          providerFirstName: providerOf(w),
-          providerAvatar: avatarOf(w),
-        })),
+        inService: working.slice(0, 20).map((w: any) => {
+          let resolvedStaffId = String(w?.staffId || '');
+          if (!resolvedStaffId && w?.serviceStartTime) {
+            const match = (staff || []).find((st: any) =>
+              String(st?.status || '') === 'busy' &&
+              Math.abs(toMs(st?.lastWalkInStartedAt || st?.lastServiceStartAt) - toMs(w.serviceStartTime)) < 120000,
+            );
+            if (match) resolvedStaffId = String((match as any).id || '');
+          }
+          const provName = firstName(w?.staffName)
+            || firstName(staffNameById.get(resolvedStaffId) || '') || '';
+          const started = Math.max(toMs(w?.serviceStartTime), toMs(w?.notifiedAt), toMs(w?.checkInTime));
+          return {
+            firstName: firstName(w.customerName || w.clientName) || 'Guest',
+            serviceName: str(w.serviceName, 60),
+            providerFirstName: provName,
+            providerAvatar: resolvedStaffId ? (avatarById.get(resolvedStaffId) || '') : '',
+            startedMinutesAgo: started ? Math.max(0, Math.round((nowMs - started) / 60000)) : null,
+          };
+        }),
         floor: (staff || [])
           .filter((s: any) => s.isActive !== false && s.active !== false && (!rostered || onShiftIds.has(String(s.id))))
           .map((s: any) => ({
@@ -1116,6 +1133,8 @@ async function handleLookup(db: any, tenantId: string, body: any) {
   // Are they already standing in this line? Telling them so is much better
   // than letting them join twice and then quietly deduping them.
   const { rows, queue, working, providers } = await readFloor(db, tenantId, null);
+  // Heal on lookup — not just on join and board poll.
+  await healStale(db, tenantId, stale, new Date().toISOString());
   // `clientId ?` guards a real false positive: with no client match clientId is
   // '', and a walk-in row with no clientId of its own would satisfy '' === ''
   // and be reported back as "you are already in line" to a stranger.
