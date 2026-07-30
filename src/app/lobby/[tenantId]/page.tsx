@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * THE LOBBY QUEUE DISPLAY
  * repo path: src/app/lobby/[tenantId]/page.tsx
