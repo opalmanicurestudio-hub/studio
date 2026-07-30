@@ -361,49 +361,6 @@ function POSPage() {
   // Guarded by a ref so each row is only auto-assigned once per session,
   // and only when every dependency is ready — a row arriving before the
   // staff list loads simply waits for the next walkIns change.
-  // Expire held slots that were never claimed.
-  //
-  // When a waitlist client is offered a slot they get a hold (holdExpiresAt).
-  // If they don't confirm within the window — default 15 minutes — that slot
-  // sits indefinitely as 'notified' and the guest behind them waits forever.
-  // The route's healStale only clears in-service rows, not held waitlist rows.
-  // This sweep runs whenever walkIns updates and sends expired holds back to
-  // waiting so they re-enter the queue. Belt-and-suspenders alongside the
-  // route-level expiry that fires on each board poll.
-  useEffect(() => {
-    if (!walkIns || !firestore || !tenantId) return;
-    const nowMs = Date.now();
-    for (const w of walkIns) {
-      const ww = w as any;
-      if (ww.status !== 'notified') continue;
-      if (!ww.holdExpiresAt) continue;
-      const expiry = new Date(ww.holdExpiresAt).getTime();
-      if (!expiry || expiry > nowMs) continue;
-      // Return to waiting so they stay in the queue rather than disappearing.
-      updateDocumentNonBlocking(
-        doc(firestore, 'tenants', tenantId, 'walkIns', w.id),
-        { status: 'waiting', holdExpiresAt: null, notifiedAt: null, notifiedTimestamp: null },
-      );
-      toast({ title: 'Hold expired', description: `${ww.customerName || ww.clientName || 'Guest'} did not claim their slot — returned to the queue.` });
-    }
-  }, [walkIns, firestore, tenantId, toast]);
-
-  const autoAssignedIds = React.useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!walkIns || !staff || !services || !firestore || !tenantId) return;
-    for (const w of walkIns) {
-      const ww = w as any;
-      if (ww.status !== 'waiting') continue;
-      if (!ww.readyNow || !ww.staffId) continue;
-      if (autoAssignedIds.current.has(w.id)) continue;
-      // Confirm the provider is still on the floor before assigning.
-      const provider = (staff as any[]).find(s => s.id === ww.staffId);
-      if (!provider || provider.onBreak || provider.acceptingWalkIns === false) continue;
-      autoAssignedIds.current.add(w.id);
-      handleAssignStaff(w, ww.staffId);
-    }
-  }, [walkIns, staff, services, firestore, tenantId, handleAssignStaff]);
-
   const waitlist = useWaitlist({
     tenantId,
     firestore,
@@ -784,6 +741,50 @@ function POSPage() {
       .then(() => toast({ title: "Staff Assigned" + (upcomingConflict ? " \u26a0 Conflict detected" : "") }))
       .catch((e: any) => toast({ variant: 'destructive', title: 'Assignment failed', description: e?.message || 'Nothing was changed — the guest is still waiting.' }));
   }, [firestore, tenantId, services, appointmentsFromInventory, clients, toast]);
+
+  // Expire held slots that were never claimed.
+  //
+  // When a waitlist client is offered a slot they get a hold (holdExpiresAt).
+  // If they don't confirm within the window — default 15 minutes — that slot
+  // sits indefinitely as 'notified' and the guest behind them waits forever.
+  // The route's healStale only clears in-service rows, not held waitlist rows.
+  // This sweep runs whenever walkIns updates and sends expired holds back to
+  // waiting so they re-enter the queue. Belt-and-suspenders alongside the
+  // route-level expiry that fires on each board poll.
+  useEffect(() => {
+    if (!walkIns || !firestore || !tenantId) return;
+    const nowMs = Date.now();
+    for (const w of walkIns) {
+      const ww = w as any;
+      if (ww.status !== 'notified') continue;
+      if (!ww.holdExpiresAt) continue;
+      const expiry = new Date(ww.holdExpiresAt).getTime();
+      if (!expiry || expiry > nowMs) continue;
+      // Return to waiting so they stay in the queue rather than disappearing.
+      updateDocumentNonBlocking(
+        doc(firestore, 'tenants', tenantId, 'walkIns', w.id),
+        { status: 'waiting', holdExpiresAt: null, notifiedAt: null, notifiedTimestamp: null },
+      );
+      toast({ title: 'Hold expired', description: `${ww.customerName || ww.clientName || 'Guest'} did not claim their slot — returned to the queue.` });
+    }
+  }, [walkIns, firestore, tenantId, toast]);
+
+  const autoAssignedIds = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!walkIns || !staff || !services || !firestore || !tenantId) return;
+    for (const w of walkIns) {
+      const ww = w as any;
+      if (ww.status !== 'waiting') continue;
+      if (!ww.readyNow || !ww.staffId) continue;
+      if (autoAssignedIds.current.has(w.id)) continue;
+      // Confirm the provider is still on the floor before assigning.
+      const provider = (staff as any[]).find(s => s.id === ww.staffId);
+      if (!provider || provider.onBreak || provider.acceptingWalkIns === false) continue;
+      autoAssignedIds.current.add(w.id);
+      handleAssignStaff(w, ww.staffId);
+    }
+  }, [walkIns, staff, services, firestore, tenantId, handleAssignStaff]);
+
 
   const handleAssignNext = useCallback(() => {
     if (!firestore || !tenantId || !walkIns || !staff || !services) return;
