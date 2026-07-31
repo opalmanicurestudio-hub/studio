@@ -83,6 +83,8 @@ export async function GET(req: NextRequest) {
       tenantId,
       name: tenant.businessName || tenant.name || 'Shop',
       logoUrl: tenant.logoUrl || null,
+      tagline: String(rs.shopTagline || '').trim() || 'Shop',
+      announcement: String(rs.shopAnnouncement || '').trim(),
       wholesaleOffered,
       wholesaleUnlocked,
       taxRatePercent: Number(rs.taxRatePercent) || 0,
