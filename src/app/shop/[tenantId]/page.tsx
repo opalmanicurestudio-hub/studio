@@ -55,6 +55,8 @@ interface ShopInfo {
   freeShippingOverDollars: number;
   shippingOffered: boolean;
   curbsideOffered: boolean;
+  curbsideMode?: 'spots' | 'drive_thru' | 'freeform';
+  curbsideSpots?: string[];
 }
 
 type Method = 'counter' | 'curbside' | 'ship';
@@ -332,7 +334,7 @@ export default function ShopPage() {
                       <div className="grid grid-cols-3 gap-2">
                         {([
                           { id: 'counter' as Method, label: 'Pickup', icon: Store, show: true },
-                          { id: 'curbside' as Method, label: 'Curbside', icon: Package, show: shop.curbsideOffered },
+                          { id: 'curbside' as Method, label: shop.curbsideMode === 'drive_thru' ? 'Drive-Thru' : 'Curbside', icon: Package, show: shop.curbsideOffered },
                           { id: 'ship' as Method, label: 'Ship', icon: Truck, show: shop.shippingOffered },
                         ]).filter((m) => m.show).map((m) => (
                           <button
