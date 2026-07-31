@@ -719,6 +719,7 @@ export default function InventoryPage() {
                   <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
                     <div className="flex items-center gap-4"><div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div><p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p></div>
                     <div className="flex gap-2">
+                      <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={() => window.open(`/print/product-labels/${tenantId}?ids=${[...selectedItems].join(',')}`, '_blank')}><Printer className="mr-1.5 h-3.5 w-3.5" /> Labels</Button>
                       {showArchived ? <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button> : <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>}
                       <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={handleBulkDeleteClick}>Purge</Button>
                     </div>
