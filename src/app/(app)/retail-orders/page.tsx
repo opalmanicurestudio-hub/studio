@@ -3,7 +3,7 @@
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import {
   AlertTriangle, Car, Check, ClipboardList, Loader, Package, PackageCheck,
-  PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Ship, Store, Truck, X, Zap,
+  PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, Truck, X, Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -50,7 +50,8 @@ type BoardOrder = RetailOrder & { id: string };
 
 export default function RetailFulfillmentBoard() {
   const { firestore } = useFirebase();
-  const { tenantId } = useTenant();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
 
@@ -116,7 +117,11 @@ export default function RetailFulfillmentBoard() {
   const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
   const inProgress = useMemo(() => orders.filter((o) => ['picking', 'packed'].includes(o.stage)), [orders]);
   const ready = useMemo(() => orders.filter((o) => o.stage === 'ready'), [orders]);
-  const arrived = useMemo(() => orders.filter((o) => o.stage === 'arrived'), [orders]);
+  const arrived = useMemo(
+    () => orders.filter((o) => o.stage === 'arrived')
+      .sort((a, b) => (a.curbside?.arrivedAt || '').localeCompare(b.curbside?.arrivedAt || '')),
+    [orders]
+  );
   const myBatch = useMemo(() => batches.find((b) => b.assignedTo === actor.id) || null, [batches, actor.id]);
   const myOrders = useMemo(
     () => (myBatch ? inProgress.filter((o) => o.batchId === myBatch.id) : []),
@@ -262,6 +267,9 @@ export default function RetailFulfillmentBoard() {
           </Button>
           <Button asChild variant="outline" className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
             <Link href="/retail-orders/returns"><RotateCcw className="mr-1.5 h-4 w-4" /> Returns</Link>
+          </Button>
+          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+            <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
           </Button>
         </div>
         {pendingRefunds.length > 0 && (
