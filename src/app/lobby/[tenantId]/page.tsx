@@ -220,7 +220,7 @@ export default function LobbyBoardPage() {
   const staffById = useMemo(()=>{ const m=new Map<string,any>(); staffRows.forEach(s=>{if(s?.id)m.set(String(s.id),s);}); return m; }, [staffRows]);
   const serviceById = useMemo(()=>{ const m=new Map<string,any>(); services.forEach(s=>{if(s?.id)m.set(String(s.id),s);}); return m; }, [services]);
 
-  const { queue, working, floor, inServiceCount, studioName, enabled } = useMemo(() => {
+  const { queue, working, floor, inServiceCount, studioName, enabled, closingTime } = useMemo(() => {
     const nowMs2 = Date.now();
     const live = walkInRows.filter(r=>!isStale(r,nowMs2));
     const queue = live.filter(r=>OPEN_STATUSES.has(String(r?.status||''))).sort((a,b)=>safeMs(a.checkInTime)-safeMs(b.checkInTime));
@@ -232,9 +232,10 @@ export default function LobbyBoardPage() {
         accepting: s.acceptingWalkIns!==false,
         busy: String(s.status||'')=='busy'||working.some(w=>String(w.staffId||'')==String(s.id)),
       }));
+    const ct = (() => { const raw=String(tenantDoc?.walkInCloseTime||'').trim(); if(!raw) return null; const [hh,mm]=raw.split(':').map(Number); if(!Number.isFinite(hh)) return null; try { const d2=new Date(); d2.setHours(hh,mm,0,0); return d2.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}); } catch { return null; } })();
     return { queue, working, floor, inServiceCount: working.length,
       studioName: String(tenantDoc?.name||tenantDoc?.businessName||''),
-      enabled: tenantDoc?.walkInEnabled!==false };
+      enabled: tenantDoc?.walkInEnabled!==false, closingTime: ct };
   }, [walkInRows, staffRows, tenantDoc, tick]);
 
   const boardQueue = useMemo(() => {
@@ -293,6 +294,7 @@ export default function LobbyBoardPage() {
         providerAvatar: safePhoto(provider?.avatarUrl),
         requested: r.isRequested===true,
         notified: isNotified || String(r.status)==='arrived' || String(r.checkInStatus||'')==='arrived',
+        held: String(r.status)==='held',
         waitedMin,
         estWaitMin: isNotified ? 0 : estimateWaitMin(Math.max(0,openSeq-1), working.length, freeCount, avgMin),
       });
@@ -433,11 +435,10 @@ export default function LobbyBoardPage() {
                 <li key={`q-${q.position??i}-${i}`} className={cn(
                   'flex items-center gap-3 sm:gap-4 min-w-0 rounded-2xl border px-3 sm:px-4 py-3',
                   q.groupMemberOf ? 'ml-8 opacity-75 border-dashed' : '',
+                  (q as any).held?'border-amber-400/40 bg-amber-400/5':(!q.groupMemberOf&&Number(q.position)<=2&&Number(q.position)>0)?'border-amber-300/40':'',
                   t.rowPanel)}>
                   <div className={cn('w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-2xl border flex items-center justify-center', t.chipPanel)}>
-                    {q.groupMemberOf
-                      ? <Users className={cn('w-5 h-5', t.muted)} />
-                      : <span className={cn('text-lg sm:text-2xl font-bold', t.strong)}>{positionLabel(q.position, q.firstName)}</span>}
+                    {(q as any).held?<span className="text-2xl">⏳</span>:q.groupMemberOf?<Users className={cn('w-5 h-5',t.muted)} />:<span className={cn('text-lg sm:text-2xl font-bold',(!q.groupMemberOf&&Number(q.position)<=2&&Number(q.position)>0)?'text-amber-400':t.strong)}>{positionLabel(q.position,q.firstName)}</span>}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className={cn('flex items-center gap-2 min-w-0 text-xl sm:text-3xl font-semibold', t.strong)}>
@@ -449,6 +450,9 @@ export default function LobbyBoardPage() {
                         with {q.groupMemberOf}’s party
                       </p>
                     )}
+                    {(q as any).held&&<p className="text-[10px] sm:text-xs font-semibold uppercase tracking-widest text-amber-500">Holding your spot — please come to the front</p>}
+                    {!(q as any).held&&!q.groupMemberOf&&Number(q.position)===1&&<p className="text-[10px] sm:text-xs font-semibold uppercase tracking-widest text-amber-500">You’re next — please stay close</p>}
+                    {!(q as any).held&&!q.groupMemberOf&&Number(q.position)===2&&<p className={cn('text-[10px] sm:text-xs font-semibold uppercase tracking-widest',t.faint)}>Almost your turn</p>}
                     <p className={cn('mt-0.5 flex items-center gap-1.5 min-w-0 text-xs sm:text-base', t.muted)}>
                       {q.providerFirstName ? <Avatar t={t} url={q.providerAvatar} name={q.providerFirstName} className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 text-[10px] sm:text-xs" /> : null}
                       <span className="truncate min-w-0">{[q.serviceName, q.providerFirstName?`with ${q.providerFirstName}`:'']. filter(Boolean).join(' · ')}</span>
@@ -523,7 +527,7 @@ export default function LobbyBoardPage() {
 
       <div className="px-4 sm:px-6 pb-4">
         <div className={cn('flex items-center justify-between gap-3 text-[11px] sm:text-xs', t.faint)}>
-          <span>{studioName ? `${studioName} · walk-in queue` : 'Walk-in queue'}</span>
+          <span>{studioName ? `${studioName} · walk-in queue` : 'Walk-in queue'}{closingTime ? ` · closing ${closingTime}` : ''}</span>
           <span className="flex items-center gap-1.5">
             {stale
               ? <><Wifi className="w-3.5 h-3.5 text-amber-500" /><span className="text-amber-500">Reconnecting</span></>
