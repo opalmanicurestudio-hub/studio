@@ -585,7 +585,8 @@ export default function InventoryPage() {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
-    if (product.totalStock < quantity) return { success: false, message: `Not enough stock. Only ${product.totalStock} available.` };
+    const availableForSale = product.totalStock - ((product as any).stockReserved ?? 0);
+    if (availableForSale < quantity) return { success: false, message: `Not enough unreserved stock. Only ${Math.max(0, availableForSale)} available — online orders may be holding units.` };
     const sorted = [...(product.batches ?? [])].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
     let rem = quantity;
     for (const batch of sorted) { if (rem <= 0) break; const d = Math.min(batch.stock, rem); batch.stock -= d; rem -= d; }
