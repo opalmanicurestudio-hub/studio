@@ -430,6 +430,13 @@ export default function ShopPage() {
             </div>
           </div>
         )}
+        {shop.announcement && !wholesale && (
+          <div className="bg-foreground text-background">
+            <div className="max-w-5xl mx-auto px-4 py-1.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-center">{shop.announcement}</p>
+            </div>
+          </div>
+        )}
         {wholesale && (
           <div className="bg-primary text-primary-foreground">
             <div className="max-w-5xl mx-auto px-4 py-1.5 flex items-center gap-2">
@@ -458,7 +465,12 @@ export default function ShopPage() {
       </div>
 
       {/* ── Product grid ───────────────────────────────────────────────────── */}
-      <main className="max-w-5xl mx-auto px-4 py-4 grid grid-cols-2 md:grid-cols-3 gap-4">
+      <main className={cn(
+        'max-w-5xl mx-auto px-4 py-4 gap-4',
+        (shop.layout || 'grid') === 'grid' && 'grid grid-cols-2 md:grid-cols-3',
+        shop.layout === 'showcase' && 'grid grid-cols-1 md:grid-cols-2',
+        shop.layout === 'list' && 'flex flex-col'
+      )}>
         {shown.length === 0 && (
           <div className="col-span-full text-center py-24 space-y-3">
             <Package className="w-10 h-10 mx-auto opacity-20" />
@@ -469,9 +481,49 @@ export default function ShopPage() {
           const inCart = cart[p.id] ?? 0;
           const price = unitPrice(p);
           const showStrike = wholesale && p.wholesalePriceCents != null && p.wholesalePriceCents < p.priceCents;
+          if (shop.layout === 'list') {
+            return (
+              <Card key={p.id} className={cn('border-2 rounded-3xl overflow-hidden bg-white transition-all', !p.inStock && 'opacity-60')}>
+                <CardContent className="p-3 flex items-center gap-4">
+                  <div className="w-20 h-20 rounded-2xl bg-muted/10 relative overflow-hidden shrink-0">
+                    {p.imageUrls[0] ? (
+                      <Image src={p.imageUrls[0]} alt={p.name} fill className="object-cover" />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center"><Package className="w-6 h-6 opacity-15" /></div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <p className="font-black uppercase tracking-tight text-xs leading-tight">{p.name}</p>
+                    {p.description && <p className="text-[10px] font-bold text-muted-foreground line-clamp-1">{p.description}</p>}
+                    <div className="flex items-baseline gap-1.5">
+                      <p className="font-black text-sm text-primary">{fmt(price)}</p>
+                      {showStrike && <p className="text-[9px] font-bold text-muted-foreground line-through">{fmt(p.priceCents)}</p>}
+                      {p.lowStock && p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-amber-600">Almost gone</span>}
+                      {!p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sold out</span>}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    {inCart === 0 ? (
+                      <Button disabled={!p.inStock}
+                        onClick={() => setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1)}
+                        className="h-10 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                        Add
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-1 rounded-xl border-2 p-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}><Minus className="h-3 w-3" /></Button>
+                        <span className="w-6 text-center font-black font-mono text-sm">{inCart}</span>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}><Plus className="h-3 w-3" /></Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          }
           return (
             <Card key={p.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white transition-all', !p.inStock && 'opacity-60')}>
-              <div className="aspect-square bg-muted/10 relative">
+              <div className={cn(shop.layout === 'showcase' ? 'aspect-[4/3]' : 'aspect-square', 'bg-muted/10 relative')}>
                 {p.imageUrls[0] ? (
                   <Image src={p.imageUrls[0]} alt={p.name} fill className="object-cover" />
                 ) : (
@@ -492,7 +544,10 @@ export default function ShopPage() {
               </div>
               <CardContent className="p-4 space-y-3">
                 <div className="space-y-1">
-                  <p className="font-black uppercase tracking-tight text-xs leading-tight line-clamp-2">{p.name}</p>
+                  <p className={cn('font-black uppercase tracking-tight leading-tight line-clamp-2', shop.layout === 'showcase' ? 'text-sm' : 'text-xs')}>{p.name}</p>
+                  {shop.layout === 'showcase' && p.description && (
+                    <p className="text-[10px] font-bold text-muted-foreground line-clamp-2">{p.description}</p>
+                  )}
                   <div className="flex items-baseline gap-1.5">
                     <p className="font-black text-base text-primary">{fmt(price)}</p>
                     {showStrike && <p className="text-[10px] font-bold text-muted-foreground line-through">{fmt(p.priceCents)}</p>}
