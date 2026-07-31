@@ -466,6 +466,13 @@ export interface RetailOrder {
   parentOrderId?: string;      // set on backorder-split children & replacements
   isReplacement?: boolean;     // $0 replacement order from an RMA
 
+  pendingRefundCents?: number; // shorted-line refunds awaiting execution in Stripe
+  holdUntilRestock?: boolean;  // backorder children parked out of the queue
+  readyAt?: string;
+  trackingNumber?: string;
+  trackingUrl?: string;
+  carrier?: string;
+
   promiseAt?: string;          // target ready time; drives queue priority
   placedAt: string;
   paidAt?: string;
@@ -546,6 +553,7 @@ export interface FulfillmentBatch {
   assignedTo: string;
   assignedToName: string;
   claimedAt: string;
+  active?: boolean;            // queryable open-claim flag; false once done/released
   completedAt?: string;
   releasedAt?: string;
   releaseType?: 'manual' | 'auto' | 'completed';
