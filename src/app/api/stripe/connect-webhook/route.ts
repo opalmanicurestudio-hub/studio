@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
+import { handleRetailOrderPaid, handleRetailCheckoutExpired } from '@/lib/retail-webhook';
+
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
 // Stripe Dashboard: Developers → Webhooks → "Connected accounts" endpoint
@@ -97,6 +99,11 @@ export async function POST(req: NextRequest) {
           } catch (e) {
             console.error('[connect-webhook] Could not retrieve payment intent', e);
           }
+        }
+
+        if (sessionType === 'retail_order') {
+          await handleRetailOrderPaid(db, stripe2, tenant.id, connAcct, session, chargeId);
+          break;
         }
 
         if (sessionType === 'deposit') {
@@ -355,6 +362,15 @@ export async function POST(req: NextRequest) {
           }, { merge: true });
 
           console.log(`[connect-webhook] (legacy) Card saved for client ${clientId} on tenant ${tenant.id}`);
+        }
+        break;
+      }
+
+      case 'checkout.session.expired': {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (session.metadata?.type === 'retail_order') {
+          const tenant = await getTenant(connAcct);
+          if (tenant) await handleRetailCheckoutExpired(db, tenant.id, session);
         }
         break;
       }
