@@ -244,13 +244,41 @@ export default function LobbyBoardPage() {
     const groupCounts = new Map<string,number>();
     queue.forEach(r=>{ const g=String(r?.groupId||''); if(g) groupCounts.set(g,(groupCounts.get(g)||0)+1); });
     const seenGroups = new Set<string>();
+    // groupLeadName: the first-name of whoever led this group's join.
+    // Non-lead members (same groupId but sorted after the lead) show
+    // as '[LeadName]'s party' so the connection is visible on the wall.
+    const groupLeadName = new Map<string, string>();
     const rows: any[] = [];
     let openSeq = 0;
     for (const r of queue) {
       const g = String(r?.groupId||'');
-      if (g) { if(seenGroups.has(g)) continue; seenGroups.add(g); }
+      const isNonLead = g && seenGroups.has(g);
+      if (g && seenGroups.has(g)) {
+        // Non-lead member: add a slim sub-row so the wall shows them.
+        // Don't increment openSeq — they share the lead's position slot.
+        const lead = groupLeadName.get(g) || 'Group';
+        const isNotified2 = String(r.status)==='notified';
+        const staffId2 = String(r.staffId||r.assignedStaffId||'');
+        const provider2 = staffById.get(staffId2);
+        rows.push({
+          position: null, // no position number for group members
+          firstName: firstNameOf(r.customerName||r.clientName)||'Guest',
+          groupMemberOf: lead,
+          partySize: 1,
+          serviceName: String(serviceById.get(String(r.serviceIds?.[0]||r.serviceId||''))?.name||r.serviceName||''),
+          providerFirstName: firstNameOf(provider2?.name||r.staffName),
+          providerAvatar: safePhoto(provider2?.avatarUrl),
+          requested: false,
+          notified: isNotified2 || String(r.checkInStatus||'')==='arrived',
+          waitedMin: Math.max(0, Math.round((nowMs2-safeMs(r.checkInTime))/60000)),
+          estWaitMin: isNotified2 ? 0 : estimateWaitMin(Math.max(0,openSeq-1), working.length, freeCount, avgMin),
+        });
+        continue;
+      }
+      if (g) seenGroups.add(g);
       const isNotified = String(r.status)==='notified';
       openSeq += isNotified ? 0 : 1;
+      if (g) groupLeadName.set(g, firstNameOf(r.customerName||r.clientName)||'Guest');
       const staffId  = String(r.staffId||r.assignedStaffId||'');
       const provider = staffById.get(staffId);
       const svcId    = r.serviceIds?.[0] || r.serviceId || '';
@@ -402,15 +430,25 @@ export default function LobbyBoardPage() {
           ) : (
             <ul className="mt-3 space-y-2.5">
               {shown.map((q,i)=>(
-                <li key={`q-${q.position??i}-${i}`} className={cn('flex items-center gap-3 sm:gap-4 min-w-0 rounded-2xl border px-3 sm:px-4 py-3', t.rowPanel)}>
+                <li key={`q-${q.position??i}-${i}`} className={cn(
+                  'flex items-center gap-3 sm:gap-4 min-w-0 rounded-2xl border px-3 sm:px-4 py-3',
+                  q.groupMemberOf ? 'ml-8 opacity-75 border-dashed' : '',
+                  t.rowPanel)}>
                   <div className={cn('w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-2xl border flex items-center justify-center', t.chipPanel)}>
-                    <span className={cn('text-lg sm:text-2xl font-bold', t.strong)}>{positionLabel(q.position, q.firstName)}</span>
+                    {q.groupMemberOf
+                      ? <Users className={cn('w-5 h-5', t.muted)} />
+                      : <span className={cn('text-lg sm:text-2xl font-bold', t.strong)}>{positionLabel(q.position, q.firstName)}</span>}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className={cn('flex items-center gap-2 min-w-0 text-xl sm:text-3xl font-semibold', t.strong)}>
                       <span className="truncate min-w-0">{q.firstName||'Guest'}{Number(q.partySize)>1?` +${Number(q.partySize)-1}`:''}</span>
                       {q.requested===true&&<Star className="w-4 h-4 sm:w-5 sm:h-5 shrink-0 text-amber-400" />}
                     </p>
+                    {q.groupMemberOf && (
+                      <p className={cn('text-[10px] sm:text-xs font-semibold uppercase tracking-widest', t.faint)}>
+                        with {q.groupMemberOf}’s party
+                      </p>
+                    )}
                     <p className={cn('mt-0.5 flex items-center gap-1.5 min-w-0 text-xs sm:text-base', t.muted)}>
                       {q.providerFirstName ? <Avatar t={t} url={q.providerAvatar} name={q.providerFirstName} className="w-5 h-5 sm:w-6 sm:h-6 shrink-0 text-[10px] sm:text-xs" /> : null}
                       <span className="truncate min-w-0">{[q.serviceName, q.providerFirstName?`with ${q.providerFirstName}`:'']. filter(Boolean).join(' · ')}</span>
