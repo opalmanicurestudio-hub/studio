@@ -39,9 +39,13 @@ export async function GET(req: NextRequest) {
   }
 
   const db = getAdminDb();
-  const orderSnap = await db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId).get();
+  const [orderSnap, tenantSnap] = await Promise.all([
+    db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId).get(),
+    db.collection('tenants').doc(tenantId).get(),
+  ]);
   if (!orderSnap.exists) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
   const order = orderSnap.data() as any;
+  const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
 
   // Queue position — how many active orders entered the queue before this one.
   // Only meaningful while waiting to be picked; skipped otherwise to save reads.
@@ -60,6 +64,21 @@ export async function GET(req: NextRequest) {
 
   const isPickup = order.method === 'counter' || order.method === 'curbside';
   const active = !TERMINAL_STAGES.includes(order.stage);
+
+  // Drive-thru: live lane position among checked-in orders, by arrival time.
+  let lanePosition: number | null = null;
+  if (order.method === 'curbside' && order.curbside?.arrivedAt && active) {
+    try {
+      const ahead = await db.collection(`tenants/${tenantId}/retailOrders`)
+        .where('stage', '==', 'arrived')
+        .where('curbside.arrivedAt', '<', order.curbside.arrivedAt)
+        .count().get();
+      lanePosition = (ahead.data().count ?? 0) + (order.stage === 'arrived' ? 1 : 0) || null;
+      if (order.stage === 'arrived' && lanePosition === null) lanePosition = 1;
+    } catch {
+      lanePosition = null;
+    }
+  }
 
   // The pickup QR is available from the moment payment confirms, so the
   // customer already has it open when they walk up — no fumbling at the counter.
@@ -107,6 +126,11 @@ export async function GET(req: NextRequest) {
       carrier: order.carrier || null,
     },
     queuePosition,
+    lanePosition,
+    curbsideExperience: {
+      mode: rs.curbsideMode || 'freeform',
+      spots: Array.isArray(rs.curbsideSpots) ? rs.curbsideSpots : [],
+    },
     qrValue,
     active,
   });
