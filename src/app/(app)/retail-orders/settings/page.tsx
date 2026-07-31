@@ -63,7 +63,10 @@ export default function RetailSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [newSpot, setNewSpot] = useState('');
   const [itemBusy, setItemBusy] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, { wholesale: string; minQty: string; desc: string; img: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, {
+    wholesale: string; minQty: string; desc: string; img: string;
+    howToUse: string; specs: string; docs: string;
+  }>>({});
 
   useEffect(() => {
     if (loaded) return;
@@ -120,7 +123,10 @@ export default function RetailSettingsPage() {
     wholesale: it.wholesalePriceDollars != null ? String(it.wholesalePriceDollars) : '',
     minQty: it.wholesaleMinQty != null ? String(it.wholesaleMinQty) : '',
     desc: it.onlineDescription || '',
-    img: (it.imageUrls || [])[0] || '',
+    img: (it.imageUrls || []).join('\n'),
+    howToUse: it.howToUse || '',
+    specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
+    docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
   };
 
   const toggleOnline = async (it: any, on: boolean) => {
@@ -138,11 +144,29 @@ export default function RetailSettingsPage() {
     const d = draftFor(it);
     setItemBusy(it.id);
     try {
+      const imageUrls = d.img.split(/\n+/).map((u) => u.trim()).filter((u) => /^https?:\/\//i.test(u)).slice(0, 10);
+      const specs = d.specs.split(/\n+/).map((line) => {
+        const idx = line.indexOf(':');
+        if (idx <= 0) return null;
+        const label = line.slice(0, idx).trim();
+        const value = line.slice(idx + 1).trim();
+        return label && value ? { label, value } : null;
+      }).filter(Boolean).slice(0, 40);
+      const documents = d.docs.split(/\n+/).map((line) => {
+        const idx = line.indexOf('|');
+        if (idx <= 0) return null;
+        const name = line.slice(0, idx).trim();
+        const url = line.slice(idx + 1).trim();
+        return name && /^https?:\/\//i.test(url) ? { name, url } : null;
+      }).filter(Boolean).slice(0, 20);
       await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), {
         wholesalePriceDollars: d.wholesale.trim() === '' ? null : Number(d.wholesale) || 0,
         wholesaleMinQty: d.minQty.trim() === '' ? null : Math.max(0, Math.floor(Number(d.minQty) || 0)),
         onlineDescription: d.desc.trim(),
-        imageUrls: d.img.trim() ? [d.img.trim()] : [],
+        howToUse: d.howToUse.trim(),
+        imageUrls,
+        specs: JSON.parse(JSON.stringify(specs)),
+        documents: JSON.parse(JSON.stringify(documents)),
       });
       toast({ title: `${it.name} updated` });
     } catch (e: any) {
@@ -412,12 +436,21 @@ export default function RetailSettingsPage() {
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, minQty: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
                         </div>
-                        <Input placeholder="Image URL" value={d.img}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, img: e.target.value } })}
-                          className="h-10 rounded-xl border-2 font-bold text-xs" />
+                        <Textarea placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, img: e.target.value } })}
+                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
                         <Textarea placeholder="Storefront description" value={d.desc}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, desc: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
+                        <Textarea placeholder="How to use — steps or instructions" value={d.howToUse}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
+                          className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
+                        <Textarea placeholder={'Specs — one per line as Label: Value (e.g. Size: 15 mL)'} value={d.specs}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, specs: e.target.value } })}
+                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
+                        <Textarea placeholder={'Documents — one per line as Name | https://link (e.g. MSDS | https://…)'} value={d.docs}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, docs: e.target.value } })}
+                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
                         <Button disabled={itemBusy === it.id} onClick={() => saveItem(it)}
                           variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
                           {itemBusy === it.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Save item'}
