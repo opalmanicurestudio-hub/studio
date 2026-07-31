@@ -45,7 +45,7 @@ export type FulfillmentMethod = (typeof FULFILLMENT_METHODS)[number];
 
 /**
  * Pricing tiers. 'retail' is the public storefront price (msrp).
- * 'wholesale' is for B2B buyers (salons, students, educators) who unlock the
+ * 'wholesale' is for B2B buyers (other businesses, students, pros) who unlock the
  * shop with the tenant's wholesale access code; prices come from
  * wholesalePriceDollars with msrp as the fallback.
  */
