@@ -66,6 +66,8 @@ export default function OrderStatusPage() {
 
   const [order, setOrder] = useState<StatusOrder | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
+  const [lanePosition, setLanePosition] = useState<number | null>(null);
+  const [curbside, setCurbside] = useState<{ mode: string; spots: string[] }>({ mode: 'freeform', spots: [] });
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -80,6 +82,8 @@ export default function OrderStatusPage() {
       if (!res.ok) throw new Error(data.error || 'Order not found');
       setOrder(data.order);
       setQueuePosition(data.queuePosition);
+      setLanePosition(data.lanePosition ?? null);
+      if (data.curbsideExperience) setCurbside(data.curbsideExperience);
       setQrValue(data.qrValue);
       activeRef.current = data.active;
       setLoadError('');
@@ -198,7 +202,6 @@ export default function OrderStatusPage() {
       </header>
 
       <main className="max-w-lg mx-auto px-5 py-6 space-y-5">
-        {/* ── Cancelled ─────────────────────────────────────────────────────── */}
         {order.stage === 'cancelled' && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-8 text-center space-y-3">
@@ -213,7 +216,6 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {/* ── Confirming payment (webhook race) ─────────────────────────────── */}
         {order.stage === 'placed' && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-8 text-center space-y-4">
@@ -227,7 +229,6 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {/* ── Progress tracker ──────────────────────────────────────────────── */}
         {rank >= 0 && order.stage !== 'cancelled' && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6">
@@ -263,14 +264,15 @@ export default function OrderStatusPage() {
               )}
               {order.stage === 'arrived' && (
                 <p className="text-center text-[10px] font-black uppercase tracking-widest text-primary mt-4 animate-pulse">
-                  We&apos;re bringing your order out now
+                  {curbside.mode === 'drive_thru' && lanePosition != null
+                    ? lanePosition <= 1 ? 'You&#39;re next — pull forward' : `#${lanePosition} in the lane — we&#39;re moving fast`
+                    : 'We&apos;re bringing your order out now'}
                 </p>
               )}
             </CardContent>
           </Card>
         )}
 
-        {/* ── Pickup QR ─────────────────────────────────────────────────────── */}
         {isPickup && qrDataUrl && !['handed_off', 'completed'].includes(order.stage) && (
           <Card className={cn(
             'border-2 rounded-[2rem] overflow-hidden bg-white transition-all',
@@ -285,7 +287,6 @@ export default function OrderStatusPage() {
                     : 'Your pickup code — ready when you are'}
                 </p>
               </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qrDataUrl} alt={`Pickup QR for order ${order.orderNumber}`} className="w-56 h-56 mx-auto rounded-2xl border-2" />
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
                 Backup: give your name and order #{String(order.orderNumber).padStart(4, '0')} at the counter
@@ -294,7 +295,6 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {/* ── Curbside check-in ─────────────────────────────────────────────── */}
         {order.method === 'curbside' && !['handed_off', 'completed', 'cancelled', 'placed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
@@ -306,6 +306,7 @@ export default function OrderStatusPage() {
                 <p className="text-sm font-bold text-muted-foreground">
                   We know you&apos;re here{order.curbside?.spotOrVehicle ? ` (${order.curbside.spotOrVehicle})` : ''} —
                   your order is still being prepared and we&apos;ll bring it straight out.
+                  {curbside.mode === 'drive_thru' && lanePosition != null ? ` You're #${lanePosition + 1} in line.` : ''}
                 </p>
               ) : order.stage === 'arrived' ? (
                 <p className="text-sm font-bold text-muted-foreground">
@@ -313,18 +314,40 @@ export default function OrderStatusPage() {
                 </p>
               ) : (
                 <>
-                  <Input
-                    placeholder="Spot number or car description"
-                    value={vehicle}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
-                    className="h-12 rounded-xl border-2 font-bold text-sm"
-                  />
+                  {curbside.mode === 'spots' && curbside.spots.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-2">
+                      {curbside.spots.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setVehicle(s)}
+                          className={cn(
+                            'rounded-2xl border-2 p-3 text-[10px] font-black uppercase tracking-widest transition-all',
+                            vehicle === s ? 'border-primary bg-primary/5 text-primary' : 'hover:border-primary/30'
+                          )}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  ) : curbside.mode === 'drive_thru' ? (
+                    <p className="text-sm font-bold text-muted-foreground">
+                      Pull into the pickup lane, then tap below — you&apos;ll see your live spot in line.
+                    </p>
+                  ) : (
+                    <Input
+                      placeholder="Spot number or car description"
+                      value={vehicle}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
+                      className="h-12 rounded-xl border-2 font-bold text-sm"
+                    />
+                  )}
                   <Button
-                    disabled={checkingIn}
+                    disabled={checkingIn || (curbside.mode === 'spots' && curbside.spots.length > 0 && !vehicle)}
                     onClick={checkIn}
                     className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20"
                   >
-                    {checkingIn ? <Loader className="h-4 w-4 animate-spin" /> : "I'm here"}
+                    {checkingIn ? <Loader className="h-4 w-4 animate-spin" /> : curbside.mode === 'drive_thru' ? "I'm in the lane" : "I'm here"}
                   </Button>
                 </>
               )}
@@ -332,7 +355,6 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {/* ── Shipping / tracking ───────────────────────────────────────────── */}
         {isShip && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-2">
@@ -360,7 +382,6 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {/* ── Done state ────────────────────────────────────────────────────── */}
         {['handed_off', 'completed'].includes(order.stage) && (
           <Card className="border-2 border-green-200 rounded-[2rem] overflow-hidden bg-green-50/50">
             <CardContent className="p-6 text-center space-y-2">
@@ -375,7 +396,6 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {/* ── Items + totals (with partial-fulfillment context) ─────────────── */}
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
