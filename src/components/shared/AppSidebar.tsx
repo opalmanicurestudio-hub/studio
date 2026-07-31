@@ -15,7 +15,7 @@ import {
   Clock, ClipboardList, CalendarDays, Shield, ChefHat, PartyPopper, Layers,
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
-  MessageSquare, DoorOpen, Send, Hourglass,
+  MessageSquare, DoorOpen, Send, Hourglass, PackageCheck, RotateCcw, ShoppingBag,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -69,6 +69,12 @@ const STUDIO_ASSETS = [
   { href: '/consents',    icon: FileSignature, label: 'Agreements'         },
 ];
 
+const COMMERCE = [
+  { href: '/retail-orders',          icon: PackageCheck, label: 'Shop Orders'   },
+  { href: '/retail-orders/returns',  icon: RotateCcw,    label: 'Returns'       },
+  { href: '/retail-orders/settings', icon: ShoppingBag,  label: 'Shop Settings' },
+];
+
 const TEAM_FULL = [
   { href: '/staff',      icon: Users,        label: 'Pro Team'       },
   { href: '/schedule',   icon: CalendarDays, label: 'Shift Schedule' },
@@ -104,6 +110,7 @@ const EVENTS = [
 
 const PUBLIC_PORTALS = [
   { href: '/book',         icon: Globe,       label: 'Booking Page'     },
+  { href: '/shop',         icon: ShoppingBag, label: 'Online Shop'      },
   // Walk-in APPOINTMENT kiosk (rebuilt) lives at /walk-in/[tenantId].
   { href: '/walk-in',      icon: Fingerprint, label: 'Walk-in Kiosk'    },
   // The waiting-room wall screen: who is next, roughly how long, who is free.
@@ -348,6 +355,7 @@ export function AppSidebar() {
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection label="Studio Assets" items={STUDIO_ASSETS} />
+              <NavSection label="Commerce" items={COMMERCE} />
             </>
           )}
 
