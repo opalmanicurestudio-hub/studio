@@ -1,18 +1,23 @@
 /**
- * retail-orders.ts
+ * retail-orders.ts  (v2 — bridged to the existing inventory system)
  * ─────────────────────────────────────────────────────────────────────────────
  * Single source of truth for the ClarityFlow retail ordering engine.
  *
  * Everything here is PURE — no Firestore, no React, no side effects — so it is
  * safe to import from API routes, server components, and 'use client' files.
  *
- * Firestore layout (tenant-scoped):
- *   tenants/{tenantId}/products/{productId}
- *   tenants/{tenantId}/retailOrders/{orderId}
- *   tenants/{tenantId}/retailOrders/{orderId}/events/{eventId}      (append-only)
- *   tenants/{tenantId}/fulfillmentBatches/{batchId}
- *   tenants/{tenantId}/inventoryLedger/{entryId}                     (append-only)
- *   tenants/{tenantId}/retailReturns/{returnId}
+ * The retail catalog is NOT a new collection. Storefront listings are the
+ * existing `tenants/{tenantId}/inventory` items with `type: 'retail'`.
+ * The engine adds only OPTIONAL fields to those docs (backward compatible)
+ * and writes to the ledgers that already exist:
+ *
+ *   tenants/{tenantId}/inventory/{itemId}          (+ stockReserved, showOnline, …)
+ *   tenants/{tenantId}/stockCorrections            (existing stock ledger)
+ *   tenants/{tenantId}/transactions                (existing money ledger)
+ *   tenants/{tenantId}/retailOrders/{orderId}                    (new)
+ *   tenants/{tenantId}/retailOrders/{orderId}/events/{eventId}   (new, append-only)
+ *   tenants/{tenantId}/fulfillmentBatches/{batchId}              (new)
+ *   tenants/{tenantId}/retailReturns/{returnId}                  (new)
  */
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -59,87 +64,264 @@ export const LEGAL_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
 export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled', 'refunded'];
 
 /* ════════════════════════════════════════════════════════════════════════════
- * PRODUCTS & INVENTORY
+ * INVENTORY BRIDGE  (existing tenants/{tid}/inventory items, type 'retail')
  * ════════════════════════════════════════════════════════════════════════════ */
 
-export interface RetailProduct {
+/** Shape of a batch on an existing InventoryItem (FIFO by receivedDate). */
+export interface InventoryBatchRef {
   id: string;
-  tenantId: string;
-  name: string;
-  sku: string;                 // unique per tenant
-  barcode: string;             // UPC/EAN/Code-128 value printed on the item
-  priceCents: number;
-  compareAtCents?: number;     // optional strike-through price
-  category: string;
-  description?: string;
-  imageUrls: string[];
-  stockOnHand: number;         // physical units believed on shelf
-  stockReserved: number;       // units held by paid, unfulfilled orders
-  lowStockThreshold?: number;
-  active: boolean;             // hidden from storefront when false
-  allowBackorder: boolean;     // if true, availableStock may go negative at checkout
-  createdAt: string;           // ISO strings everywhere; parse with safeDate()
-  updatedAt: string;
+  stock: number;
+  costPerUnit: number;
+  receivedDate: string;
+  expiryDate?: string;
 }
+
+/**
+ * OPTIONAL fields the retail engine reads/writes on existing InventoryItem
+ * docs. All optional — no migration needed; absent means the default noted.
+ */
+export interface RetailInventoryFields {
+  stockReserved?: number;      // held by paid, unfulfilled online orders (default 0)
+  showOnline?: boolean;        // listed on the public storefront (default false)
+  barcode?: string;            // physical UPC/Code-128; falls back to sku
+  onlineDescription?: string;  // storefront copy (name/msrp come from the item)
+  imageUrls?: string[];
+  lowStockThreshold?: number;
+  allowBackorder?: boolean;    // default false
+}
+
+/** The slice of InventoryItem the engine needs (structural — no import cycle). */
+export type SellableItem = RetailInventoryFields & {
+  id: string;
+  name: string;
+  type: string;                // engine only sells 'retail'
+  sku?: string;
+  msrp?: number;               // retail price in DOLLARS (existing convention)
+  costPerUnit?: number;
+  unit?: string;
+  totalStock: number;
+  status?: string;             // 'archived' hides everywhere
+  batches?: InventoryBatchRef[];
+};
 
 /** Units a new order may sell right now. */
-export function availableStock(p: Pick<RetailProduct, 'stockOnHand' | 'stockReserved'>): number {
-  return p.stockOnHand - p.stockReserved;
+export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockReserved'>): number {
+  return item.totalStock - (item.stockReserved ?? 0);
 }
 
-export function isLowStock(p: RetailProduct): boolean {
-  return availableStock(p) <= (p.lowStockThreshold ?? 0);
+export function isStorefrontVisible(item: SellableItem): boolean {
+  return (
+    item.type === 'retail' &&
+    item.status !== 'archived' &&
+    item.showOnline === true &&
+    (item.msrp ?? 0) > 0
+  );
 }
+
+/** msrp is stored in dollars; the engine works in cents (Stripe-safe). */
+export function listingPriceCents(item: Pick<SellableItem, 'msrp'>): number {
+  return Math.round((item.msrp ?? 0) * 100);
+}
+
+export function isLowStock(item: SellableItem): boolean {
+  return sellableStock(item) <= (item.lowStockThreshold ?? 0);
+}
+
+/**
+ * FIFO batch depletion — mirrors the manual Log Sale logic exactly (sort by
+ * receivedDate ascending, drain oldest first) so online and in-person sales
+ * consume stock identically. Pure: returns new arrays, never mutates input.
+ */
+export function depleteBatchesFIFO(
+  batches: InventoryBatchRef[] | undefined,
+  qty: number
+): { batches: InventoryBatchRef[]; depleted: number; shortfall: number; cogsCents: number } {
+  const sorted = [...(batches ?? [])]
+    .map((b) => ({ ...b }))
+    .sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+
+  let remaining = qty;
+  let cogsCents = 0;
+  for (const batch of sorted) {
+    if (remaining <= 0) break;
+    const take = Math.min(batch.stock, remaining);
+    batch.stock -= take;
+    remaining -= take;
+    cogsCents += Math.round(take * (batch.costPerUnit ?? 0) * 100);
+  }
+
+  return { batches: sorted, depleted: qty - remaining, shortfall: remaining, cogsCents };
+}
+
+/* ── Stock ledger (existing stockCorrections collection) ──────────────────── */
 
 export const INVENTORY_MOVEMENT_TYPES = [
-  'reserve',          // paid order holds stock            (reserved +qty)
-  'release',          // cancellation frees a hold         (reserved -qty)
-  'sale',             // handoff/ship converts the hold    (onHand -qty, reserved -qty)
-  'short_adjustment', // picker found less on shelf        (onHand corrected down)
-  'restock',          // receiving / cancelled-packed items scanned back (onHand +qty)
-  'return_restock',   // sellable return scanned back      (onHand +qty)
-  'write_off',        // damaged/defective, NOT sellable   (onHand -qty)
-  'manual_adjustment',// count correction with reason      (onHand ±qty)
+  'reserve',          // paid order holds stock            (stockReserved +qty)
+  'release',          // cancellation frees a hold         (stockReserved -qty)
+  'sale',             // handoff/ship converts the hold    (totalStock -qty, stockReserved -qty)
+  'short_adjustment', // picker found less on shelf        (totalStock corrected down)
+  'restock',          // cancelled-packed items scanned back (totalStock +qty)
+  'return_restock',   // sellable return scanned back      (totalStock +qty)
+  'write_off',        // damaged/defective, NOT sellable   (totalStock -qty)
 ] as const;
 
 export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
 
-/** Append-only inventory ledger entry — the audit trail for stock. */
-export interface InventoryMovement {
-  id: string;
-  tenantId: string;
-  productId: string;
-  sku: string;
-  type: InventoryMovementType;
-  qty: number;                 // always positive; direction implied by type
-  onHandAfter: number;         // snapshot after the transaction applied
-  reservedAfter: number;
-  orderId?: string;
-  returnId?: string;
-  actorId: string;             // 'system' for webhook-driven moves
-  actorName: string;
-  reason?: string;             // required for manual_adjustment & write_off
-  at: string;
-}
-
 /**
- * Given a movement type + qty, returns the deltas a Firestore transaction
- * must apply to the product doc. Keeps the math in exactly one place.
+ * Deltas a Firestore transaction must apply to the inventory doc for a given
+ * movement. Keeps the math in exactly one place. NOTE: 'sale', 'restock',
+ * 'return_restock', and 'write_off' must ALSO rewrite `batches` — use
+ * depleteBatchesFIFO for sales; restocks append/refill a batch.
  */
 export function movementDeltas(
   type: InventoryMovementType,
   qty: number
-): { onHand: number; reserved: number } {
+): { totalStock: number; stockReserved: number } {
   switch (type) {
-    case 'reserve':           return { onHand: 0,    reserved: qty };
-    case 'release':           return { onHand: 0,    reserved: -qty };
-    case 'sale':              return { onHand: -qty, reserved: -qty };
-    case 'short_adjustment':  return { onHand: -qty, reserved: 0 };
-    case 'restock':           return { onHand: qty,  reserved: 0 };
-    case 'return_restock':    return { onHand: qty,  reserved: 0 };
-    case 'write_off':         return { onHand: -qty, reserved: 0 };
-    case 'manual_adjustment': return { onHand: qty,  reserved: 0 }; // pass negative qty to reduce
+    case 'reserve':           return { totalStock: 0,    stockReserved: qty };
+    case 'release':           return { totalStock: 0,    stockReserved: -qty };
+    case 'sale':              return { totalStock: -qty, stockReserved: -qty };
+    case 'short_adjustment':  return { totalStock: -qty, stockReserved: 0 };
+    case 'restock':           return { totalStock: qty,  stockReserved: 0 };
+    case 'return_restock':    return { totalStock: qty,  stockReserved: 0 };
+    case 'write_off':         return { totalStock: -qty, stockReserved: 0 };
   }
+}
+
+/**
+ * Entry for the EXISTING tenants/{tid}/stockCorrections collection. Core
+ * fields match what the inventory page already writes; the extras are
+ * additive so existing reports keep working untouched.
+ */
+export interface StockCorrectionEntry {
+  productId: string;
+  date: string;
+  change: number;              // signed, existing convention (+receive / -deplete)
+  unit: string;
+  reason: string;
+  orderId?: string;
+  returnId?: string;
+  actorId?: string;
+  actorName?: string;
+  source?: 'retail_engine';
+}
+
+export function buildStockCorrection(
+  item: Pick<SellableItem, 'id' | 'unit'>,
+  type: InventoryMovementType,
+  qty: number,
+  reason: string,
+  refs?: Pick<StockCorrectionEntry, 'orderId' | 'returnId' | 'actorId' | 'actorName'>
+): StockCorrectionEntry {
+  const { totalStock } = movementDeltas(type, qty);
+  return {
+    productId: item.id,
+    date: new Date().toISOString(),
+    change: totalStock,          // reservations don't touch shelf count → change 0
+    unit: item.unit ?? 'units',
+    reason,
+    source: 'retail_engine',
+    ...refs,
+  };
+}
+
+/* ── Money ledger (existing transactions collection) ──────────────────────── */
+
+/** Matches the transaction docs the inventory page already writes (dollars). */
+export interface FinancialTransactionEntry {
+  date: string;
+  description: string;
+  clientOrVendor: string;
+  type: 'income' | 'expense';
+  context: 'Business';
+  category: 'Retail' | 'Spoilage' | 'Refund';
+  amount: number;              // DOLLARS, existing convention
+  paymentMethod: string;
+  hasReceipt: boolean;
+  receiptUrl?: string;
+  relatedOrderId?: string;
+  notes?: string;
+}
+
+export function buildRetailSaleTransaction(
+  order: Pick<RetailOrder, 'id' | 'orderNumber' | 'customerName' | 'totalCents'>
+): FinancialTransactionEntry {
+  return {
+    date: new Date().toISOString(),
+    description: `Online Retail Sale: Order #${order.orderNumber}`,
+    clientOrVendor: order.customerName,
+    type: 'income',
+    context: 'Business',
+    category: 'Retail',
+    amount: order.totalCents / 100,
+    paymentMethod: 'Card (Online)',
+    hasReceipt: true,
+    relatedOrderId: order.id,
+  };
+}
+
+export function buildRefundTransaction(
+  order: Pick<RetailOrder, 'id' | 'orderNumber' | 'customerName'>,
+  amountCents: number,
+  scope: 'full' | 'partial'
+): FinancialTransactionEntry {
+  return {
+    date: new Date().toISOString(),
+    description: `${scope === 'full' ? 'Refund' : 'Partial refund'}: Order #${order.orderNumber}`,
+    clientOrVendor: order.customerName,
+    type: 'expense',
+    context: 'Business',
+    category: 'Refund',
+    amount: amountCents / 100,
+    paymentMethod: 'Card (Online)',
+    hasReceipt: true,
+    relatedOrderId: order.id,
+  };
+}
+
+/** Damaged/defective return units — mirrors the damaged-on-arrival pattern. */
+export function buildReturnWriteOffTransaction(
+  order: Pick<RetailOrder, 'id' | 'orderNumber'>,
+  itemName: string,
+  qty: number,
+  lossCents: number,
+  receiptUrl?: string
+): FinancialTransactionEntry {
+  return {
+    date: new Date().toISOString(),
+    description: `Return write-off: ${qty} x ${itemName} (Order #${order.orderNumber})`,
+    clientOrVendor: 'Internal',
+    type: 'expense',
+    context: 'Business',
+    category: 'Spoilage',
+    amount: lossCents / 100,
+    paymentMethod: 'Internal',
+    hasReceipt: !!receiptUrl,
+    receiptUrl,
+    relatedOrderId: order.id,
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * QR / DEEP-LINK SCHEME  (extends the existing clarityflow:// scheme)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const PRODUCT_QR_PREFIX = 'clarityflow://product/';
+export const ORDER_QR_PREFIX = 'clarityflow://order/';
+
+/** Customer pickup QR value. Token is HMAC-signed server-side, never a raw id. */
+export function buildOrderQrValue(signedToken: string): string {
+  return `${ORDER_QR_PREFIX}${signedToken}`;
+}
+
+export function parseOrderQr(raw: string): string | null {
+  const t = raw.trim();
+  return t.startsWith(ORDER_QR_PREFIX) ? t.slice(ORDER_QR_PREFIX.length) : null;
+}
+
+export function parseProductQr(raw: string): string | null {
+  const t = raw.trim();
+  return t.startsWith(PRODUCT_QR_PREFIX) ? t.slice(PRODUCT_QR_PREFIX.length) : null;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -159,11 +341,11 @@ export type LineStatus = (typeof LINE_STATUSES)[number];
 
 export interface OrderLine {
   lineId: string;              // stable per-line id (not array index)
-  productId: string;
-  sku: string;
-  barcode: string;
+  productId: string;           // the tenants/{tid}/inventory doc id
+  sku: string;                 // snapshot ('' if the item has none)
+  barcode: string;             // snapshot of barcode ?? sku
   name: string;                // snapshot at purchase time
-  unitPriceCents: number;      // snapshot at purchase time
+  unitPriceCents: number;      // snapshot of msrp at purchase time, in cents
   qtyOrdered: number;
   qtyScanned: number;
   qtyShorted: number;          // portion resolved as refunded/backordered
@@ -173,6 +355,27 @@ export interface OrderLine {
 }
 
 export type ShortResolution = 'refund' | 'backorder';
+
+/** Build a line from a live inventory item at checkout time. */
+export function buildOrderLine(
+  item: SellableItem,
+  qty: number,
+  lineId: string
+): OrderLine {
+  return {
+    lineId,
+    productId: item.id,
+    sku: item.sku ?? '',
+    barcode: item.barcode ?? item.sku ?? '',
+    name: item.name,
+    unitPriceCents: listingPriceCents(item),
+    qtyOrdered: qty,
+    qtyScanned: 0,
+    qtyShorted: 0,
+    qtyReturned: 0,
+    status: 'pending',
+  };
+}
 
 /* ════════════════════════════════════════════════════════════════════════════
  * ORDERS
@@ -243,7 +446,7 @@ export const ORDER_EVENT_TYPES = [
   'batch_released',            // manual release back to queue
   'batch_auto_released',       // claim timed out
   'item_scanned',              // meta: { sku, lineId, qtyScanned, qtyOrdered }
-  'scan_mismatch',             // meta: { scannedValue } — SKU not on order / over-scan
+  'scan_mismatch',             // meta: { scannedValue } — code not on order / over-scan
   'line_shorted',              // meta: { lineId, qtyShorted, reason, resolution }
   'pick_complete',
   'packed',
@@ -341,16 +544,23 @@ export type ScanResult =
   | { ok: false; code: 'unknown_sku' | 'over_scan' | 'line_closed'; message: string };
 
 /**
- * Apply one barcode scan during picking. Pure: returns the result and the
- * updated lines array; the caller persists inside a transaction and appends
- * the item_scanned or scan_mismatch event.
+ * Apply one scan during picking. Accepts a physical barcode, a SKU, or a
+ * clarityflow://product/{id} label (the scheme the inventory page already
+ * prints). Pure: returns the result and the updated lines array; the caller
+ * persists inside a transaction and appends the item_scanned or
+ * scan_mismatch event.
  */
 export function applyScan(lines: OrderLine[], scannedValue: string): {
   result: ScanResult;
   lines: OrderLine[];
 } {
-  const idx = lines.findIndex(
-    (l) => l.barcode === scannedValue || l.sku === scannedValue
+  const raw = scannedValue.trim();
+  const productIdFromQr = parseProductQr(raw);
+
+  const idx = lines.findIndex((l) =>
+    productIdFromQr !== null
+      ? l.productId === productIdFromQr
+      : (l.barcode !== '' && l.barcode === raw) || (l.sku !== '' && l.sku === raw)
   );
 
   if (idx === -1) {
@@ -358,7 +568,7 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
       result: {
         ok: false,
         code: 'unknown_sku',
-        message: `Scanned code "${scannedValue}" is not on this order.`,
+        message: `Scanned code "${raw}" is not on this order.`,
       },
       lines,
     };
@@ -410,7 +620,7 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
 /**
  * Mark a line (or part of it) shorted due to a shelf discrepancy.
  * Pure: caller persists, appends line_shorted event, writes the
- * short_adjustment inventory movement, and (for 'refund') issues the
+ * short_adjustment stock correction, and (for 'refund') issues the
  * partial Stripe refund.
  */
 export function shortLine(
