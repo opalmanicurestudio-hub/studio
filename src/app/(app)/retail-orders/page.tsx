@@ -3,7 +3,7 @@
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import {
   AlertTriangle, Car, Check, ClipboardList, Loader, Package, PackageCheck,
-  PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, Truck, X, Zap,
+  History, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, Truck, X, Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -267,6 +267,9 @@ export default function RetailFulfillmentBoard() {
           </Button>
           <Button asChild variant="outline" className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
             <Link href="/retail-orders/returns"><RotateCcw className="mr-1.5 h-4 w-4" /> Returns</Link>
+          </Button>
+          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+            <Link href="/retail-orders/history"><History className="h-4 w-4" /></Link>
           </Button>
           <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
             <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
