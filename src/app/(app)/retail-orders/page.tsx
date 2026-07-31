@@ -3,7 +3,7 @@
 import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import {
   AlertTriangle, Car, Check, ClipboardList, Loader, Package, PackageCheck,
-  PackageOpen, QrCode, RefreshCw, ScanLine, Ship, Store, Truck, X, Zap,
+  PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Ship, Store, Truck, X, Zap,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -28,6 +28,8 @@ import {
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
+import { markRefundExecuted } from '@/lib/retail-returns';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 // ─── Fulfillment Board ────────────────────────────────────────────────────────
@@ -37,6 +39,9 @@ import { cn } from '@/lib/utils';
 
 const fmt = (cents: number) =>
   (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+const printUrl = (kind: 'packing-slip' | 'label', tenantId: string, o: { id: string; qrToken?: string }) =>
+  `/print/${kind}/${tenantId}/${o.id}?t=${encodeURIComponent(o.qrToken || '')}`;
 
 const methodIcon = (m: string) =>
   m === 'curbside' ? Car : m === 'ship' ? Truck : Store;
@@ -255,14 +260,29 @@ export default function RetailFulfillmentBoard() {
           >
             <QrCode className="mr-1.5 h-4 w-4" /> Handoff
           </Button>
+          <Button asChild variant="outline" className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
+            <Link href="/retail-orders/returns"><RotateCcw className="mr-1.5 h-4 w-4" /> Returns</Link>
+          </Button>
         </div>
         {pendingRefunds.length > 0 && (
           <div className="bg-amber-50 border-t border-amber-100">
             <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center gap-2">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">
-                {pendingRefunds.length} refund(s) to execute in Stripe: {pendingRefunds.map((o) => `#${o.orderNumber} ${fmt(o.pendingRefundCents || 0)}`).join(' · ')}
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex-1">
+                {pendingRefunds.length} refund(s) to execute in Stripe:
               </p>
+              {pendingRefunds.map((o) => (
+                <Button
+                  key={o.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={busy === `refund-${o.id}`}
+                  onClick={() => act(`refund-${o.id}`, () => markRefundExecuted(requireCtx() as Firestore, tenantId, o.id, actor))}
+                  className="h-7 rounded-lg font-black uppercase text-[8px] tracking-widest border-2 border-amber-200 text-amber-700 hover:bg-amber-100"
+                >
+                  #{o.orderNumber} {fmt(o.pendingRefundCents || 0)} · Mark refunded
+                </Button>
+              ))}
             </div>
           </div>
         )}
@@ -321,6 +341,13 @@ export default function RetailFulfillmentBoard() {
                           </div>
                         );
                       })}
+                      <Button
+                        variant="outline"
+                        onClick={() => window.open(printUrl('packing-slip', tenantId, o), '_blank')}
+                        className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-muted-foreground"
+                      >
+                        <Printer className="mr-1 h-3 w-3" /> Packing slip
+                      </Button>
                       {o.stage === 'picking' ? (
                         <Button
                           disabled={!isPickComplete(o.lines) || busy === `pack-${o.id}`}
@@ -382,12 +409,21 @@ export default function RetailFulfillmentBoard() {
                   </Button>
                 )}
                 {o.stage === 'ready' && o.method === 'ship' && (
-                  <Button
-                    onClick={() => { setShipTarget(o); setShipCarrier(''); setShipNumber(''); setShipUrl(''); }}
-                    className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
-                  >
-                    <Ship className="mr-1.5 h-3.5 w-3.5" /> Mark shipped
-                  </Button>
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(printUrl('label', tenantId, o), '_blank')}
+                      className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-muted-foreground"
+                    >
+                      <Printer className="mr-1 h-3 w-3" /> Print 4x6 label
+                    </Button>
+                    <Button
+                      onClick={() => { setShipTarget(o); setShipCarrier(''); setShipNumber(''); setShipUrl(''); }}
+                      className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                    >
+                      <Ship className="mr-1.5 h-3.5 w-3.5" /> Mark shipped
+                    </Button>
+                  </div>
                 )}
                 {['ready', 'arrived'].includes(o.stage) && o.method !== 'ship' && (
                   <Button
