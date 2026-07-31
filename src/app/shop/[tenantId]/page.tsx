@@ -49,6 +49,8 @@ interface ShopInfo {
   tenantId: string;
   name: string;
   logoUrl: string | null;
+  tagline?: string;
+  announcement?: string;
   wholesaleOffered: boolean;
   wholesaleUnlocked: boolean;
   flatShippingDollars: number;
@@ -250,7 +252,7 @@ export default function ShopPage() {
           )}
           <div className="min-w-0 flex-1">
             <h1 className="font-black uppercase tracking-tighter text-lg leading-none truncate">{shop.name}</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">Retail Supply Shop</p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">{shop.tagline || 'Shop'}</p>
           </div>
           {shop.wholesaleOffered && !wholesale && (
             <Button
@@ -421,6 +423,13 @@ export default function ShopPage() {
         </div>
 
         {/* Wholesale tier band — the shop visibly shifts modes */}
+        {shop.announcement && !wholesale && (
+          <div className="bg-foreground text-background">
+            <div className="max-w-5xl mx-auto px-4 py-1.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-center">{shop.announcement}</p>
+            </div>
+          </div>
+        )}
         {wholesale && (
           <div className="bg-primary text-primary-foreground">
             <div className="max-w-5xl mx-auto px-4 py-1.5 flex items-center gap-2">
