@@ -2,6 +2,7 @@
 
 import { Loader, Lock, Minus, Package, Plus, ShoppingBag, Store, Truck, X } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -19,6 +20,9 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import {
+  readCart, readWholesaleCode, writeCart, writeWholesaleCode,
+} from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
 
 // ─── /shop/[tenantId]/page.tsx ────────────────────────────────────────────────
@@ -85,9 +89,21 @@ export default function ShopPage() {
   const [unlocking, setUnlocking] = useState(false);
   const wholesale = shop?.wholesaleUnlocked === true;
 
-  // Cart: productId -> qty
+  // Cart: productId -> qty — persisted per tenant so it survives product
+  // pages, refreshes, and return visits.
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [cartHydrated, setCartHydrated] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    setCart(readCart(tenantId));
+    setCartHydrated(true);
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (tenantId && cartHydrated) writeCart(tenantId, cart);
+  }, [tenantId, cart, cartHydrated]);
 
   // Checkout form
   const [method, setMethod] = useState<Method>('counter');
@@ -124,7 +140,16 @@ export default function ShopPage() {
   };
 
   useEffect(() => {
-    if (tenantId) loadCatalog('');
+    if (!tenantId) return;
+    const savedCode = readWholesaleCode(tenantId);
+    if (savedCode) {
+      loadCatalog(savedCode).then((ok) => {
+        if (ok) setWholesaleCode(savedCode);
+        else { writeWholesaleCode(tenantId, ''); loadCatalog(''); }
+      });
+    } else {
+      loadCatalog('');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
@@ -143,6 +168,7 @@ export default function ShopPage() {
     setUnlocking(false);
     if (ok) {
       setWholesaleCode(code);
+      writeWholesaleCode(tenantId, code);
       setUnlockOpen(false);
       toast({ title: 'Wholesale pricing active', description: 'B2B prices and minimums now apply.' });
     }
@@ -240,7 +266,6 @@ export default function ShopPage() {
 
   return (
     <div className="min-h-dvh bg-muted/5 pb-32">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
           {shop.logoUrl ? (
@@ -276,7 +301,6 @@ export default function ShopPage() {
               </Button>
             </SheetTrigger>
 
-            {/* ── Cart & checkout sheet ──────────────────────────────────── */}
             <SheetContent className="w-full sm:max-w-md p-0 flex flex-col">
               <SheetHeader className="p-6 pb-3 border-b-2 text-left">
                 <SheetTitle className="font-black uppercase tracking-tighter text-xl">Your Order</SheetTitle>
@@ -330,7 +354,6 @@ export default function ShopPage() {
                       </div>
                     )}
 
-                    {/* Fulfillment method */}
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How would you like it?</Label>
                       <div className="grid grid-cols-3 gap-2">
@@ -355,7 +378,6 @@ export default function ShopPage() {
                       </div>
                     </div>
 
-                    {/* Contact */}
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your details</Label>
                       <Input placeholder="Full name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
@@ -363,7 +385,6 @@ export default function ShopPage() {
                       <Input placeholder="Phone (optional)" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
                     </div>
 
-                    {/* B2B fields */}
                     {wholesale && (
                       <div className="space-y-3">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Business</Label>
@@ -372,7 +393,6 @@ export default function ShopPage() {
                       </div>
                     )}
 
-                    {/* Shipping address */}
                     {method === 'ship' && (
                       <div className="space-y-3">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ship to</Label>
@@ -390,7 +410,6 @@ export default function ShopPage() {
                 )}
               </div>
 
-              {/* Totals + place */}
               {cartEntries.length > 0 && (
                 <div className="border-t-2 p-6 space-y-3 bg-white">
                   <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
@@ -422,14 +441,6 @@ export default function ShopPage() {
           </Sheet>
         </div>
 
-        {/* Wholesale tier band — the shop visibly shifts modes */}
-        {shop.announcement && !wholesale && (
-          <div className="bg-foreground text-background">
-            <div className="max-w-5xl mx-auto px-4 py-1.5">
-              <p className="text-[10px] font-black uppercase tracking-widest text-center">{shop.announcement}</p>
-            </div>
-          </div>
-        )}
         {shop.announcement && !wholesale && (
           <div className="bg-foreground text-background">
             <div className="max-w-5xl mx-auto px-4 py-1.5">
@@ -447,7 +458,6 @@ export default function ShopPage() {
         )}
       </header>
 
-      {/* ── Category rail ──────────────────────────────────────────────────── */}
       <div className="max-w-5xl mx-auto px-4 pt-6 pb-2 flex gap-2 overflow-x-auto">
         {categories.map((c) => (
           <button
@@ -464,7 +474,6 @@ export default function ShopPage() {
         ))}
       </div>
 
-      {/* ── Product grid ───────────────────────────────────────────────────── */}
       <main className={cn(
         'max-w-5xl mx-auto px-4 py-4 gap-4',
         (shop.layout || 'grid') === 'grid' && 'grid grid-cols-2 md:grid-cols-3',
@@ -481,18 +490,19 @@ export default function ShopPage() {
           const inCart = cart[p.id] ?? 0;
           const price = unitPrice(p);
           const showStrike = wholesale && p.wholesalePriceCents != null && p.wholesalePriceCents < p.priceCents;
+          const productHref = `/shop/${tenantId}/product/${p.id}`;
           if (shop.layout === 'list') {
             return (
               <Card key={p.id} className={cn('border-2 rounded-3xl overflow-hidden bg-white transition-all', !p.inStock && 'opacity-60')}>
                 <CardContent className="p-3 flex items-center gap-4">
-                  <div className="w-20 h-20 rounded-2xl bg-muted/10 relative overflow-hidden shrink-0">
+                  <Link href={productHref} className="w-20 h-20 rounded-2xl bg-muted/10 relative overflow-hidden shrink-0">
                     {p.imageUrls[0] ? (
                       <Image src={p.imageUrls[0]} alt={p.name} fill className="object-cover" />
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center"><Package className="w-6 h-6 opacity-15" /></div>
                     )}
-                  </div>
-                  <div className="min-w-0 flex-1 space-y-0.5">
+                  </Link>
+                  <Link href={productHref} className="min-w-0 flex-1 space-y-0.5">
                     <p className="font-black uppercase tracking-tight text-xs leading-tight">{p.name}</p>
                     {p.description && <p className="text-[10px] font-bold text-muted-foreground line-clamp-1">{p.description}</p>}
                     <div className="flex items-baseline gap-1.5">
@@ -501,7 +511,7 @@ export default function ShopPage() {
                       {p.lowStock && p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-amber-600">Almost gone</span>}
                       {!p.inStock && <span className="text-[8px] font-black uppercase tracking-widest text-slate-400">Sold out</span>}
                     </div>
-                  </div>
+                  </Link>
                   <div className="shrink-0">
                     {inCart === 0 ? (
                       <Button disabled={!p.inStock}
@@ -522,8 +532,8 @@ export default function ShopPage() {
             );
           }
           return (
-            <Card key={p.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white transition-all', !p.inStock && 'opacity-60')}>
-              <div className={cn(shop.layout === 'showcase' ? 'aspect-[4/3]' : 'aspect-square', 'bg-muted/10 relative')}>
+            <Card key={p.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white transition-all hover:border-primary/30', !p.inStock && 'opacity-60')}>
+              <Link href={productHref} className={cn(shop.layout === 'showcase' ? 'aspect-[4/3]' : 'aspect-square', 'bg-muted/10 relative block')}>
                 {p.imageUrls[0] ? (
                   <Image src={p.imageUrls[0]} alt={p.name} fill className="object-cover" />
                 ) : (
@@ -541,9 +551,9 @@ export default function ShopPage() {
                     Sold out
                   </Badge>
                 )}
-              </div>
+              </Link>
               <CardContent className="p-4 space-y-3">
-                <div className="space-y-1">
+                <Link href={productHref} className="space-y-1 block">
                   <p className={cn('font-black uppercase tracking-tight leading-tight line-clamp-2', shop.layout === 'showcase' ? 'text-sm' : 'text-xs')}>{p.name}</p>
                   {shop.layout === 'showcase' && p.description && (
                     <p className="text-[10px] font-bold text-muted-foreground line-clamp-2">{p.description}</p>
@@ -555,7 +565,7 @@ export default function ShopPage() {
                   {wholesale && p.wholesaleMinQty ? (
                     <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Min {p.wholesaleMinQty}</p>
                   ) : null}
-                </div>
+                </Link>
                 {inCart === 0 ? (
                   <Button
                     disabled={!p.inStock}
@@ -581,7 +591,6 @@ export default function ShopPage() {
         })}
       </main>
 
-      {/* ── Wholesale unlock dialog ────────────────────────────────────────── */}
       <Dialog open={unlockOpen} onOpenChange={setUnlockOpen}>
         <DialogContent className="sm:max-w-sm rounded-[2rem] border-4 p-8">
           <DialogHeader className="text-left space-y-1">
