@@ -16,6 +16,7 @@ import {
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
   MessageSquare, DoorOpen, Send, Hourglass, PackageCheck, RotateCcw, ShoppingBag,
+  History as HistoryIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -71,6 +72,7 @@ const STUDIO_ASSETS = [
 
 const COMMERCE = [
   { href: '/retail-orders',          icon: PackageCheck, label: 'Shop Orders'   },
+  { href: '/retail-orders/history',  icon: HistoryIcon,  label: 'Order History' },
   { href: '/retail-orders/returns',  icon: RotateCcw,    label: 'Returns'       },
   { href: '/retail-orders/settings', icon: ShoppingBag,  label: 'Shop Settings' },
 ];
