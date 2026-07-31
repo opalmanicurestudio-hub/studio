@@ -271,6 +271,9 @@ export default function RetailFulfillmentBoard() {
           <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
             <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
           </Button>
+          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-primary">
+            <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer"><Store className="h-4 w-4" /></a>
+          </Button>
         </div>
         {pendingRefunds.length > 0 && (
           <div className="bg-amber-50 border-t border-amber-100">
