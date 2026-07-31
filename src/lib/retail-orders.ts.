@@ -1,0 +1,643 @@
+/**
+ * retail-orders.ts
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Single source of truth for the ClarityFlow retail ordering engine.
+ *
+ * Everything here is PURE — no Firestore, no React, no side effects — so it is
+ * safe to import from API routes, server components, and 'use client' files.
+ *
+ * Firestore layout (tenant-scoped):
+ *   tenants/{tenantId}/products/{productId}
+ *   tenants/{tenantId}/retailOrders/{orderId}
+ *   tenants/{tenantId}/retailOrders/{orderId}/events/{eventId}      (append-only)
+ *   tenants/{tenantId}/fulfillmentBatches/{batchId}
+ *   tenants/{tenantId}/inventoryLedger/{entryId}                     (append-only)
+ *   tenants/{tenantId}/retailReturns/{returnId}
+ */
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * STAGES & TRANSITIONS
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const ORDER_STAGES = [
+  'placed',      // checkout created, awaiting payment confirmation
+  'paid',        // Stripe webhook confirmed; stock reserved; in queue
+  'picking',     // claimed in a batch; items being scanned
+  'packed',      // every line fully scanned or explicitly shorted
+  'ready',       // pickup orders: on the ready shelf / label printed for ship
+  'arrived',     // curbside only: customer checked in "I'm here"
+  'shipped',     // ship orders: carrier label scanned onto box
+  'handed_off',  // pickup: customer QR scanned at counter/car
+  'completed',   // terminal success
+  'cancelled',   // terminal: refunded, reservations released
+  'refunded',    // terminal: post-completion full refund (via return flow)
+] as const;
+
+export type OrderStage = (typeof ORDER_STAGES)[number];
+
+export const FULFILLMENT_METHODS = ['counter', 'curbside', 'in_store', 'ship'] as const;
+export type FulfillmentMethod = (typeof FULFILLMENT_METHODS)[number];
+
+/**
+ * Legal stage transitions. Any transition not listed here is rejected.
+ * Method-specific branches (curbside vs ship) are enforced in canAdvance().
+ */
+export const LEGAL_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
+  placed:     ['paid', 'cancelled'],
+  paid:       ['picking', 'cancelled'],
+  picking:    ['packed', 'paid', 'cancelled'],          // 'paid' = batch released back to queue
+  packed:     ['ready', 'cancelled'],                   // cancel after packed requires restock scan
+  ready:      ['arrived', 'shipped', 'handed_off', 'cancelled'],
+  arrived:    ['handed_off'],
+  shipped:    ['completed'],
+  handed_off: ['completed'],
+  completed:  ['refunded'],
+  cancelled:  [],
+  refunded:   [],
+};
+
+export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled', 'refunded'];
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * PRODUCTS & INVENTORY
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export interface RetailProduct {
+  id: string;
+  tenantId: string;
+  name: string;
+  sku: string;                 // unique per tenant
+  barcode: string;             // UPC/EAN/Code-128 value printed on the item
+  priceCents: number;
+  compareAtCents?: number;     // optional strike-through price
+  category: string;
+  description?: string;
+  imageUrls: string[];
+  stockOnHand: number;         // physical units believed on shelf
+  stockReserved: number;       // units held by paid, unfulfilled orders
+  lowStockThreshold?: number;
+  active: boolean;             // hidden from storefront when false
+  allowBackorder: boolean;     // if true, availableStock may go negative at checkout
+  createdAt: string;           // ISO strings everywhere; parse with safeDate()
+  updatedAt: string;
+}
+
+/** Units a new order may sell right now. */
+export function availableStock(p: Pick<RetailProduct, 'stockOnHand' | 'stockReserved'>): number {
+  return p.stockOnHand - p.stockReserved;
+}
+
+export function isLowStock(p: RetailProduct): boolean {
+  return availableStock(p) <= (p.lowStockThreshold ?? 0);
+}
+
+export const INVENTORY_MOVEMENT_TYPES = [
+  'reserve',          // paid order holds stock            (reserved +qty)
+  'release',          // cancellation frees a hold         (reserved -qty)
+  'sale',             // handoff/ship converts the hold    (onHand -qty, reserved -qty)
+  'short_adjustment', // picker found less on shelf        (onHand corrected down)
+  'restock',          // receiving / cancelled-packed items scanned back (onHand +qty)
+  'return_restock',   // sellable return scanned back      (onHand +qty)
+  'write_off',        // damaged/defective, NOT sellable   (onHand -qty)
+  'manual_adjustment',// count correction with reason      (onHand ±qty)
+] as const;
+
+export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
+
+/** Append-only inventory ledger entry — the audit trail for stock. */
+export interface InventoryMovement {
+  id: string;
+  tenantId: string;
+  productId: string;
+  sku: string;
+  type: InventoryMovementType;
+  qty: number;                 // always positive; direction implied by type
+  onHandAfter: number;         // snapshot after the transaction applied
+  reservedAfter: number;
+  orderId?: string;
+  returnId?: string;
+  actorId: string;             // 'system' for webhook-driven moves
+  actorName: string;
+  reason?: string;             // required for manual_adjustment & write_off
+  at: string;
+}
+
+/**
+ * Given a movement type + qty, returns the deltas a Firestore transaction
+ * must apply to the product doc. Keeps the math in exactly one place.
+ */
+export function movementDeltas(
+  type: InventoryMovementType,
+  qty: number
+): { onHand: number; reserved: number } {
+  switch (type) {
+    case 'reserve':           return { onHand: 0,    reserved: qty };
+    case 'release':           return { onHand: 0,    reserved: -qty };
+    case 'sale':              return { onHand: -qty, reserved: -qty };
+    case 'short_adjustment':  return { onHand: -qty, reserved: 0 };
+    case 'restock':           return { onHand: qty,  reserved: 0 };
+    case 'return_restock':    return { onHand: qty,  reserved: 0 };
+    case 'write_off':         return { onHand: -qty, reserved: 0 };
+    case 'manual_adjustment': return { onHand: qty,  reserved: 0 }; // pass negative qty to reduce
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ORDER LINES
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const LINE_STATUSES = [
+  'pending',    // not yet picked
+  'picked',     // qtyScanned === qtyOrdered
+  'shorted',    // shelf discrepancy; qtyScanned < qtyOrdered, resolved below
+  'refunded',   // shorted quantity refunded to customer
+  'backordered',// shorted quantity split into a child order
+  'returned',   // came back via RMA
+] as const;
+
+export type LineStatus = (typeof LINE_STATUSES)[number];
+
+export interface OrderLine {
+  lineId: string;              // stable per-line id (not array index)
+  productId: string;
+  sku: string;
+  barcode: string;
+  name: string;                // snapshot at purchase time
+  unitPriceCents: number;      // snapshot at purchase time
+  qtyOrdered: number;
+  qtyScanned: number;
+  qtyShorted: number;          // portion resolved as refunded/backordered
+  qtyReturned: number;
+  status: LineStatus;
+  shortReason?: string;
+}
+
+export type ShortResolution = 'refund' | 'backorder';
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * ORDERS
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export interface ShippingAddress {
+  name: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;             // ISO-3166 alpha-2, e.g. 'US'
+  phone?: string;
+}
+
+export interface CurbsideInfo {
+  arrivedAt?: string;
+  spotOrVehicle?: string;      // "Spot 3" / "white Honda CR-V"
+}
+
+export interface RetailOrder {
+  id: string;
+  tenantId: string;
+  orderNumber: number;         // human-friendly sequential per tenant (e.g. 1042)
+  stage: OrderStage;
+  method: FulfillmentMethod;
+  lines: OrderLine[];
+
+  subtotalCents: number;
+  taxCents: number;
+  shippingCents: number;
+  refundedCents: number;       // running total across partial refunds
+  totalCents: number;
+
+  customerName: string;
+  customerEmail: string;
+  customerPhone?: string;
+  clientId?: string;           // link to existing ClarityFlow client record
+
+  shippingAddress?: ShippingAddress;   // required when method === 'ship'
+  curbside?: CurbsideInfo;
+
+  stripePaymentIntentId?: string;
+  qrToken?: string;            // HMAC-signed pickup token (generated server-side)
+
+  batchId?: string;            // current fulfillment batch claim, if any
+  parentOrderId?: string;      // set on backorder-split children & replacements
+  isReplacement?: boolean;     // $0 replacement order from an RMA
+
+  promiseAt?: string;          // target ready time; drives queue priority
+  placedAt: string;
+  paidAt?: string;
+  packedAt?: string;
+  completedAt?: string;
+  cancelledAt?: string;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * AUDIT EVENTS  (append-only subcollection — never update, never delete)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const ORDER_EVENT_TYPES = [
+  'placed',
+  'payment_confirmed',
+  'stock_reserved',
+  'batch_claimed',
+  'batch_released',            // manual release back to queue
+  'batch_auto_released',       // claim timed out
+  'item_scanned',              // meta: { sku, lineId, qtyScanned, qtyOrdered }
+  'scan_mismatch',             // meta: { scannedValue } — SKU not on order / over-scan
+  'line_shorted',              // meta: { lineId, qtyShorted, reason, resolution }
+  'pick_complete',
+  'packed',
+  'packing_slip_printed',
+  'label_generated',           // meta: { carrier?, trackingNumber? }
+  'label_scan_verified',       // label barcode scanned onto the correct box
+  'marked_ready',
+  'customer_arrived',          // meta: { spotOrVehicle }
+  'handoff_scanned',           // customer QR verified at counter/car
+  'shipped',
+  'completed',
+  'cancel_requested',
+  'restock_scanned',           // meta: { sku, lineId, qty } — packed-order cancel path
+  'cancelled',
+  'refund_issued',             // meta: { amountCents, stripeRefundId, scope: 'full'|'partial' }
+  'return_opened',             // meta: { returnId }
+  'return_resolved',           // meta: { returnId, resolution }
+  'replacement_created',       // meta: { childOrderId }
+  'backorder_split',           // meta: { childOrderId, lineIds }
+  'override',                  // meta: { rule, reason } — manager PIN bypass; always logged
+  'note',
+] as const;
+
+export type OrderEventType = (typeof ORDER_EVENT_TYPES)[number];
+
+export interface OrderEvent {
+  id: string;
+  type: OrderEventType;
+  at: string;
+  actorId: string;             // staff uid, 'system', or 'customer'
+  actorName: string;
+  meta?: Record<string, string | number | boolean>;
+}
+
+/** Convenience builder so every event is shaped identically. */
+export function buildEvent(
+  type: OrderEventType,
+  actorId: string,
+  actorName: string,
+  meta?: OrderEvent['meta']
+): Omit<OrderEvent, 'id'> {
+  return { type, at: new Date().toISOString(), actorId, actorName, meta };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * FULFILLMENT BATCHES  (the turn system)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const BATCH_CLAIM_TIMEOUT_MIN = 20;
+export const MAX_SHIP_ORDERS_PER_BATCH = 6;
+
+export interface FulfillmentBatch {
+  id: string;
+  tenantId: string;
+  orderIds: string[];
+  phase: 'pick' | 'pack';
+  assignedTo: string;
+  assignedToName: string;
+  claimedAt: string;
+  completedAt?: string;
+  releasedAt?: string;
+  releaseType?: 'manual' | 'auto' | 'completed';
+}
+
+export function claimExpiresAt(claimedAtIso: string): Date {
+  const d = new Date(claimedAtIso);
+  return new Date(d.getTime() + BATCH_CLAIM_TIMEOUT_MIN * 60_000);
+}
+
+export function isClaimStale(batch: FulfillmentBatch, now: Date = new Date()): boolean {
+  if (batch.completedAt || batch.releasedAt) return false;
+  return now > claimExpiresAt(batch.claimedAt);
+}
+
+/**
+ * Queue priority: lower number = picked sooner.
+ * Curbside/counter ASAP orders beat ship orders; within a tier, promise time
+ * then FIFO by paid time.
+ */
+export function queuePriority(order: RetailOrder): number {
+  const tier =
+    order.method === 'curbside' ? 0 :
+    order.method === 'counter'  ? 1 :
+    order.method === 'in_store' ? 2 : 3; // ship last
+  const anchor = order.promiseAt ?? order.paidAt ?? order.placedAt;
+  return tier * 1e13 + new Date(anchor).getTime();
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * SCAN ENGINE  (100% accuracy gates)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export type ScanResult =
+  | { ok: true; lineId: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean }
+  | { ok: false; code: 'unknown_sku' | 'over_scan' | 'line_closed'; message: string };
+
+/**
+ * Apply one barcode scan during picking. Pure: returns the result and the
+ * updated lines array; the caller persists inside a transaction and appends
+ * the item_scanned or scan_mismatch event.
+ */
+export function applyScan(lines: OrderLine[], scannedValue: string): {
+  result: ScanResult;
+  lines: OrderLine[];
+} {
+  const idx = lines.findIndex(
+    (l) => l.barcode === scannedValue || l.sku === scannedValue
+  );
+
+  if (idx === -1) {
+    return {
+      result: {
+        ok: false,
+        code: 'unknown_sku',
+        message: `Scanned code "${scannedValue}" is not on this order.`,
+      },
+      lines,
+    };
+  }
+
+  const line = lines[idx];
+
+  if (line.status === 'shorted' || line.status === 'refunded' || line.status === 'backordered') {
+    return {
+      result: {
+        ok: false,
+        code: 'line_closed',
+        message: `${line.name} was marked ${line.status}; reopen the line before scanning.`,
+      },
+      lines,
+    };
+  }
+
+  if (line.qtyScanned >= line.qtyOrdered) {
+    return {
+      result: {
+        ok: false,
+        code: 'over_scan',
+        message: `${line.name} already has all ${line.qtyOrdered} scanned.`,
+      },
+      lines,
+    };
+  }
+
+  const updatedLine: OrderLine = {
+    ...line,
+    qtyScanned: line.qtyScanned + 1,
+    status: line.qtyScanned + 1 === line.qtyOrdered ? 'picked' : 'pending',
+  };
+  const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
+
+  return {
+    result: {
+      ok: true,
+      lineId: line.lineId,
+      qtyScanned: updatedLine.qtyScanned,
+      qtyOrdered: line.qtyOrdered,
+      pickComplete: isPickComplete(nextLines),
+    },
+    lines: nextLines,
+  };
+}
+
+/**
+ * Mark a line (or part of it) shorted due to a shelf discrepancy.
+ * Pure: caller persists, appends line_shorted event, writes the
+ * short_adjustment inventory movement, and (for 'refund') issues the
+ * partial Stripe refund.
+ */
+export function shortLine(
+  lines: OrderLine[],
+  lineId: string,
+  reason: string,
+  resolution: ShortResolution
+): { lines: OrderLine[]; qtyShorted: number; refundCents: number } {
+  const idx = lines.findIndex((l) => l.lineId === lineId);
+  if (idx === -1) throw new Error(`Line ${lineId} not found`);
+
+  const line = lines[idx];
+  const qtyShorted = line.qtyOrdered - line.qtyScanned;
+  if (qtyShorted <= 0) throw new Error(`Line ${lineId} is fully scanned; nothing to short.`);
+
+  const updated: OrderLine = {
+    ...line,
+    qtyShorted,
+    status: resolution === 'refund' ? 'refunded' : 'backordered',
+    shortReason: reason,
+  };
+
+  return {
+    lines: [...lines.slice(0, idx), updated, ...lines.slice(idx + 1)],
+    qtyShorted,
+    refundCents: resolution === 'refund' ? qtyShorted * line.unitPriceCents : 0,
+  };
+}
+
+/** Every line is either fully scanned or explicitly resolved. Nothing silent. */
+export function isPickComplete(lines: OrderLine[]): boolean {
+  return lines.every(
+    (l) =>
+      l.qtyScanned === l.qtyOrdered ||
+      l.status === 'shorted' ||
+      l.status === 'refunded' ||
+      l.status === 'backordered'
+  );
+}
+
+/** Lines that still have sellable quantity after shorting (for totals & slips). */
+export function fulfilledQty(line: OrderLine): number {
+  return line.qtyOrdered - line.qtyShorted;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TRANSITION GUARDS
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export type GuardResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * The one gatekeeper. Every stage change — API route, board button, webhook —
+ * must pass through this. UI buttons that would fail should render disabled
+ * with the reason as the tooltip.
+ */
+export function canAdvance(order: RetailOrder, target: OrderStage): GuardResult {
+  if (!LEGAL_TRANSITIONS[order.stage].includes(target)) {
+    return { ok: false, reason: `Cannot go from ${order.stage} to ${target}.` };
+  }
+
+  switch (target) {
+    case 'packed':
+      if (!isPickComplete(order.lines)) {
+        return { ok: false, reason: 'Every line must be fully scanned or explicitly shorted.' };
+      }
+      return { ok: true };
+
+    case 'arrived':
+      if (order.method !== 'curbside') {
+        return { ok: false, reason: 'Only curbside orders can be marked arrived.' };
+      }
+      return { ok: true };
+
+    case 'shipped':
+      if (order.method !== 'ship') {
+        return { ok: false, reason: 'Only ship orders can be shipped.' };
+      }
+      return { ok: true };
+
+    case 'handed_off':
+      if (order.method === 'ship') {
+        return { ok: false, reason: 'Ship orders complete via shipped, not handoff.' };
+      }
+      return { ok: true };
+
+    case 'cancelled':
+      return canCancel(order);
+
+    default:
+      return { ok: true };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * CANCELLATION
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export function canCancel(order: RetailOrder): GuardResult {
+  if (TERMINAL_STAGES.includes(order.stage)) {
+    return { ok: false, reason: 'Order is already in a terminal state.' };
+  }
+  if (['arrived', 'shipped', 'handed_off'].includes(order.stage)) {
+    return { ok: false, reason: 'Too late to cancel; open a return instead.' };
+  }
+  return { ok: true };
+}
+
+export interface CancellationPlan {
+  refundCents: number;               // remaining balance to refund via Stripe
+  releaseReservations: boolean;      // free stockReserved holds (paid+ stages)
+  requiresRestockScan: boolean;      // packed orders: items must scan back in
+  releaseBatch: boolean;             // free any active batch claim
+}
+
+/**
+ * What a cancellation must do, given where the order is. The API route
+ * executes this plan inside a transaction; 'cancelled' is only written after
+ * every step (including restock scans, when required) has completed.
+ */
+export function cancellationPlan(order: RetailOrder): CancellationPlan {
+  return {
+    refundCents: order.stage === 'placed' ? 0 : order.totalCents - order.refundedCents,
+    releaseReservations: order.stage !== 'placed',
+    requiresRestockScan: order.stage === 'packed' || order.stage === 'ready',
+    releaseBatch: order.batchId !== undefined,
+  };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * RETURNS / RMA  (defective, damaged, wrong item)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const RETURN_REASONS = [
+  'damaged_in_transit',
+  'defective',
+  'wrong_item',
+  'changed_mind',
+  'other',
+] as const;
+export type ReturnReason = (typeof RETURN_REASONS)[number];
+
+export const RETURN_RESOLUTIONS = ['refund', 'replacement', 'store_credit'] as const;
+export type ReturnResolution = (typeof RETURN_RESOLUTIONS)[number];
+
+/** Where each returned unit physically goes — nothing damaged re-enters stock. */
+export type ReturnDisposition = 'restock' | 'write_off';
+
+export interface ReturnLine {
+  lineId: string;              // references the original OrderLine
+  sku: string;
+  name: string;
+  qty: number;
+  reason: ReturnReason;
+  disposition?: ReturnDisposition;   // set at receiving scan
+  dispositionScannedAt?: string;
+}
+
+export interface RetailReturn {
+  id: string;
+  tenantId: string;
+  orderId: string;
+  orderNumber: number;
+  lines: ReturnLine[];
+  resolution: ReturnResolution;
+  status: 'open' | 'received' | 'resolved' | 'rejected';
+  photoUrls: string[];         // evidence via existing document-upload infra
+  refundCents?: number;
+  storeCreditCents?: number;
+  replacementOrderId?: string; // $0 order that re-enters the normal pipeline
+  openedBy: string;
+  openedAt: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  notes?: string;
+}
+
+export function returnRefundCents(order: RetailOrder, lines: ReturnLine[]): number {
+  return lines.reduce((sum, rl) => {
+    const orig = order.lines.find((l) => l.lineId === rl.lineId);
+    return sum + (orig ? rl.qty * orig.unitPriceCents : 0);
+  }, 0);
+}
+
+/** A return may only be resolved once every unit has a scanned disposition. */
+export function isReturnReceivable(ret: RetailReturn): GuardResult {
+  const missing = ret.lines.filter((l) => !l.disposition);
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      reason: `Scan a disposition (restock or write-off) for: ${missing
+        .map((l) => l.name)
+        .join(', ')}`,
+    };
+  }
+  return { ok: true };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * DISPLAY HELPERS
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const STAGE_LABELS: Record<OrderStage, string> = {
+  placed: 'Awaiting Payment',
+  paid: 'In Queue',
+  picking: 'Picking',
+  packed: 'Packed',
+  ready: 'Ready',
+  arrived: 'Customer Here',
+  shipped: 'Shipped',
+  handed_off: 'Picked Up',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  refunded: 'Refunded',
+};
+
+export const METHOD_LABELS: Record<FulfillmentMethod, string> = {
+  counter: 'Counter Pickup',
+  curbside: 'Curbside',
+  in_store: 'In-Store',
+  ship: 'Shipping',
+};
+
+export function formatCents(cents: number): string {
+  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+export function orderDisplayNumber(order: Pick<RetailOrder, 'orderNumber'>): string {
+  return `#${String(order.orderNumber).padStart(4, '0')}`;
+}
