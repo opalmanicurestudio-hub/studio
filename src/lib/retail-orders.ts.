@@ -44,6 +44,15 @@ export const FULFILLMENT_METHODS = ['counter', 'curbside', 'in_store', 'ship'] a
 export type FulfillmentMethod = (typeof FULFILLMENT_METHODS)[number];
 
 /**
+ * Pricing tiers. 'retail' is the public storefront price (msrp).
+ * 'wholesale' is for B2B buyers (salons, students, educators) who unlock the
+ * shop with the tenant's wholesale access code; prices come from
+ * wholesalePriceDollars with msrp as the fallback.
+ */
+export const PRICE_TIERS = ['retail', 'wholesale'] as const;
+export type PriceTier = (typeof PRICE_TIERS)[number];
+
+/**
  * Legal stage transitions. Any transition not listed here is rejected.
  * Method-specific branches (curbside vs ship) are enforced in canAdvance().
  */
@@ -88,6 +97,8 @@ export interface RetailInventoryFields {
   imageUrls?: string[];
   lowStockThreshold?: number;
   allowBackorder?: boolean;    // default false
+  wholesalePriceDollars?: number; // B2B price; falls back to msrp when absent
+  wholesaleMinQty?: number;       // per-item minimum units for wholesale orders
 }
 
 /** The slice of InventoryItem the engine needs (structural — no import cycle). */
@@ -95,6 +106,7 @@ export type SellableItem = RetailInventoryFields & {
   id: string;
   name: string;
   type: string;                // engine only sells 'retail'
+  category?: string;
   sku?: string;
   msrp?: number;               // retail price in DOLLARS (existing convention)
   costPerUnit?: number;
@@ -118,9 +130,33 @@ export function isStorefrontVisible(item: SellableItem): boolean {
   );
 }
 
-/** msrp is stored in dollars; the engine works in cents (Stripe-safe). */
-export function listingPriceCents(item: Pick<SellableItem, 'msrp'>): number {
-  return Math.round((item.msrp ?? 0) * 100);
+/** Prices are stored in dollars; the engine works in cents (Stripe-safe). */
+export function listingPriceCents(
+  item: Pick<SellableItem, 'msrp' | 'wholesalePriceDollars'>,
+  tier: PriceTier = 'retail'
+): number {
+  const dollars = tier === 'wholesale'
+    ? item.wholesalePriceDollars ?? item.msrp ?? 0
+    : item.msrp ?? 0;
+  return Math.round(dollars * 100);
+}
+
+/** Wholesale orders must meet each item's minimum quantity, when one is set. */
+export function checkWholesaleMinimums(
+  entries: { item: SellableItem; qty: number }[]
+): GuardResult {
+  const failing = entries.filter(
+    (e) => (e.item.wholesaleMinQty ?? 0) > 0 && e.qty < (e.item.wholesaleMinQty as number)
+  );
+  if (failing.length > 0) {
+    return {
+      ok: false,
+      reason: failing
+        .map((e) => `${e.item.name}: minimum ${e.item.wholesaleMinQty} for wholesale`)
+        .join('; '),
+    };
+  }
+  return { ok: true };
 }
 
 export function isLowStock(item: SellableItem): boolean {
@@ -360,7 +396,8 @@ export type ShortResolution = 'refund' | 'backorder';
 export function buildOrderLine(
   item: SellableItem,
   qty: number,
-  lineId: string
+  lineId: string,
+  tier: PriceTier = 'retail'
 ): OrderLine {
   return {
     lineId,
@@ -368,7 +405,7 @@ export function buildOrderLine(
     sku: item.sku ?? '',
     barcode: item.barcode ?? item.sku ?? '',
     name: item.name,
-    unitPriceCents: listingPriceCents(item),
+    unitPriceCents: listingPriceCents(item, tier),
     qtyOrdered: qty,
     qtyScanned: 0,
     qtyShorted: 0,
@@ -403,6 +440,9 @@ export interface RetailOrder {
   orderNumber: number;         // human-friendly sequential per tenant (e.g. 1042)
   stage: OrderStage;
   method: FulfillmentMethod;
+  priceTier: PriceTier;        // 'retail' | 'wholesale'
+  businessName?: string;       // B2B/wholesale orders
+  poNumber?: string;           // buyer's purchase-order reference
   lines: OrderLine[];
 
   subtotalCents: number;
