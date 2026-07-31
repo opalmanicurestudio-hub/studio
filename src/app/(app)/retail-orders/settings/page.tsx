@@ -36,6 +36,8 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  shopTagline?: string;
+  shopAnnouncement?: string;
   taxRatePercent?: number;
   flatShippingDollars?: number;
   freeShippingOverDollars?: number;
@@ -66,6 +68,8 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      shopTagline: existing.shopTagline || '',
+      shopAnnouncement: existing.shopAnnouncement || '',
       taxRatePercent: existing.taxRatePercent ?? 0,
       flatShippingDollars: existing.flatShippingDollars ?? 0,
       freeShippingOverDollars: existing.freeShippingOverDollars ?? 0,
@@ -95,6 +99,8 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          shopTagline: (rs.shopTagline || '').trim(),
+          shopAnnouncement: (rs.shopAnnouncement || '').trim(),
           wholesaleAccessCode: (rs.wholesaleAccessCode || '').trim(),
           curbsideSpots: (rs.curbsideSpots || []).filter(Boolean),
         })),
@@ -174,6 +180,44 @@ export default function RetailSettingsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Store className="w-4 h-4 text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-widest">Storefront</p>
+              </div>
+              <div className="flex gap-2">
+                <Button asChild variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
+                  <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer">View shop</a>
+                </Button>
+                <Button variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`${window.location.origin}/shop/${tenantId}`)
+                      .then(() => toast({ title: 'Shop link copied' }))
+                      .catch(() => toast({ variant: 'destructive', title: 'Could not copy' }));
+                  }}>
+                  Copy link
+                </Button>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tagline under your name</Label>
+                <Input placeholder="Shop" value={rs.shopTagline || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopTagline: e.target.value })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Announcement bar (optional)</Label>
+                <Input placeholder="e.g. Free pickup orders ready in 2 hours" value={rs.shopAnnouncement || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopAnnouncement: e.target.value })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
