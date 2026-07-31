@@ -91,6 +91,8 @@ export async function GET(req: NextRequest) {
       freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
       shippingOffered: rs.shippingOffered !== false,
       curbsideOffered: rs.curbsideOffered !== false,
+      curbsideMode: rs.curbsideMode || 'freeform',
+      curbsideSpots: Array.isArray(rs.curbsideSpots) ? rs.curbsideSpots : [],
     },
     products,
   });
