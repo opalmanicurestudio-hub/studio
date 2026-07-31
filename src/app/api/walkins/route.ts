@@ -418,7 +418,7 @@ async function dispatchCallForwards(
  * if this list and that list disagreed, the kiosk would quote a position that
  * doesn't match the board the front desk is looking at.
  */
-const OPEN_STATUSES = ['waiting', 'notified', 'arrived'];
+const OPEN_STATUSES = ['waiting', 'notified', 'arrived', 'held'];
 const isOpenRow = (status: any): boolean => OPEN_STATUSES.includes(String(status || 'waiting'));
 
 /**
@@ -629,7 +629,11 @@ async function readFloor(db: any, tenantId: string, service: any) {
   const rows = allRows.filter((r: any) => !staleIds.has(String(r.id)));
 
   const providers = eligibleProviders(staff, shifts, service);
-  const queue = rows.filter((r: any) => isOpenRow(r.status)).sort((a: any, b: any) => toMs(a.checkInTime) - toMs(b.checkInTime));
+  const queue = rows.filter((r: any) => isOpenRow(r.status)).sort((a: any, b: any) => {
+    const ah = String(a?.status||'')==='held'?0:1, bh = String(b?.status||'')==='held'?0:1;
+    if (ah!==bh) return ah-bh;
+    return toMs(a.checkInTime)-toMs(b.checkInTime);
+  });
   const working = rows.filter((r: any) => isWorking(r.status));
   return { staff, shifts, rows, stale, providers, queue, working, nowMs };
 }
@@ -773,6 +777,23 @@ export async function GET(req: NextRequest) {
       // board is open but nobody is actively joining the queue.
       await healStale(db, tenantId, stale, new Date(nowMs).toISOString());
 
+      const minsUntilClose = closingMs(tenant, nowMs) ? (((closingMs(tenant, nowMs) as number) - nowMs) / 60000) : Infinity;
+
+      // ── Auto-demote: notified → held on timeout ───────────────────────────
+      try {
+        const skipMins = Number(tenant?.queueSkipTimeMinutes) || 10;
+        const lateNotified = rows.filter((r: any) =>
+          String(r?.status||'')==='notified' && r?.notifiedAt &&
+          nowMs - new Date(r.notifiedAt).getTime() > skipMins * 60000);
+        if (lateNotified.length) {
+          const hBatch = db.batch();
+          for (const r of lateNotified.slice(0,20))
+            hBatch.set(db.doc(`tenants/${tenantId}/walkIns/${r.id}`),
+              { status: 'held', heldAt: new Date(nowMs).toISOString(), updatedAt: new Date(nowMs).toISOString() }, { merge: true });
+          await hBatch.commit();
+        }
+      } catch { /* best-effort */ }
+
       // Expire held waitlist slots that were never claimed.
       //
       // notifyWaitlistClient sets holdExpiresAt N minutes from now. If the
@@ -903,6 +924,7 @@ export async function GET(req: NextRequest) {
           notified: String(w.status) === 'notified'
             || String(w.status) === 'arrived'
             || String(w.checkInStatus || '') === 'arrived',
+          held: String(w.status) === 'held',
           waitedMin: Math.max(0, Math.round((nowMs - toMs(w.checkInTime)) / 60000)),
           // THIS guest's wait, not the room's. The board-level estWaitMin passes
           // the whole queue as `ahead`, which makes it the wait for somebody who
@@ -926,6 +948,10 @@ export async function GET(req: NextRequest) {
         freeNowCount: freeNow.length,
         rosteredCount: (providers || []).length,
         generatedAt: new Date(nowMs).toISOString(),
+        closingTime: fmtCloseTime(tenant, nowMs) || null,
+        minutesUntilClose: isFinite(minsUntilClose) ? Math.round(minsUntilClose) : null,
+        softCloseMinutes: Number(tenant?.softCloseMinutes)||60,
+        hardCloseMinutes: Number(tenant?.hardCloseMinutes)||30,
         // How many guests this poll actually reached. The board does not draw
         // it; it is here so the owner can watch the messages fire from the
         // network tab when she asks "is it really texting them?".
@@ -1575,7 +1601,27 @@ function rotate(providers: any[], rows: any[], busyIds: Set<string>): any[] {
     .sort((a: any, b: any) => turnKey(a) - turnKey(b) || String(a.id).localeCompare(String(b.id)));
 }
 
-// ─── join — taking a place in line ───────────────────────────────────────────
+// ── Capacity helpers ─────────────────────────────────────────────────────────
+function closingMs(tenant: any, nowMs: number): number | null {
+  const raw = String(tenant?.walkInCloseTime || '').trim();
+  if (!raw) return null;
+  const [hh, mm] = raw.split(':').map(Number);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  const d = new Date(nowMs); d.setHours(hh, mm, 0, 0); return d.getTime();
+}
+function remainingCapacity(tenant: any, queue: any[], working: any[], providers: any[], avgMin: number, nowMs: number): number {
+  const closeMs = closingMs(tenant, nowMs);
+  if (!closeMs || closeMs <= nowMs) return Infinity;
+  const freeProviders = Math.max(1, providers.length - working.length);
+  return Math.max(0, Math.floor(((closeMs - nowMs) / 60000 - avgMin) / avgMin * freeProviders) - queue.length);
+}
+function fmtCloseTime(tenant: any, nowMs: number): string {
+  const ms = closingMs(tenant, nowMs);
+  if (!ms) return '';
+  try { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch { return ''; }
+}
+
+// ─── join — taking a place in line ─────────────────────────────────────────────
 
 async function handleJoin(db: any, tenantId: string, tenant: any, body: any, base: string) {
   const name = str(body?.name, 80).trim();
@@ -1654,6 +1700,26 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
   }
   // Somebody IS on the floor — a gate, not the studio, produced the zero.
   const needsFrontDesk = providers.length === 0;
+
+  // ── Capacity gate ────────────────────────────────────────────────────────
+  const avgMinForCap = Number(service?.duration) > 0 ? Number(service.duration) : 30;
+  const capNow = remainingCapacity(tenant, queue, working, providers, avgMinForCap, nowMs);
+  const minsLeftJ = closingMs(tenant, nowMs) ? (((closingMs(tenant, nowMs) as number) - nowMs) / 60000) : Infinity;
+  const hardMin = Number(tenant?.hardCloseMinutes) > 0 ? Number(tenant.hardCloseMinutes) : 30;
+  const softMin = Number(tenant?.softCloseMinutes) > 0 ? Number(tenant.softCloseMinutes) : 60;
+  const closeLabel = fmtCloseTime(tenant, nowMs);
+  if (isFinite(minsLeftJ) && minsLeftJ <= hardMin) {
+    return NextResponse.json({ ok: false, closed: true, capacityReason: 'hard_close',
+      error: closeLabel ? `We’re not accepting new walk-ins — we close at ${closeLabel} and need the time for guests already in chairs.` : `We’re wrapping up for the day.`,
+      nextDayBookingPrompt: true });
+  }
+  if (isFinite(capNow) && capNow <= 0) {
+    return NextResponse.json({ ok: false, closed: false, capacityReason: 'full',
+      error: closeLabel ? `We’re at capacity for today — the queue is full until ${closeLabel}.` : `The queue is full right now.`,
+      waitlistPrompt: true });
+  }
+  const capacityWarning = (isFinite(minsLeftJ) && minsLeftJ <= softMin && capNow <= 2)
+    ? (closeLabel ? `We close at ${closeLabel} — it’s tight but we can take you.` : `We’re near capacity for the day.`) : null;
 
   // Two taps on a kiosk, or the same person coming back ten minutes later to
   // check, must not become two people in line. Matched on phone digits, then
@@ -2584,6 +2650,7 @@ async function handleJoin(db: any, tenantId: string, tenant: any, body: any, bas
     groupId,
     groupSize,
     partySize,
+    capacityWarning: capacityWarning || null,
     guests: seats.map(s => ({
       walkInId: s.ref.id,
       clientId: clientIds[seats.indexOf(s)] || '',
