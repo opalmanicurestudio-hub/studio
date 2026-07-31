@@ -99,7 +99,13 @@ export interface RetailInventoryFields {
   allowBackorder?: boolean;    // default false
   wholesalePriceDollars?: number; // B2B price; falls back to msrp when absent
   wholesaleMinQty?: number;       // per-item minimum units for wholesale orders
+  howToUse?: string;              // usage/instructions shown on the product page
+  specs?: ProductSpec[];          // label/value spec rows
+  documents?: ProductDocument[];  // MSDS/SDS, guides, certificates — any linked file
 }
+
+export interface ProductSpec { label: string; value: string; }
+export interface ProductDocument { name: string; url: string; }
 
 /** The slice of InventoryItem the engine needs (structural — no import cycle). */
 export type SellableItem = RetailInventoryFields & {
