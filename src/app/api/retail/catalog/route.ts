@@ -85,6 +85,7 @@ export async function GET(req: NextRequest) {
       logoUrl: tenant.logoUrl || null,
       tagline: String(rs.shopTagline || '').trim() || 'Shop',
       announcement: String(rs.shopAnnouncement || '').trim(),
+      layout: ['grid', 'list', 'showcase'].includes(rs.shopLayout) ? rs.shopLayout : 'grid',
       wholesaleOffered,
       wholesaleUnlocked,
       taxRatePercent: Number(rs.taxRatePercent) || 0,
