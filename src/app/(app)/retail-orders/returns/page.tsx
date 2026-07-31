@@ -45,7 +45,8 @@ const REASON_LABELS: Record<ReturnReason, string> = {
 
 export default function RetailReturnsPage() {
   const { firestore } = useFirebase();
-  const { tenantId } = useTenant();
+  const { selectedTenant } = useTenant();
+  const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
 
