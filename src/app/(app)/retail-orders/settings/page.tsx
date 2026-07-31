@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  shopLayout?: 'grid' | 'list' | 'showcase';
   shopTagline?: string;
   shopAnnouncement?: string;
   taxRatePercent?: number;
@@ -68,6 +69,7 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      shopLayout: existing.shopLayout || 'grid',
       shopTagline: existing.shopTagline || '',
       shopAnnouncement: existing.shopAnnouncement || '',
       taxRatePercent: existing.taxRatePercent ?? 0,
@@ -99,6 +101,7 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          shopLayout: rs.shopLayout || 'grid',
           shopTagline: (rs.shopTagline || '').trim(),
           shopAnnouncement: (rs.shopAnnouncement || '').trim(),
           wholesaleAccessCode: (rs.wholesaleAccessCode || '').trim(),
@@ -199,6 +202,31 @@ export default function RetailSettingsPage() {
                   }}>
                   Copy link
                 </Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shopping layout</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { id: 'grid' as const, label: 'Grid', hint: 'Classic cards' },
+                  { id: 'list' as const, label: 'List', hint: 'Dense rows' },
+                  { id: 'showcase' as const, label: 'Showcase', hint: 'Big & bold' },
+                ]).map((m) => (
+                  <button key={m.id} type="button" onClick={() => setRs({ ...rs, shopLayout: m.id })}
+                    className={cn('rounded-2xl border-2 p-3 space-y-2 transition-all text-left',
+                      (rs.shopLayout || 'grid') === m.id ? 'border-primary bg-primary/5' : 'hover:border-primary/30')}>
+                    <div className={cn('h-10 rounded-lg overflow-hidden flex gap-1 p-1',
+                      (rs.shopLayout || 'grid') === m.id ? 'bg-primary/10' : 'bg-muted/20')}>
+                      {m.id === 'grid' && (<><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /></>)}
+                      {m.id === 'list' && (<div className="flex-1 flex flex-col gap-1"><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /><div className="flex-1 rounded bg-foreground/15" /></div>)}
+                      {m.id === 'showcase' && (<div className="flex-1 rounded bg-foreground/20" />)}
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest">{m.label}</p>
+                      <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">{m.hint}</p>
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-3">
