@@ -330,6 +330,29 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
     const activeWaitingCount = useMemo(() => waitingQueue.filter(w => !w.isSkipped).length, [waitingQueue]);
 
     /**
+     * Compute group sizes internally from the walkIns we already have.
+     * The prop `groupSizes` from the POS page is kept for backward compat
+     * but the internal one is preferred — if the POS page computes it wrong
+     * every card shows duration instead of the group badge, with no error.
+     */
+    const computedGroupSizes = useMemo(() => {
+        const m = new Map<string, number>();
+        (walkIns || []).filter(w => w.status === 'waiting' || w.status === 'skipped' || w.status === 'notified')
+            .forEach(w => {
+                const g = String((w as any).groupId || '');
+                if (g) m.set(g, (m.get(g) || 0) + 1);
+            });
+        return m;
+    }, [walkIns]);
+
+    /** Merge: prefer prop value if present, fall back to computed. */
+    const effectiveGroupSizes = useMemo(() => {
+        if (!groupSizes || groupSizes.size === 0) return computedGroupSizes;
+        return groupSizes;
+    }, [groupSizes, computedGroupSizes]);
+
+
+    /**
      * LANE TWO. Called — a chair is ready and the guest has been sent for.
      * Elapsed minutes are carried so the lane can escalate rather than let
      * someone sit here unnoticed.
@@ -386,9 +409,30 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
 
     const arrivedCount = useMemo(() => arrivals.filter(a => a.hasArrived).length, [arrivals]);
 
+    /**
+     * AssignStaffDialog gets the RAW walkIn row, not the decorated projection the
+     * lane renders.
+     *
+     * `waitingQueue` builds each card's item by spreading the row and adding
+     * display fields on top — position, waitingForName, isSkipped, waitedMinutes,
+     * holdingForPreferred, a `type` discriminator, and `matchedClient`, which is an
+     * entire Client document. It also normalizes `preferredStaffId` to a string or
+     * null where the row may have carried undefined. That projection is right for
+     * the card and wrong for anything downstream that expects a WalkIn: a
+     * consumer reading a field this projection reshaped, or walking the object's
+     * keys, sees something the type says cannot happen.
+     *
+     * Re-reading the row from `walkIns` by id costs nothing and means the dialog
+     * receives exactly what /api/walkins wrote. Falls back to the item so a row
+     * that has just been removed from the array still opens rather than throwing.
+     */
     const handleOpenAssignDialog = (item: any) => {
-        if (item.type === 'walk-in') setWalkInToAssign(item);
-        else onStartService(item.id);
+        if (item?.type !== 'walk-in') {
+            if (item?.id) onStartService(item.id);
+            return;
+        }
+        const raw = (walkIns || []).find(w => w.id === item.id);
+        setWalkInToAssign((raw || item) as WalkIn);
     };
 
     const handleAssignConfirm = (walkInId: string, staffId: string) => {
@@ -503,7 +547,7 @@ export const WalkInQueue: React.FC<WalkInQueueProps> = ({
                                         onAssign={() => handleOpenAssignDialog(item)}
                                         onCancel={onCancel}
                                         onPrintTicket={onPrintTicket}
-                                        groupSize={groupSizes.get((item as any).groupId) || 1}
+                                        groupSize={effectiveGroupSizes.get((item as any).groupId) || 1}
                                         onUpdateStatus={onUpdateStatus}
                                         onResolve={() => onResolve(item)}
                                     />
