@@ -36,6 +36,8 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  shippoApiKey?: string;
+  shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
   storePaused?: boolean;
   storePausedMessage?: string;
   cartHoldMinutes?: number;
@@ -75,6 +77,8 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      shippoApiKey: existing.shippoApiKey || '',
+      shipFrom: existing.shipFrom || {},
       storePaused: existing.storePaused === true,
       storePausedMessage: existing.storePausedMessage || '',
       cartHoldMinutes: existing.cartHoldMinutes ?? 0,
@@ -110,6 +114,8 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          shippoApiKey: (rs.shippoApiKey || '').trim(),
+          shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
           storePaused: rs.storePaused === true,
           storePausedMessage: (rs.storePausedMessage || '').trim(),
           cartHoldMinutes: Math.max(0, Math.floor(Number(rs.cartHoldMinutes) || 0)),
@@ -416,6 +422,44 @@ export default function RetailSettingsPage() {
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shippo API key — blank keeps manual tracking entry</Label>
+              <Input placeholder="shippo_live_…" value={rs.shippoApiKey || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shippoApiKey: e.target.value })}
+                className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
+              <Input placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, name: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+              <Input placeholder="Street address" value={rs.shipFrom?.street1 || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, street1: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+              <div className="grid grid-cols-3 gap-2">
+                <Input placeholder="City" value={rs.shipFrom?.city || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, city: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+                <Input placeholder="State" value={rs.shipFrom?.state || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, state: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+                <Input placeholder="ZIP" value={rs.shipFrom?.zip || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, zip: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+              </div>
+              <Input placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, phone: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
             </div>
           </CardContent>
         </Card>
