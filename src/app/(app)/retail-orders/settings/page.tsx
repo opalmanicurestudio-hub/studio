@@ -2,7 +2,7 @@
 
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
-  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Store, Truck, X,
+  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Printer, Store, Truck, X,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -491,9 +491,23 @@ export default function RetailSettingsPage() {
 
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Globe className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Online catalog — {retailItems.length} retail item(s)</p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Globe className="w-4 h-4 text-primary shrink-0" />
+                <p className="text-[10px] font-black uppercase tracking-widest truncate">Online catalog — {retailItems.length} item(s)</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={liveCount === 0}
+                onClick={() => {
+                  const ids = retailItems.filter((i: any) => i.showOnline === true).map((i: any) => i.id).slice(0, 60);
+                  window.open(`/print/product-labels/${tenantId}?ids=${ids.join(',')}`, '_blank');
+                }}
+                className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0"
+              >
+                <Printer className="mr-1.5 h-3.5 w-3.5" /> Print all live
+              </Button>
             </div>
             {retailItems.length === 0 && (
               <div className="rounded-2xl border-2 border-dashed py-10 text-center space-y-2">
@@ -516,7 +530,15 @@ export default function RetailSettingsPage() {
                           {it.sku ? `${it.sku} · ` : ''}MSRP ${Number(it.msrp || 0).toFixed(2)} · {it.totalStock - (it.stockReserved || 0)} sellable
                         </p>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-lg text-muted-foreground"
+                          onClick={() => window.open(`/print/product-labels/${tenantId}?ids=${it.id}`, '_blank')}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
                         <span className={cn('text-[8px] font-black uppercase tracking-widest', live ? 'text-primary' : 'text-muted-foreground/50')}>
                           {live ? 'Live' : 'Hidden'}
                         </span>
