@@ -307,9 +307,12 @@ export async function POST(req: NextRequest) {
     await orderRef.set({ stripeCheckoutSessionId: session.id }, { merge: true });
     return NextResponse.json({ url: session.url, orderId, orderNumber });
   } catch (err: any) {
-    console.error('[retail-checkout] Stripe session creation failed:', err?.message);
+    const detail = String(err?.raw?.message || err?.message || 'Unknown Stripe error').slice(0, 220);
+    console.error('[retail-checkout] Stripe session creation failed:', detail, err?.raw?.param || '');
     // Leave the order in 'placed' — it never got a session, never reserves
     // stock, and is harmless; a cleanup job can archive stale placed orders.
-    return NextResponse.json({ error: 'Could not start checkout. Please try again.' }, { status: 502 });
+    // Surface the REAL cause so failures are self-diagnosing instead of a
+    // generic shrug — this message appears in the customer's error toast.
+    return NextResponse.json({ error: `Checkout could not start: ${detail}` }, { status: 502 });
   }
 }
