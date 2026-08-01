@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem,
 } from '@/lib/retail-orders';
+import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 
 // ─── /api/retail/product/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&productId=...&wholesaleCode=...
@@ -57,13 +58,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Product not available' }, { status: 404 });
   }
 
-  const expectedCode = String(rs.wholesaleAccessCode || '').trim();
-  const wholesaleUnlocked =
-    expectedCode.length > 0 && wholesaleCode.length > 0 &&
-    wholesaleCode.toLowerCase() === expectedCode.toLowerCase();
-  if (wholesaleCode && !wholesaleUnlocked) {
-    return NextResponse.json({ error: 'Invalid wholesale access code' }, { status: 403 });
+  const wsAccess = await resolveWholesaleAccess(db, tenantId, rs, wholesaleCode);
+  if (wholesaleCode && !wsAccess.unlocked) {
+    return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
   }
+  const wholesaleUnlocked = wsAccess.unlocked;
+  const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
   const available = Math.max(0, sellableStock(item));
   const specs = Array.isArray(item.specs)
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
       documents,
       imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.filter(Boolean).slice(0, 10) : [],
       priceCents: listingPriceCents(item, 'retail'),
-      wholesalePriceCents: wholesaleUnlocked ? listingPriceCents(item, 'wholesale') : null,
+      wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
       inStock: available > 0 || item.allowBackorder === true,
       qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
