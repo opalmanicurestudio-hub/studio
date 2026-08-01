@@ -448,6 +448,7 @@ export interface RetailOrder {
   method: FulfillmentMethod;
   priceTier: PriceTier;        // 'retail' | 'wholesale'
   businessName?: string;       // B2B/wholesale orders
+  wholesaleAccountId?: string; // set when a per-account code was used
   poNumber?: string;           // buyer's purchase-order reference
   lines: OrderLine[];
 
