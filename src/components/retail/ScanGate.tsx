@@ -1,6 +1,6 @@
 'use client';
 
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, Keyboard } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 
@@ -76,10 +76,32 @@ export function ScanGate({
     const timer = setTimeout(() => {
       const el = document.getElementById(idRef.current);
       if (!el || cancelled) return;
-      qr = new Html5Qrcode(idRef.current);
+      qr = new Html5Qrcode(idRef.current, {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.UPC_A,
+          Html5QrcodeSupportedFormats.UPC_E,
+        ],
+        verbose: false,
+      } as any);
       qr.start(
         { facingMode: 'environment' },
-        { fps: 12, qrbox: { width: 240, height: 180 } },
+        {
+          fps: 15,
+          // WIDE box: 1D barcodes (UPC/EAN/Code128) are wide and short — a
+          // squarish box makes the decoder miss them. Sized to the viewport.
+          qrbox: (vw: number, vh: number) => ({
+            width: Math.min(Math.floor(vw * 0.9), 320),
+            height: Math.min(Math.floor(vh * 0.55), 150),
+          }),
+          // Native BarcodeDetector (Chrome/Android + iOS 17 Safari) is far
+          // more reliable on phones than the JS decoder — use it when there.
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        } as any,
         (text: string) => {
           const raw = text.trim();
           const now = Date.now();
