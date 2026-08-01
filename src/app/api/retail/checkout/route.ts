@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
+import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import {
   FULFILLMENT_METHODS,
   PRICE_TIERS,
@@ -133,16 +134,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // ── Wholesale gate ────────────────────────────────────────────────────────
+  // ── Wholesale gate: per-account codes first, legacy house code fallback ──
+  let wsAccount: { id: string; businessName: string; email: string; extraDiscountPercent: number } | null = null;
+  let wsDiscount = 0;
   if (priceTier === 'wholesale') {
-    const expected = String(rsEarly.wholesaleAccessCode || '').trim();
-    const given = String(body.wholesaleCode || '').trim();
-    if (!expected) {
-      return NextResponse.json({ error: 'This shop does not offer wholesale ordering' }, { status: 400 });
+    const wsAccess = await resolveWholesaleAccess(db, tenantId, rsEarly, String(body.wholesaleCode || ''));
+    if (!wsAccess.unlocked) {
+      return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
     }
-    if (!given || given.toLowerCase() !== expected.toLowerCase()) {
-      return NextResponse.json({ error: 'Invalid wholesale access code' }, { status: 403 });
-    }
+    wsAccount = wsAccess.account || null;
+    wsDiscount = wsAccount?.extraDiscountPercent || 0;
   }
 
   // ── Load & validate every item against live inventory ────────────────────
@@ -169,7 +170,11 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-    lines.push(buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier));
+    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier);
+    if (priceTier === 'wholesale' && wsDiscount > 0) {
+      line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
+    }
+    lines.push(line);
   }
 
   if (priceTier === 'wholesale') {
@@ -220,7 +225,10 @@ export async function POST(req: NextRequest) {
     stage: 'placed',
     method,
     priceTier,
-    businessName: priceTier === 'wholesale' ? String(body.business?.name || '').trim() : '',
+    wholesaleAccountId: wsAccount?.id || null,
+    businessName: priceTier === 'wholesale'
+      ? (String(body.business?.name || '').trim() || wsAccount?.businessName || '')
+      : '',
     poNumber: priceTier === 'wholesale' ? String(body.business?.poNumber || '').trim() : '',
     lines,
     subtotalCents,
@@ -235,6 +243,11 @@ export async function POST(req: NextRequest) {
     curbside: null,
     placedAt: now,
   };
+
+  if (wsAccount) {
+    db.collection(`tenants/${tenantId}/wholesaleAccounts`).doc(wsAccount.id)
+      .set({ lastUsedAt: now }, { merge: true }).catch(() => {});
+  }
 
   const evRef = orderRef.collection('events').doc();
   const batch = db.batch();
