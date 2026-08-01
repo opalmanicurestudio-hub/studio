@@ -125,8 +125,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'This shop is not accepting online payments yet' }, { status: 400 });
   }
 
-  // ── Wholesale gate ────────────────────────────────────────────────────────
   const rsEarly = tenant.retailSettings || {};
+  if (rsEarly.storePaused === true) {
+    return NextResponse.json(
+      { error: String(rsEarly.storePausedMessage || '').trim() || 'The shop is briefly paused for restocking — please try again soon.' },
+      { status: 423 }
+    );
+  }
+
+  // ── Wholesale gate ────────────────────────────────────────────────────────
   if (priceTier === 'wholesale') {
     const expected = String(rsEarly.wholesaleAccessCode || '').trim();
     const given = String(body.wholesaleCode || '').trim();
