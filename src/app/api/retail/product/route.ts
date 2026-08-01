@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
       tenantId,
       name: tenant.businessName || tenant.name || 'Shop',
       wholesaleUnlocked,
+      paused: rs.storePaused === true,
     },
     product: {
       id: item.id,
