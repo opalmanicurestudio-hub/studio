@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem } from '@/lib/retail-orders';
+import { sanitizeShopConfig } from '@/lib/shop-sections';
 
 // ─── /api/retail/catalog/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&wholesaleCode=...
@@ -89,6 +90,7 @@ export async function GET(req: NextRequest) {
       paused: rs.storePaused === true,
       pausedMessage: String(rs.storePausedMessage || '').trim(),
       cartHoldMinutes: Math.max(0, Math.floor(Number(rs.cartHoldMinutes) || 0)),
+      pageConfig: sanitizeShopConfig(rs.shopPageConfig),
       wholesaleOffered,
       wholesaleUnlocked,
       taxRatePercent: Number(rs.taxRatePercent) || 0,
