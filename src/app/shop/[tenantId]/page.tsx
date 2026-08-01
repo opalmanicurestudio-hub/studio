@@ -58,6 +58,7 @@ interface ShopInfo {
   announcement?: string;
   wholesaleOffered: boolean;
   wholesaleUnlocked: boolean;
+  wholesaleBusiness?: string;
   flatShippingDollars: number;
   freeShippingOverDollars: number;
   shippingOffered: boolean;
@@ -528,7 +529,7 @@ export default function ShopPage() {
           <div className="bg-primary text-primary-foreground">
             <div className="max-w-5xl mx-auto px-4 py-1.5 flex items-center gap-2">
               <Badge className="bg-primary-foreground/15 text-primary-foreground border-0 font-black text-[9px] uppercase tracking-widest">B2B</Badge>
-              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing active</p>
+              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing active{shop.wholesaleBusiness ? ` · ${shop.wholesaleBusiness}` : ''}</p>
             </div>
           </div>
         )}
