@@ -23,6 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   cartExpiresAt, clearCart, readCart, readWholesaleCode, touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
+import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
 import { cn } from '@/lib/utils';
 
 // ─── /shop/[tenantId]/page.tsx ────────────────────────────────────────────────
@@ -533,7 +534,16 @@ export default function ShopPage() {
         )}
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 pt-6 pb-2 flex gap-2 overflow-x-auto">
+      <ShopSectionsRenderer
+        config={shop.pageConfig}
+        products={products.map((p) => ({
+          id: p.id, name: p.name, priceCents: unitPrice(p), imageUrls: p.imageUrls, inStock: p.inStock,
+        }))}
+        tenantId={tenantId}
+        onShopNow={() => document.getElementById('shop-catalog')?.scrollIntoView({ behavior: 'smooth' })}
+      />
+
+      <div id="shop-catalog" className="max-w-5xl mx-auto px-4 pt-6 pb-2 flex gap-2 overflow-x-auto scroll-mt-24">
         {categories.map((c) => (
           <button
             key={c}
