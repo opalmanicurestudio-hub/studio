@@ -262,6 +262,9 @@ export default function RetailSettingsPage() {
                 <p className="text-[10px] font-black uppercase tracking-widest">Storefront</p>
               </div>
               <div className="flex gap-2">
+                <Button asChild size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                  <Link href="/retail-orders/designer">Design landing</Link>
+                </Button>
                 <Button asChild variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
                   <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer">View shop</a>
                 </Button>
