@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem } from '@/lib/retail-orders';
 import { sanitizeShopConfig } from '@/lib/shop-sections';
+import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 
 // ─── /api/retail/catalog/route.ts ─────────────────────────────────────────────
 // GET ?tenantId=...&wholesaleCode=...
@@ -45,15 +46,13 @@ export async function GET(req: NextRequest) {
   const tenant = tenantSnap.data() as any;
   const rs = tenant.retailSettings || {};
 
-  const expectedCode = String(rs.wholesaleAccessCode || '').trim();
-  const wholesaleOffered = expectedCode.length > 0;
-  const wholesaleUnlocked =
-    wholesaleOffered && wholesaleCode.length > 0 &&
-    wholesaleCode.toLowerCase() === expectedCode.toLowerCase();
-
-  if (wholesaleCode && !wholesaleUnlocked) {
-    return NextResponse.json({ error: 'Invalid wholesale access code' }, { status: 403 });
+  const wsAccess = await resolveWholesaleAccess(db, tenantId, rs, wholesaleCode);
+  if (wholesaleCode && !wsAccess.unlocked) {
+    return NextResponse.json({ error: wsAccess.error || 'Invalid wholesale access code' }, { status: 403 });
   }
+  const wholesaleUnlocked = wsAccess.unlocked;
+  const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
+  const wholesaleOffered = String(rs.wholesaleAccessCode || '').trim().length > 0 || rs.wholesaleOffered !== false;
 
   const invSnap = await db.collection(`tenants/${tenantId}/inventory`)
     .where('type', '==', 'retail').get();
@@ -70,7 +69,7 @@ export async function GET(req: NextRequest) {
         description: item.onlineDescription || '',
         imageUrls: item.imageUrls || [],
         priceCents: listingPriceCents(item, 'retail'),
-        wholesalePriceCents: wholesaleUnlocked ? listingPriceCents(item, 'wholesale') : null,
+        wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
         wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
         inStock: available > 0 || item.allowBackorder === true,
         qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
@@ -93,6 +92,7 @@ export async function GET(req: NextRequest) {
       pageConfig: sanitizeShopConfig(rs.shopPageConfig),
       wholesaleOffered,
       wholesaleUnlocked,
+      wholesaleBusiness: wsAccess.account?.businessName || '',
       taxRatePercent: Number(rs.taxRatePercent) || 0,
       wholesaleTaxExempt: rs.wholesaleTaxExempt === true,
       flatShippingDollars: Number(rs.flatShippingDollars) || 0,
