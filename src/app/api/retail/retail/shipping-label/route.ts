@@ -1,0 +1,179 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+// ─── /api/retail/shipping-label/route.ts ──────────────────────────────────────
+// Third-party shipping labels via Shippo, in two steps that mirror how a
+// human ships: see real rates, pick one, buy the label.
+//
+//   POST { tenantId, orderId, qrToken, action: 'rates',
+//          parcel: { weightOz, lengthIn, widthIn, heightIn } }
+//     → { rates: [{ id, provider, service, amountCents, days }] }
+//
+//   POST { tenantId, orderId, qrToken, action: 'purchase', rateId }
+//     → { trackingNumber, carrier, trackingUrl, labelUrl }
+//       and saves them on the order + a label_generated audit event.
+//       (Stage does NOT change — the label existing isn't the package
+//        leaving. "Mark shipped" stays the explicit truth moment.)
+//
+// Config: retailSettings.shippoApiKey (per tenant; SHIPPO_API_KEY env as a
+// platform-wide fallback) + retailSettings.shipFrom { name, street1, city,
+// state, zip, phone }. qrToken is the same possession proof the print and
+// support routes use.
+
+function getAdminDb() {
+  const { initializeApp, getApps, cert } = require('firebase-admin/app');
+  const { getFirestore } = require('firebase-admin/firestore');
+  const APP_NAME = 'admin-retail-shipping';
+  let app = getApps().find((a: any) => a.name === APP_NAME);
+  if (!app) {
+    app = initializeApp({
+      credential: cert({
+        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    }, APP_NAME);
+  }
+  return getFirestore(app);
+}
+
+const SHIPPO = 'https://api.goshippo.com';
+
+async function shippo(apiKey: string, path: string, payload: any) {
+  const res = await fetch(`${SHIPPO}${path}`, {
+    method: 'POST',
+    headers: { Authorization: `ShippoToken ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = data?.detail || data?.__all__?.[0] || JSON.stringify(data).slice(0, 200);
+    throw new Error(`Shippo: ${detail}`);
+  }
+  return data;
+}
+
+export async function POST(req: NextRequest) {
+  let body: any;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+
+  const tenantId = String(body.tenantId || '').trim();
+  const orderId = String(body.orderId || '').trim();
+  const qrToken = String(body.qrToken || '').trim();
+  const action = String(body.action || '').trim();
+
+  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase'].includes(action)) {
+    return NextResponse.json({ error: 'tenantId, orderId, qrToken, and a valid action are required' }, { status: 400 });
+  }
+
+  const db = getAdminDb();
+  const [tenantSnap, orderSnap] = await Promise.all([
+    db.collection('tenants').doc(tenantId).get(),
+    db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId).get(),
+  ]);
+  if (!tenantSnap.exists || !orderSnap.exists) {
+    return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+  }
+
+  const tenant = tenantSnap.data() as any;
+  const rs = tenant.retailSettings || {};
+  const order = orderSnap.data() as any;
+
+  if (order.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
+  if (order.method !== 'ship' || !order.shippingAddress) {
+    return NextResponse.json({ error: 'This is not a shipping order' }, { status: 400 });
+  }
+
+  const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
+  if (!apiKey) {
+    return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
+  }
+
+  const from = rs.shipFrom || {};
+  if (!from.street1 || !from.city || !from.state || !from.zip) {
+    return NextResponse.json({ error: 'Ship-from address is incomplete — set it in Shop Settings.' }, { status: 400 });
+  }
+
+  const to = order.shippingAddress;
+  const addressTo = {
+    name: to.name, street1: to.line1, street2: to.line2 || '',
+    city: to.city, state: to.state, zip: to.postalCode, country: to.country || 'US',
+    phone: order.customerPhone || '', email: order.customerEmail || '',
+  };
+  const addressFrom = {
+    name: from.name || tenant.businessName || tenant.name || 'Shop',
+    street1: from.street1, street2: from.street2 || '',
+    city: from.city, state: from.state, zip: from.zip, country: 'US',
+    phone: from.phone || '',
+  };
+
+  try {
+    if (action === 'rates') {
+      const p = body.parcel || {};
+      const parcel = {
+        length: String(Math.max(1, Number(p.lengthIn) || 10)),
+        width: String(Math.max(1, Number(p.widthIn) || 8)),
+        height: String(Math.max(1, Number(p.heightIn) || 4)),
+        distance_unit: 'in',
+        weight: String(Math.max(1, Number(p.weightOz) || 16)),
+        mass_unit: 'oz',
+      };
+      const shipment = await shippo(apiKey, '/shipments/', {
+        address_from: addressFrom, address_to: addressTo, parcels: [parcel], async: false,
+      });
+      const rates = (shipment.rates || [])
+        .map((r: any) => ({
+          id: r.object_id,
+          provider: r.provider,
+          service: r.servicelevel?.name || r.servicelevel?.token || '',
+          amountCents: Math.round(parseFloat(r.amount) * 100),
+          days: r.estimated_days ?? null,
+        }))
+        .filter((r: any) => Number.isFinite(r.amountCents))
+        .sort((a: any, b: any) => a.amountCents - b.amountCents)
+        .slice(0, 8);
+      if (rates.length === 0) {
+        return NextResponse.json({ error: 'No rates returned — check the addresses and parcel size.' }, { status: 422 });
+      }
+      return NextResponse.json({ rates });
+    }
+
+    // purchase
+    const rateId = String(body.rateId || '').trim();
+    if (!rateId) return NextResponse.json({ error: 'rateId is required' }, { status: 400 });
+
+    const txn = await shippo(apiKey, '/transactions/', {
+      rate: rateId, label_file_type: 'PDF_4x6', async: false,
+    });
+    if (txn.status !== 'SUCCESS') {
+      const msg = (txn.messages || []).map((m: any) => m.text).join('; ') || 'Label purchase failed';
+      return NextResponse.json({ error: `Shippo: ${msg}` }, { status: 422 });
+    }
+
+    const result = {
+      trackingNumber: String(txn.tracking_number || ''),
+      carrier: String(txn.rate?.provider || txn.provider || 'Carrier'),
+      trackingUrl: String(txn.tracking_url_provider || ''),
+      labelUrl: String(txn.label_url || ''),
+    };
+
+    const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
+    const evRef = orderRef.collection('events').doc();
+    const batch = db.batch();
+    batch.set(orderRef, {
+      trackingNumber: result.trackingNumber,
+      carrier: result.carrier,
+      trackingUrl: result.trackingUrl,
+      labelUrl: result.labelUrl,
+    }, { merge: true });
+    batch.set(evRef, {
+      id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
+      actorId: 'shippo', actorName: 'Shippo',
+      meta: { carrier: result.carrier, trackingNumber: result.trackingNumber },
+    });
+    await batch.commit();
+
+    return NextResponse.json(result);
+  } catch (e: any) {
+    return NextResponse.json({ error: String(e?.message || 'Shipping label request failed').slice(0, 300) }, { status: 502 });
+  }
+}
