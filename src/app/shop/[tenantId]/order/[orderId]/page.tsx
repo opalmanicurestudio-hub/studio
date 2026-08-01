@@ -4,7 +4,7 @@ import {
   Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, Package, PackageCheck,
   QrCode, ShoppingBag, Store, Truck, XCircle,
 } from 'lucide-react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -64,6 +64,7 @@ export default function OrderStatusPage() {
   const tenantId = String(params?.tenantId || '');
   const orderId = String(params?.orderId || '');
   const { toast } = useToast();
+  const router = useRouter();
 
   const [order, setOrder] = useState<StatusOrder | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
@@ -138,6 +139,23 @@ export default function OrderStatusPage() {
       toast({ variant: 'destructive', title: 'Check-in problem', description: e?.message });
     } finally {
       setCheckingIn(false);
+    }
+  };
+
+  const openAccount = async () => {
+    if (!qrValue) return;
+    try {
+      const qrToken = qrValue.split('order/')[1];
+      const res = await fetch('/api/retail/account/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not open your account');
+      router.push(`/shop/${tenantId}/account?e=${encodeURIComponent(data.email)}&x=${data.exp}&s=${data.sig}`);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not open your orders', description: e?.message });
     }
   };
 
@@ -494,6 +512,13 @@ export default function OrderStatusPage() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {qrValue && (
+          <Button variant="outline" onClick={openAccount}
+            className="w-full h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest">
+            View all my orders
+          </Button>
         )}
       </main>
     </div>
