@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader, Lock, Minus, Package, Plus, ShoppingBag, Store, Truck, X } from 'lucide-react';
+import { CircleUserRound, Loader, Lock, Minus, Package, Plus, ShoppingBag, Store, Truck, X } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
@@ -65,6 +65,11 @@ interface ShopInfo {
   curbsideOffered: boolean;
   curbsideMode?: 'spots' | 'drive_thru' | 'freeform';
   curbsideSpots?: string[];
+  layout?: 'grid' | 'list' | 'showcase';
+  paused?: boolean;
+  pausedMessage?: string;
+  cartHoldMinutes?: number;
+  pageConfig?: ShopPageConfig;
 }
 
 type Method = 'counter' | 'curbside' | 'ship';
@@ -350,6 +355,9 @@ export default function ShopPage() {
             <h1 className="font-black uppercase tracking-tighter text-lg leading-none truncate">{shop.name}</h1>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">{shop.tagline || 'Shop'}</p>
           </div>
+          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
+            <Link href={`/shop/${tenantId}/account`}><CircleUserRound className="h-5 w-5" /></Link>
+          </Button>
           {shop.wholesaleOffered && !wholesale && (
             <Button
               variant="outline"
