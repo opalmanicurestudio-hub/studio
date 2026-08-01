@@ -1,7 +1,7 @@
 'use client';
 
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera } from 'lucide-react';
+import { Camera, Keyboard } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -63,6 +63,8 @@ export function ScanGate({
   const lastRef = useRef<{ value: string; at: number }>({ value: '', at: 0 });
   const onScanRef = useRef(onScan);
   const [cameraError, setCameraError] = useState('');
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualValue, setManualValue] = useState('');
 
   useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
@@ -110,6 +112,46 @@ export function ScanGate({
         )}
       </div>
       <p className="text-[9px] font-black uppercase tracking-widest text-center text-muted-foreground/60">{label}</p>
-    </div>
+          <div className="mt-2">
+        {manualOpen ? (
+          <form
+            className="flex gap-2"
+            onSubmit={(e: React.FormEvent) => {
+              e.preventDefault();
+              const v = manualValue.trim();
+              if (!v) return;
+              onScanRef.current(v);
+              setManualValue('');
+            }}
+          >
+            <input
+              value={manualValue}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setManualValue(e.target.value)}
+              placeholder="Type the SKU, barcode, or code"
+              autoFocus
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-11 flex-1 rounded-xl border-2 bg-white px-3 font-mono font-black text-xs uppercase tracking-widest outline-none focus:border-primary"
+            />
+            <button
+              type="submit"
+              disabled={!manualValue.trim()}
+              className="h-11 px-4 rounded-xl border-2 bg-foreground text-background text-[9px] font-black uppercase tracking-widest disabled:opacity-40"
+            >
+              Enter
+            </button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setManualOpen(true)}
+            className="w-full h-9 rounded-xl border-2 border-dashed text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-primary/40 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Keyboard className="w-3.5 h-3.5" /> Can&apos;t scan? Type it instead
+          </button>
+        )}
+      </div>
+</div>
   );
 }
