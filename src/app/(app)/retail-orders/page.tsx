@@ -70,6 +70,12 @@ export default function RetailFulfillmentBoard() {
   const [shortTarget, setShortTarget] = useState<{ order: BoardOrder; line: OrderLine } | null>(null);
   const [shortReason, setShortReason] = useState('');
   const [shipTarget, setShipTarget] = useState<BoardOrder | null>(null);
+  const [parcel, setParcel] = useState({ weightOz: '16', lengthIn: '10', widthIn: '8', heightIn: '4' });
+  const [rates, setRates] = useState<{ id: string; provider: string; service: string; amountCents: number; days: number | null }[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [buyingRate, setBuyingRate] = useState<string | null>(null);
+  const [labelUrl, setLabelUrl] = useState('');
+  const shippoConfigured = !!(selectedTenant as any)?.retailSettings?.shippoApiKey;
   const [shipCarrier, setShipCarrier] = useState('');
   const [shipNumber, setShipNumber] = useState('');
   const [shipUrl, setShipUrl] = useState('');
@@ -131,6 +137,60 @@ export default function RetailFulfillmentBoard() {
     () => orders.filter((o) => (o.pendingRefundCents || 0) > 0),
     [orders]
   );
+
+  const fetchRates = async () => {
+    if (!shipTarget || ratesLoading) return;
+    setRatesLoading(true);
+    setRates([]);
+    try {
+      const res = await fetch('/api/retail/shipping-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '',
+          action: 'rates',
+          parcel: {
+            weightOz: Number(parcel.weightOz) || 16,
+            lengthIn: Number(parcel.lengthIn) || 10,
+            widthIn: Number(parcel.widthIn) || 8,
+            heightIn: Number(parcel.heightIn) || 4,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not fetch rates');
+      setRates(data.rates || []);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Rates unavailable', description: e?.message });
+    } finally {
+      setRatesLoading(false);
+    }
+  };
+
+  const buyLabel = async (rateId: string) => {
+    if (!shipTarget || buyingRate) return;
+    setBuyingRate(rateId);
+    try {
+      const res = await fetch('/api/retail/shipping-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '', action: 'purchase', rateId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Label purchase failed');
+      setShipCarrier(data.carrier || '');
+      setShipNumber(data.trackingNumber || '');
+      setShipUrl(data.trackingUrl || '');
+      setLabelUrl(data.labelUrl || '');
+      setRates([]);
+      if (data.labelUrl) window.open(data.labelUrl, '_blank');
+      toast({ title: 'Label purchased', description: 'Tracking filled in — print, affix, then confirm shipped.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not buy label', description: e?.message });
+    } finally {
+      setBuyingRate(null);
+    }
+  };
 
   const requireCtx = () => {
     if (!firestore || !tenantId) { toast({ variant: 'destructive', title: 'Not connected' }); return null; }
@@ -432,7 +492,7 @@ export default function RetailFulfillmentBoard() {
                       <Printer className="mr-1 h-3 w-3" /> Print 4x6 label
                     </Button>
                     <Button
-                      onClick={() => { setShipTarget(o); setShipCarrier(''); setShipNumber(''); setShipUrl(''); }}
+                      onClick={() => { setShipTarget(o); setShipCarrier(''); setShipNumber(''); setShipUrl(''); setRates([]); setLabelUrl(''); }}
                       className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
                     >
                       <Ship className="mr-1.5 h-3.5 w-3.5" /> Mark shipped
@@ -528,7 +588,48 @@ export default function RetailFulfillmentBoard() {
               Stock deducts the moment you confirm. Tracking is optional but shows on the customer&apos;s page instantly.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 pt-1">
+          <div className="space-y-3 pt-1 max-h-[55dvh] overflow-y-auto pr-1">
+            {shippoConfigured && !labelUrl && (
+              <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-4 space-y-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-primary">Live label via Shippo</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {([['weightOz', 'oz'], ['lengthIn', 'L in'], ['widthIn', 'W in'], ['heightIn', 'H in']] as const).map(([k, lbl]) => (
+                    <div key={k} className="space-y-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground text-center">{lbl}</p>
+                      <Input inputMode="decimal" value={(parcel as any)[k]}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setParcel({ ...parcel, [k]: e.target.value })}
+                        className="h-10 rounded-xl border-2 font-black font-mono text-xs text-center" />
+                    </div>
+                  ))}
+                </div>
+                <Button variant="outline" disabled={ratesLoading} onClick={fetchRates}
+                  className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                  {ratesLoading ? <Loader className="h-4 w-4 animate-spin" /> : 'Get live rates'}
+                </Button>
+                {rates.length > 0 && (
+                  <div className="space-y-1.5">
+                    {rates.map((r) => (
+                      <button key={r.id} type="button" disabled={!!buyingRate} onClick={() => buyLabel(r.id)}
+                        className="w-full rounded-xl border-2 p-3 flex items-center justify-between gap-2 hover:border-primary/50 transition-all disabled:opacity-50">
+                        <span className="text-left">
+                          <span className="block text-[10px] font-black uppercase tracking-widest">{r.provider} · {r.service}</span>
+                          {r.days != null && <span className="block text-[8px] font-bold uppercase tracking-widest text-muted-foreground">~{r.days} day{r.days === 1 ? '' : 's'}</span>}
+                        </span>
+                        <span className="font-black font-mono text-sm text-primary shrink-0">
+                          {buyingRate === r.id ? '…' : `$${(r.amountCents / 100).toFixed(2)}`}
+                        </span>
+                      </button>
+                    ))}
+                    <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">Tap a rate to buy the 4x6 label</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {labelUrl && (
+              <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
+                <a href={labelUrl} target="_blank" rel="noreferrer">Open purchased label (4x6 PDF)</a>
+              </Button>
+            )}
             <Input placeholder="Carrier (USPS, UPS…)" value={shipCarrier} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipCarrier(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
             <Input placeholder="Tracking number" value={shipNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipNumber(e.target.value)} className="h-12 rounded-xl border-2 font-mono font-black text-xs" />
             <Input placeholder="Tracking URL (optional)" value={shipUrl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipUrl(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-xs" />
