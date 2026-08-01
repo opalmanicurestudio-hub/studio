@@ -21,7 +21,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import {
-  readCart, readWholesaleCode, writeCart, writeWholesaleCode,
+  cartExpiresAt, clearCart, readCart, readWholesaleCode, touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
 
@@ -104,6 +104,39 @@ export default function ShopPage() {
   useEffect(() => {
     if (tenantId && cartHydrated) writeCart(tenantId, cart);
   }, [tenantId, cart, cartHydrated]);
+
+  const [holdLeft, setHoldLeft] = useState<number | null>(null);
+  const holdMinutes = shop?.cartHoldMinutes || 0;
+
+  useEffect(() => {
+    if (!tenantId || !cartHydrated || holdMinutes <= 0) return;
+    if (Object.values(cart).some((q) => q > 0)) touchCartExpiry(tenantId, holdMinutes);
+  }, [tenantId, cart, cartHydrated, holdMinutes]);
+
+  useEffect(() => {
+    if (!tenantId || holdMinutes <= 0) { setHoldLeft(null); return; }
+    const tick = () => {
+      const exp = cartExpiresAt(tenantId);
+      if (exp === null) { setHoldLeft(null); return; }
+      const left = exp - Date.now();
+      if (left <= 0) {
+        clearCart(tenantId);
+        setCart({});
+        setHoldLeft(null);
+        toast({ title: 'Cart expired', description: 'Items were released — stock moves fast. Re-add anything you still want.' });
+        return;
+      }
+      setHoldLeft(left);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, holdMinutes, cartHydrated]);
+
+  const holdLabel = holdLeft != null
+    ? `${Math.floor(holdLeft / 60000)}:${String(Math.floor((holdLeft % 60000) / 1000)).padStart(2, '0')}`
+    : null;
 
   // Checkout form
   const [method, setMethod] = useState<Method>('counter');
@@ -264,6 +297,42 @@ export default function ShopPage() {
     );
   }
 
+  if (shop.paused) {
+    return (
+      <div className="min-h-dvh bg-muted/5 flex flex-col">
+        <header className="bg-white border-b-2">
+          <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
+            {shop.logoUrl ? (
+              <Image src={shop.logoUrl} alt="" width={40} height={40} className="rounded-xl border-2 object-cover" />
+            ) : (
+              <div className="w-10 h-10 rounded-xl border-2 bg-primary/10 flex items-center justify-center">
+                <Store className="w-5 h-5 text-primary" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className="font-black uppercase tracking-tighter text-lg leading-none truncate">{shop.name}</h1>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">{shop.tagline || 'Shop'}</p>
+            </div>
+          </div>
+        </header>
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="max-w-md w-full rounded-[2.5rem] border-2 bg-white p-10 text-center space-y-4 shadow-xl shadow-primary/5">
+            <div className="w-16 h-16 mx-auto rounded-2xl border-2 bg-primary/5 flex items-center justify-center">
+              <Package className="w-7 h-7 text-primary" />
+            </div>
+            <p className="font-black uppercase tracking-tighter text-xl">Restocking in progress</p>
+            <p className="text-sm font-bold text-muted-foreground leading-relaxed">
+              {shop.pausedMessage || 'We are briefly paused while we update the shelves. Check back shortly — good things are landing.'}
+            </p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/50">
+              Existing orders are unaffected and tracking pages stay live
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-dvh bg-muted/5 pb-32">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
@@ -314,6 +383,12 @@ export default function ShopPage() {
                   </div>
                 ) : (
                   <>
+                    {holdLabel && (
+                      <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 px-4 py-2.5 flex items-center justify-between">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-primary">Cart held for</p>
+                        <p className="font-black font-mono text-sm text-primary tabular-nums">{holdLabel}</p>
+                      </div>
+                    )}
                     <div className="space-y-3">
                       {cartEntries.map(([id, qty]) => {
                         const p = byId.get(id)!;
