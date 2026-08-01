@@ -304,43 +304,58 @@ export default function RetailFulfillmentBoard() {
   return (
     <div className="min-h-dvh bg-muted/5 pb-28">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Fulfillment</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">
-              {queue.length} queued · {inProgress.length} in progress · {ready.length} ready · {arrived.length} outside
-            </p>
+        <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4 flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Fulfillment</h1>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5 truncate">
+                {queue.length} queued · {inProgress.length} in progress · {ready.length} ready · {arrived.length} outside
+              </p>
+            </div>
+            <div className="flex items-center gap-0.5 sm:hidden shrink-0">
+              <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
+                <Link href="/retail-orders/history"><History className="h-4 w-4" /></Link>
+              </Button>
+              <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
+                <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
+              </Button>
+              <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary">
+                <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer"><Store className="h-4 w-4" /></a>
+              </Button>
+            </div>
           </div>
           <Button
             onClick={takeNext}
             disabled={claiming || !!myBatch || queue.length === 0}
-            className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-md shadow-primary/20"
+            className="flex-1 sm:flex-none h-12 sm:h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-md shadow-primary/20"
           >
             {claiming ? <Loader className="h-4 w-4 animate-spin" /> : <><Zap className="mr-1.5 h-4 w-4" /> Take next</>}
           </Button>
           <Button
             variant="outline"
             onClick={() => setHandoffOpen(true)}
-            className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"
+            className="h-12 sm:h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"
           >
             <QrCode className="mr-1.5 h-4 w-4" /> Handoff
           </Button>
-          <Button asChild variant="outline" className="h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2">
-            <Link href="/retail-orders/returns"><RotateCcw className="mr-1.5 h-4 w-4" /> Returns</Link>
+          <Button asChild variant="outline" className="h-12 w-12 sm:h-11 sm:w-auto rounded-xl font-black uppercase text-[10px] tracking-widest border-2 px-0 sm:px-4">
+            <Link href="/retail-orders/returns"><RotateCcw className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">Returns</span></Link>
           </Button>
-          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
-            <Link href="/retail-orders/history"><History className="h-4 w-4" /></Link>
-          </Button>
-          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
-            <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
-          </Button>
-          <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-primary">
-            <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer"><Store className="h-4 w-4" /></a>
-          </Button>
+          <div className="hidden sm:flex items-center gap-1">
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+              <Link href="/retail-orders/history"><History className="h-4 w-4" /></Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+              <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-primary">
+              <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer"><Store className="h-4 w-4" /></a>
+            </Button>
+          </div>
         </div>
         {pendingRefunds.length > 0 && (
           <div className="bg-amber-50 border-t border-amber-100">
-            <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center gap-2">
+            <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center gap-2">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
               <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex-1">
                 {pendingRefunds.length} refund(s) to execute in Stripe:
@@ -460,8 +475,8 @@ export default function RetailFulfillmentBoard() {
           { title: 'Ready', icon: Package, list: ready },
           { title: 'Outside', icon: Car, list: arrived },
         ].map((lane) => (
-          <div key={lane.title} className="space-y-3">
-            <div className="flex items-center gap-2 px-1">
+          <div key={lane.title} className={cn('space-y-3', lane.list.length === 0 && lane.title !== 'Queue' && 'hidden md:block')}>
+            <div className="flex items-center gap-2 px-1 sticky top-[104px] md:static z-10 bg-muted/5 backdrop-blur py-1 -my-1 rounded-lg">
               <lane.icon className="w-3.5 h-3.5 text-primary" />
               <p className="text-[10px] font-black uppercase tracking-widest">{lane.title}</p>
               <span className="ml-auto font-black font-mono text-xs opacity-40">{lane.list.length}</span>
