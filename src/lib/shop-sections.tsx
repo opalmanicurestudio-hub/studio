@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, Quote, Sparkles, Timer } from 'lucide-react';
+import { ArrowRight, Car, HelpCircle, MapPin, Package, Phone, Quote, Sparkles, Timer, Truck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import React, { useEffect, useState } from 'react';
@@ -27,7 +27,9 @@ import { cn } from '@/lib/utils';
 // fallback, and images only render on real URLs — a half-edited config can
 // never break the storefront.
 
-export type ShopSectionType = 'hero' | 'drop' | 'featured' | 'banner' | 'story' | 'testimonials';
+export type ShopSectionType =
+  'hero' | 'drop' | 'featured' | 'banner' | 'story' | 'testimonials' |
+  'policies' | 'locator' | 'faq' | 'marquee';
 
 export interface ShopSection {
   id: string;
@@ -123,6 +125,54 @@ export const SHOP_SECTION_DEFS: Record<ShopSectionType, {
       quotes: [{ quote: 'The pickup flow is unreal — ordered on my lunch break, grabbed it after work.', name: 'A happy regular' }],
     },
   },
+  policies: {
+    label: 'Fulfillment Policies',
+    hint: 'Pickup, curbside & shipping promises',
+    layouts: [
+      { id: 'trio', label: 'Three Cards' },
+      { id: 'stacked', label: 'Stacked' },
+    ],
+    defaults: {
+      title: 'How you get it',
+      pickupText: 'Counter pickup — usually ready within the hour. Show your QR, grab and go.',
+      curbsideText: 'Curbside — tap "I’m here" and we bring it to your car.',
+      shippingText: 'Shipping — orders pack same-day and ship with tracking.',
+    },
+  },
+  locator: {
+    label: 'Store Locator',
+    hint: 'Address, hours & directions',
+    layouts: [
+      { id: 'card', label: 'Card' },
+      { id: 'banner', label: 'Banner' },
+    ],
+    defaults: {
+      title: 'Find us',
+      address: '',
+      hours: '',
+      phone: '',
+      mapsUrl: '',
+    },
+  },
+  faq: {
+    label: 'FAQ',
+    hint: 'Answer objections before they stall a sale',
+    layouts: [{ id: 'accordion', label: 'Accordion' }],
+    defaults: {
+      title: 'Questions, answered',
+      items: [{ q: 'How fast is pickup?', a: 'Most orders are ready within the hour during business hours.' }],
+    },
+  },
+  marquee: {
+    label: 'Animated Banner',
+    hint: 'Scrolling ticker that never stops selling',
+    layouts: [
+      { id: 'scroll', label: 'Scroll' },
+      { id: 'fast', label: 'Fast Scroll' },
+      { id: 'pulse', label: 'Pulse' },
+    ],
+    defaults: { text: 'Free counter pickup · Same-day curbside · Ships with tracking' },
+  },
 };
 
 export function newShopSection(type: ShopSectionType): ShopSection {
@@ -145,7 +195,7 @@ export function sanitizeShopConfig(raw: any): ShopPageConfig {
   return {
     sections: sections
       .filter((s: any) => s && typeof s === 'object' && SHOP_SECTION_DEFS[s.type as ShopSectionType])
-      .slice(0, 12)
+      .slice(0, 16)
       .map((s: any) => ({
         id: String(s.id || `sec-${Math.random().toString(36).slice(2, 9)}`),
         type: s.type as ShopSectionType,
@@ -357,6 +407,128 @@ function TestimonialsSection({ s }: { s: ShopSection }) {
   );
 }
 
+function PoliciesSection({ s }: { s: ShopSection }) {
+  const p = s.props;
+  const cards = [
+    { icon: Package, label: 'Pickup', text: p.pickupText },
+    { icon: Car, label: 'Curbside', text: p.curbsideText },
+    { icon: Truck, label: 'Shipping', text: p.shippingText },
+  ].filter((c) => String(c.text || '').trim());
+  if (cards.length === 0) return null;
+  const stacked = s.layout === 'stacked';
+  return (
+    <section className="space-y-3">
+      {p.title && <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground px-1">{p.title}</p>}
+      <div className={cn('grid gap-3', stacked ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3')}>
+        {cards.map((c) => (
+          <div key={c.label} className={cn('rounded-[1.75rem] border-2 bg-white p-5', stacked && 'flex items-start gap-4')}>
+            <div className={cn('w-10 h-10 rounded-xl border-2 bg-primary/5 flex items-center justify-center shrink-0', !stacked && 'mb-3')}>
+              <c.icon className="w-4 h-4 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase tracking-widest">{c.label}</p>
+              <p className="text-sm font-bold text-muted-foreground leading-relaxed">{c.text}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LocatorSection({ s }: { s: ShopSection }) {
+  const p = s.props;
+  if (!String(p.address || '').trim() && !String(p.hours || '').trim()) return null;
+  const banner = s.layout === 'banner';
+  const directions = isUrl(p.mapsUrl) ? p.mapsUrl : null;
+  return (
+    <section className={cn('rounded-[2.5rem] border-2 overflow-hidden',
+      banner ? 'bg-foreground text-background p-6 flex flex-wrap items-center justify-between gap-4' : 'bg-white p-7 space-y-4')}>
+      <div className={cn(banner ? 'flex items-center gap-4 flex-wrap' : 'space-y-3')}>
+        <div className="flex items-center gap-2">
+          <MapPin className={cn('w-4 h-4', banner ? '' : 'text-primary')} />
+          <p className="text-[10px] font-black uppercase tracking-widest">{p.title || 'Find us'}</p>
+        </div>
+        {p.address && <p className={cn('font-black uppercase tracking-tight text-sm whitespace-pre-line', !banner && 'text-lg')}>{p.address}</p>}
+        {p.hours && (
+          <p className={cn('text-sm font-bold whitespace-pre-line', banner ? 'opacity-70' : 'text-muted-foreground')}>{p.hours}</p>
+        )}
+        {p.phone && (
+          <p className={cn('text-[11px] font-black uppercase tracking-widest flex items-center gap-1.5', banner ? 'opacity-70' : 'text-muted-foreground')}>
+            <Phone className="w-3.5 h-3.5" /> {p.phone}
+          </p>
+        )}
+      </div>
+      {directions && (
+        <Button asChild variant={banner ? 'secondary' : 'default'}
+          className="h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest">
+          <a href={directions} target="_blank" rel="noreferrer">Get directions <ArrowRight className="ml-1.5 h-4 w-4" /></a>
+        </Button>
+      )}
+    </section>
+  );
+}
+
+function FaqSection({ s }: { s: ShopSection }) {
+  const items: { q: string; a: string }[] = Array.isArray(s.props.items) ? s.props.items : [];
+  if (items.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2 px-1">
+        <HelpCircle className="w-3.5 h-3.5 text-primary" />
+        <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{s.props.title || 'FAQ'}</p>
+      </div>
+      <div className="space-y-2">
+        {items.slice(0, 16).map((it, i) => (
+          <details key={i} className="group rounded-[1.5rem] border-2 bg-white overflow-hidden">
+            <summary className="list-none cursor-pointer p-4 flex items-center justify-between gap-3">
+              <p className="font-black uppercase tracking-tight text-xs">{it.q}</p>
+              <span className="w-6 h-6 rounded-lg border-2 flex items-center justify-center text-xs font-black shrink-0 transition-transform group-open:rotate-45">+</span>
+            </summary>
+            <p className="px-4 pb-4 text-sm font-bold text-muted-foreground leading-relaxed">{it.a}</p>
+          </details>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const MARQUEE_CSS = `
+@keyframes cf-shop-marquee { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+.cf-shop-marquee { animation: cf-shop-marquee var(--cf-marquee-s, 22s) linear infinite; }
+@media (prefers-reduced-motion: reduce) { .cf-shop-marquee { animation: none; } }
+`;
+
+function MarqueeSection({ s }: { s: ShopSection }) {
+  const text = String(s.props.text || '').trim();
+  if (!text) return null;
+  const layout = s.layout || 'scroll';
+  if (layout === 'pulse') {
+    return (
+      <section className="rounded-[2.5rem] border-2 bg-primary text-primary-foreground py-4 px-6 text-center">
+        <p className="font-black uppercase tracking-widest text-sm animate-pulse">{text}</p>
+      </section>
+    );
+  }
+  const speed = layout === 'fast' ? '12s' : '22s';
+  const chunk = (
+    <div className="cf-shop-marquee flex items-center shrink-0" style={{ ['--cf-marquee-s' as any]: speed }}>
+      {Array.from({ length: 4 }).map((_, i) => (
+        <span key={i} className="mx-6 font-black uppercase tracking-widest text-sm whitespace-nowrap">{text} ✦</span>
+      ))}
+    </div>
+  );
+  return (
+    <section className="rounded-[2.5rem] border-2 bg-foreground text-background py-3.5 overflow-hidden">
+      <style dangerouslySetInnerHTML={{ __html: MARQUEE_CSS }} />
+      <div className="flex w-max">
+        {chunk}
+        <div aria-hidden="true" className="flex">{chunk}</div>
+      </div>
+    </section>
+  );
+}
+
 /* ── error isolation (mirrors the booking builder's preview boundary) ───── */
 
 class SectionBoundary extends React.Component<{ children: React.ReactNode }, { failed: boolean }> {
@@ -394,6 +566,10 @@ export function ShopSectionsRenderer({
           {s.type === 'banner' && <BannerSection s={s} onShopNow={onShopNow} />}
           {s.type === 'story' && <StorySection s={s} />}
           {s.type === 'testimonials' && <TestimonialsSection s={s} />}
+          {s.type === 'policies' && <PoliciesSection s={s} />}
+          {s.type === 'locator' && <LocatorSection s={s} />}
+          {s.type === 'faq' && <FaqSection s={s} />}
+          {s.type === 'marquee' && <MarqueeSection s={s} />}
         </SectionBoundary>
       ))}
     </div>
