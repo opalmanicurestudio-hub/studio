@@ -53,6 +53,7 @@ export default function ProductPage() {
   const [product, setProduct] = useState<ProductDetail | null>(null);
   const [shopName, setShopName] = useState('');
   const [wholesale, setWholesale] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [imgIdx, setImgIdx] = useState(0);
   const [qty, setQty] = useState(1);
@@ -75,6 +76,7 @@ export default function ProductPage() {
         setProduct(data.product);
         setShopName(data.shop.name);
         setWholesale(data.shop.wholesaleUnlocked === true);
+        setPaused(data.shop.paused === true);
         if (data.shop.wholesaleUnlocked && data.product.wholesaleMinQty > 0) {
           setQty(data.product.wholesaleMinQty);
         }
@@ -221,9 +223,9 @@ export default function ProductPage() {
                 <Plus className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Button disabled={!product.inStock} onClick={add}
+            <Button disabled={!product.inStock || paused} onClick={add}
               className="flex-1 h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20">
-              {product.inStock ? `Add to cart · ${fmt(price * qty)}` : 'Sold out'}
+              {paused ? 'Shop briefly paused' : product.inStock ? `Add to cart · ${fmt(price * qty)}` : 'Sold out'}
             </Button>
           </div>
 
