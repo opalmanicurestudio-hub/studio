@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  Car, Check, CheckCircle2, Clock, Loader, Package, PackageCheck,
+  Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, Package, PackageCheck,
   QrCode, ShoppingBag, Store, Truck, XCircle,
 } from 'lucide-react';
 import { useParams } from 'next/navigation';
@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -72,6 +73,9 @@ export default function OrderStatusPage() {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
   const [vehicle, setVehicle] = useState('');
+  const [helpMsg, setHelpMsg] = useState('');
+  const [helpSending, setHelpSending] = useState(false);
+  const [helpSent, setHelpSent] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const activeRef = useRef(true);
 
@@ -134,6 +138,28 @@ export default function OrderStatusPage() {
       toast({ variant: 'destructive', title: 'Check-in problem', description: e?.message });
     } finally {
       setCheckingIn(false);
+    }
+  };
+
+  const sendHelp = async () => {
+    if (!order || !qrValue || helpSending || !helpMsg.trim()) return;
+    setHelpSending(true);
+    try {
+      const qrToken = qrValue.split('order/')[1];
+      const res = await fetch('/api/retail/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken, message: helpMsg.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not send');
+      setHelpSent(true);
+      setHelpMsg('');
+      toast({ title: 'Message sent', description: 'The shop will get back to you.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not send', description: e?.message });
+    } finally {
+      setHelpSending(false);
     }
   };
 
@@ -436,6 +462,39 @@ export default function OrderStatusPage() {
             </div>
           </CardContent>
         </Card>
+
+        {qrValue && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-6 space-y-3">
+              <div className="flex items-center gap-2">
+                <LifeBuoy className="w-4 h-4 text-primary" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Need help with this order?</p>
+              </div>
+              {helpSent ? (
+                <p className="text-sm font-bold text-muted-foreground">
+                  Got it — your message is with the shop and tied to this order. They&apos;ll reach out.
+                </p>
+              ) : (
+                <>
+                  <Textarea
+                    placeholder="Tell us what's going on — wrong item, question, change of plans…"
+                    value={helpMsg}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHelpMsg(e.target.value)}
+                    className="rounded-2xl border-2 min-h-[80px] font-bold text-sm"
+                  />
+                  <Button
+                    disabled={!helpMsg.trim() || helpSending}
+                    onClick={sendHelp}
+                    variant="outline"
+                    className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Send to the shop'}
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </main>
     </div>
   );
