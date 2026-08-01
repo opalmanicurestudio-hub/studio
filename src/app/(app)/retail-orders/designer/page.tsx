@@ -316,6 +316,80 @@ export default function ShopDesignerPage() {
                 </div>
               )}
 
+              {selected.type === 'policies' && (
+                <div className="space-y-2">
+                  <Input placeholder="Section title" value={selected.props.title || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
+                    className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Textarea placeholder="Pickup policy (blank hides the card)" value={selected.props.pickupText || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'pickupText', e.target.value)}
+                    className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
+                  <Textarea placeholder="Curbside policy (blank hides the card)" value={selected.props.curbsideText || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'curbsideText', e.target.value)}
+                    className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
+                  <Textarea placeholder="Shipping policy (blank hides the card)" value={selected.props.shippingText || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'shippingText', e.target.value)}
+                    className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
+                </div>
+              )}
+
+              {selected.type === 'locator' && (
+                <div className="space-y-2">
+                  <Input placeholder="Section title (e.g. Find us)" value={selected.props.title || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
+                    className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Textarea placeholder="Address" value={selected.props.address || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'address', e.target.value)}
+                    className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
+                  <Textarea placeholder={'Hours (e.g. Mon-Fri 9-6, Sat 10-4)'} value={selected.props.hours || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'hours', e.target.value)}
+                    className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input placeholder="Phone" value={selected.props.phone || ''}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'phone', e.target.value)}
+                      className="h-11 rounded-xl border-2 font-bold text-sm" />
+                    <Input placeholder="Google Maps link" value={selected.props.mapsUrl || ''}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'mapsUrl', e.target.value)}
+                      className="h-11 rounded-xl border-2 font-bold text-xs" />
+                  </div>
+                </div>
+              )}
+
+              {selected.type === 'faq' && (
+                <div className="space-y-2">
+                  <Input placeholder="Section title" value={selected.props.title || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
+                    className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                    One per line as: Question | Answer
+                  </Label>
+                  <Textarea
+                    placeholder={'How fast is pickup? | Usually within the hour.'}
+                    value={(Array.isArray(selected.props.items) ? selected.props.items : [])
+                      .map((it: any) => `${it.q} | ${it.a}`).join('\n')}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                      const items = e.target.value.split(/\n+/).map((line) => {
+                        const idx = line.indexOf('|');
+                        if (idx <= 0) return line.trim() ? { q: line.trim(), a: '' } : null;
+                        return { q: line.slice(0, idx).trim(), a: line.slice(idx + 1).trim() };
+                      }).filter(Boolean).slice(0, 12);
+                      updateProps(selected.id, 'items', items);
+                    }}
+                    className="rounded-xl border-2 min-h-[100px] font-bold text-sm" />
+                </div>
+              )}
+
+              {selected.type === 'marquee' && (
+                <div className="space-y-2">
+                  <Input placeholder={'Ticker text (e.g. Free pickup \u00b7 Same-day curbside)'} value={selected.props.text || ''}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'text', e.target.value)}
+                    className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">
+                    Scroll speed and pulse are the layout pills above. Motion pauses automatically for reduced-motion visitors.
+                  </p>
+                </div>
+              )}
+
               {selected.type === 'testimonials' && (
                 <div className="space-y-2">
                   <Input placeholder="Section title" value={selected.props.title || ''}
