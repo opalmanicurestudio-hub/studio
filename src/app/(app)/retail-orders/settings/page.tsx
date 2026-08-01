@@ -426,9 +426,12 @@ export default function RetailSettingsPage() {
               <Lock className="w-4 h-4 text-primary" />
               <p className="text-[10px] font-black uppercase tracking-widest">Wholesale &amp; B2B</p>
             </div>
+            <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+              <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
+            </Button>
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                Access code — leave blank to turn wholesale off
+                House code — shared fallback; per-account codes live in Wholesale
               </Label>
               <Input placeholder="e.g. OPALPRO2026" value={rs.wholesaleAccessCode || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, wholesaleAccessCode: e.target.value })}
