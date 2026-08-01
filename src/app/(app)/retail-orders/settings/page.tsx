@@ -36,6 +36,9 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  storePaused?: boolean;
+  storePausedMessage?: string;
+  cartHoldMinutes?: number;
   shopLayout?: 'grid' | 'list' | 'showcase';
   shopTagline?: string;
   shopAnnouncement?: string;
@@ -72,6 +75,9 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      storePaused: existing.storePaused === true,
+      storePausedMessage: existing.storePausedMessage || '',
+      cartHoldMinutes: existing.cartHoldMinutes ?? 0,
       shopLayout: existing.shopLayout || 'grid',
       shopTagline: existing.shopTagline || '',
       shopAnnouncement: existing.shopAnnouncement || '',
@@ -104,6 +110,9 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          storePaused: rs.storePaused === true,
+          storePausedMessage: (rs.storePausedMessage || '').trim(),
+          cartHoldMinutes: Math.max(0, Math.floor(Number(rs.cartHoldMinutes) || 0)),
           shopLayout: rs.shopLayout || 'grid',
           shopTagline: (rs.shopTagline || '').trim(),
           shopAnnouncement: (rs.shopAnnouncement || '').trim(),
@@ -207,6 +216,44 @@ export default function RetailSettingsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+        <Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', rs.storePaused && 'border-amber-300')}>
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest">Store status</p>
+                <p className={cn('font-black uppercase tracking-tighter text-lg leading-none mt-1', rs.storePaused ? 'text-amber-600' : 'text-green-600')}>
+                  {rs.storePaused ? 'Paused' : 'Open'}
+                </p>
+              </div>
+              <Switch checked={rs.storePaused !== true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, storePaused: !v })} />
+            </div>
+            {rs.storePaused && (
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Message visitors see while paused</Label>
+                <Textarea placeholder="We are restocking the shelves — back within the hour!"
+                  value={rs.storePausedMessage || ''}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRs({ ...rs, storePausedMessage: e.target.value })}
+                  className="rounded-2xl border-2 min-h-[70px] font-bold text-sm" />
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">
+                  Browsing and checkout stop; existing orders and tracking pages stay live.
+                </p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3 pt-1 border-t-2 border-dashed">
+              <div className="space-y-1.5 pt-3">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cart hold (minutes, 0 = off)</Label>
+                <Input inputMode="numeric" value={rs.cartHoldMinutes == null ? '' : String(rs.cartHoldMinutes)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, cartHoldMinutes: e.target.value === '' ? 0 : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
+              </div>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60 pt-3 self-center">
+                Shows a live countdown in the cart and releases idle carts — honest urgency for drops and high volume.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
