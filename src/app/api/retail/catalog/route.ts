@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
         category: String(item.category || '') || 'General',
         description: String(item.onlineDescription || ''),
         imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.filter(Boolean) : [],
+        optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
         priceCents: listingPriceCents(item, 'retail'),
         wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
         wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
