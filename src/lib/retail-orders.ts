@@ -123,8 +123,16 @@ export type SellableItem = RetailInventoryFields & {
 };
 
 /** Units a new order may sell right now. */
+/** Units allotted out to stations/providers — not sellable online. */
+export function allocatedUnits(item: any): number {
+  const a = (item as any)?.allocations;
+  if (!a || typeof a !== 'object') return 0;
+  return Object.values(a).reduce((s: number, x: any) => s + (Number(x?.qty) || 0), 0);
+}
+
 export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockReserved'>): number {
-  return item.totalStock - (item.stockReserved ?? 0);
+  const allocated = allocatedUnits(item);
+  return item.totalStock - (item.stockReserved ?? 0) - allocated;
 }
 
 export function isStorefrontVisible(item: SellableItem): boolean {
