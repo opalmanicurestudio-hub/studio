@@ -10,6 +10,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -30,6 +31,8 @@ interface SupportTicket {
   stageAtRequest: string;
   message: string;
   status: 'open' | 'resolved';
+  autoReply?: string;
+  replies?: { by: string; text: string; at: string; emailed: boolean }[];
   createdAt: string;
   resolvedBy?: string;
   resolvedAt?: string;
@@ -56,6 +59,38 @@ export default function RetailSupportPage() {
   const [loading, setLoading] = useState(true);
   const [showResolved, setShowResolved] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const template = (t: SupportTicket, kind: 'ready' | 'sorry' | 'refund') => {
+    const num = `#${String(t.orderNumber).padStart(4, '0')}`;
+    const map = {
+      ready: `Hi ${t.customerName.split(' ')[0]} — good news, order ${num} is ready for you. See the order page for pickup details, and just reply here if anything else comes up.`,
+      sorry: `Hi ${t.customerName.split(' ')[0]} — so sorry about the trouble with order ${num}. We're on it right now and will make it right. You'll see any updates on your order page.`,
+      refund: `Hi ${t.customerName.split(' ')[0]} — your refund for order ${num} is being processed now. Card refunds typically appear within 5–10 business days. Thanks for your patience!`,
+    };
+    setDrafts({ ...drafts, [t.id]: map[kind] });
+  };
+
+  const sendReply = async (t: SupportTicket, alsoResolve: boolean) => {
+    const reply = (drafts[t.id] || '').trim();
+    if (!reply || busy) return;
+    setBusy(t.id);
+    try {
+      const res = await fetch('/api/retail/support-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, ticketId: t.id, reply, resolve: alsoResolve, staffName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not send');
+      toast({ title: data.emailed ? 'Reply emailed to customer' : 'Reply saved', description: data.emailed ? undefined : data.message });
+      setDrafts({ ...drafts, [t.id]: '' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Reply failed', description: e?.message });
+    } finally {
+      setBusy(null);
+    }
+  };
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -148,6 +183,51 @@ export default function RetailSupportPage() {
               <p className="text-sm font-bold text-muted-foreground leading-relaxed rounded-2xl border-2 border-dashed p-3">
                 {t.message}
               </p>
+              {t.autoReply && (
+                <div className="rounded-2xl border-2 border-primary/20 bg-primary/[0.03] p-3">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-primary mb-1">Auto-answered instantly by email</p>
+                  <p className="text-xs font-bold text-muted-foreground leading-relaxed">{t.autoReply}</p>
+                </div>
+              )}
+              {(t.replies || []).map((r, i) => (
+                <div key={i} className="rounded-2xl border-2 p-3">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground mb-1">
+                    {r.by} · {when(r.at)}{r.emailed ? ' · emailed' : ''}
+                  </p>
+                  <p className="text-xs font-bold leading-relaxed whitespace-pre-wrap">{r.text}</p>
+                </div>
+              ))}
+              {t.status === 'open' && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1.5">
+                    {([['ready', 'It\u2019s ready'], ['sorry', 'Apology'], ['refund', 'Refund info']] as const).map(([k, label]) => (
+                      <button key={k} type="button" onClick={() => template(t, k)}
+                        className="h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest bg-white hover:border-primary/40 transition-all">
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <Textarea
+                    placeholder="Reply to the customer — sent straight to their email…"
+                    value={drafts[t.id] || ''}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [t.id]: e.target.value })}
+                    className="rounded-2xl border-2 min-h-[70px] font-bold text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={!(drafts[t.id] || '').trim() || busy === t.id}
+                      onClick={() => sendReply(t, false)}
+                      variant="outline"
+                      className="h-9 flex-1 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                      Send reply
+                    </Button>
+                    <Button size="sm" disabled={!(drafts[t.id] || '').trim() || busy === t.id}
+                      onClick={() => sendReply(t, true)}
+                      className="h-9 flex-1 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                      Send &amp; resolve
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                   <Link href="/retail-orders/history">Open in history</Link>
