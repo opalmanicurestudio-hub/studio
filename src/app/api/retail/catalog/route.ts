@@ -35,6 +35,7 @@ function getAdminDb() {
 const MAX_SHOWN_QTY = 99; // never reveal exact large stock counts
 
 export async function GET(req: NextRequest) {
+  try {
   const tenantId = String(req.nextUrl.searchParams.get('tenantId') || '').trim();
   const wholesaleCode = String(req.nextUrl.searchParams.get('wholesaleCode') || '').trim();
 
@@ -60,23 +61,30 @@ export async function GET(req: NextRequest) {
   const products = invSnap.docs
     .map((d: any) => ({ id: d.id, ...d.data() } as SellableItem))
     .filter((item: SellableItem) => isStorefrontVisible(item))
-    .map((item: SellableItem) => {
-      const available = Math.max(0, sellableStock(item));
-      return {
+    .flatMap((item: SellableItem) => {
+      // One malformed inventory doc must never take the whole shop down:
+      // anything that throws here is skipped (and logged), not fatal.
+      try {
+        const available = Math.max(0, sellableStock(item) || 0);
+        return [{
         id: item.id,
-        name: item.name,
-        category: item.category || 'General',
-        description: item.onlineDescription || '',
-        imageUrls: item.imageUrls || [],
+        name: String(item.name || '').trim() || 'Item',
+        category: String(item.category || '') || 'General',
+        description: String(item.onlineDescription || ''),
+        imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.filter(Boolean) : [],
         priceCents: listingPriceCents(item, 'retail'),
         wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
         wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
         inStock: available > 0 || item.allowBackorder === true,
         qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
         lowStock: available > 0 && available <= (item.lowStockThreshold ?? 0),
-      };
+        }];
+      } catch (e: any) {
+        console.error('[retail-catalog] skipped malformed item', item?.id, e?.message);
+        return [];
+      }
     })
-    .sort((a: any, b: any) => a.name.localeCompare(b.name));
+    .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
 
   return NextResponse.json({
     shop: {
@@ -104,4 +112,11 @@ export async function GET(req: NextRequest) {
     },
     products,
   });
+  } catch (e: any) {
+    console.error('[retail-catalog] fatal:', e?.message);
+    return NextResponse.json(
+      { error: `Shop data error: ${String(e?.message || 'unknown').slice(0, 160)}` },
+      { status: 500 }
+    );
+  }
 }
