@@ -64,6 +64,7 @@ export default async function ProductLabelsPage({
           .lab img { width: 1.05in; height: 1.05in; }
           .lab .nm { font-size: 10px; font-weight: 900; text-transform: uppercase; line-height: 1.25; }
           .lab .sk { font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #64748b; margin-top: 3px; }
+          .lab .tp { font-size: 8px; font-weight: 900; font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.5px; margin-top: 3px; border: 1.5px solid #0f172a; border-radius: 5px; padding: 1px 5px; display: inline-block; }
           .lab .pr { font-size: 14px; font-weight: 900; margin-top: 4px; }
         `}</style>
       </head>
@@ -75,6 +76,7 @@ export default async function ProductLabelsPage({
               <div>
                 <p className="nm">{it.name}</p>
                 {it.sku ? <p className="sk">{it.sku}</p> : null}
+                <p className="tp">TYPE {it.sku || it.id}</p>
                 {it.price ? <p className="pr">{it.price}</p> : null}
               </div>
             </div>
