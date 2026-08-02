@@ -246,12 +246,13 @@ export default function RetailOrderHistoryPage() {
           return (
             <button key={o.id} type="button" onClick={() => openDetail(o)} className="w-full text-left">
               <Card className="border-2 rounded-2xl overflow-hidden bg-white hover:border-primary/40 transition-all">
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl border-2 bg-muted/10 flex items-center justify-center shrink-0">
+                <CardContent className="p-3.5 sm:p-4 flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl border-2 bg-muted/10 hidden sm:flex items-center justify-center shrink-0">
                     <Icon className="w-4 h-4 text-muted-foreground" />
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2">
+                      <Icon className="w-3.5 h-3.5 text-muted-foreground sm:hidden shrink-0" />
                       <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
                       {o.priceTier === 'wholesale' && (
                         <Badge className="h-5 px-1.5 bg-primary/10 text-primary border-2 border-primary/20 font-black text-[7px] uppercase tracking-widest">B2B</Badge>
@@ -259,16 +260,15 @@ export default function RetailOrderHistoryPage() {
                       {(o.pendingRefundCents || 0) > 0 && (
                         <Badge className="h-5 px-1.5 bg-amber-50 text-amber-700 border-2 border-amber-100 font-black text-[7px] uppercase tracking-widest">Refund due</Badge>
                       )}
+                      <p className="ml-auto font-mono font-black text-sm shrink-0">{fmt(o.totalCents)}</p>
                     </div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">
                       {o.customerName}{o.customerEmail ? ` · ${o.customerEmail}` : ''}
                     </p>
-                  </div>
-                  <div className="text-right shrink-0 space-y-1">
-                    {stageBadge(o.stage)}
-                    <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                      {when(o.placedAt)} · <span className="font-mono font-black text-foreground">{fmt(o.totalCents)}</span>
-                    </p>
+                    <div className="flex items-center gap-2">
+                      {stageBadge(o.stage)}
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{when(o.placedAt)}</p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
