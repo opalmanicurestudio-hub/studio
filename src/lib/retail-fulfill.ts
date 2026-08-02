@@ -1,14 +1,14 @@
 'use client';
 
 import {
-  Firestore, collection, doc, getDocs, limit, query, runTransaction, where,
+  Firestore, collection, doc, getDoc, getDocs, limit, query, runTransaction, where,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
 import {
   BATCH_CLAIM_TIMEOUT_MIN, MAX_SHIP_ORDERS_PER_BATCH, STAGE_LABELS,
-  applyScan, buildEvent, canAdvance, depleteBatchesFIFO, fulfilledQty,
-  isClaimStale, isPickComplete, parseOrderQr, queuePriority, shortLine,
+  applyScan, buildEvent, canAdvance, codesMatch, depleteBatchesFIFO, fulfilledQty,
+  isClaimStale, isPickComplete, parseOrderQr, parseProductQr, queuePriority, shortLine,
   type FulfillmentBatch, type InventoryBatchRef, type OrderEventType,
   type RetailOrder, type ShortResolution,
 } from '@/lib/retail-orders';
@@ -144,6 +144,38 @@ export async function sweepStaleClaims(fs: Firestore, tenantId: string): Promise
 export async function recordItemScan(
   fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor
 ): Promise<{ ok: boolean; message: string; pickComplete?: boolean }> {
+  // Snapshot-staleness self-heal: order lines carry the barcode/SKU AS OF
+  // checkout. If a barcode was added to the item AFTER the order was placed,
+  // the snapshot is blank and a legit scan reads as "not on this order." On a
+  // snapshot miss, check each line's CURRENT product doc; on a match,
+  // translate the scan into that product's QR form, which the in-transaction
+  // matcher accepts natively.
+  let effectiveValue = scannedValue;
+  try {
+    const pre = await getDoc(doc(orderCol(fs, tenantId), orderId));
+    if (pre.exists()) {
+      const preOrder = pre.data() as RetailOrder;
+      const snapshotHit = preOrder.lines.some((l) =>
+        parseProductQr(scannedValue.trim()) === l.productId ||
+        codesMatch(l.barcode, scannedValue) || codesMatch(l.sku, scannedValue)
+      );
+      if (!snapshotHit) {
+        for (const l of preOrder.lines) {
+          if (['shorted', 'refunded', 'backordered'].includes(l.status)) continue;
+          const itemSnap = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, l.productId));
+          if (!itemSnap.exists()) continue;
+          const item = itemSnap.data() as any;
+          if (codesMatch(String(item.barcode || ''), scannedValue) || codesMatch(String(item.sku || ''), scannedValue)) {
+            effectiveValue = `clarityflow://product/${l.productId}`;
+            break;
+          }
+        }
+      }
+    }
+  } catch {
+    // fallback resolution is best-effort; the snapshot matcher still runs
+  }
+  const resolvedValue = effectiveValue;
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -154,7 +186,7 @@ export async function recordItemScan(
         return { ok: false, message: `Order is ${STAGE_LABELS[order.stage]} — scanning is closed.` };
       }
 
-      const { result, lines } = applyScan(order.lines, scannedValue);
+      const { result, lines } = applyScan(order.lines, resolvedValue);
       if (!result.ok) {
         txn.set(doc(collection(oRef, 'events')),
           evPayload('scan_mismatch', actor, { scannedValue: scannedValue.slice(0, 80), code: result.code }));
