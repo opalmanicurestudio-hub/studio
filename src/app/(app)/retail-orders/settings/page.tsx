@@ -2,7 +2,7 @@
 
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
-  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Printer, Store, Truck, X,
+  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Printer, Store, Truck, X, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -37,6 +37,10 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  prepMinutes?: number;
+  tipsEnabled?: boolean;
+  scheduledPickup?: boolean;
+  throttlePer15?: number;
   shippoApiKey?: string;
   shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
   storePaused?: boolean;
@@ -78,6 +82,10 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      prepMinutes: Number(existing.prepMinutes) || 0,
+      tipsEnabled: existing.tipsEnabled === true,
+      scheduledPickup: existing.scheduledPickup === true,
+      throttlePer15: Number(existing.throttlePer15) || 0,
       shippoApiKey: existing.shippoApiKey || '',
       shipFrom: existing.shipFrom || {},
       storePaused: existing.storePaused === true,
@@ -115,6 +123,10 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          prepMinutes: Math.max(0, Math.floor(Number(rs.prepMinutes) || 0)),
+          tipsEnabled: rs.tipsEnabled === true,
+          scheduledPickup: rs.scheduledPickup === true,
+          throttlePer15: Math.max(0, Math.floor(Number(rs.throttlePer15) || 0)),
           shippoApiKey: (rs.shippoApiKey || '').trim(),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
           storePaused: rs.storePaused === true,
@@ -425,6 +437,43 @@ export default function RetailSettingsPage() {
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Menu mode — order-ahead extras</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Prep promise (min, 0 = off)</Label>
+                <Input inputMode="numeric" value={String(rs.prepMinutes ?? 0)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, prepMinutes: Number(e.target.value) || 0 })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Max orders / 15 min (0 = off)</Label>
+                <Input inputMode="numeric" value={String(rs.throttlePer15 ?? 0)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, throttlePer15: Number(e.target.value) || 0 })}
+                  className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-tight">Tips at checkout</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">10 / 15 / 20% chips on the payment sheet</p>
+              </div>
+              <Switch checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-tight">Scheduled pickup</p>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">ASAP / +15 / +30 / +45 / +60 picker</p>
+              </div>
+              <Switch checked={rs.scheduledPickup === true} onCheckedChange={(v: boolean) => setRs({ ...rs, scheduledPickup: v })} />
             </div>
           </CardContent>
         </Card>
