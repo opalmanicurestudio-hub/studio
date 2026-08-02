@@ -367,7 +367,9 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
           const nb: any = { id: `batch-${nanoid()}`, stock: item.quantityReceived, costPerUnit: item.costPerUnit, receivedDate: new Date().toISOString() };
           if (item.expirationDate) nb.expirationDate = item.expirationDate.toISOString();
           const ub = [...(existing.batches ?? []), nb];
-          batch.update(productRef, JSON.parse(JSON.stringify({ batches: ub, totalStock: ub.reduce((a, b) => a + b.stock, 0), costPerUnit: item.costPerUnit })));
+          const patch: any = { batches: ub, totalStock: ub.reduce((a, b) => a + b.stock, 0), costPerUnit: item.costPerUnit };
+          if (item.capturedBarcode && !(existing as any).barcode) patch.barcode = item.capturedBarcode;
+          batch.update(productRef, JSON.parse(JSON.stringify(patch)));
           batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.productId, date: new Date().toISOString(), change: item.quantityReceived, unit: existing.unit || 'units', reason: `Shipment from ${orderToReceive.supplier}` });
         }
         if (item.quantityDamaged > 0) {
@@ -398,7 +400,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
       {ordersLoading ? (<div className="flex flex-col items-center justify-center p-24 gap-4"><Loader className="animate-spin h-8 w-8 text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Ledger...</p></div>) : orders && orders.length > 0 ? (filteredOrders.length > 0 ? (<div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-500">{filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}</div>) : (<div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4"><Filter className="w-16 h-16" /><p className="font-black uppercase tracking-widest text-sm">No Matches Found</p></div>)) : (<EmptyOrdersState onAddFirstOrder={() => setIsAddOrderOpen(true)} />)}
       <AddOrderDialog open={isAddOrderOpen} onOpenChange={setIsAddOrderOpen} onSave={handleAddOrder} />
       <ViewOrEditOrderDialog order={selectedOrder} open={!!selectedOrder} onOpenChange={isOpen => !isOpen && setSelectedOrder(null)} onSave={handleUpdateOrder} onCancelOrder={handleCancelOrderClick} onTrack={openTrackingUrl} />
-      <ReceiveStockDialog open={!!orderToReceive} onOpenChange={() => setOrderToReceive(null)} order={orderToReceive} onConfirm={handleReceiveStock} />
+      <ReceiveStockDialog inventory={inventory} open={!!orderToReceive} onOpenChange={() => setOrderToReceive(null)} order={orderToReceive} onConfirm={handleReceiveStock} />
       <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
         <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
           <AlertDialogHeader className="p-6 pb-0"><AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Order</AlertDialogTitle><AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">This will void Order <strong>#{orderToCancel?.id.slice(-6).toUpperCase()}</strong> and create a reversal entry in your financial ledger. <strong>This action is non-reversible.</strong></AlertDialogDescription></AlertDialogHeader>
