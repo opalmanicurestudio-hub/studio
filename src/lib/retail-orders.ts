@@ -652,7 +652,9 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
   const idx = lines.findIndex((l) =>
     productIdFromQr !== null
       ? l.productId === productIdFromQr
-      : codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)
+      : l.productId === raw ||
+        l.productId.toLowerCase() === raw.toLowerCase() ||
+        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)
   );
 
   if (idx === -1) {
