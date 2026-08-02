@@ -510,6 +510,20 @@ export default function RetailFulfillmentBoard() {
             </div>
             {lane.list.map((o) => (
               <OrderCard key={o.id} o={o}>
+                {o.stage === 'paid' && (
+                  <Button
+                    variant="outline"
+                    disabled={busy === `cancel-${o.id}`}
+                    onClick={() => {
+                      const why = window.prompt(`Cancel order #${String(o.orderNumber).padStart(4, '0')}? Reason (optional):`);
+                      if (why === null) return;
+                      act(`cancel-${o.id}`, () => cancelOrder(requireCtx() as Firestore, tenantId, o.id, actor, why.trim()));
+                    }}
+                    className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 border-destructive/30 text-destructive"
+                  >
+                    Cancel order
+                  </Button>
+                )}
                 {o.stage === 'picking' && o.batchId !== myBatch?.id && (
                   <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                     Picking · {batches.find((b) => b.id === o.batchId)?.assignedToName || 'claimed'}
