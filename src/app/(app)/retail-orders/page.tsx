@@ -219,7 +219,11 @@ export default function RetailFulfillmentBoard() {
       }
     }
     scanFeedback(false);
-    toast({ variant: 'destructive', title: 'Not on your orders', description: 'That code does not match any open line in your batch.' });
+    toast({
+      variant: 'destructive',
+      title: `Scanned: ${value.trim().slice(0, 40)}`,
+      description: 'No open line matches this code. If this IS the right product, paste this exact code into the item\u2019s Barcode field in Inventory and scan again \u2014 it will match instantly.',
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myOrders, tenantId, actor]);
 
