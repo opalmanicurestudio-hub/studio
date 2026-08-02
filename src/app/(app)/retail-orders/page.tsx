@@ -443,7 +443,10 @@ export default function RetailFulfillmentBoard() {
                             )}>
                               {doneLine ? <Check className="w-3.5 h-3.5" /> : null}
                             </div>
-                            <p className={cn('text-[11px] font-bold flex-1 min-w-0 truncate', doneLine && 'opacity-50')}>{l.name}</p>
+                            <p className={cn('text-[11px] font-bold flex-1 min-w-0 truncate', doneLine && 'opacity-50')}>
+                              {l.name}
+                              {(l as any).optionsLabel ? <span className="block text-[8px] font-black uppercase tracking-widest text-primary">{(l as any).optionsLabel}</span> : null}
+                            </p>
                             <p className="font-black font-mono text-[11px]">{l.qtyScanned}/{l.qtyOrdered}</p>
                             {!doneLine && o.stage === 'picking' && (
                               <Button
