@@ -124,6 +124,7 @@ export default async function PackingSlipPage({
                   <td><span className={`box${done ? ' done' : ''}`} /></td>
                   <td>
                     {l.name}
+                    {(l as any).optionsLabel ? <span className="opt"> — {(l as any).optionsLabel}</span> : null}
                     {l.sku ? <span style={{ color: '#94a3b8', fontWeight: 700 }}> · {l.sku}</span> : null}
                     {(l.qtyShorted || 0) > 0 ? (
                       <div className="flag">
