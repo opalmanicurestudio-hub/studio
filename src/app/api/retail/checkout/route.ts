@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import {
+  resolveOptions, NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
@@ -170,7 +171,8 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier);
+    const opts = resolveOptions(item.optionGroups, l.selections);
+    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, opts);
     if (priceTier === 'wholesale' && wsDiscount > 0) {
       line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
     }
