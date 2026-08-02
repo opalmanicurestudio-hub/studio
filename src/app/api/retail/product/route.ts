@@ -90,6 +90,7 @@ export async function GET(req: NextRequest) {
       specs,
       documents,
       imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.filter(Boolean).slice(0, 10) : [],
+      optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
       priceCents: listingPriceCents(item, 'retail'),
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
