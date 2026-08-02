@@ -31,6 +31,7 @@ interface SupportTicket {
   stageAtRequest: string;
   message: string;
   status: 'open' | 'resolved';
+  priority?: 'urgent' | 'normal';
   autoReply?: string;
   replies?: { by: string; text: string; at: string; emailed: boolean }[];
   createdAt: string;
@@ -71,6 +72,25 @@ export default function RetailSupportPage() {
     setDrafts({ ...drafts, [t.id]: map[kind] });
   };
 
+  const draftAI = async (t: SupportTicket) => {
+    if (busy) return;
+    setBusy(`ai-${t.id}`);
+    try {
+      const res = await fetch('/api/retail/support-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, ticketId: t.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Draft failed');
+      setDrafts({ ...drafts, [t.id]: data.draft });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'AI draft unavailable', description: e?.message });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const sendReply = async (t: SupportTicket, alsoResolve: boolean) => {
     const reply = (drafts[t.id] || '').trim();
     if (!reply || busy) return;
@@ -102,6 +122,9 @@ export default function RetailSupportPage() {
       const list = snap.docs
         .map((d: any) => ({ ...(d.data() as SupportTicket), id: d.id as string }))
         .sort((a: SupportTicket, b: SupportTicket) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      list.sort((a: SupportTicket, b: SupportTicket) =>
+        (a.priority === 'urgent' ? 0 : 1) - (b.priority === 'urgent' ? 0 : 1) ||
+        String(b.createdAt).localeCompare(String(a.createdAt)));
       setTickets(list);
       setLoading(false);
     });
@@ -160,7 +183,7 @@ export default function RetailSupportPage() {
           </div>
         )}
         {tickets.map((t) => (
-          <Card key={t.id} className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <Card key={t.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', t.priority === 'urgent' && t.status === 'open' && 'border-destructive/50')}>
             <CardContent className="p-5 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -175,10 +198,17 @@ export default function RetailSupportPage() {
                     {t.resolvedBy ? ` · resolved by ${t.resolvedBy}` : ''}
                   </p>
                 </div>
-                <Badge variant="outline" className={cn('h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2 shrink-0',
-                  t.status === 'open' ? 'bg-amber-50 border-amber-100 text-amber-700' : 'bg-green-50 border-green-100 text-green-700')}>
-                  {t.status}
-                </Badge>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {t.priority === 'urgent' && t.status === 'open' && (
+                    <Badge className="h-6 px-2.5 bg-destructive text-destructive-foreground font-black text-[8px] uppercase tracking-widest animate-pulse">
+                      Urgent
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className={cn('h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2',
+                    t.status === 'open' ? 'bg-amber-50 border-amber-100 text-amber-700' : 'bg-green-50 border-green-100 text-green-700')}>
+                    {t.status}
+                  </Badge>
+                </div>
               </div>
               <p className="text-sm font-bold text-muted-foreground leading-relaxed rounded-2xl border-2 border-dashed p-3">
                 {t.message}
@@ -200,6 +230,10 @@ export default function RetailSupportPage() {
               {t.status === 'open' && (
                 <div className="space-y-2">
                   <div className="flex flex-wrap gap-1.5">
+                    <button type="button" disabled={busy === `ai-${t.id}`} onClick={() => draftAI(t)}
+                      className="h-7 px-3 rounded-full border-2 border-primary/40 text-primary text-[8px] font-black uppercase tracking-widest bg-primary/5 hover:border-primary transition-all disabled:opacity-50">
+                      {busy === `ai-${t.id}` ? 'Drafting\u2026' : '\u2728 Draft with AI'}
+                    </button>
                     {([['ready', 'It\u2019s ready'], ['sorry', 'Apology'], ['refund', 'Refund info']] as const).map(([k, label]) => (
                       <button key={k} type="button" onClick={() => template(t, k)}
                         className="h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest bg-white hover:border-primary/40 transition-all">
