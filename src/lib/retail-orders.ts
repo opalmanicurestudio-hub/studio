@@ -389,8 +389,69 @@ export const LINE_STATUSES = [
 
 export type LineStatus = (typeof LINE_STATUSES)[number];
 
+/* ── Modifiers (options) ──────────────────────────────────────────────────────
+ * Per-item option groups: "Size | Small:0, Large:1.50" style. Options never
+ * touch stock (same physical item) — they adjust the unit price and label
+ * the order line so packing and receipts show exactly what was chosen.
+ * The SERVER recomputes every delta from the item doc; client-sent prices
+ * are never trusted.
+ */
+
+export interface OptionChoice { id: string; label: string; deltaCents: number; }
+export interface OptionGroup { id: string; name: string; choices: OptionChoice[]; }
+
+/** Parse editor lines like "Size | Small:0, Medium:0.50, Large:1" */
+export function parseOptionGroups(text: string): OptionGroup[] {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .flatMap((line, gi) => {
+      const [name, rest] = line.split('|');
+      if (!name || !rest) return [];
+      const choices = rest.split(',')
+        .map((c, ci) => {
+          const [label, price] = c.split(':');
+          if (!label || !label.trim()) return null;
+          return {
+            id: `c${gi}-${ci}`,
+            label: label.trim(),
+            deltaCents: Math.round((Number(String(price || '0').trim()) || 0) * 100),
+          };
+        })
+        .filter(Boolean) as OptionChoice[];
+      return choices.length > 0 ? [{ id: `g${gi}`, name: name.trim(), choices }] : [];
+    })
+    .slice(0, 6);
+}
+
+export function optionGroupsToText(groups: OptionGroup[] | undefined): string {
+  return (groups || [])
+    .map((g) => `${g.name} | ${g.choices.map((c) => `${c.label}${c.deltaCents ? `:${(c.deltaCents / 100).toFixed(2)}` : ':0'}`).join(', ')}`)
+    .join('\n');
+}
+
+/** Resolve selections {groupId: choiceId} → { deltaCents, label } from the ITEM's groups. */
+export function resolveOptions(
+  groups: OptionGroup[] | undefined,
+  selections: Record<string, string> | undefined
+): { deltaCents: number; label: string } {
+  if (!groups || groups.length === 0) return { deltaCents: 0, label: '' };
+  let delta = 0;
+  const parts: string[] = [];
+  for (const g of groups) {
+    const choiceId = selections?.[g.id];
+    const choice = g.choices.find((c) => c.id === choiceId) || g.choices[0];
+    if (!choice) continue;
+    delta += choice.deltaCents;
+    parts.push(choice.label);
+  }
+  return { deltaCents: delta, label: parts.join(' \u00b7 ') };
+}
+
 export interface OrderLine {
-  lineId: string;              // stable per-line id (not array index)
+  lineId: string;
+  optionsLabel?: string;              // stable per-line id (not array index)
   productId: string;           // the tenants/{tid}/inventory doc id
   sku: string;                 // snapshot ('' if the item has none)
   barcode: string;             // snapshot of barcode ?? sku
@@ -411,7 +472,8 @@ export function buildOrderLine(
   item: SellableItem,
   qty: number,
   lineId: string,
-  tier: PriceTier = 'retail'
+  tier: PriceTier = 'retail',
+  options?: { deltaCents: number; label: string }
 ): OrderLine {
   return {
     lineId,
@@ -419,7 +481,8 @@ export function buildOrderLine(
     sku: item.sku ?? '',
     barcode: item.barcode ?? item.sku ?? '',
     name: item.name,
-    unitPriceCents: listingPriceCents(item, tier),
+    optionsLabel: options?.label || '',
+    unitPriceCents: listingPriceCents(item, tier) + (options?.deltaCents || 0),
     qtyOrdered: qty,
     qtyScanned: 0,
     qtyShorted: 0,
