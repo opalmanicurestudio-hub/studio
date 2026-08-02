@@ -1,298 +1,174 @@
-'use client';
+import { NextRequest, NextResponse } from 'next/server';
 
-import {
-  collection, doc, onSnapshot, query, updateDoc, where, type Firestore,
-} from 'firebase/firestore';
-import { ArrowLeft, Check, ClipboardCopy, Inbox, LifeBuoy, Loader } from 'lucide-react';
-import Link from 'next/link';
-import React, { useEffect, useMemo, useState } from 'react';
+// ─── /api/retail/support/route.ts ─────────────────────────────────────────────
+// POST { tenantId, orderId, qrToken, message }
+//
+// The customer's "Need help with this order?" form. qrToken is
+// proof-of-possession (only the order's tracking page has it), so support
+// requests are always tied to a real order — no anonymous spam surface.
+// Creates a ticket in tenants/{tid}/retailSupport and stamps the order's
+// audit timeline. Caps: 1000-char message, 5 open tickets per order.
 
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { useTenant } from '@/context/TenantContext';
-import { useFirebase, useUser } from '@/firebase';
-import { useToast } from '@/hooks/use-toast';
-import { cn } from '@/lib/utils';
-
-// ─── Shop Support inbox ───────────────────────────────────────────────────────
-// Every "Need help with this order?" request lands here live, tied to a real
-// order (the customer's tracking page is the only way to file one). Resolve
-// closes the loop; the order's audit timeline already carries the request.
-
-interface SupportTicket {
-  id: string;
-  orderId: string;
-  orderNumber: number;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
-  stageAtRequest: string;
-  message: string;
-  status: 'open' | 'resolved';
-  priority?: 'urgent' | 'normal';
-  autoReply?: string;
-  replies?: { by: string; text: string; at: string; emailed: boolean }[];
-  createdAt: string;
-  resolvedBy?: string;
-  resolvedAt?: string;
+function getAdminDb() {
+  const { initializeApp, getApps, cert } = require('firebase-admin/app');
+  const { getFirestore } = require('firebase-admin/firestore');
+  const APP_NAME = 'admin-retail-support';
+  let app = getApps().find((a: any) => a.name === APP_NAME);
+  if (!app) {
+    app = initializeApp({
+      credential: cert({
+        projectId:   process.env.FIREBASE_ADMIN_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      }),
+    }, APP_NAME);
+  }
+  return getFirestore(app);
 }
 
-const when = (iso?: string) => {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+export async function POST(req: NextRequest) {
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const tenantId = String(body.tenantId || '').trim();
+  const orderId = String(body.orderId || '').trim();
+  const qrToken = String(body.qrToken || '').trim();
+  const message = String(body.message || '').trim().slice(0, 1000);
+
+  if (!tenantId || !orderId || !qrToken || !message) {
+    return NextResponse.json({ error: 'A message is required' }, { status: 400 });
+  }
+
+  const db = getAdminDb();
+  const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+  const order = orderSnap.data() as any;
+  if (order.qrToken !== qrToken) {
+    return NextResponse.json({ error: 'Not authorized for this order' }, { status: 403 });
+  }
+
+  const openCount = await db.collection(`tenants/${tenantId}/retailSupport`)
+    .where('orderId', '==', orderId).where('status', '==', 'open').count().get();
+  if ((openCount.data().count ?? 0) >= 5) {
+    return NextResponse.json({ error: 'This order already has open requests — we will get back to you soon.' }, { status: 429 });
+  }
+
+  const lower = message.toLowerCase();
+  const stageLine: Record<string, string> = {
+    placed: 'Your order is awaiting payment confirmation.',
+    paid: 'Your order is confirmed and in the packing queue.',
+    picking: 'Your order is being packed right now.',
+    packed: 'Your order is packed and being finalized.',
+    ready: 'Your order is READY for pickup.',
+    arrived: 'We see you here \u2014 your order is on its way out.',
+    shipped: 'Your order has shipped.',
+    handed_off: 'Your order was picked up.',
+    completed: 'Your order is complete.',
+    cancelled: 'This order is cancelled.',
+    refunded: 'This order was refunded.',
+  };
+  let autoReply = '';
+  if (/refund|money back|charge/.test(lower)) {
+    const refunded = order.refundedCents || 0;
+    const pending = order.pendingRefundCents || 0;
+    autoReply = refunded > 0
+      ? `A refund of $${(refunded / 100).toFixed(2)} has been issued on this order. Card refunds typically appear in 5\u201310 business days.`
+      : pending > 0
+        ? `A refund of $${(pending / 100).toFixed(2)} is queued on this order and the shop will process it shortly. Card refunds typically appear in 5\u201310 business days after processing.`
+        : `No refund is currently recorded on this order. ${stageLine[order.stage] || ''} The shop will review your message.`;
+  } else if (/cancel/.test(lower)) {
+    autoReply = ['placed', 'paid'].includes(order.stage)
+      ? 'You can cancel this order yourself \u2014 open your order page and tap \u201cCancel this order\u201d. Stock is released immediately and any payment is queued for refund.'
+      : `${stageLine[order.stage] || ''} Since packing has started, cancellation needs a human \u2014 your message is in the shop\u2019s queue now.`;
+  } else if (/return|exchange/.test(lower)) {
+    autoReply = ['shipped', 'handed_off', 'completed'].includes(order.stage)
+      ? 'You can start a return right from your order page \u2014 tap \u201cStart a return\u201d, pick the items and reason, and bring them by (or ship them back).'
+      : 'Returns open once your order has been picked up or delivered. Your message is in the shop\u2019s queue.';
+  } else if (/where|status|when|ready|track|eta|how long/.test(lower)) {
+    const trackBit = order.trackingNumber
+      ? ` Tracking: ${order.carrier || ''} ${order.trackingNumber}${order.trackingUrl ? ` \u2014 ${order.trackingUrl}` : ''}.`
+      : '';
+    autoReply = `${stageLine[order.stage] || 'Your order is in progress.'}${trackBit} Your order page always shows the live status.`;
+  }
+
+  // ── Sentiment triage: angry customers get MORE human, faster ──
+  const angryWords = /furious|angry|unacceptable|ridiculous|scam|fraud|lawyer|dispute|chargeback|worst|terrible|awful|never again|joke|pissed|disgust/;
+  let urgent = angryWords.test(lower) || (message === message.toUpperCase() && message.length > 20);
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!urgent && ANTHROPIC_API_KEY) {
+    try {
+      const clsRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001', max_tokens: 5,
+          messages: [{ role: 'user', content: `Classify this customer message as ANGRY or CALM. Reply with one word only.\n\n"${message.slice(0, 500)}"` }],
+        }),
+      });
+      const cls = await clsRes.json();
+      const word = String(cls?.content?.[0]?.text || '').trim().toUpperCase();
+      if (word.startsWith('ANGRY')) urgent = true;
+    } catch {
+      // classification is best-effort
+    }
+  }
+
+  const now = new Date().toISOString();
+  const ticketRef = db.collection(`tenants/${tenantId}/retailSupport`).doc();
+  const batch = db.batch();
+  batch.set(ticketRef, {
+    id: ticketRef.id, tenantId,
+    orderId, orderNumber: order.orderNumber,
+    customerName: order.customerName || 'Guest',
+    customerEmail: order.customerEmail || '',
+    customerPhone: order.customerPhone || '',
+    stageAtRequest: order.stage,
+    message, status: 'open', createdAt: now,
+    priority: urgent ? 'urgent' : 'normal',
+    autoReply: urgent ? '' : autoReply,
+    replies: [],
   });
-};
+  const evRef = orderRef.collection('events').doc();
+  batch.set(evRef, {
+    id: evRef.id, type: 'note', at: now,
+    actorId: 'customer', actorName: order.customerName || 'Customer',
+    meta: { text: `Support request: ${message.slice(0, 120)}` },
+  });
+  await batch.commit();
 
-export default function RetailSupportPage() {
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const tenantId = selectedTenant?.id || '';
-  const { user } = useUser();
-  const { toast } = useToast();
-
-  const staffName = useMemo(() => user?.displayName || user?.email || 'Staff', [user]);
-
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showResolved, setShowResolved] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-
-  const template = (t: SupportTicket, kind: 'ready' | 'sorry' | 'refund') => {
-    const num = `#${String(t.orderNumber).padStart(4, '0')}`;
-    const map = {
-      ready: `Hi ${t.customerName.split(' ')[0]} — good news, order ${num} is ready for you. See the order page for pickup details, and just reply here if anything else comes up.`,
-      sorry: `Hi ${t.customerName.split(' ')[0]} — so sorry about the trouble with order ${num}. We're on it right now and will make it right. You'll see any updates on your order page.`,
-      refund: `Hi ${t.customerName.split(' ')[0]} — your refund for order ${num} is being processed now. Card refunds typically appear within 5–10 business days. Thanks for your patience!`,
-    };
-    setDrafts({ ...drafts, [t.id]: map[kind] });
-  };
-
-  const draftAI = async (t: SupportTicket) => {
-    if (busy) return;
-    setBusy(`ai-${t.id}`);
+  // Acknowledgment email (+ instant answer when calm and we have one). Best-effort.
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const RESEND_FROM = process.env.RESEND_FROM;
+  if (RESEND_API_KEY && RESEND_FROM && order.customerEmail) {
+    const origin = req.nextUrl.origin;
+    const link = `${origin}/shop/${tenantId}/order/${orderId}`;
     try {
-      const res = await fetch('/api/retail/support-draft', {
+      await fetch('https://api.resend.com/emails', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, ticketId: t.id }),
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [order.customerEmail],
+          subject: `We got your message \u2014 order #${String(order.orderNumber).padStart(4, '0')}`,
+          html: `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:0 auto;padding:8px">
+            <p style="font-size:15px;color:#0f172a">Thanks \u2014 your message about order <strong>#${String(order.orderNumber).padStart(4, '0')}</strong> is with the team.</p>
+            ${urgent
+              ? `<p style="font-size:13px;color:#0f172a">We hear you \u2014 this has been flagged and a person is looking at it as a priority. We\u2019ll make it right.</p>`
+              : autoReply ? `<div style="background:#f8fafc;border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0"><p style="font-size:13px;color:#0f172a;margin:0"><strong>Instant answer:</strong> ${autoReply}</p></div>` : ''}
+            <p style="font-size:13px;color:#64748b">${urgent ? 'You\u2019ll hear from us shortly. Live status any time:' : 'A human will follow up if anything else is needed. Live status any time:'}</p>
+            <p style="text-align:center;margin:20px 0"><a href="${link}" style="background:#111827;color:#ffffff;padding:12px 26px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">View my order</a></p>
+          </div>`,
+        }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Draft failed');
-      setDrafts({ ...drafts, [t.id]: data.draft });
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'AI draft unavailable', description: e?.message });
-    } finally {
-      setBusy(null);
+    } catch {
+      // acknowledgment email is best-effort
     }
-  };
+  }
 
-  const sendReply = async (t: SupportTicket, alsoResolve: boolean) => {
-    const reply = (drafts[t.id] || '').trim();
-    if (!reply || busy) return;
-    setBusy(t.id);
-    try {
-      const res = await fetch('/api/retail/support-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, ticketId: t.id, reply, resolve: alsoResolve, staffName }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not send');
-      toast({ title: data.emailed ? 'Reply emailed to customer' : 'Reply saved', description: data.emailed ? undefined : data.message });
-      setDrafts({ ...drafts, [t.id]: '' });
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Reply failed', description: e?.message });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  useEffect(() => {
-    if (!firestore || !tenantId) return;
-    const q = query(
-      collection(firestore as Firestore, `tenants/${tenantId}/retailSupport`),
-      where('status', '==', showResolved ? 'resolved' : 'open')
-    );
-    return onSnapshot(q, (snap: any) => {
-      const list = snap.docs
-        .map((d: any) => ({ ...(d.data() as SupportTicket), id: d.id as string }))
-        .sort((a: SupportTicket, b: SupportTicket) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-      list.sort((a: SupportTicket, b: SupportTicket) =>
-        (a.priority === 'urgent' ? 0 : 1) - (b.priority === 'urgent' ? 0 : 1) ||
-        String(b.createdAt).localeCompare(String(a.createdAt)));
-      setTickets(list);
-      setLoading(false);
-    });
-  }, [firestore, tenantId, showResolved]);
-
-  const copy = (text: string, label: string) => {
-    navigator.clipboard?.writeText(text)
-      .then(() => toast({ title: `${label} copied` }))
-      .catch(() => toast({ variant: 'destructive', title: 'Could not copy' }));
-  };
-
-  const resolve = async (t: SupportTicket) => {
-    if (!firestore || !tenantId || busy) return;
-    setBusy(t.id);
-    try {
-      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailSupport`, t.id), {
-        status: 'resolved', resolvedBy: staffName, resolvedAt: new Date().toISOString(),
-      });
-      toast({ title: `#${t.orderNumber} request resolved` });
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Could not resolve', description: e?.message });
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="min-h-dvh bg-muted/5 pb-24">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href="/retail-orders"><ArrowLeft className="h-4 w-4" /></Link>
-          </Button>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Shop Support</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">
-              {tickets.length} {showResolved ? 'resolved' : 'open'}
-            </p>
-          </div>
-          <button type="button" onClick={() => setShowResolved(!showResolved)}
-            className={cn('h-9 px-4 rounded-full border-2 text-[9px] font-black uppercase tracking-widest transition-all',
-              showResolved ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
-            {showResolved ? 'Showing resolved' : 'Show resolved'}
-          </button>
-        </div>
-      </header>
-
-      <main className="max-w-3xl mx-auto px-4 py-6 space-y-3">
-        {loading && <div className="py-24 text-center"><Loader className="w-7 h-7 mx-auto animate-spin text-primary" /></div>}
-        {!loading && tickets.length === 0 && (
-          <div className="rounded-2xl border-2 border-dashed py-20 text-center space-y-2">
-            <Inbox className="w-8 h-8 mx-auto opacity-20" />
-            <p className="text-[10px] font-black uppercase tracking-widest opacity-30">
-              {showResolved ? 'Nothing resolved yet' : 'No open requests — all clear'}
-            </p>
-          </div>
-        )}
-        {tickets.map((t) => (
-          <Card key={t.id} className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', t.priority === 'urgent' && t.status === 'open' && 'border-destructive/50')}>
-            <CardContent className="p-5 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <LifeBuoy className="w-4 h-4 text-primary shrink-0" />
-                    <p className="font-black uppercase tracking-tight text-sm">
-                      #{String(t.orderNumber).padStart(4, '0')} · {t.customerName}
-                    </p>
-                  </div>
-                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mt-0.5">
-                    {when(t.createdAt)} · order was {t.stageAtRequest}
-                    {t.resolvedBy ? ` · resolved by ${t.resolvedBy}` : ''}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {t.priority === 'urgent' && t.status === 'open' && (
-                    <Badge className="h-6 px-2.5 bg-destructive text-destructive-foreground font-black text-[8px] uppercase tracking-widest animate-pulse">
-                      Urgent
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className={cn('h-6 px-2.5 font-black text-[8px] uppercase tracking-widest border-2',
-                    t.status === 'open' ? 'bg-amber-50 border-amber-100 text-amber-700' : 'bg-green-50 border-green-100 text-green-700')}>
-                    {t.status}
-                  </Badge>
-                </div>
-              </div>
-              <p className="text-sm font-bold text-muted-foreground leading-relaxed rounded-2xl border-2 border-dashed p-3">
-                {t.message}
-              </p>
-              {t.autoReply && (
-                <div className="rounded-2xl border-2 border-primary/20 bg-primary/[0.03] p-3">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-primary mb-1">Auto-answered instantly by email</p>
-                  <p className="text-xs font-bold text-muted-foreground leading-relaxed">{t.autoReply}</p>
-                </div>
-              )}
-              {(t.replies || []).map((r, i) => (
-                <div key={i} className="rounded-2xl border-2 p-3">
-                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground mb-1">
-                    {r.by} · {when(r.at)}{r.emailed ? ' · emailed' : ''}
-                  </p>
-                  <p className="text-xs font-bold leading-relaxed whitespace-pre-wrap">{r.text}</p>
-                </div>
-              ))}
-              {t.status === 'open' && (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    <button type="button" disabled={busy === `ai-${t.id}`} onClick={() => draftAI(t)}
-                      className="h-7 px-3 rounded-full border-2 border-primary/40 text-primary text-[8px] font-black uppercase tracking-widest bg-primary/5 hover:border-primary transition-all disabled:opacity-50">
-                      {busy === `ai-${t.id}` ? 'Drafting\u2026' : '\u2728 Draft with AI'}
-                    </button>
-                    {([['ready', 'It\u2019s ready'], ['sorry', 'Apology'], ['refund', 'Refund info']] as const).map(([k, label]) => (
-                      <button key={k} type="button" onClick={() => template(t, k)}
-                        className="h-7 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest bg-white hover:border-primary/40 transition-all">
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  <Textarea
-                    placeholder="Reply to the customer — sent straight to their email…"
-                    value={drafts[t.id] || ''}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [t.id]: e.target.value })}
-                    className="rounded-2xl border-2 min-h-[70px] font-bold text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" disabled={!(drafts[t.id] || '').trim() || busy === t.id}
-                      onClick={() => sendReply(t, false)}
-                      variant="outline"
-                      className="h-9 flex-1 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                      Send reply
-                    </Button>
-                    <Button size="sm" disabled={!(drafts[t.id] || '').trim() || busy === t.id}
-                      onClick={() => sendReply(t, true)}
-                      className="h-9 flex-1 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                      Send &amp; resolve
-                    </Button>
-                  </div>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-                  <Link href="/retail-orders/history">Open in history</Link>
-                </Button>
-                {t.customerEmail && (
-                  <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
-                    onClick={() => copy(t.customerEmail, 'Email')}>
-                    <ClipboardCopy className="mr-1.5 h-3.5 w-3.5" /> Email
-                  </Button>
-                )}
-                {t.customerPhone && (
-                  <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
-                    onClick={() => copy(t.customerPhone, 'Phone')}>
-                    Phone
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
-                  onClick={() => copy(`${window.location.origin}/shop/${tenantId}/order/${t.orderId}`, 'Tracking link')}>
-                  Tracking link
-                </Button>
-                {t.status === 'open' && (
-                  <Button size="sm" disabled={busy === t.id} onClick={() => resolve(t)}
-                    className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest ml-auto">
-                    <Check className="mr-1.5 h-3.5 w-3.5" /> Resolve
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </main>
-    </div>
-  );
+  return NextResponse.json({ ok: true, instantAnswer: urgent ? null : (autoReply || null) });
 }
