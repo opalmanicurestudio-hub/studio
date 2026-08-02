@@ -18,6 +18,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { optionGroupsToText, parseOptionGroups } from '@/lib/retail-orders';
 import { cn } from '@/lib/utils';
 
 // ─── Shop Settings ────────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ export default function RetailSettingsPage() {
   const [itemBusy, setItemBusy] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; desc: string; img: string;
-    howToUse: string; specs: string; docs: string;
+    howToUse: string; specs: string; docs: string; options: string;
   }>>({});
 
   useEffect(() => {
@@ -142,6 +143,7 @@ export default function RetailSettingsPage() {
     howToUse: it.howToUse || '',
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
+    options: optionGroupsToText(it.optionGroups),
   };
 
   const toggleOnline = async (it: any, on: boolean) => {
@@ -182,6 +184,7 @@ export default function RetailSettingsPage() {
         imageUrls,
         specs: JSON.parse(JSON.stringify(specs)),
         documents: JSON.parse(JSON.stringify(documents)),
+        optionGroups: JSON.parse(JSON.stringify(parseOptionGroups(d.options))),
       });
       toast({ title: `${it.name} updated` });
     } catch (e: any) {
@@ -569,6 +572,9 @@ export default function RetailSettingsPage() {
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
                         <Textarea placeholder={'Documents — one per line as Name | https://link (e.g. MSDS | https://…)'} value={d.docs}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, docs: e.target.value } })}
+                          className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
+                        <Textarea placeholder={'Options — one group per line as Name | Choice:price, Choice:price (e.g. Size | Small:0, Large:1.50)'} value={d.options}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, options: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
                         <Button disabled={itemBusy === it.id} onClick={() => saveItem(it)}
                           variant="outline" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2">
