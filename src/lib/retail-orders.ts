@@ -605,6 +605,35 @@ export type ScanResult =
  * persists inside a transaction and appends the item_scanned or
  * scan_mismatch event.
  */
+/**
+ * Canonical forms of a scanned/stored code for tolerant matching:
+ *  - trimmed raw and uppercased (SKUs are case-insensitive in the real world)
+ *  - digits-only form, with and without leading zeros — phones' native
+ *    detectors often report UPC-A (12 digits) as EAN-13 with a leading 0,
+ *    so "0123456789012" and "123456789012" must be treated as the same code.
+ */
+export function codeVariants(value: string): Set<string> {
+  const out = new Set<string>();
+  const raw = String(value || '').trim();
+  if (!raw) return out;
+  out.add(raw);
+  out.add(raw.toUpperCase());
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length >= 6) {
+    out.add(digits);
+    out.add(digits.replace(/^0+/, ''));
+    if (digits.length === 12) out.add('0' + digits); // UPC-A as EAN-13
+  }
+  return out;
+}
+
+export function codesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const va = codeVariants(a);
+  for (const v of codeVariants(b)) if (va.has(v)) return true;
+  return false;
+}
+
 export function applyScan(lines: OrderLine[], scannedValue: string): {
   result: ScanResult;
   lines: OrderLine[];
@@ -615,7 +644,7 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
   const idx = lines.findIndex((l) =>
     productIdFromQr !== null
       ? l.productId === productIdFromQr
-      : (l.barcode !== '' && l.barcode === raw) || (l.sku !== '' && l.sku === raw)
+      : codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)
   );
 
   if (idx === -1) {
