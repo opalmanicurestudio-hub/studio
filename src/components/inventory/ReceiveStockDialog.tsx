@@ -54,9 +54,38 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
   onOpenChange,
   order,
   onConfirm,
+  inventory = [],
 }) => {
   const isMobile = useIsMobile();
   const [receivedItems, setReceivedItems] = useState<ReceivedItem[]>([]);
+  const [scanOpen, setScanOpen] = useState(false);
+
+  const onReceiveScan = (value: string) => {
+    const raw = value.trim();
+    const qrPid = parseProductQr(raw);
+    const isPlainCode = !qrPid && !raw.includes('://');
+    setReceivedItems((prev) => {
+      const idx = prev.findIndex((ri) => {
+        if (qrPid) return ri.productId === qrPid;
+        if (ri.productId === raw || ri.productId.toLowerCase() === raw.toLowerCase()) return true;
+        const inv = inventory.find((i) => i.id === ri.productId) as any;
+        return codesMatch(String(inv?.barcode || ''), raw) ||
+          codesMatch(String(inv?.sku || ''), raw) ||
+          codesMatch(ri.productName, raw);
+      });
+      if (idx === -1) {
+        scanFeedback(false);
+        return prev;
+      }
+      scanFeedback(true);
+      return prev.map((ri, i) => {
+        if (i !== idx) return ri;
+        const inv = inventory.find((x) => x.id === ri.productId) as any;
+        const capture = isPlainCode && !(inv?.barcode) ? { capturedBarcode: raw } : {};
+        return { ...ri, quantityReceived: ri.quantityReceived + 1, ...capture };
+      });
+    });
+  };
 
   useEffect(() => {
     if (order) {
