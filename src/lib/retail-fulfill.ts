@@ -489,6 +489,83 @@ export async function handoffWithoutScan(
   }
 }
 
+/* ════════════════════════════════════════════════════════════════════════════
+ * CANCEL — close an order before it leaves the building
+ * ════════════════════════════════════════════════════════════════════════════
+ * Allowed until the goods are gone (not shipped / handed off / completed).
+ * Releases the stock reservation for every still-open unit so shelves free
+ * up instantly, and if money was taken, queues the amount as a pending
+ * refund — the same banner + "Mark refunded" flow used everywhere else.
+ */
+
+export async function cancelOrder(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason?: string
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const orderRef = doc(orderCol(fs, tenantId), orderId);
+      const snap = await txn.get(orderRef);
+      if (!snap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = snap.data() as RetailOrder;
+
+      if (['shipped', 'handed_off', 'completed'].includes(order.stage)) {
+        return { ok: false, message: `#${order.orderNumber} already ${order.stage.replace('_', ' ')} — handle it as a return instead.` };
+      }
+      if (['cancelled', 'refunded'].includes(order.stage)) {
+        return { ok: false, message: `#${order.orderNumber} is already ${order.stage}.` };
+      }
+
+      // Reads before writes: collect the reservation release per product.
+      const hasReservation = ['paid', 'picking', 'packed', 'ready', 'arrived'].includes(order.stage);
+      const releases = new Map<string, number>();
+      if (hasReservation) {
+        for (const l of order.lines) {
+          const open = Math.max(0, l.qtyOrdered - (l.qtyShorted || 0));
+          if (open > 0) releases.set(l.productId, (releases.get(l.productId) || 0) + open);
+        }
+      }
+      const itemSnaps: { ref: any; qty: number; snap: any }[] = [];
+      for (const [pid, qty] of releases) {
+        const ref = doc(fs, `tenants/${tenantId}/inventory`, pid);
+        itemSnaps.push({ ref, qty, snap: await txn.get(ref) });
+      }
+
+      for (const { ref, qty, snap: itemSnap } of itemSnaps) {
+        if (!itemSnap.exists()) continue;
+        const item = itemSnap.data() as any;
+        txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty) });
+      }
+
+      const paidSomething = order.stage !== 'placed';
+      const pending = paidSomething
+        ? Math.max(0, (order.totalCents || 0) - (order.refundedCents || 0))
+        : 0;
+
+      txn.update(orderRef, JSON.parse(JSON.stringify({
+        stage: 'cancelled',
+        cancelledAt: new Date().toISOString(),
+        cancelReason: reason || '',
+        pendingRefundCents: Math.max(pending, (order as any).pendingRefundCents || 0),
+        batchId: null,
+        claimedBy: null,
+        claimedByName: null,
+      })));
+      txn.set(doc(collection(orderRef, 'events')), buildEvent('order_cancelled', actor, {
+        reason: reason || '', pendingRefundCents: pending,
+      }));
+
+      return {
+        ok: true,
+        message: pending > 0
+          ? `#${order.orderNumber} cancelled — $${(pending / 100).toFixed(2)} queued for refund.`
+          : `#${order.orderNumber} cancelled.`,
+      };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not cancel.' };
+  }
+}
+
 export async function markShipped(
   fs: Firestore, tenantId: string, orderId: string,
   tracking: { carrier?: string; number?: string; url?: string }, actor: Actor
