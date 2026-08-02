@@ -41,7 +41,8 @@ import { cn } from '@/lib/utils';
 // "@types/qrcode": "^1.5.5" in devDependencies to package.json.
 
 interface StatusLine {
-  name: string; qtyOrdered: number; qtyShorted: number; unitPriceCents: number; status: string;
+  lineId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyReturned?: number;
+  unitPriceCents: number; status: string;
 }
 interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
@@ -78,6 +79,14 @@ export default function OrderStatusPage() {
   const [helpSending, setHelpSending] = useState(false);
   const [helpSent, setHelpSent] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
+  const [retQty, setRetQty] = useState<Record<string, number>>({});
+  const [retReason, setRetReason] = useState<Record<string, string>>({});
+  const [retResolution, setRetResolution] = useState<'refund' | 'store_credit'>('refund');
+  const [retNotes, setRetNotes] = useState('');
+  const [retSending, setRetSending] = useState(false);
+  const [retDone, setRetDone] = useState(false);
   const activeRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -156,6 +165,56 @@ export default function OrderStatusPage() {
       router.push(`/shop/${tenantId}/account?e=${encodeURIComponent(data.email)}&x=${data.exp}&s=${data.sig}`);
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not open your orders', description: e?.message });
+    }
+  };
+
+  const selfServe = async (payload: any) => {
+    const res = await fetch('/api/retail/self-serve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenantId, orderId, qrToken: qrValue ? qrValue.split('order/')[1] : '', ...payload,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  };
+
+  const cancelSelf = async () => {
+    if (!qrValue || cancelBusy) return;
+    const why = window.prompt('Cancel this order? Tell us why (optional):');
+    if (why === null) return;
+    setCancelBusy(true);
+    try {
+      const data = await selfServe({ action: 'cancel', reason: why.trim() });
+      toast({ title: 'Order cancelled', description: data.message });
+      load();
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not cancel', description: e?.message });
+    } finally {
+      setCancelBusy(false);
+    }
+  };
+
+  const submitReturn = async () => {
+    if (!qrValue || retSending) return;
+    const selections = Object.entries(retQty)
+      .filter(([, q]) => q > 0)
+      .map(([lineId, qty]) => ({ lineId, qty, reason: retReason[lineId] || 'other' }));
+    if (selections.length === 0) {
+      toast({ variant: 'destructive', title: 'Pick at least one item' });
+      return;
+    }
+    setRetSending(true);
+    try {
+      const data = await selfServe({ action: 'start_return', selections, resolution: retResolution, notes: retNotes.trim() });
+      setRetDone(true);
+      toast({ title: 'Return started', description: data.message });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not start return', description: e?.message });
+    } finally {
+      setRetSending(false);
     }
   };
 
@@ -507,6 +566,100 @@ export default function OrderStatusPage() {
                     className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
                   >
                     {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Send to the shop'}
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {qrValue && order && ['placed', 'paid'].includes(order.stage) && (
+          <Button
+            variant="outline"
+            disabled={cancelBusy}
+            onClick={cancelSelf}
+            className="w-full h-11 rounded-2xl border-2 border-destructive/30 text-destructive font-black uppercase text-[10px] tracking-widest"
+          >
+            {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : 'Cancel this order'}
+          </Button>
+        )}
+
+        {qrValue && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-5 space-y-3">
+              {retDone ? (
+                <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 text-center">
+                  <p className="text-sm font-bold text-primary">
+                    Return started — bring the items by (or ship them back) and we&rsquo;ll take it from there.
+                  </p>
+                </div>
+              ) : !returnOpen ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setReturnOpen(true)}
+                  className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
+                >
+                  Start a return
+                </Button>
+              ) : (
+                <>
+                  <p className="text-[10px] font-black uppercase tracking-widest">Start a return</p>
+                  <div className="space-y-2">
+                    {order.lines.filter((l) => l.lineId && (l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0)) > 0).map((l) => {
+                      const max = l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0);
+                      const q = retQty[l.lineId as string] || 0;
+                      return (
+                        <div key={l.lineId} className="rounded-2xl border-2 p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="font-black uppercase tracking-tight text-xs min-w-0 truncate">{l.name}</p>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2"
+                                disabled={q <= 0}
+                                onClick={() => setRetQty({ ...retQty, [l.lineId as string]: q - 1 })}>−</Button>
+                              <span className="font-black font-mono text-sm w-6 text-center">{q}<span className="text-muted-foreground text-[9px]">/{max}</span></span>
+                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2"
+                                disabled={q >= max}
+                                onClick={() => setRetQty({ ...retQty, [l.lineId as string]: q + 1 })}>+</Button>
+                            </div>
+                          </div>
+                          {q > 0 && (
+                            <select
+                              value={retReason[l.lineId as string] || 'changed_mind'}
+                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRetReason({ ...retReason, [l.lineId as string]: e.target.value })}
+                              className="w-full h-10 rounded-xl border-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest"
+                            >
+                              <option value="changed_mind">Changed my mind</option>
+                              <option value="damaged_in_transit">Arrived damaged</option>
+                              <option value="defective">Defective</option>
+                              <option value="wrong_item">Wrong item</option>
+                              <option value="other">Other</option>
+                            </select>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['refund', 'store_credit'] as const).map((r) => (
+                      <button key={r} type="button" onClick={() => setRetResolution(r)}
+                        className={cn('h-10 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
+                          retResolution === r ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
+                        {r === 'refund' ? 'Refund' : 'Store credit'}
+                      </button>
+                    ))}
+                  </div>
+                  <Textarea
+                    placeholder="Anything we should know? (optional)"
+                    value={retNotes}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRetNotes(e.target.value)}
+                    className="rounded-2xl border-2 min-h-[60px] font-bold text-sm"
+                  />
+                  <Button
+                    disabled={retSending}
+                    onClick={submitReturn}
+                    className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {retSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Submit return'}
                   </Button>
                 </>
               )}
