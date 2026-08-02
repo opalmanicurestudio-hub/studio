@@ -66,10 +66,31 @@ export function cartExpiresAt(tenantId: string): number | null {
   }
 }
 
-export function addToCart(tenantId: string, productId: string, qty: number): CartMap {
+/** Composite cart key: productId alone, or productId@@g0:c1|g1:c2 with options. */
+export function cartKeyFor(productId: string, selections?: Record<string, string>): string {
+  const entries = Object.entries(selections || {}).filter(([, v]) => v);
+  if (entries.length === 0) return productId;
+  entries.sort(([a], [b]) => a.localeCompare(b));
+  return `${productId}@@${entries.map(([g, c]) => `${g}:${c}`).join('|')}`;
+}
+
+export function parseCartKey(key: string): { productId: string; selections: Record<string, string> } {
+  const [productId, rest] = key.split('@@');
+  const selections: Record<string, string> = {};
+  if (rest) {
+    for (const part of rest.split('|')) {
+      const [g, c] = part.split(':');
+      if (g && c) selections[g] = c;
+    }
+  }
+  return { productId, selections };
+}
+
+export function addToCart(tenantId: string, productId: string, qty: number, selections?: Record<string, string>): CartMap {
   const cart = readCart(tenantId);
-  cart[productId] = Math.max(0, (cart[productId] || 0) + qty);
-  if (cart[productId] === 0) delete cart[productId];
+  const key = cartKeyFor(productId, selections);
+  cart[key] = Math.max(0, (cart[key] || 0) + qty);
+  if (cart[key] === 0) delete cart[key];
   writeCart(tenantId, cart);
   return cart;
 }
