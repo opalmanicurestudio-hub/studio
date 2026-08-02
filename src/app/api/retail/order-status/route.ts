@@ -93,6 +93,8 @@ export async function GET(req: NextRequest) {
       orderNumber: order.orderNumber,
       stage: order.stage,
       method: order.method,
+      pickupAt: order.pickupAt || '',
+      tipCents: order.tipCents || 0,
       priceTier: order.priceTier || 'retail',
       businessName: order.businessName || '',
       poNumber: order.poNumber || '',
