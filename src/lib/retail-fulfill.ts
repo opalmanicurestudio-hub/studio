@@ -160,14 +160,37 @@ export async function recordItemScan(
         codesMatch(l.barcode, scannedValue) || codesMatch(l.sku, scannedValue)
       );
       if (!snapshotHit) {
-        for (const l of preOrder.lines) {
-          if (['shorted', 'refunded', 'backordered'].includes(l.status)) continue;
-          const itemSnap = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, l.productId));
-          if (!itemSnap.exists()) continue;
-          const item = itemSnap.data() as any;
-          if (codesMatch(String(item.barcode || ''), scannedValue) || codesMatch(String(item.sku || ''), scannedValue)) {
-            effectiveValue = `clarityflow://product/${l.productId}`;
-            break;
+        const scannedPid = parseProductQr(scannedValue.trim());
+        if (scannedPid) {
+          // A product-label QR that isn't any line's productId usually means
+          // the label came from a DUPLICATE or RE-CREATED item doc (same real
+          // product, different id). Resolve through the scanned doc's own
+          // identity: match its SKU / barcode / exact name to an open line.
+          const scannedSnap = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, scannedPid));
+          if (scannedSnap.exists()) {
+            const sc = scannedSnap.data() as any;
+            const scName = String(sc.name || '').trim().toLowerCase();
+            for (const l of preOrder.lines) {
+              if (['shorted', 'refunded', 'backordered'].includes(l.status)) continue;
+              const sameSku = codesMatch(l.sku, String(sc.sku || ''));
+              const sameBarcode = codesMatch(l.barcode, String(sc.barcode || ''));
+              const sameName = scName !== '' && String(l.name || '').trim().toLowerCase() === scName;
+              if (sameSku || sameBarcode || sameName) {
+                effectiveValue = `clarityflow://product/${l.productId}`;
+                break;
+              }
+            }
+          }
+        } else {
+          for (const l of preOrder.lines) {
+            if (['shorted', 'refunded', 'backordered'].includes(l.status)) continue;
+            const itemSnap = await getDoc(doc(fs, `tenants/${tenantId}/inventory`, l.productId));
+            if (!itemSnap.exists()) continue;
+            const item = itemSnap.data() as any;
+            if (codesMatch(String(item.barcode || ''), scannedValue) || codesMatch(String(item.sku || ''), scannedValue)) {
+              effectiveValue = `clarityflow://product/${l.productId}`;
+              break;
+            }
           }
         }
       }
