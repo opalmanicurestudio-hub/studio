@@ -18,7 +18,7 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
-  RETURN_REASONS, type OrderLine, type RetailOrder, type RetailReturn,
+  RETURN_REASONS, codesMatch, type OrderLine, type RetailOrder, type RetailReturn,
   type ReturnReason, type ReturnResolution,
 } from '@/lib/retail-orders';
 import {
@@ -133,7 +133,7 @@ export default function RetailReturnsPage() {
       const orig = parentOrder.lines.find((ol) => ol.lineId === rl.lineId);
       if (!orig) return false;
       if (productId) return orig.productId === productId;
-      return (orig.barcode !== '' && orig.barcode === raw) || (orig.sku !== '' && orig.sku === raw);
+      return codesMatch(orig.barcode, raw) || codesMatch(orig.sku, raw);
     });
     if (!match) {
       scanFeedback(false);
