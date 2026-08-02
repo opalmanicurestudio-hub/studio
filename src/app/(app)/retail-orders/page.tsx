@@ -21,10 +21,10 @@ import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
-  STAGE_LABELS, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
+  STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
 } from '@/lib/retail-orders';
 import {
-  claimNextBatch, handoffByScan, handoffWithoutScan, markPacked, markReady,
+  cancelOrder, claimNextBatch, handoffByScan, handoffWithoutScan, markPacked, markReady,
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
@@ -219,10 +219,33 @@ export default function RetailFulfillmentBoard() {
       }
     }
     scanFeedback(false);
+    const raw = value.trim();
+    if (myOrders.filter((x) => x.stage === 'picking').length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'No claimed batch',
+        description: 'Scans check YOUR claimed orders \u2014 tap Take Next to claim from the queue, then scan.',
+      });
+      return;
+    }
+    const pid = parseProductQr(raw);
+    const lineHit = (o: BoardOrder) => o.lines?.some((l: any) =>
+      (pid && l.productId === pid) || codesMatch(l.barcode, raw) || codesMatch(l.sku, raw));
+    const elsewhere = orders.find((o) => !['cancelled', 'refunded', 'completed'].includes(o.stage) && lineHit(o));
+    if (elsewhere) {
+      const num = `#${String(elsewhere.orderNumber).padStart(4, '0')}`;
+      const why = elsewhere.stage === 'paid'
+        ? `${num} is still in the Queue \u2014 tap Take Next to claim it.`
+        : ['picking', 'packed'].includes(elsewhere.stage)
+          ? `${num} is claimed by ${elsewhere.claimedByName || 'another teammate'}.`
+          : `${num} is already ${elsewhere.stage} \u2014 picking is done there.`;
+      toast({ variant: 'destructive', title: 'Right product, different order', description: why });
+      return;
+    }
     toast({
       variant: 'destructive',
-      title: `Scanned: ${value.trim().slice(0, 40)}`,
-      description: 'No open line matches this code. If this IS the right product, paste this exact code into the item\u2019s Barcode field in Inventory and scan again \u2014 it will match instantly.',
+      title: `Scanned: ${raw.slice(0, 40)}`,
+      description: 'This code isn\u2019t on any open order\u2019s lines. If it IS the right product, open it in Inventory and paste this exact code into its Barcode field \u2014 it will match instantly.',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myOrders, tenantId, actor]);
