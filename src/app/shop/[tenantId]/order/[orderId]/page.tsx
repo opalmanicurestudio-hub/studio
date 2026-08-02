@@ -46,6 +46,7 @@ interface StatusLine {
 }
 interface StatusOrder {
   id: string; orderNumber: number; stage: string; method: string; priceTier: string;
+  pickupAt?: string; tipCents?: number;
   businessName: string; poNumber: string; customerName: string;
   lines: StatusLine[];
   subtotalCents: number; taxCents: number; shippingCents: number;
