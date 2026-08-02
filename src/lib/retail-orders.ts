@@ -513,6 +513,8 @@ export interface CurbsideInfo {
 
 export interface RetailOrder {
   id: string;
+  tipCents?: number;
+  pickupAt?: string;
   tenantId: string;
   orderNumber: number;         // human-friendly sequential per tenant (e.g. 1042)
   stage: OrderStage;
@@ -572,7 +574,8 @@ export const ORDER_EVENT_TYPES = [
   'batch_auto_released',       // claim timed out
   'item_scanned',              // meta: { sku, lineId, qtyScanned, qtyOrdered }
   'scan_mismatch',             // meta: { scannedValue } — code not on order / over-scan
-  'line_shorted',              // meta: { lineId, qtyShorted, reason, resolution }
+  'line_shorted',
+  'line_reopened',              // meta: { lineId, qtyShorted, reason, resolution }
   'pick_complete',
   'packed',
   'packing_slip_printed',
