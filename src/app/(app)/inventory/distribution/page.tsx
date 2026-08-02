@@ -94,7 +94,9 @@ export default function DistributionPage() {
     const raw = value.trim();
     const pid = parseProductQr(raw);
     const item = trackable.find((i: any) =>
-      pid ? i.id === pid : codesMatch(String(i.barcode || ''), raw) || codesMatch(String(i.sku || ''), raw)
+      pid ? i.id === pid
+        : i.id === raw || String(i.id).toLowerCase() === raw.toLowerCase() ||
+          codesMatch(String(i.barcode || ''), raw) || codesMatch(String(i.sku || ''), raw)
     );
     if (!item) {
       scanFeedback(false);
