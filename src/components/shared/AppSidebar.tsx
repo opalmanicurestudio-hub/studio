@@ -16,7 +16,7 @@ import {
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
   MessageSquare, DoorOpen, Send, Hourglass, PackageCheck, RotateCcw, ShoppingBag,
-  History as HistoryIcon, LifeBuoy, Paintbrush, Building2,
+  History as HistoryIcon, LifeBuoy, Paintbrush, Building2, Boxes,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
@@ -64,6 +64,7 @@ const CLIENT_GROWTH = [
 const STUDIO_ASSETS = [
   { href: '/services',    icon: BookOpen,      label: 'Service Menu'       },
   { href: '/inventory',   icon: Box,           label: 'Manifest'           },
+  { href: '/inventory/distribution', icon: Boxes, label: 'Distribution' },
   { href: '/memberships', icon: Star,          label: 'Clubs'              },
   { href: '/discounts',   icon: Percent,       label: 'Incentives'         },
   { href: '/resources',   icon: HardHat,       label: 'Resources'          },
