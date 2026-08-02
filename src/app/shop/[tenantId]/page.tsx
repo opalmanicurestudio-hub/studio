@@ -162,7 +162,13 @@ export default function ShopPage() {
       const qs = new URLSearchParams({ tenantId });
       if (code) qs.set('wholesaleCode', code);
       const res = await fetch(`/api/retail/catalog?${qs.toString()}`);
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`The shop backend answered with an unexpected response (HTTP ${res.status}). Try a refresh — if it persists, the shop owner has been notified in the logs.`);
+      }
       if (!res.ok) throw new Error(data.error || 'Could not load the shop');
       setShop(data.shop);
       setProducts(data.products);
@@ -276,8 +282,10 @@ export default function ShopPage() {
           business: wholesale ? { name: businessName.trim(), poNumber: poNumber.trim() } : undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Could not start checkout');
+      const raw = await res.text();
+      let data: any = {};
+      try { data = JSON.parse(raw); } catch { /* non-JSON reply handled below */ }
+      if (!res.ok) throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
       window.location.href = data.url;
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Checkout problem', description: e?.message || 'Please try again.' });
