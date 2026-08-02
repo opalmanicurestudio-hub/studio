@@ -25,15 +25,32 @@ function beep(ok: boolean) {
     const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!Ctx) return;
     const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = ok ? 1200 : 220;
-    gain.gain.value = 0.08;
-    osc.start();
-    osc.stop(ctx.currentTime + (ok ? 0.09 : 0.25));
-    osc.onended = () => ctx.close().catch(() => {});
+    const master = ctx.createGain();
+    master.gain.value = 0.14;
+    master.connect(ctx.destination);
+    const tone = (freq: number, start: number, dur: number, type: OscillatorType = 'sine', peak = 1) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      g.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      g.gain.exponentialRampToValueAtTime(peak, ctx.currentTime + start + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+      osc.connect(g);
+      g.connect(master);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.02);
+    };
+    if (ok) {
+      // A bright, friendly two-note chirp (E6 → B6) — reads as "got it".
+      tone(1318.5, 0, 0.09);
+      tone(1975.5, 0.07, 0.12);
+    } else {
+      // A soft low double-thud — unmistakably "no", without being harsh.
+      tone(196, 0, 0.12, 'triangle', 0.9);
+      tone(147, 0.14, 0.16, 'triangle', 0.9);
+    }
+    setTimeout(() => ctx.close().catch(() => {}), 600);
   } catch {
     // audio is best-effort
   }
