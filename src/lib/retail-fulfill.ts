@@ -501,6 +501,67 @@ export async function handoffWithoutScan(
  * refund — the same banner + "Mark refunded" flow used everywhere else.
  */
 
+/* ════════════════════════════════════════════════════════════════════════════
+ * REOPEN A SHORTED LINE — the "I shorted it by mistake" undo
+ * ════════════════════════════════════════════════════════════════════════════
+ * Shelf-shorting wrote the units off and (for refund shorts) queued money
+ * back to the customer. Reopening reverses all of it: stock and reservation
+ * restored, the queued refund for those units withdrawn, the line back to
+ * scannable. Backorder shorts are blocked until the child order is cancelled
+ * (otherwise the same units would ship twice).
+ */
+
+export async function reopenShortedLine(
+  fs: Firestore, tenantId: string, orderId: string, lineId: string, actor: Actor
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = oSnap.data() as RetailOrder;
+      if (order.stage !== 'picking') return { ok: false, message: 'Only picking orders can reopen a line.' };
+
+      const line = order.lines.find((l) => l.lineId === lineId);
+      if (!line) return { ok: false, message: 'Line not found.' };
+      if ((line.qtyShorted || 0) <= 0) return { ok: false, message: `${line.name} is not shorted.` };
+      if (line.status === 'backordered') {
+        return { ok: false, message: `${line.name} became a backorder order — cancel that order in the Queue first, then reopen.` };
+      }
+
+      const qty = line.qtyShorted;
+      const iRef = invDoc(fs, tenantId, line.productId);
+      const iSnap = await txn.get(iRef);
+      if (iSnap.exists()) {
+        const item = iSnap.data() as any;
+        txn.update(iRef, {
+          totalStock: (Number(item.totalStock) || 0) + qty,
+          stockReserved: (Number(item.stockReserved) || 0) + qty,
+        });
+        txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
+          correction(line.productId, item.unit || 'units', qty,
+            `Short reversed (Order #${order.orderNumber})`, orderId, actor));
+      }
+
+      const refundBack = qty * (line.unitPriceCents || 0);
+      const lines = order.lines.map((l) => l.lineId !== lineId ? l : ({
+        ...l, qtyShorted: 0, shortReason: '',
+        status: l.qtyScanned >= l.qtyOrdered ? ('picked' as const) : ('pending' as const),
+      }));
+
+      txn.update(oRef, JSON.parse(JSON.stringify({
+        lines,
+        pendingRefundCents: Math.max(0, (order.pendingRefundCents || 0) - refundBack),
+      })));
+      txn.set(doc(collection(oRef, 'events')), evPayload('line_reopened', actor, { lineId, qty }));
+
+      return { ok: true, message: `${line.name} reopened — scan away.` };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not reopen.' };
+  }
+}
+
 export async function cancelOrder(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor, reason?: string
 ): Promise<{ ok: boolean; message: string }> {
