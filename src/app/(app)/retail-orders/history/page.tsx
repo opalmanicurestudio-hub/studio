@@ -18,6 +18,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { cancelOrder } from '@/lib/retail-fulfill';
 import { markRefundExecuted } from '@/lib/retail-returns';
 import {
   STAGE_LABELS, type OrderEvent, type OrderStage, type RetailOrder,
@@ -315,6 +316,22 @@ export default function RetailOrderHistoryPage() {
                     <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
                       onClick={() => window.open(`/print/packing-slip/${tenantId}/${detail.id}?t=${encodeURIComponent(detail.qrToken || '')}`, '_blank')}>
                       <Printer className="mr-1.5 h-3.5 w-3.5" /> Slip
+                    </Button>
+                  )}
+                  {!['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(detail.stage) && (
+                    <Button variant="outline" size="sm" disabled={busy}
+                      className="h-9 rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
+                      onClick={async () => {
+                        if (!firestore || !tenantId) return;
+                        const why = window.prompt(`Cancel order #${String(detail.orderNumber).padStart(4, '0')}? Reason (optional):`);
+                        if (why === null) return;
+                        setBusy(true);
+                        const r = await cancelOrder(firestore as Firestore, tenantId, detail.id, actor, why.trim());
+                        setBusy(false);
+                        toast({ variant: r.ok ? 'default' : 'destructive', title: r.message });
+                        if (r.ok) openDetail(detail);
+                      }}>
+                      Cancel order
                     </Button>
                   )}
                   {(detail.pendingRefundCents || 0) > 0 && (
