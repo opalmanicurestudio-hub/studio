@@ -76,6 +76,7 @@ export default function OrderStatusPage() {
   const [loadError, setLoadError] = useState('');
   const [vehicle, setVehicle] = useState('');
   const [helpMsg, setHelpMsg] = useState('');
+  const [instantQ, setInstantQ] = useState<string | null>(null);
   const [helpSending, setHelpSending] = useState(false);
   const [helpSent, setHelpSent] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -553,8 +554,54 @@ export default function OrderStatusPage() {
                 </p>
               ) : (
                 <>
+                  <div className="space-y-2">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">Instant answers</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        ['status', 'Where\u2019s my order?'],
+                        ['refund', 'Refund status'],
+                        ['change', 'Cancel or change'],
+                        ['return', 'Returns'],
+                      ].map(([k, label]) => (
+                        <button key={k} type="button" onClick={() => setInstantQ(instantQ === k ? null : k)}
+                          className={cn('h-8 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest transition-all',
+                            instantQ === k ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {instantQ && order && (
+                      <div className="rounded-2xl border-2 border-primary/20 bg-primary/[0.03] p-3">
+                        <p className="text-xs font-bold text-muted-foreground leading-relaxed">
+                          {instantQ === 'status' && (
+                            order.stage === 'ready' ? 'Your order is READY — pickup details are at the top of this page.'
+                            : order.stage === 'shipped' ? (order.trackingNumber ? `Shipped via ${order.carrier || 'carrier'} — tracking ${order.trackingNumber}. Link is above.` : 'Shipped — tracking will appear here once available.')
+                            : ['handed_off', 'completed'].includes(order.stage) ? 'This order is complete — the receipt is on this page.'
+                            : ['picking', 'packed'].includes(order.stage) ? 'Your order is being packed right now — this page updates live.'
+                            : order.stage === 'paid' ? 'Confirmed and in the packing queue — this page updates live as it moves.'
+                            : 'This page always shows the live status of your order.'
+                          )}
+                          {instantQ === 'refund' && (
+                            (order.refundedCents || 0) > 0
+                              ? `A refund of ${fmt(order.refundedCents)} has been issued. Card refunds typically appear in 5\u201310 business days.`
+                              : 'No refund is recorded on this order yet. If one is processed, it will show here and typically reaches your card in 5\u201310 business days.'
+                          )}
+                          {instantQ === 'change' && (
+                            ['placed', 'paid'].includes(order.stage)
+                              ? 'You can cancel yourself — the \u201cCancel this order\u201d button is just below. For item changes, cancel and re-order, or send us a note.'
+                              : 'Packing has already started, so changes need a human — send us a note below and we\u2019ll sort it out.'
+                          )}
+                          {instantQ === 'return' && (
+                            ['shipped', 'handed_off', 'completed'].includes(order.stage)
+                              ? 'Tap \u201cStart a return\u201d below — pick your items and reason, and we\u2019ll take it from there.'
+                              : 'Returns open once your order is picked up or delivered — the button will appear right on this page.'
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                   <Textarea
-                    placeholder="Tell us what's going on — wrong item, question, change of plans…"
+                    placeholder="Still need us? Tell us what's going on\u2026"
                     value={helpMsg}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHelpMsg(e.target.value)}
                     className="rounded-2xl border-2 min-h-[80px] font-bold text-sm"
