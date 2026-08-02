@@ -67,6 +67,9 @@ interface ShopInfo {
   paused?: boolean;
   pausedMessage?: string;
   cartHoldMinutes?: number;
+  prepMinutes?: number;
+  tipsEnabled?: boolean;
+  scheduledPickup?: boolean;
   pageConfig?: ShopPageConfig;
 }
 
@@ -152,6 +155,8 @@ export default function ShopPage() {
   const [poNumber, setPoNumber] = useState('');
   const [addr, setAddr] = useState({ name: '', line1: '', line2: '', city: '', state: '', postalCode: '' });
   const [placing, setPlacing] = useState(false);
+  const [tipPct, setTipPct] = useState<number>(0);
+  const [pickupChoice, setPickupChoice] = useState('ASAP');
 
   const loadCatalog = async (code: string) => {
     setLoading(true);
@@ -249,6 +254,8 @@ export default function ShopPage() {
   };
   const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (unitPrice(byId.get(parseCartKey(key).productId)!) + optionDelta(key).deltaCents) * q, 0);
 
+  const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
+
   const shippingCents = useMemo(() => {
     if (method !== 'ship' || !shop) return 0;
     const freeOver = Math.round(shop.freeShippingOverDollars * 100);
@@ -291,6 +298,8 @@ export default function ShopPage() {
         body: JSON.stringify({
           tenantId,
           items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
+          tipCents,
+          pickupAt: method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
           method,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' ? { ...addr, country: 'US' } : undefined,
@@ -536,6 +545,43 @@ export default function ShopPage() {
                       <span className="font-mono">{shippingCents === 0 ? 'Free' : fmt(shippingCents)}</span>
                     </div>
                   )}
+                  {method !== 'ship' && (shop.prepMinutes || 0) > 0 && (
+                    <p className="text-[9px] font-black uppercase tracking-widest text-primary">
+                      Usually ready in ~{shop.prepMinutes} min
+                    </p>
+                  )}
+                  {method !== 'ship' && shop.scheduledPickup && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pickup time</span>
+                      <select value={pickupChoice}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPickupChoice(e.target.value)}
+                        className="h-9 rounded-xl border-2 bg-white px-2 text-[10px] font-black uppercase tracking-widest">
+                        {['ASAP', 'In ~15 min', 'In ~30 min', 'In ~45 min', 'In ~1 hour'].map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {shop.tipsEnabled && (
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
+                      <div className="flex gap-1">
+                        {[0, 10, 15, 20].map((pct) => (
+                          <button key={pct} type="button" onClick={() => setTipPct(pct)}
+                            className={cn('h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest transition-all',
+                              tipPct === pct ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
+                            {pct === 0 ? 'None' : `${pct}%`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {tipCents > 0 && (
+                    <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
+                      <span>Tip</span>
+                      <span className="font-mono">{fmt(tipCents)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
                     <span>Tax</span><span>Calculated at checkout</span>
                   </div>
@@ -545,7 +591,7 @@ export default function ShopPage() {
                     onClick={placeOrder}
                     className="w-full h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20"
                   >
-                    {placing ? <Loader className="h-4 w-4 animate-spin" /> : `Pay ${fmt(subtotalCents + shippingCents)} + tax`}
+                    {placing ? <Loader className="h-4 w-4 animate-spin" /> : `Pay ${fmt(subtotalCents + shippingCents + tipCents)} + tax`}
                   </Button>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-center text-muted-foreground/60">
                     Secure payment · You&apos;ll get a pickup QR code
