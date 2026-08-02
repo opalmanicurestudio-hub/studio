@@ -20,9 +20,7 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import {
-  cartExpiresAt, clearCart, readCart, readWholesaleCode, touchCartExpiry, writeCart, writeWholesaleCode,
-} from '@/lib/shop-cart';
+import { addToCart, cartKeyFor, parseCartKey, readCart, readWholesaleCode } from '@/lib/shop-cart';
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
 import { cn } from '@/lib/utils';
 
@@ -233,9 +231,23 @@ export default function ShopPage() {
   const unitPrice = (p: ShopProduct) =>
     wholesale && p.wholesalePriceCents != null ? p.wholesalePriceCents : p.priceCents;
 
-  const cartEntries = Object.entries(cart).filter(([id, q]) => q > 0 && byId.has(id));
+  const cartEntries = Object.entries(cart).filter(([key, q]) => q > 0 && byId.has(parseCartKey(key).productId));
   const cartCount = cartEntries.reduce((a, [, q]) => a + q, 0);
-  const subtotalCents = cartEntries.reduce((a, [id, q]) => a + unitPrice(byId.get(id)!) * q, 0);
+  const optionDelta = (key: string) => {
+    const { productId, selections } = parseCartKey(key);
+    const prod: any = byId.get(productId);
+    if (!prod?.optionGroups?.length) return { deltaCents: 0, label: '' };
+    let delta = 0;
+    const parts: string[] = [];
+    for (const g of prod.optionGroups) {
+      const choice = g.choices.find((c: any) => c.id === selections[g.id]) || g.choices[0];
+      if (!choice) continue;
+      delta += choice.deltaCents || 0;
+      parts.push(choice.label);
+    }
+    return { deltaCents: delta, label: parts.join(' \u00b7 ') };
+  };
+  const subtotalCents = cartEntries.reduce((a, [key, q]) => a + (unitPrice(byId.get(parseCartKey(key).productId)!) + optionDelta(key).deltaCents) * q, 0);
 
   const shippingCents = useMemo(() => {
     if (method !== 'ship' || !shop) return 0;
@@ -244,15 +256,20 @@ export default function ShopPage() {
     return Math.round(shop.flatShippingDollars * 100);
   }, [method, shop, subtotalCents]);
 
-  const setQty = (p: ShopProduct, qty: number) => {
+  const setQty = (p: ShopProduct, qty: number, cartKey?: string) => {
     const clamped = Math.max(0, Math.min(qty, p.qtyAvailable));
-    setCart((c) => ({ ...c, [p.id]: clamped }));
+    const key = cartKey || p.id;
+    setCart((c) => {
+      const next = { ...c, [key]: clamped };
+      if (clamped === 0) delete next[key];
+      return next;
+    });
   };
 
   const minIssues = wholesale
     ? cartEntries
         .map(([id, q]) => {
-          const p = byId.get(id)!;
+          const p = byId.get(parseCartKey(id).productId)!;
           return p.wholesaleMinQty && q < p.wholesaleMinQty
             ? `${p.name}: minimum ${p.wholesaleMinQty}`
             : null;
@@ -273,7 +290,7 @@ export default function ShopPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId,
-          items: cartEntries.map(([productId, qty]) => ({ productId, qty })),
+          items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
           method,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' ? { ...addr, country: 'US' } : undefined,
@@ -409,11 +426,16 @@ export default function ShopPage() {
                     )}
                     <div className="space-y-3">
                       {cartEntries.map(([id, qty]) => {
-                        const p = byId.get(id)!;
+                        const parsedKey = parseCartKey(id);
+                        const optInfo = optionDelta(id);
+                        const p = byId.get(parsedKey.productId)!;
                         return (
                           <div key={id} className="flex items-center gap-3 rounded-2xl border-2 p-3">
                             <div className="min-w-0 flex-1">
                               <p className="font-black uppercase tracking-tight text-xs truncate">{p.name}</p>
+                              {optInfo.label && (
+                                <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">{optInfo.label}</p>
+                              )}
                               <p className="text-[10px] font-bold text-primary">{fmt(unitPrice(p))} each</p>
                               {wholesale && p.wholesaleMinQty ? (
                                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -422,15 +444,15 @@ export default function ShopPage() {
                               ) : null}
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty - 1)}>
+                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty - 1, id)}>
                                 <Minus className="h-3 w-3" />
                               </Button>
                               <span className="w-8 text-center font-black font-mono text-sm">{qty}</span>
-                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty + 1)}>
+                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty + 1, id)}>
                                 <Plus className="h-3 w-3" />
                               </Button>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQty(p, 0)}>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQty(p, 0, id)}>
                               <X className="h-3.5 w-3.5 opacity-40" />
                             </Button>
                           </div>
@@ -617,7 +639,7 @@ export default function ShopPage() {
                   <div className="shrink-0">
                     {inCart === 0 ? (
                       <Button disabled={!p.inStock}
-                        onClick={() => setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1)}
+                        onClick={() => { if ((p as any).optionGroups?.length > 0) { window.location.href = `/shop/${tenantId}/product/${p.id}`; return; } setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1); }}
                         className="h-10 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest">
                         Add
                       </Button>
@@ -671,7 +693,7 @@ export default function ShopPage() {
                 {inCart === 0 ? (
                   <Button
                     disabled={!p.inStock}
-                    onClick={() => setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1)}
+                    onClick={() => { if ((p as any).optionGroups?.length > 0) { window.location.href = `/shop/${tenantId}/product/${p.id}`; return; } setQty(p, wholesale && p.wholesaleMinQty ? p.wholesaleMinQty : 1); }}
                     className="w-full h-10 rounded-xl font-black uppercase text-[10px] tracking-widest"
                   >
                     Add to cart
