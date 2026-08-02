@@ -135,6 +135,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ── Order throttling: protect the kitchen/bench from drowning. Over the
+  //    15-minute cap, customers get an honest "at capacity" instead of a
+  //    promise nobody can keep.
+  const throttle = Math.max(0, Math.floor(Number(rsEarly.throttlePer15) || 0));
+  if (throttle > 0) {
+    const windowStart = new Date(Date.now() - 15 * 60_000).toISOString();
+    const recent = await db.collection(`tenants/${tenantId}/retailOrders`)
+      .where('placedAt', '>', windowStart).count().get();
+    if ((recent.data().count ?? 0) >= throttle) {
+      return NextResponse.json(
+        { error: 'The shop is at capacity right now \u2014 please try again in a few minutes.' },
+        { status: 429 }
+      );
+    }
+  }
+
   // ── Wholesale gate: per-account codes first, legacy house code fallback ──
   let wsAccount: { id: string; businessName: string; email: string; extraDiscountPercent: number } | null = null;
   let wsDiscount = 0;
@@ -203,7 +219,12 @@ export async function POST(req: NextRequest) {
     shippingCents = freeOver > 0 && subtotalCents >= freeOver ? 0 : flat;
   }
 
-  const totalCents = subtotalCents + taxCents + shippingCents;
+  const tipCents = Math.min(
+    Math.max(0, Math.floor(Number(body.tipCents) || 0)),
+    Math.max(subtotalCents, 50_000)
+  );
+  const pickupAt = String(body.pickupAt || '').slice(0, 40);
+  const totalCents = subtotalCents + taxCents + shippingCents + tipCents;
   if (totalCents <= 0) return NextResponse.json({ error: 'Order total must be positive' }, { status: 400 });
 
   // ── Sequential order number ───────────────────────────────────────────────
@@ -237,6 +258,8 @@ export async function POST(req: NextRequest) {
     taxCents,
     shippingCents,
     refundedCents: 0,
+    tipCents,
+    pickupAt,
     totalCents,
     customerName,
     customerEmail,
@@ -287,6 +310,12 @@ export async function POST(req: NextRequest) {
     lineItems.push({
       quantity: 1,
       price_data: { currency: 'usd', unit_amount: shippingCents, product_data: { name: 'Shipping' } },
+    });
+  }
+  if (tipCents > 0) {
+    lineItems.push({
+      quantity: 1,
+      price_data: { currency: 'usd', unit_amount: tipCents, product_data: { name: 'Tip \u2764\ufe0f' } },
     });
   }
 
