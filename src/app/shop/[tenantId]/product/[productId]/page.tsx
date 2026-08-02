@@ -39,6 +39,7 @@ interface ProductDetail {
   inStock: boolean;
   qtyAvailable: number;
   lowStock: boolean;
+  optionGroups?: { id: string; name: string; choices: { id: string; label: string; deltaCents: number }[] }[];
 }
 
 const fmt = (cents: number) =>
@@ -92,9 +93,16 @@ export default function ProductPage() {
   const showStrike = !!product && wholesale && product.wholesalePriceCents != null &&
     product.wholesalePriceCents < product.priceCents;
 
+  const [selections, setSelections] = useState<Record<string, string>>({});
+
+  const optionDeltaCents = (product?.optionGroups || []).reduce((sum: number, g: any) => {
+    const choice = g.choices.find((c: any) => c.id === selections[g.id]) || g.choices[0];
+    return sum + (choice?.deltaCents || 0);
+  }, 0);
+
   const add = () => {
     if (!product) return;
-    const cart = addToCart(tenantId, product.id, qty);
+    const cart = addToCart(tenantId, product.id, qty, selections);
     setCartCount(Object.values(cart).reduce((a, b) => a + b, 0));
     toast({
       title: `Added ${qty} × ${product.name}`,
@@ -225,7 +233,7 @@ export default function ProductPage() {
             </div>
             <Button disabled={!product.inStock || paused} onClick={add}
               className="flex-1 h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20">
-              {paused ? 'Shop briefly paused' : product.inStock ? `Add to cart · ${fmt(price * qty)}` : 'Sold out'}
+              {paused ? 'Shop briefly paused' : product.inStock ? `Add to cart · ${fmt((price + optionDeltaCents) * qty)}` : 'Sold out'}
             </Button>
           </div>
 
@@ -287,4 +295,25 @@ export default function ProductPage() {
       </main>
     </div>
   );
-}
+}              {(product.optionGroups || []).length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {(product.optionGroups || []).map((g) => (
+                    <div key={g.id} className="space-y-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{g.name}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.choices.map((c) => {
+                          const active = (selections[g.id] || g.choices[0]?.id) === c.id;
+                          return (
+                            <button key={c.id} type="button"
+                              onClick={() => setSelections({ ...selections, [g.id]: c.id })}
+                              className={cn('h-9 px-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
+                                active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
+                              {c.label}{c.deltaCents ? ` +$${(c.deltaCents / 100).toFixed(2)}` : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
