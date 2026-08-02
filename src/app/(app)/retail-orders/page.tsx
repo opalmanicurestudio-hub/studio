@@ -24,7 +24,7 @@ import {
   STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
 } from '@/lib/retail-orders';
 import {
-  cancelOrder, claimNextBatch, handoffByScan, handoffWithoutScan, markPacked, markReady,
+  cancelOrder, claimNextBatch, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
@@ -210,6 +210,7 @@ export default function RetailFulfillmentBoard() {
   const onPickScan = useCallback(async (value: string) => {
     const fs = requireCtx(); if (!fs) return;
     // Route the scan to whichever of my orders accepts it; mismatch on all = real mismatch.
+    let specific: string | null = null;
     for (const o of myOrders.filter((x) => x.stage === 'picking')) {
       const res = await recordItemScan(fs, tenantId, o.id, value, actor);
       if (res.ok) {
@@ -217,8 +218,15 @@ export default function RetailFulfillmentBoard() {
         toast({ title: `#${String(o.orderNumber).padStart(4, '0')} · ${res.message}`, description: res.pickComplete ? 'Pick complete — mark it packed!' : undefined });
         return;
       }
+      if (!specific && res.message && !res.message.includes('is not on this order')) {
+        specific = `#${String(o.orderNumber).padStart(4, '0')}: ${res.message}`;
+      }
     }
     scanFeedback(false);
+    if (specific) {
+      toast({ variant: 'destructive', title: 'Scan matched — but that line is closed', description: specific });
+      return;
+    }
     const raw = value.trim();
     if (myOrders.filter((x) => x.stage === 'picking').length === 0) {
       toast({
@@ -230,7 +238,9 @@ export default function RetailFulfillmentBoard() {
     }
     const pid = parseProductQr(raw);
     const lineHit = (o: BoardOrder) => o.lines?.some((l: any) =>
-      (pid && l.productId === pid) || codesMatch(l.barcode, raw) || codesMatch(l.sku, raw));
+      (pid && l.productId === pid) ||
+      l.productId === raw || String(l.productId).toLowerCase() === raw.toLowerCase() ||
+      codesMatch(l.barcode, raw) || codesMatch(l.sku, raw));
     const elsewhere = orders.find((o) => !['cancelled', 'refunded', 'completed'].includes(o.stage) && lineHit(o));
     if (elsewhere) {
       const num = `#${String(elsewhere.orderNumber).padStart(4, '0')}`;
@@ -290,6 +300,9 @@ export default function RetailFulfillmentBoard() {
             <div className="min-w-0">
               <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{o.customerName}</p>
+              {(o as any).pickupAt && (o as any).pickupAt !== 'ASAP' && (
+                <p className="text-[8px] font-black uppercase tracking-widest text-primary">Wants it {(o as any).pickupAt}</p>
+              )}
             </div>
             <div className="flex flex-col items-end gap-1 shrink-0">
               <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2">
@@ -448,13 +461,23 @@ export default function RetailFulfillmentBoard() {
                               {(l as any).optionsLabel ? <span className="block text-[8px] font-black uppercase tracking-widest text-primary">{(l as any).optionsLabel}</span> : null}
                             </p>
                             <p className="font-black font-mono text-[11px]">{l.qtyScanned}/{l.qtyOrdered}</p>
-                            {!doneLine && o.stage === 'picking' && (
+                            {!doneLine && o.stage === 'picking' && (l.qtyShorted || 0) === 0 && (
                               <Button
                                 variant="ghost" size="sm"
                                 className="h-6 px-2 font-black uppercase text-[8px] tracking-widest text-amber-600"
                                 onClick={() => setShortTarget({ order: o, line: l })}
                               >
                                 Short
+                              </Button>
+                            )}
+                            {o.stage === 'picking' && (l.qtyShorted || 0) > 0 && (
+                              <Button
+                                variant="ghost" size="sm"
+                                disabled={busy === `reopen-${l.lineId}`}
+                                className="h-6 px-2 font-black uppercase text-[8px] tracking-widest text-primary"
+                                onClick={() => act(`reopen-${l.lineId}`, () => reopenShortedLine(requireCtx() as Firestore, tenantId, o.id, l.lineId, actor))}
+                              >
+                                Reopen
                               </Button>
                             )}
                           </div>
