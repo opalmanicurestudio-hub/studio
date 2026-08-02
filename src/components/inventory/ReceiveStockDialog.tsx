@@ -22,7 +22,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '../ui/scroll-area';
-import { type Order } from '@/lib/data';
+import { type InventoryItem, type Order } from '@/lib/data';
+import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
+import { codesMatch, parseProductQr } from '@/lib/retail-orders';
 import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight, Package, Check, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -36,6 +38,7 @@ export type ReceivedItem = {
   quantityDamaged: number;
   costPerUnit: number;
   expirationDate?: Date;
+  capturedBarcode?: string;
 };
 
 interface ReceiveStockDialogProps {
@@ -43,6 +46,7 @@ interface ReceiveStockDialogProps {
   onOpenChange: (open: boolean) => void;
   order: Order | null;
   onConfirm: (receivedItems: ReceivedItem[]) => void;
+  inventory?: InventoryItem[];
 }
 
 export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
@@ -153,6 +157,23 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
           <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Verifying shipment from: {order.supplier}</SheetDescription>
         </SheetHeader>
         
+        <div className="mb-3 space-y-2">
+          <Button
+            type="button"
+            variant={scanOpen ? 'default' : 'outline'}
+            onClick={() => setScanOpen(!scanOpen)}
+            className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
+          >
+            <PackageOpen className="mr-1.5 h-4 w-4" />
+            {scanOpen ? 'Scanning — each beep counts one unit' : 'Scan to count (camera)'}
+          </Button>
+          {scanOpen && (
+            <ScanGate
+              onScan={onReceiveScan}
+              label="Scan each unit as you unbox — new barcodes are saved to the item automatically"
+            />
+          )}
+        </div>
         <ScrollArea className="flex-1">
             <div className={cn("pb-32", isMobile ? "p-6" : "p-8")}>
                 {innerContent}
