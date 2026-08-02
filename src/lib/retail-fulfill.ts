@@ -155,8 +155,11 @@ export async function recordItemScan(
     const pre = await getDoc(doc(orderCol(fs, tenantId), orderId));
     if (pre.exists()) {
       const preOrder = pre.data() as RetailOrder;
+      const rawTyped = scannedValue.trim();
       const snapshotHit = preOrder.lines.some((l) =>
-        parseProductQr(scannedValue.trim()) === l.productId ||
+        parseProductQr(rawTyped) === l.productId ||
+        l.productId === rawTyped ||
+        l.productId.toLowerCase() === rawTyped.toLowerCase() ||
         codesMatch(l.barcode, scannedValue) || codesMatch(l.sku, scannedValue)
       );
       if (!snapshotHit) {
