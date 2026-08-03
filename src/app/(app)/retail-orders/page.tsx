@@ -167,6 +167,15 @@ export default function RetailFulfillmentBoard() {
     }
   };
 
+  useEffect(() => {
+    // Automation feel: opening the Ship dialog IS the request for rates —
+    // no "Get live rates" tap needed when Shippo is connected.
+    if (shipTarget && shippoConfigured && rates.length === 0 && !labelUrl && !ratesLoading) {
+      fetchRates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipTarget?.id]);
+
   const buyLabel = async (rateId: string) => {
     if (!shipTarget || buyingRate) return;
     setBuyingRate(rateId);
