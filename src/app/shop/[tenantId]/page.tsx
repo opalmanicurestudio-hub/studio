@@ -20,7 +20,10 @@ import {
 } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { addToCart, cartKeyFor, parseCartKey, readCart, readWholesaleCode } from '@/lib/shop-cart';
+import {
+  addToCart, cartExpiresAt, cartKeyFor, clearCart, parseCartKey, readCart,
+  readWholesaleCode, touchCartExpiry, writeCart, writeWholesaleCode,
+} from '@/lib/shop-cart';
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
 import { cn } from '@/lib/utils';
 
