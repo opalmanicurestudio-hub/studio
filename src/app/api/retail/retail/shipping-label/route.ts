@@ -148,17 +148,22 @@ export async function POST(req: NextRequest) {
     };
 
     if (action === 'rates') {
-      const p = body.parcel || {};
-      const parcel = {
+      // Accept a parcels ARRAY (multi-box B2B shipments) or the legacy
+      // single `parcel`. Each box quotes and labels individually — one rate
+      // covers the whole set.
+      const raw = Array.isArray(body.parcels) && body.parcels.length > 0
+        ? body.parcels.slice(0, 10)
+        : [body.parcel || {}];
+      const parcels = raw.map((p: any) => ({
         length: String(Math.max(1, Number(p.lengthIn) || 10)),
         width: String(Math.max(1, Number(p.widthIn) || 8)),
         height: String(Math.max(1, Number(p.heightIn) || 4)),
         distance_unit: 'in',
         weight: String(Math.max(1, Number(p.weightOz) || 16)),
         mass_unit: 'oz',
-      };
+      }));
       const shipment = await shippo(apiKey, '/shipments/', {
-        address_from: addressFrom, address_to: addressTo, parcels: [parcel], async: false,
+        address_from: addressFrom, address_to: addressTo, parcels, async: false,
       });
       const rates = (shipment.rates || [])
         .map((r: any) => ({
@@ -189,11 +194,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Shippo: ${msg}` }, { status: 422 });
     }
 
+    // Multi-parcel purchases: the master transaction is one of N — fetch the
+    // full set for this rate so every box gets its own label + tracking.
+    let extraLabelUrls: string[] = [];
+    let extraTracking: string[] = [];
+    try {
+      const listRes = await fetch(`${SHIPPO}/transactions/?rate=${encodeURIComponent(rateId)}&results=25`, {
+        headers: { Authorization: `ShippoToken ${apiKey}` },
+      });
+      const list = await listRes.json().catch(() => ({}));
+      const all = (list.results || []).filter((t: any) => t.status === 'SUCCESS' && t.object_id !== txn.object_id);
+      extraLabelUrls = all.map((t: any) => String(t.label_url || '')).filter(Boolean);
+      extraTracking = all.map((t: any) => String(t.tracking_number || '')).filter(Boolean);
+    } catch {
+      // single-parcel shipments have nothing extra; a listing hiccup only
+      // costs the extra-label buttons, never the purchase itself
+    }
+
     const result = {
       trackingNumber: String(txn.tracking_number || ''),
       carrier: String(txn.rate?.provider || txn.provider || 'Carrier'),
       trackingUrl: String(txn.tracking_url_provider || ''),
       labelUrl: String(txn.label_url || ''),
+      extraLabelUrls,
+      packageCount: 1 + extraLabelUrls.length,
     };
 
     const evRef = orderRef.collection('events').doc();
@@ -204,11 +228,14 @@ export async function POST(req: NextRequest) {
       trackingUrl: result.trackingUrl,
       labelUrl: result.labelUrl,
       shippoTransactionId: String(txn.object_id || ''),
+      extraLabelUrls,
+      extraTrackingNumbers: extraTracking,
+      packageCount: result.packageCount,
     }, { merge: true });
     batch.set(evRef, {
       id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
       actorId: 'shippo', actorName: 'Shippo',
-      meta: { carrier: result.carrier, trackingNumber: result.trackingNumber },
+      meta: { carrier: result.carrier, trackingNumber: result.trackingNumber, packages: result.packageCount },
     });
     await batch.commit();
 
