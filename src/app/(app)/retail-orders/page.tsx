@@ -24,7 +24,7 @@ import {
   STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
 } from '@/lib/retail-orders';
 import {
-  cancelOrder, claimNextBatch, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
+  cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
@@ -215,27 +215,40 @@ export default function RetailFulfillmentBoard() {
       const res = await recordItemScan(fs, tenantId, o.id, value, actor);
       if (res.ok) {
         scanFeedback(true);
-        toast({ title: `#${String(o.orderNumber).padStart(4, '0')} · ${res.message}`, description: res.pickComplete ? 'Pick complete — mark it packed!' : undefined });
+        if (res.pickComplete) {
+          // Express flow: the last scan IS the pack. Auto-advance so a
+          // pickup order needs zero admin taps between scanning and the
+          // shelf — packed, then ready (which notifies the customer).
+          const packed = await markPacked(fs, tenantId, o.id, actor);
+          if (packed.ok && o.method !== 'ship') {
+            const ready = await markReady(fs, tenantId, o.id, actor);
+            toast({
+              title: `#${String(o.orderNumber).padStart(4, '0')} complete`,
+              description: ready.ok ? 'Packed & Ready — customer notified. On to the shelf.' : `Packed. ${ready.message}`,
+            });
+          } else {
+            toast({
+              title: `#${String(o.orderNumber).padStart(4, '0')} · ${res.message}`,
+              description: packed.ok
+                ? (o.method === 'ship' ? 'Packed — open Ship to buy the label.' : undefined)
+                : `Pick complete. ${packed.message}`,
+            });
+          }
+        } else {
+          toast({ title: `#${String(o.orderNumber).padStart(4, '0')} · ${res.message}` });
+        }
         return;
       }
       if (!specific && res.message && !res.message.includes('is not on this order')) {
         specific = `#${String(o.orderNumber).padStart(4, '0')}: ${res.message}`;
       }
     }
-    scanFeedback(false);
     if (specific) {
+      scanFeedback(false);
       toast({ variant: 'destructive', title: 'Scan matched — but that line is closed', description: specific });
       return;
     }
     const raw = value.trim();
-    if (myOrders.filter((x) => x.stage === 'picking').length === 0) {
-      toast({
-        variant: 'destructive',
-        title: 'No claimed batch',
-        description: 'Scans check YOUR claimed orders \u2014 tap Take Next to claim from the queue, then scan.',
-      });
-      return;
-    }
     const pid = parseProductQr(raw);
     const lineHit = (o: BoardOrder) => o.lines?.some((l: any) =>
       (pid && l.productId === pid) ||
@@ -244,14 +257,34 @@ export default function RetailFulfillmentBoard() {
     const elsewhere = orders.find((o) => !['cancelled', 'refunded', 'completed'].includes(o.stage) && lineHit(o));
     if (elsewhere) {
       const num = `#${String(elsewhere.orderNumber).padStart(4, '0')}`;
+      if (elsewhere.stage === 'paid' && !elsewhere.batchId) {
+        const grab = await claimSpecificOrder(fs, tenantId, elsewhere.id, actor);
+        if (!('error' in grab)) {
+          const res2 = await recordItemScan(fs, tenantId, elsewhere.id, value, actor);
+          if (res2.ok) {
+            scanFeedback(true);
+            toast({
+              title: `Claimed ${num} \u00b7 ${res2.message}`,
+              description: res2.pickComplete ? undefined : 'Scan-to-claim: the order is yours now \u2014 keep scanning.',
+            });
+            if (res2.pickComplete) {
+              const packed2 = await markPacked(fs, tenantId, elsewhere.id, actor);
+              if (packed2.ok && elsewhere.method !== 'ship') await markReady(fs, tenantId, elsewhere.id, actor);
+            }
+            return;
+          }
+        }
+      }
       const why = elsewhere.stage === 'paid'
-        ? `${num} is still in the Queue \u2014 tap Take Next to claim it.`
+        ? `${num} is in the Queue and claimed by someone else right now.`
         : ['picking', 'packed'].includes(elsewhere.stage)
           ? `${num} is claimed by ${elsewhere.claimedByName || 'another teammate'}.`
           : `${num} is already ${elsewhere.stage} \u2014 picking is done there.`;
+      scanFeedback(false);
       toast({ variant: 'destructive', title: 'Right product, different order', description: why });
       return;
     }
+    scanFeedback(false);
     toast({
       variant: 'destructive',
       title: `Scanned: ${raw.slice(0, 40)}`,
