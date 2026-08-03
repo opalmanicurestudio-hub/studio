@@ -17,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -51,6 +52,7 @@ type BoardOrder = RetailOrder & { id: string };
 export default function RetailFulfillmentBoard() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
+  const { inventory } = useInventory();
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
@@ -616,7 +618,16 @@ export default function RetailFulfillmentBoard() {
                       <Printer className="mr-1 h-3 w-3" /> Print 4x6 label
                     </Button>
                     <Button
-                      onClick={() => { setShipTarget(o); setShipCarrier(''); setShipNumber(''); setShipUrl(''); setRates([]); setLabelUrl(''); }}
+                      onClick={() => {
+                        setShipTarget(o);
+                        setShipCarrier(''); setShipNumber(''); setShipUrl('');
+                        setRates([]); setLabelUrl((o as any).labelUrl || '');
+                        const known = (o.lines || []).reduce((sum: number, l: any) => {
+                          const w = Number((inventory || []).find((i: any) => i.id === l.productId)?.weightOz) || 0;
+                          return sum + w * Math.max(0, l.qtyOrdered - (l.qtyShorted || 0));
+                        }, 0);
+                        if (known > 0) setParcel((prev) => ({ ...prev, weightOz: String(known + 4) }));
+                      }}
                       className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
                     >
                       <Ship className="mr-1.5 h-3.5 w-3.5" /> Mark shipped
@@ -750,9 +761,38 @@ export default function RetailFulfillmentBoard() {
               </div>
             )}
             {labelUrl && (
-              <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
-                <a href={labelUrl} target="_blank" rel="noreferrer">Open purchased label (4x6 PDF)</a>
-              </Button>
+              <div className="space-y-2">
+                <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
+                  <a href={labelUrl} target="_blank" rel="noreferrer">Open purchased label (4x6 PDF)</a>
+                </Button>
+                <Button
+                  variant="outline"
+                  disabled={busy === 'void-label'}
+                  onClick={async () => {
+                    if (!shipTarget) return;
+                    if (!window.confirm('Void this label? The postage is refunded by the carrier and the tracking is cleared.')) return;
+                    setBusy('void-label');
+                    try {
+                      const res = await fetch('/api/retail/shipping-label', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '', action: 'void' }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || 'Void failed');
+                      setLabelUrl(''); setShipCarrier(''); setShipNumber(''); setShipUrl('');
+                      toast({ title: 'Label voided', description: data.message });
+                    } catch (e: any) {
+                      toast({ variant: 'destructive', title: 'Could not void', description: e?.message });
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                  className="w-full h-10 rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
+                >
+                  Void label &amp; refund postage
+                </Button>
+              </div>
             )}
             <Input placeholder="Carrier (USPS, UPS…)" value={shipCarrier} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipCarrier(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
             <Input placeholder="Tracking number" value={shipNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipNumber(e.target.value)} className="h-12 rounded-xl border-2 font-mono font-black text-xs" />
