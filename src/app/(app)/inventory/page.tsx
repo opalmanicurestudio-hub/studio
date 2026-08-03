@@ -37,6 +37,7 @@ import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
 import { LogUseDialog } from '@/components/inventory/LogUseDialog';
 import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
 import { ProductCard } from '@/components/inventory/ProductCard';
+import { QuickReceiveDialog } from '@/components/inventory/QuickReceiveDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -293,6 +294,7 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
   const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
+  const [quickReceiveOpen, setQuickReceiveOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -728,6 +730,18 @@ export default function InventoryPage() {
                   </div>
                 )}
                 <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
+                  <Button
+                    onClick={() => setQuickReceiveOpen(true)}
+                    className="w-full sm:w-auto h-12 mb-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20"
+                  >
+                    <PackageOpen className="mr-2 h-4 w-4" /> Receive stock — scan the box in
+                  </Button>
+                  <QuickReceiveDialog
+                    open={quickReceiveOpen}
+                    onOpenChange={setQuickReceiveOpen}
+                    tenantId={selectedTenant?.id || ''}
+                    inventory={inventory as any[]}
+                  />
                   <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto scrollbar-hide">
                     <TabsTrigger value="products" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manifest</TabsTrigger>
                     <TabsTrigger value="orders" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Orders</TabsTrigger>
