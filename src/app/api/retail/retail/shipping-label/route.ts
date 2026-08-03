@@ -1,21 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // ─── /api/retail/shipping-label/route.ts ──────────────────────────────────────
-// Third-party shipping labels via Shippo, in two steps that mirror how a
-// human ships: see real rates, pick one, buy the label.
+// Shippo labels in the shape a human ships: see real rates, pick one, buy —
+// and now UNDO: void a label that hasn't shipped and Shippo refunds the
+// postage to the shop's account.
 //
 //   POST { tenantId, orderId, qrToken, action: 'rates',
 //          parcel: { weightOz, lengthIn, widthIn, heightIn } }
 //     → { rates: [{ id, provider, service, amountCents, days }] }
 //
-//   POST { tenantId, orderId, qrToken, action: 'purchase', rateId }
+//   POST { ..., action: 'purchase', rateId }
 //     → { trackingNumber, carrier, trackingUrl, labelUrl }
-//       and saves them on the order + a label_generated audit event.
-//       (Stage does NOT change — the label existing isn't the package
-//        leaving. "Mark shipped" stays the explicit truth moment.)
+//       Saves those + the Shippo transaction id on the order and writes a
+//       label_generated audit event. Stage does NOT change — "Confirm
+//       shipped" stays the explicit truth moment.
+//
+//   POST { ..., action: 'void' }
+//     → requests a Shippo refund for the saved transaction, clears the
+//       label/tracking fields from the order, and writes a label_voided
+//       note. Blocked once the order is shipped — voiding a label that's
+//       on a moving box helps no one. (Carriers approve refunds for unused
+//       labels, usually within days; USPS auto-refunds unscanned labels.)
 //
 // Config: retailSettings.shippoApiKey (per tenant; SHIPPO_API_KEY env as a
-// platform-wide fallback) + retailSettings.shipFrom { name, street1, city,
+// platform fallback) + retailSettings.shipFrom { name, street1, city,
 // state, zip, phone }. qrToken is the same possession proof the print and
 // support routes use.
 
@@ -61,7 +69,7 @@ export async function POST(req: NextRequest) {
   const qrToken = String(body.qrToken || '').trim();
   const action = String(body.action || '').trim();
 
-  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['rates', 'purchase', 'void'].includes(action)) {
     return NextResponse.json({ error: 'tenantId, orderId, qrToken, and a valid action are required' }, { status: 400 });
   }
 
@@ -77,36 +85,68 @@ export async function POST(req: NextRequest) {
   const tenant = tenantSnap.data() as any;
   const rs = tenant.retailSettings || {};
   const order = orderSnap.data() as any;
+  const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
 
   if (order.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
-  if (order.method !== 'ship' || !order.shippingAddress) {
-    return NextResponse.json({ error: 'This is not a shipping order' }, { status: 400 });
-  }
 
   const apiKey = String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim();
   if (!apiKey) {
     return NextResponse.json({ error: 'Shippo is not connected — add your API key in Shop Settings.' }, { status: 400 });
   }
 
-  const from = rs.shipFrom || {};
-  if (!from.street1 || !from.city || !from.state || !from.zip) {
-    return NextResponse.json({ error: 'Ship-from address is incomplete — set it in Shop Settings.' }, { status: 400 });
-  }
-
-  const to = order.shippingAddress;
-  const addressTo = {
-    name: to.name, street1: to.line1, street2: to.line2 || '',
-    city: to.city, state: to.state, zip: to.postalCode, country: to.country || 'US',
-    phone: order.customerPhone || '', email: order.customerEmail || '',
-  };
-  const addressFrom = {
-    name: from.name || tenant.businessName || tenant.name || 'Shop',
-    street1: from.street1, street2: from.street2 || '',
-    city: from.city, state: from.state, zip: from.zip, country: 'US',
-    phone: from.phone || '',
-  };
-
   try {
+    if (action === 'void') {
+      if (['shipped', 'handed_off', 'completed'].includes(order.stage)) {
+        return NextResponse.json({ error: 'This order already shipped — the label can\u2019t be voided from here.' }, { status: 409 });
+      }
+      const txnId = String(order.shippoTransactionId || '').trim();
+      if (!txnId) return NextResponse.json({ error: 'No purchased label is saved on this order.' }, { status: 400 });
+
+      const refund = await shippo(apiKey, '/refunds/', { transaction: txnId, async: false });
+      const status = String(refund.status || 'PENDING');
+
+      const evRef = orderRef.collection('events').doc();
+      const batch = db.batch();
+      batch.set(orderRef, {
+        trackingNumber: '', carrier: '', trackingUrl: '', labelUrl: '',
+        shippoTransactionId: '', labelVoidedAt: new Date().toISOString(),
+      }, { merge: true });
+      batch.set(evRef, {
+        id: evRef.id, type: 'note', at: new Date().toISOString(),
+        actorId: 'shippo', actorName: 'Shippo',
+        meta: { text: `Label voided — refund ${status.toLowerCase()} (carrier approval can take a few days)` },
+      });
+      await batch.commit();
+
+      return NextResponse.json({
+        ok: true,
+        message: status === 'SUCCESS'
+          ? 'Label voided — postage refunded.'
+          : 'Void requested — the carrier usually approves unused labels within a few days.',
+      });
+    }
+
+    const from = rs.shipFrom || {};
+    if (!from.street1 || !from.city || !from.state || !from.zip) {
+      return NextResponse.json({ error: 'Ship-from address is incomplete — set it in Shop Settings.' }, { status: 400 });
+    }
+    if (order.method !== 'ship' || !order.shippingAddress) {
+      return NextResponse.json({ error: 'This is not a shipping order' }, { status: 400 });
+    }
+
+    const to = order.shippingAddress;
+    const addressTo = {
+      name: to.name, street1: to.line1, street2: to.line2 || '',
+      city: to.city, state: to.state, zip: to.postalCode, country: to.country || 'US',
+      phone: order.customerPhone || '', email: order.customerEmail || '',
+    };
+    const addressFrom = {
+      name: from.name || tenant.businessName || tenant.name || 'Shop',
+      street1: from.street1, street2: from.street2 || '',
+      city: from.city, state: from.state, zip: from.zip, country: 'US',
+      phone: from.phone || '',
+    };
+
     if (action === 'rates') {
       const p = body.parcel || {};
       const parcel = {
@@ -156,7 +196,6 @@ export async function POST(req: NextRequest) {
       labelUrl: String(txn.label_url || ''),
     };
 
-    const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
     const evRef = orderRef.collection('events').doc();
     const batch = db.batch();
     batch.set(orderRef, {
@@ -164,6 +203,7 @@ export async function POST(req: NextRequest) {
       carrier: result.carrier,
       trackingUrl: result.trackingUrl,
       labelUrl: result.labelUrl,
+      shippoTransactionId: String(txn.object_id || ''),
     }, { merge: true });
     batch.set(evRef, {
       id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
