@@ -72,7 +72,10 @@ export default function RetailFulfillmentBoard() {
   const [shortTarget, setShortTarget] = useState<{ order: BoardOrder; line: OrderLine } | null>(null);
   const [shortReason, setShortReason] = useState('');
   const [shipTarget, setShipTarget] = useState<BoardOrder | null>(null);
-  const [parcel, setParcel] = useState({ weightOz: '16', lengthIn: '10', widthIn: '8', heightIn: '4' });
+  const [parcel, setParcel] = useState({ weightLb: '1', weightOz: '0', lengthIn: '10', widthIn: '8', heightIn: '4' });
+  const [boxes, setBoxes] = useState(1);
+  const [extraLabels, setExtraLabels] = useState<string[]>([]);
+  const perBoxOz = () => Math.max(1, (Number(parcel.weightLb) || 0) * 16 + (Number(parcel.weightOz) || 0));
   const [rates, setRates] = useState<{ id: string; provider: string; service: string; amountCents: number; days: number | null }[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
   const [buyingRate, setBuyingRate] = useState<string | null>(null);
@@ -151,12 +154,12 @@ export default function RetailFulfillmentBoard() {
         body: JSON.stringify({
           tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '',
           action: 'rates',
-          parcel: {
-            weightOz: Number(parcel.weightOz) || 16,
+          parcels: Array.from({ length: Math.max(1, boxes) }, () => ({
+            weightOz: perBoxOz(),
             lengthIn: Number(parcel.lengthIn) || 10,
             widthIn: Number(parcel.widthIn) || 8,
             heightIn: Number(parcel.heightIn) || 4,
-          },
+          })),
         }),
       });
       const data = await res.json();
@@ -193,6 +196,7 @@ export default function RetailFulfillmentBoard() {
       setShipNumber(data.trackingNumber || '');
       setShipUrl(data.trackingUrl || '');
       setLabelUrl(data.labelUrl || '');
+      setExtraLabels((data.extraLabelUrls || []) as string[]);
       setRates([]);
       if (data.labelUrl) window.open(data.labelUrl, '_blank');
       toast({ title: 'Label purchased', description: 'Tracking filled in — print, affix, then confirm shipped.' });
@@ -626,7 +630,12 @@ export default function RetailFulfillmentBoard() {
                           const w = Number((inventory || []).find((i: any) => i.id === l.productId)?.weightOz) || 0;
                           return sum + w * Math.max(0, l.qtyOrdered - (l.qtyShorted || 0));
                         }, 0);
-                        if (known > 0) setParcel((prev) => ({ ...prev, weightOz: String(known + 4) }));
+                        setBoxes(1);
+                        setExtraLabels(((o as any).extraLabelUrls || []) as string[]);
+                        if (known > 0) {
+                          const total = known + 4;
+                          setParcel((prev) => ({ ...prev, weightLb: String(Math.floor(total / 16)), weightOz: String(total % 16) }));
+                        }
                       }}
                       className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
                     >
@@ -727,16 +736,34 @@ export default function RetailFulfillmentBoard() {
             {shippoConfigured && !labelUrl && (
               <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-4 space-y-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-primary">Live label via Shippo</p>
-                <div className="grid grid-cols-4 gap-2">
-                  {([['weightOz', 'oz'], ['lengthIn', 'L in'], ['widthIn', 'W in'], ['heightIn', 'H in']] as const).map(([k, lbl]) => (
+                <div className="flex items-center justify-between">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Boxes</p>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" disabled={boxes <= 1}
+                      onClick={() => { setBoxes(boxes - 1); setRates([]); }}>−</Button>
+                    <span className="font-black font-mono text-sm w-6 text-center">{boxes}</span>
+                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" disabled={boxes >= 10}
+                      onClick={() => { setBoxes(boxes + 1); setRates([]); }}>+</Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {([['weightLb', boxes > 1 ? 'lb / box' : 'lb'], ['weightOz', 'oz'], ['lengthIn', 'L in'], ['widthIn', 'W in'], ['heightIn', 'H in']] as const).map(([k, lbl]) => (
                     <div key={k} className="space-y-1">
                       <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground text-center">{lbl}</p>
                       <Input inputMode="decimal" value={(parcel as any)[k]}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setParcel({ ...parcel, [k]: e.target.value })}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setParcel({ ...parcel, [k]: e.target.value }); setRates([]); }}
                         className="h-10 rounded-xl border-2 font-black font-mono text-xs text-center" />
                     </div>
                   ))}
                 </div>
+                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground text-center">
+                  Total: {Math.floor((perBoxOz() * boxes) / 16)} lb {(perBoxOz() * boxes) % 16} oz{boxes > 1 ? ` across ${boxes} boxes` : ''}
+                </p>
+                {perBoxOz() > 1120 && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-destructive text-center">
+                    Over 70 lb per box — carriers will refuse it. Add boxes to split the weight.
+                  </p>
+                )}
                 <Button variant="outline" disabled={ratesLoading} onClick={fetchRates}
                   className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
                   {ratesLoading ? <Loader className="h-4 w-4 animate-spin" /> : 'Get live rates'}
@@ -763,8 +790,13 @@ export default function RetailFulfillmentBoard() {
             {labelUrl && (
               <div className="space-y-2">
                 <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
-                  <a href={labelUrl} target="_blank" rel="noreferrer">Open purchased label (4x6 PDF)</a>
+                  <a href={labelUrl} target="_blank" rel="noreferrer">{extraLabels.length > 0 ? 'Open label — box 1' : 'Open purchased label (4x6 PDF)'}</a>
                 </Button>
+                {extraLabels.map((u, i) => (
+                  <Button key={u} asChild variant="outline" className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
+                    <a href={u} target="_blank" rel="noreferrer">Open label — box {i + 2}</a>
+                  </Button>
+                ))}
                 <Button
                   variant="outline"
                   disabled={busy === 'void-label'}
