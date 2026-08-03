@@ -18,6 +18,8 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
+
 import { optionGroupsToText, parseOptionGroups } from '@/lib/retail-orders';
 import { cn } from '@/lib/utils';
 
@@ -61,7 +63,7 @@ interface RetailSettings {
 }
 
 export default function RetailSettingsPage() {
-  const { firestore } = useFirebase();
+  const { firestore, firebaseApp } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id || '';
   const tenant = selectedTenant as any;
@@ -73,8 +75,40 @@ export default function RetailSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [newSpot, setNewSpot] = useState('');
   const [itemBusy, setItemBusy] = useState<string | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
+
+  const uploadMedia = async (it: any, files: FileList | null, kind: 'image' | 'video') => {
+    if (!files || files.length === 0 || !firebaseApp || !tenantId) return;
+    setUploading(`${kind}-${it.id}`);
+    try {
+      const storage = getStorage(firebaseApp);
+      const urls: string[] = [];
+      for (const file of Array.from(files).slice(0, kind === 'video' ? 1 : 6)) {
+        if (file.size > (kind === 'video' ? 100 : 10) * 1024 * 1024) {
+          toast({ variant: 'destructive', title: `${file.name} is too large`, description: kind === 'video' ? 'Videos up to 100 MB.' : 'Images up to 10 MB.' });
+          continue;
+        }
+        const path = `tenants/${tenantId}/products/${it.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const snap = await uploadBytes(storageRef(storage, path), file, { contentType: file.type });
+        urls.push(await getDownloadURL(snap.ref));
+      }
+      if (urls.length > 0) {
+        const d = draftFor(it);
+        const next = kind === 'image'
+          ? { ...d, img: [d.img.trim(), ...urls].filter(Boolean).join('\n') }
+          : { ...d, video: urls[0] };
+        setDrafts((prev) => ({ ...prev, [it.id]: next }));
+        toast({ title: kind === 'image' ? `${urls.length} image(s) uploaded` : 'Video uploaded', description: 'Tap Save on the item to publish.' });
+      }
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Upload failed', description: String(e?.message || '').includes('storage/unauthorized') ? 'Enable Firebase Storage + the rules from our setup note.' : e?.message });
+    } finally {
+      setUploading(null);
+    }
+  };
+
   const [drafts, setDrafts] = useState<Record<string, {
-    wholesale: string; minQty: string; weight: string; desc: string; img: string;
+    wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
     howToUse: string; specs: string; docs: string; options: string;
   }>>({});
 
@@ -157,6 +191,7 @@ export default function RetailSettingsPage() {
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
     options: optionGroupsToText(it.optionGroups),
+    video: it.videoUrl || '',
   };
 
   const toggleOnline = async (it: any, on: boolean) => {
@@ -199,6 +234,7 @@ export default function RetailSettingsPage() {
         specs: JSON.parse(JSON.stringify(specs)),
         documents: JSON.parse(JSON.stringify(documents)),
         optionGroups: JSON.parse(JSON.stringify(parseOptionGroups(d.options))),
+        videoUrl: (d.video || '').trim(),
       });
       toast({ title: `${it.name} updated` });
     } catch (e: any) {
@@ -612,6 +648,21 @@ export default function RetailSettingsPage() {
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, weight: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
                         </div>
+                        <div className="flex gap-2">
+                          <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `image-${it.id}` && 'opacity-50 pointer-events-none')}>
+                            {uploading === `image-${it.id}` ? 'Uploading…' : '📷 Upload images'}
+                            <input type="file" accept="image/*" multiple className="hidden"
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'image'); e.target.value = ''; }} />
+                          </label>
+                          <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `video-${it.id}` && 'opacity-50 pointer-events-none')}>
+                            {uploading === `video-${it.id}` ? 'Uploading…' : '🎬 Upload video'}
+                            <input type="file" accept="video/*" className="hidden"
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'video'); e.target.value = ''; }} />
+                          </label>
+                        </div>
+                        {d.video && (
+                          <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">Video attached ✓ — saves with the item</p>
+                        )}
                         <Textarea placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, img: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
