@@ -74,7 +74,7 @@ export default function RetailSettingsPage() {
   const [newSpot, setNewSpot] = useState('');
   const [itemBusy, setItemBusy] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, {
-    wholesale: string; minQty: string; desc: string; img: string;
+    wholesale: string; minQty: string; weight: string; desc: string; img: string;
     howToUse: string; specs: string; docs: string; options: string;
   }>>({});
 
@@ -150,6 +150,7 @@ export default function RetailSettingsPage() {
   const draftFor = (it: any) => drafts[it.id] || {
     wholesale: it.wholesalePriceDollars != null ? String(it.wholesalePriceDollars) : '',
     minQty: it.wholesaleMinQty != null ? String(it.wholesaleMinQty) : '',
+    weight: it.weightOz != null && it.weightOz > 0 ? String(it.weightOz) : '',
     desc: it.onlineDescription || '',
     img: (it.imageUrls || []).join('\n'),
     howToUse: it.howToUse || '',
@@ -190,6 +191,7 @@ export default function RetailSettingsPage() {
       }).filter(Boolean).slice(0, 20);
       await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/inventory`, it.id), {
         wholesalePriceDollars: d.wholesale.trim() === '' ? null : Number(d.wholesale) || 0,
+        weightOz: Math.max(0, Number(d.weight) || 0),
         wholesaleMinQty: d.minQty.trim() === '' ? null : Math.max(0, Math.floor(Number(d.minQty) || 0)),
         onlineDescription: d.desc.trim(),
         howToUse: d.howToUse.trim(),
@@ -605,6 +607,9 @@ export default function RetailSettingsPage() {
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
                           <Input placeholder="Wholesale min qty" inputMode="numeric" value={d.minQty}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, minQty: e.target.value } })}
+                            className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
+                          <Input placeholder="Weight (oz) — auto-weighs parcels" inputMode="decimal" value={d.weight}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, weight: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
                         </div>
                         <Textarea placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
