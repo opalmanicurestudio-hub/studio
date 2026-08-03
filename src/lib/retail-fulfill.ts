@@ -108,6 +108,47 @@ export async function claimNextBatch(
   }
 }
 
+/**
+ * Claim ONE specific order (scan-to-claim): scanning an item that belongs to
+ * a queue order claims that order and keeps moving — the shelf walk IS the
+ * workflow, no Take Next detour. Same race-safety as claimNextBatch: the
+ * stage and batchId are re-verified inside the transaction, so two phones
+ * scanning the same product resolve to exactly one winner.
+ */
+export async function claimSpecificOrder(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor
+): Promise<{ batchId: string } | { error: string }> {
+  const batchRef = doc(batchCol(fs, tenantId));
+  const now = new Date().toISOString();
+  try {
+    const ok = await runTransaction(fs, async (txn) => {
+      const ref = doc(orderCol(fs, tenantId), orderId);
+      const snap = await txn.get(ref);
+      if (!snap.exists()) return false;
+      const o = snap.data() as RetailOrder;
+      if (o.stage !== 'paid' || o.batchId || o.holdUntilRestock === true) return false;
+
+      const batchDoc: FulfillmentBatch = {
+        id: batchRef.id, tenantId,
+        orderIds: [orderId],
+        phase: 'pick',
+        assignedTo: actor.id, assignedToName: actor.name,
+        claimedAt: now, active: true,
+      };
+      txn.set(batchRef, JSON.parse(JSON.stringify(batchDoc)));
+      txn.update(ref, { stage: 'picking', batchId: batchRef.id });
+      txn.set(doc(collection(ref, 'events')), evPayload('batch_claimed', actor, {
+        batchId: batchRef.id, waveSize: 1, scanToClaim: true,
+      }));
+      return true;
+    });
+    if (!ok) return { error: 'Someone grabbed that order first.' };
+    return { batchId: batchRef.id };
+  } catch (e: any) {
+    return { error: e?.message || 'Could not claim.' };
+  }
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  * RELEASE + AUTO-RELEASE SWEEP
  * ════════════════════════════════════════════════════════════════════════════ */
