@@ -294,7 +294,6 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
   const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
-  const [quickReceiveOpen, setQuickReceiveOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -437,6 +436,7 @@ export default function InventoryPage() {
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
   const [activeView, setActiveView] = useState('products');
+  const [quickReceiveOpen, setQuickReceiveOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showArchived, setShowArchived] = useState(false);
