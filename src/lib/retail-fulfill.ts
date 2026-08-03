@@ -22,15 +22,22 @@ import {
 
 export interface Actor { id: string; name: string; }
 
+/** Firestore rejects `undefined` anywhere in a payload ("invalid data …
+ * in field meta"). Every event/correction is scrubbed here so no code path
+ * can ever hand the database an undefined again. */
+const clean = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
+
 const orderCol = (fs: Firestore, t: string) => collection(fs, `tenants/${t}/retailOrders`);
 const batchCol = (fs: Firestore, t: string) => collection(fs, `tenants/${t}/fulfillmentBatches`);
 const invDoc = (fs: Firestore, t: string, id: string) => doc(fs, `tenants/${t}/inventory`, id);
 
-function evPayload(type: OrderEventType, actor: Actor, meta?: Record<string, string | number | boolean>) {
+function evPayloadRaw(type: OrderEventType, actor: Actor, meta?: Record<string, string | number | boolean>) {
   return { id: `ev-${nanoid(10)}`, ...buildEvent(type, actor.id, actor.name, meta) };
 }
 
-function correction(
+const evPayload = (...args: Parameters<typeof evPayloadRaw>) => clean(evPayloadRaw(...args));
+
+function correctionRaw(
   productId: string, unit: string, change: number, reason: string, orderId: string, actor: Actor
 ) {
   return {
@@ -39,6 +46,8 @@ function correction(
     orderId, actorId: actor.id, actorName: actor.name, source: 'retail_engine',
   };
 }
+
+const correction = (...args: Parameters<typeof correctionRaw>) => clean(correctionRaw(...args));
 
 /* ════════════════════════════════════════════════════════════════════════════
  * TAKE NEXT — atomic batch claim
@@ -614,9 +623,9 @@ export async function cancelOrder(
         claimedBy: null,
         claimedByName: null,
       })));
-      txn.set(doc(collection(orderRef, 'events')), buildEvent('order_cancelled', actor, {
+      txn.set(doc(collection(orderRef, 'events')), clean(buildEvent('order_cancelled', actor, {
         reason: reason || '', pendingRefundCents: pending,
-      }));
+      })));
 
       return {
         ok: true,
