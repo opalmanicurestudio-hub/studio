@@ -73,6 +73,23 @@ interface CheckoutBody {
 }
 
 export async function POST(req: NextRequest) {
+  /*
+   * Whole-handler armor: anything that escapes below (a Firestore write, the
+   * throttle count query, a missing admin credential, a bad option payload)
+   * would otherwise become a bare HTTP 500 with no body — which reaches the
+   * shopper as "Checkout failed (HTTP 500)" and tells nobody anything. Every
+   * failure now returns its real reason, so the toast IS the diagnosis.
+   */
+  try {
+    return await handleCheckout(req);
+  } catch (err: any) {
+    const detail = String(err?.raw?.message || err?.message || 'Unknown error').slice(0, 220);
+    console.error('[retail-checkout] unhandled failure:', detail, err?.stack?.split('\n')[1] || '');
+    return NextResponse.json({ error: `Checkout could not start: ${detail}` }, { status: 500 });
+  }
+}
+
+async function handleCheckout(req: NextRequest) {
   let body: CheckoutBody;
   try {
     body = await req.json();
