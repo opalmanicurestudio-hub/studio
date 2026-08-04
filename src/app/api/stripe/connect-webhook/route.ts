@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
 import { handleRetailOrderPaid, handleRetailCheckoutExpired } from '@/lib/retail-webhook';
+import { recordStripeFeeForCharge } from '@/lib/stripe-fees';
 
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
@@ -376,112 +377,17 @@ export async function POST(req: NextRequest) {
       }
 
       case 'charge.succeeded': {
-        let charge = event.data.object as Stripe.Charge;
+        const charge = event.data.object as Stripe.Charge;
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
 
-        let balTxnId = typeof charge.balance_transaction === 'string'
-          ? charge.balance_transaction
-          : (charge.balance_transaction as any)?.id;
-
-        // Stripe occasionally sends charge.succeeded a moment before the
-        // balance_transaction is attached. Re-fetch rather than drop the fee.
-        if (!balTxnId) {
-          try {
-            const freshCharge = await stripe2.charges.retrieve(charge.id, {}, { stripeAccount: connAcct });
-            charge = freshCharge;
-            balTxnId = typeof freshCharge.balance_transaction === 'string'
-              ? freshCharge.balance_transaction
-              : (freshCharge.balance_transaction as any)?.id;
-          } catch (e) {
-            console.error('[connect-webhook] Could not re-fetch charge for balance_transaction', e);
-          }
-        }
-
-        if (!balTxnId) {
-          console.warn(`[connect-webhook] No balance_transaction for charge ${charge.id} after re-fetch — fee not recorded`);
-          break;
-        }
-
-        const balTxn = await stripe2.balanceTransactions.retrieve(
-          balTxnId, {}, { stripeAccount: connAcct }
-        );
-
-        const feeAmountCents   = balTxn.fee;
-        const netAmountCents   = balTxn.net;
-        const grossAmountCents = balTxn.amount;
-        const feeAmountDollars = feeAmountCents / 100;
-
-        if (feeAmountCents <= 0) break;
-
-        const existing = await db.collection(`tenants/${tenant.id}/transactions`)
-          .where('stripeBalanceTxnId', '==', balTxnId)
-          .where('category', '==', 'Processing Fee')
-          .limit(1).get();
-        if (!existing.empty) break;
-
-        const pmDetails    = charge.payment_method_details;
-        const isTerminal   = pmDetails?.type === 'card_present';
-        const isManual     = (pmDetails?.card as any)?.read_method === 'contact_emv_fallback'
-          || charge.metadata?.manualEntry === 'true';
-        const paymentLabel = isTerminal ? 'Terminal (card present)'
-          : isManual ? 'Manual card entry'
-          : 'Card on file';
-
-        const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
-        await feeRef.set({
-          id:                       feeRef.id,
-          date:                     new Date(charge.created * 1000).toISOString(),
-          description:              `Stripe fee — ${paymentLabel}`,
-          clientOrVendor:           'Stripe',
-          clientId:                 charge.metadata?.clientId || null,
-          type:                     'expense',
-          context:                  'Business',
-          category:                 'Processing Fee',
-          taxBucket:                'processing_fee',
-          amount:                   feeAmountDollars,
-          paymentMethod:            paymentLabel,
-          hasReceipt:               false,
-          stripeChargeId:           charge.id,
-          stripeBalanceTxnId:       balTxnId,
-          stripeConnectedAccountId: connAcct,
-          grossChargeAmount:        grossAmountCents / 100,
-          netAfterFee:              netAmountCents / 100,
-          feeBreakdown:             balTxn.fee_details.map((d: any) => ({
-            type:     d.type,
-            amount:   d.amount / 100,
-            currency: d.currency,
-          })),
-          checkoutSessionId:        charge.metadata?.checkoutSessionId || null,
-          tenantId:                 tenant.id,
+        // Fee recording lives in @/lib/stripe-fees so the order-paid path can
+        // run the exact same logic. Both write the same deterministic doc, so
+        // whichever arrives first records the fee and the other links it to
+        // the sale — no duplicates, no fee lost to a missed event.
+        await recordStripeFeeForCharge({
+          db, stripe: stripe2, tenantId: tenant.id, connAcct, charge,
         });
-
-        if (charge.metadata?.checkoutSessionId) {
-          const revTxns = await db.collection(`tenants/${tenant.id}/transactions`)
-            .where('checkoutSessionId', '==', charge.metadata.checkoutSessionId)
-            .where('taxBucket', '==', 'revenue')
-            .limit(1).get();
-          if (!revTxns.empty) {
-            await revTxns.docs[0].ref.update({
-              stripeFeeAmountDollars: feeAmountDollars,
-              stripeNetAmountDollars: netAmountCents / 100,
-              stripeChargeId:         charge.id,
-            });
-          }
-        } else {
-          const revByCharge = await db.collection(`tenants/${tenant.id}/transactions`)
-            .where('stripeChargeId', '==', charge.id)
-            .where('taxBucket', '==', 'revenue')
-            .limit(1).get();
-          if (!revByCharge.empty) {
-            await revByCharge.docs[0].ref.update({
-              stripeFeeAmountDollars: feeAmountDollars,
-              stripeNetAmountDollars: netAmountCents / 100,
-            });
-          }
-        }
-
-        console.log(`[connect-webhook] Fee $${feeAmountDollars.toFixed(2)} recorded for charge ${charge.id} on ${tenant.id}`);
         break;
       }
 

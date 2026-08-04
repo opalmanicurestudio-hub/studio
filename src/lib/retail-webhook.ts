@@ -11,9 +11,11 @@
  *   3. Generate the HMAC-signed pickup QR token
  *   4. Match-or-create the client by email (mirrors the deposit flow)
  *   5. Post the Retail income transaction (taxBucket 'revenue', with
- *      checkoutSessionId so the existing charge.succeeded handler backfills
- *      the exact Stripe fee automatically)
+ *      checkoutSessionId so the fee row can be matched to the sale)
  *   6. Append payment_confirmed + stock_reserved audit events
+ *   7. Book the exact Stripe processing fee against the sale (see
+ *      @/lib/stripe-fees) — not left to charge.succeeded, which fires before
+ *      the sale row exists and may not be enabled on the endpoint at all
  *
  * NOTE on oversell races: if two orders paid for the last unit simultaneously,
  * we still reserve in full here (stockReserved may exceed totalStock). The
@@ -24,6 +26,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
 import { buildEvent, buildOrderQrValue } from '@/lib/retail-orders';
+import { recordStripeFeeForCharge } from '@/lib/stripe-fees';
 
 /* ── QR token (HMAC-signed; raw ids are never scannable) ─────────────────── */
 
@@ -71,8 +74,28 @@ export async function handleRetailOrderPaid(
   }
   const order = orderSnap.data();
 
-  // Idempotency — Stripe retries events; only the first one does work.
-  if (order.stage !== 'placed') return;
+  // Booking the Stripe fee is safe to attempt more than once (deterministic
+  // doc id, and it short-circuits once the fee is linked to the sale), so a
+  // retry on an already-paid order still gets a chance to fill in a fee that
+  // an earlier attempt missed.
+  const bookFee = async () => {
+    if (!chargeId) return;
+    try {
+      await recordStripeFeeForCharge({
+        db, stripe, tenantId, connAcct, charge: chargeId, checkoutSessionId: session.id,
+      });
+    } catch (e) {
+      // A missing fee must never undo a paid order — the webhook retry and the
+      // next status poll both get another shot at it.
+      console.error(`[connect-webhook] Could not record Stripe fee for order ${orderId}`, e);
+    }
+  };
+
+  // Idempotency — Stripe retries events; only the first one does the work.
+  if (order.stage !== 'placed') {
+    await bookFee();
+    return;
+  }
 
   // Sanity: what Stripe collected should match what we quoted at checkout.
   if (session.amount_total != null && session.amount_total !== order.totalCents) {
@@ -195,6 +218,104 @@ export async function handleRetailOrderPaid(
 
   await batch.commit();
   console.log(`[connect-webhook] Retail order ${orderId} paid — stock reserved for tenant ${tenantId}`);
+
+  // ── Stripe processing fee ────────────────────────────────────────────────
+  // Booked here rather than waiting on charge.succeeded: that event may not be
+  // enabled on the endpoint, and even when it is, it arrives BEFORE this sale
+  // row exists — so the fee could never link itself to the order. Running it
+  // now means every completed order shows both its revenue and its true cost.
+  // Idempotent (deterministic doc id), so the webhook doing it too is harmless.
+  await bookFee();
+}
+
+/* ── Self-healing reconcile ──────────────────────────────────────────────────
+ *
+ * The webhook is the fast path, not the only path. When it does not arrive —
+ * the endpoint is missing the event, a delivery failed, the secret rotated —
+ * a customer who paid is left staring at an order stuck in 'placed' forever
+ * while the studio never sees it. This asks Stripe directly what happened to
+ * the session and finishes the job.
+ *
+ * Called from the storefront status poll, so it heals within seconds of the
+ * customer returning from Stripe. Everything it calls is idempotent, so it
+ * races the webhook safely — whichever wins, the work happens exactly once.
+ */
+
+const RECONCILE_COOLDOWN_MS = 8_000;
+const lastReconcileAt = new Map<string, number>();
+
+/**
+ * Bring a 'placed' order in line with the truth at Stripe.
+ * Returns true when something changed and the caller should re-read the order.
+ */
+export async function reconcileRetailOrderPayment(
+  db: any,
+  tenantId: string,
+  orderId: string,
+  order: any,
+  stripeAccountId: string
+): Promise<boolean> {
+  if (order?.stage !== 'placed') return false;
+  const sessionId = order?.stripeCheckoutSessionId;
+  if (!sessionId || !stripeAccountId) return false;
+
+  // Sessions live 24h; past that Stripe has expired it and the expiry webhook
+  // (or the next poll) closes the order out. Nothing to chase indefinitely.
+  const placedAt = Date.parse(order.placedAt || '');
+  if (Number.isFinite(placedAt) && Date.now() - placedAt > 48 * 60 * 60_000) return false;
+
+  // The status page polls every few seconds — don't call Stripe every time.
+  const key = `${tenantId}/${orderId}`;
+  const now = Date.now();
+  if (now - (lastReconcileAt.get(key) || 0) < RECONCILE_COOLDOWN_MS) return false;
+  if (lastReconcileAt.size > 500) {
+    for (const [k, t] of lastReconcileAt) {
+      if (now - t > RECONCILE_COOLDOWN_MS) lastReconcileAt.delete(k);
+    }
+  }
+  lastReconcileAt.set(key, now);
+
+  const secret = process.env.STRIPE_SECRET_KEY;
+  if (!secret) return false;
+
+  try {
+    const StripeMod = require('stripe');
+    const Stripe = StripeMod.default || StripeMod;
+    const stripe = new Stripe(secret, { apiVersion: '2025-04-30.basil' });
+
+    const session = await stripe.checkout.sessions.retrieve(
+      sessionId,
+      { expand: ['payment_intent'] },
+      { stripeAccount: stripeAccountId }
+    );
+
+    // Stripe's own metadata is missing on hand-created sessions from older
+    // builds; make sure the handler can still find the order.
+    session.metadata = { ...(session.metadata || {}), retailOrderId: orderId, tenantId, type: 'retail_order' };
+
+    if (session.payment_status === 'paid') {
+      let pi: any = session.payment_intent;
+      if (typeof pi === 'string') {
+        pi = await stripe.paymentIntents.retrieve(pi, {}, { stripeAccount: stripeAccountId });
+      }
+      const chargeId = typeof pi?.latest_charge === 'string'
+        ? pi.latest_charge
+        : pi?.latest_charge?.id || null;
+
+      console.log(`[retail-reconcile] Order ${orderId} was paid but still 'placed' — completing it now`);
+      await handleRetailOrderPaid(db, stripe, tenantId, stripeAccountId, session, chargeId);
+      return true;
+    }
+
+    if (session.status === 'expired') {
+      await handleRetailCheckoutExpired(db, tenantId, session);
+      return true;
+    }
+  } catch (e) {
+    // Never fail the customer's status page over this — it retries next poll.
+    console.error(`[retail-reconcile] Could not reconcile order ${orderId}`, e);
+  }
+  return false;
 }
 
 /**

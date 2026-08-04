@@ -1,5 +1,4 @@
-import {
-  resolveOptions, NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
@@ -11,6 +10,7 @@ import {
   buildOrderLine,
   checkWholesaleMinimums,
   isStorefrontVisible,
+  resolveOptions,
   sellableStock,
   type FulfillmentMethod,
   type OrderLine,
@@ -63,13 +63,25 @@ function getAdminDb() {
 
 interface CheckoutBody {
   tenantId?: string;
-  items?: { productId?: string; qty?: number }[];
+  items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
   method?: string;
   customer?: { name?: string; email?: string; phone?: string };
   shippingAddress?: ShippingAddress;
   priceTier?: string;
   wholesaleCode?: string;
   business?: { name?: string; poNumber?: string };
+  tipCents?: number;
+  pickupAt?: string;
+}
+
+/** Stable key for one cart row: the product plus the exact option choices. Two
+ *  rows of the same product with different options are DIFFERENT lines. */
+function cartRowKey(productId: string, selections: Record<string, string>): string {
+  const parts = Object.entries(selections)
+    .filter(([g, c]) => g && c)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([g, c]) => `${g}:${c}`);
+  return parts.length === 0 ? productId : `${productId}@@${parts.join('|')}`;
 }
 
 export async function POST(req: NextRequest) {
@@ -105,7 +117,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Merge duplicate cart rows for the same product
+  // Merge duplicate cart rows. Rows collapse only when the product AND the
+  // option choices match — a Large and a Small of the same item stay separate
+  // lines — while stock is still checked against the product TOTAL below.
+  const rows = new Map<string, { productId: string; selections: Record<string, string>; qty: number }>();
   const qtyByProduct = new Map<string, number>();
   for (const it of rawItems) {
     const id = String(it.productId || '').trim();
@@ -113,6 +128,14 @@ export async function POST(req: NextRequest) {
     if (!id || qty <= 0) {
       return NextResponse.json({ error: 'Each item needs a productId and positive qty' }, { status: 400 });
     }
+    const selections: Record<string, string> = {};
+    for (const [g, c] of Object.entries(it.selections || {})) {
+      if (g && typeof c === 'string' && c) selections[String(g)] = String(c);
+    }
+    const key = cartRowKey(id, selections);
+    const existing = rows.get(key);
+    if (existing) existing.qty += qty;
+    else rows.set(key, { productId: id, selections, qty });
     qtyByProduct.set(id, (qtyByProduct.get(id) ?? 0) + qty);
   }
 
@@ -169,7 +192,8 @@ export async function POST(req: NextRequest) {
     productIds.map((id) => db.collection(`tenants/${tenantId}/inventory`).doc(id).get())
   );
 
-  const lines: OrderLine[] = [];
+  // ── Validate each PRODUCT once, against the total quantity across its rows ─
+  const itemById = new Map<string, SellableItem>();
   for (let i = 0; i < productIds.length; i++) {
     const snap = itemSnaps[i];
     const qty = qtyByProduct.get(productIds[i])!;
@@ -187,8 +211,15 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-    const opts = resolveOptions(item.optionGroups, l.selections);
-    const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, opts);
+    itemById.set(item.id, item);
+  }
+
+  // ── One line per cart row, priced from the item's own option groups ───────
+  const lines: OrderLine[] = [];
+  for (const row of rows.values()) {
+    const item = itemById.get(row.productId)!;
+    const opts = resolveOptions(item.optionGroups, row.selections);
+    const line = buildOrderLine(item, row.qty, `line-${nanoid(8)}`, priceTier, opts);
     if (priceTier === 'wholesale' && wsDiscount > 0) {
       line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
     }
@@ -196,8 +227,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (priceTier === 'wholesale') {
-    const entries = productIds.map((id, i) => ({
-      item: { id: itemSnaps[i].id, ...itemSnaps[i].data() } as SellableItem,
+    const entries = productIds.map((id) => ({
+      item: itemById.get(id)!,
       qty: qtyByProduct.get(id)!,
     }));
     const minCheck = checkWholesaleMinimums(entries);
@@ -297,7 +328,9 @@ export async function POST(req: NextRequest) {
     price_data: {
       currency: 'usd',
       unit_amount: l.unitPriceCents,
-      product_data: { name: l.name },
+      // The option label rides along so the Stripe page shows the exact
+      // variant the customer picked ("Candle · Large"), not just the product.
+      product_data: { name: l.optionsLabel ? `${l.name} — ${l.optionsLabel}` : l.name },
     },
   }));
   if (taxCents > 0) {

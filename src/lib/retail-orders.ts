@@ -102,6 +102,7 @@ export interface RetailInventoryFields {
   howToUse?: string;              // usage/instructions shown on the product page
   specs?: ProductSpec[];          // label/value spec rows
   documents?: ProductDocument[];  // MSDS/SDS, guides, certificates — any linked file
+  optionGroups?: OptionGroup[];   // size/flavor/etc. choices, each with a price delta
 }
 
 export interface ProductSpec { label: string; value: string; }

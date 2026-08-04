@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 
+import { recordStripeFeeForCharge } from '@/lib/stripe-fees';
+
 // ─── /api/stripe/connect-webhook/route.ts ─────────────────────────────────────
 // CONNECTED ACCOUNTS webhook — events on your tenants' Stripe accounts.
 // Stripe Dashboard: Developers → Webhooks → "Connected accounts" endpoint
@@ -404,101 +406,13 @@ export async function POST(req: NextRequest) {
         const tenant = await getTenant(connAcct);
         if (!tenant) break;
 
-        const balTxnId = typeof charge.balance_transaction === 'string'
-          ? charge.balance_transaction
-          : (charge.balance_transaction as any)?.id;
-        if (!balTxnId) break;
-
-        // Fetch the balance transaction — contains the EXACT fee Stripe took
-        const balTxn = await stripe2.balanceTransactions.retrieve(
-          balTxnId, {}, { stripeAccount: connAcct }
-        );
-
-        const feeAmountCents   = balTxn.fee;
-        const netAmountCents   = balTxn.net;
-        const grossAmountCents = balTxn.amount;
-        const feeAmountDollars = feeAmountCents / 100;
-
-        if (feeAmountCents <= 0) break;
-
-        // Idempotency check — don't write the same fee twice
-        const existing = await db.collection(`tenants/${tenant.id}/transactions`)
-          .where('stripeBalanceTxnId', '==', balTxnId)
-          .where('category', '==', 'Processing Fee')
-          .limit(1).get();
-        if (!existing.empty) break;
-
-        // Identify payment method type for the description
-        const pmDetails    = charge.payment_method_details;
-        const isTerminal   = pmDetails?.type === 'card_present';
-        const isManual     = (pmDetails?.card as any)?.read_method === 'contact_emv_fallback'
-          || charge.metadata?.manualEntry === 'true';
-        const paymentLabel = isTerminal ? 'Terminal (card present)'
-          : isManual ? 'Manual card entry'
-          : 'Card on file';
-
-        // Write the fee as an expense
-        const feeRef = db.collection(`tenants/${tenant.id}/transactions`).doc();
-        await feeRef.set({
-          id:                       feeRef.id,
-          date:                     new Date(charge.created * 1000).toISOString(),
-          description:              `Stripe fee — ${paymentLabel}`,
-          clientOrVendor:           'Stripe',
-          clientId:                 charge.metadata?.clientId || null,
-          type:                     'expense',
-          context:                  'Business',
-          category:                 'Processing Fee',
-          taxBucket:                'processing_fee',
-          amount:                   feeAmountDollars,
-          paymentMethod:            paymentLabel,
-          hasReceipt:               false,
-          // Reconciliation fields
-          stripeChargeId:           charge.id,
-          stripeBalanceTxnId:       balTxnId,
-          stripeConnectedAccountId: connAcct,
-          grossChargeAmount:        grossAmountCents / 100,
-          netAfterFee:              netAmountCents / 100,
-          feeBreakdown:             balTxn.fee_details.map((d: any) => ({
-            type:     d.type,
-            amount:   d.amount / 100,
-            currency: d.currency,
-          })),
-          checkoutSessionId:        charge.metadata?.checkoutSessionId || null,
-          tenantId:                 tenant.id,
+        // Shared with the connected-accounts webhook and the retail order-paid
+        // path — see @/lib/stripe-fees. Deterministic doc id keeps repeats and
+        // concurrent callers from posting the fee twice, and a fee that lands
+        // before its sale row is linked when the sale posts.
+        await recordStripeFeeForCharge({
+          db, stripe: stripe2, tenantId: tenant.id, connAcct, charge,
         });
-
-        // Back-fill net amount on the original revenue transaction for accurate reporting
-        if (charge.metadata?.checkoutSessionId) {
-          const revTxns = await db.collection(`tenants/${tenant.id}/transactions`)
-            .where('checkoutSessionId', '==', charge.metadata.checkoutSessionId)
-            .where('taxBucket', '==', 'revenue')
-            .limit(1).get();
-          if (!revTxns.empty) {
-            await revTxns.docs[0].ref.update({
-              stripeFeeAmountDollars: feeAmountDollars,
-              stripeNetAmountDollars: netAmountCents / 100,
-              stripeChargeId:         charge.id,
-            });
-          }
-        }
-
-        // Also back-fill by stripeChargeId directly (covers deposit/completion
-        // transactions, which set stripeChargeId at creation time rather than
-        // relying on charge.metadata.checkoutSessionId).
-        if (!charge.metadata?.checkoutSessionId) {
-          const revByCharge = await db.collection(`tenants/${tenant.id}/transactions`)
-            .where('stripeChargeId', '==', charge.id)
-            .where('taxBucket', '==', 'revenue')
-            .limit(1).get();
-          if (!revByCharge.empty) {
-            await revByCharge.docs[0].ref.update({
-              stripeFeeAmountDollars: feeAmountDollars,
-              stripeNetAmountDollars: netAmountCents / 100,
-            });
-          }
-        }
-
-        console.log(`[connect-webhook] Fee $${feeAmountDollars.toFixed(2)} recorded for charge ${charge.id} on ${tenant.id}`);
         break;
       }
 

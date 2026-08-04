@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { TERMINAL_STAGES, buildOrderQrValue } from '@/lib/retail-orders';
+import { reconcileRetailOrderPayment } from '@/lib/retail-webhook';
 
 // ─── /api/retail/order-status/route.ts ────────────────────────────────────────
 // GET ?tenantId=...&orderId=...
@@ -44,8 +45,21 @@ export async function GET(req: NextRequest) {
     db.collection('tenants').doc(tenantId).get(),
   ]);
   if (!orderSnap.exists) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-  const order = orderSnap.data() as any;
-  const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
+  let order = orderSnap.data() as any;
+  const tenant = (tenantSnap.exists ? (tenantSnap.data() as any) : {}) || {};
+  const rs = tenant.retailSettings || {};
+
+  // An order still sitting in 'placed' has either not been paid or has been
+  // paid without the webhook landing. Ask Stripe which, and finish the order
+  // here if the money is in — the customer's page is the last line of defence
+  // against a paid order that never reaches the studio. Rate-limited inside.
+  if (order.stage === 'placed' && order.stripeCheckoutSessionId && tenant.stripeAccountId) {
+    const changed = await reconcileRetailOrderPayment(db, tenantId, orderId, order, tenant.stripeAccountId);
+    if (changed) {
+      const fresh = await db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId).get();
+      if (fresh.exists) order = fresh.data() as any;
+    }
+  }
 
   // Queue position — how many active orders entered the queue before this one.
   // Only meaningful while waiting to be picked; skipped otherwise to save reads.
