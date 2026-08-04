@@ -309,8 +309,63 @@ export const InventoryProvider = ({ children }: { children: ReactNode }) => {
 
   const isLoading = inventoryLoading || stockCorrectionsLoading || locationsLoading || locationTypesLoading || billDefinitionsLoading || billInstancesLoading || transactionsLoading || clientsLoading || appointmentsLoading || servicesLoading || staffLoading || walkInsLoading || activityLogsLoading || membershipsLoading || packagesLoading || consentFormsLoading || resourcesLoading || eventsLoading || studioEventsLoading || discountsLoading || reviewsLoading || pricingTiersLoading || scheduleProfilesLoading || checkInsLoading || lifestyleLoading || businessLoading || tillSessionsLoading || subInstancesLoading || redemptionsLoading || refreshmentRequestsLoading || assetUnitsLoading || stationAllocationsLoading || staffReplenishmentRequestsLoading || overflowEventsLoading;
   
+  /*
+   * RENDER ARMOR — a Firestore FieldValue sentinel (or any stray object) that
+   * lands in a numeric/text field will crash React on render ("Objects are
+   * not valid as a React child", minified error #31) and white-screen the
+   * whole page. One malformed field must never take down Inventory, so every
+   * item is normalized on the way out of the context: object-valued scalars
+   * become safe numbers/strings, and the offending item is logged once so it
+   * can be repaired instead of hunted.
+   */
+  const safeInventory = useMemo(() => {
+    const SCALARS = [
+      'totalStock', 'stockReserved', 'costPerUnit', 'msrp', 'size', 'weightOz',
+      'partialContainerSize', 'lowStockThreshold', 'estimatedUses', 'usageCount',
+      'wholesalePriceDollars', 'wholesaleMinQty',
+    ];
+    const TEXT = ['name', 'sku', 'barcode', 'unit', 'type', 'status', 'category', 'videoUrl'];
+    return (inventory || []).map((raw: any) => {
+      if (!raw || typeof raw !== 'object') return raw;
+      let dirty: string[] = [];
+      const item: any = { ...raw };
+      for (const k of SCALARS) {
+        const v = item[k];
+        if (v !== undefined && v !== null && typeof v !== 'number') {
+          const n = Number(v);
+          item[k] = Number.isFinite(n) ? n : 0;
+          if (typeof v === 'object') dirty.push(k);
+        }
+      }
+      for (const k of TEXT) {
+        const v = item[k];
+        if (v !== undefined && v !== null && typeof v !== 'string') {
+          item[k] = typeof v === 'object' ? '' : String(v);
+          if (typeof v === 'object') dirty.push(k);
+        }
+      }
+      if (!Array.isArray(item.batches)) item.batches = [];
+      else {
+        item.batches = item.batches
+          .filter((b: any) => b && typeof b === 'object')
+          .map((b: any) => ({
+            ...b,
+            stock: Number.isFinite(Number(b.stock)) ? Number(b.stock) : 0,
+            costPerUnit: Number.isFinite(Number(b.costPerUnit)) ? Number(b.costPerUnit) : 0,
+            receivedDate: typeof b.receivedDate === 'string' ? b.receivedDate : '',
+          }));
+      }
+      if (!Array.isArray(item.imageUrls)) item.imageUrls = [];
+      else item.imageUrls = item.imageUrls.filter((u: any) => typeof u === 'string' && u.trim() !== '');
+      if (dirty.length > 0 && typeof console !== 'undefined') {
+        console.warn(`[inventory] repaired corrupt field(s) on "${item.name || item.id}" (${item.id}): ${dirty.join(', ')}`);
+      }
+      return item;
+    });
+  }, [inventory]);
+
   const value = {
-    inventory: inventory || [],
+    inventory: safeInventory,
     stockCorrections: stockCorrections || [],
     locations: locations || [],
     locationTypes: locationTypes || [],
