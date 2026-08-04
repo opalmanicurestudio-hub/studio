@@ -63,7 +63,7 @@ function getAdminDb() {
 
 interface CheckoutBody {
   tenantId?: string;
-  items?: { productId?: string; qty?: number }[];
+  items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
   method?: string;
   customer?: { name?: string; email?: string; phone?: string };
   shippingAddress?: ShippingAddress;
@@ -124,6 +124,9 @@ async function handleCheckout(req: NextRequest) {
 
   // Merge duplicate cart rows for the same product
   const qtyByProduct = new Map<string, number>();
+  // Chosen options travel with the cart line; the server re-prices them from
+  // the item document, so what the client sends is a selection, never a price.
+  const selectionsByProduct = new Map<string, Record<string, string>>();
   for (const it of rawItems) {
     const id = String(it.productId || '').trim();
     const qty = Math.floor(Number(it.qty) || 0);
@@ -131,6 +134,9 @@ async function handleCheckout(req: NextRequest) {
       return NextResponse.json({ error: 'Each item needs a productId and positive qty' }, { status: 400 });
     }
     qtyByProduct.set(id, (qtyByProduct.get(id) ?? 0) + qty);
+    if (it.selections && typeof it.selections === 'object' && !selectionsByProduct.has(id)) {
+      selectionsByProduct.set(id, it.selections as Record<string, string>);
+    }
   }
 
   const db = getAdminDb();
@@ -204,7 +210,7 @@ async function handleCheckout(req: NextRequest) {
         { status: 409 }
       );
     }
-    const opts = resolveOptions(item.optionGroups, l.selections);
+    const opts = resolveOptions(item.optionGroups, selectionsByProduct.get(productIds[i]));
     const line = buildOrderLine(item, qty, `line-${nanoid(8)}`, priceTier, opts);
     if (priceTier === 'wholesale' && wsDiscount > 0) {
       line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
