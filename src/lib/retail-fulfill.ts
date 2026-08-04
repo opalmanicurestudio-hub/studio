@@ -664,9 +664,9 @@ export async function cancelOrder(
         claimedBy: null,
         claimedByName: null,
       })));
-      txn.set(doc(collection(orderRef, 'events')), clean(buildEvent('order_cancelled', actor, {
+      txn.set(doc(collection(orderRef, 'events')), evPayload('cancelled', actor, {
         reason: reason || '', pendingRefundCents: pending,
-      })));
+      }));
 
       return {
         ok: true,
