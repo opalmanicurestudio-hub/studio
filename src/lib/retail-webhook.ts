@@ -195,6 +195,105 @@ export async function handleRetailOrderPaid(
 
   await batch.commit();
   console.log(`[connect-webhook] Retail order ${orderId} paid — stock reserved for tenant ${tenantId}`);
+
+  // Confirmation email — the receipt the customer expects within seconds of
+  // paying. Best-effort by design: a mail failure must never roll back a
+  // completed payment, so it runs after the commit and swallows its errors.
+  try {
+    await sendOrderConfirmation(db, tenantId, orderId, order, session);
+  } catch (e: any) {
+    console.error('[connect-webhook] confirmation email failed:', e?.message);
+  }
+}
+
+/**
+ * Order confirmation email (Resend). Pickup/curbside orders get the live
+ * order-page link that carries their QR; shipping orders get the same link,
+ * which fills with tracking the moment a label is bought.
+ */
+async function sendOrderConfirmation(
+  db: any,
+  tenantId: string,
+  orderId: string,
+  order: any,
+  session: any
+): Promise<void> {
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const RESEND_FROM = process.env.RESEND_FROM;
+  const to = String(order.customerEmail || '').trim();
+  if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
+
+  let origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim();
+  try {
+    if (session?.success_url) origin = new URL(String(session.success_url)).origin;
+  } catch {
+    // keep the env fallback
+  }
+  if (!origin) return;
+
+  let shopName = 'Your order';
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    if (tSnap.exists) {
+      const t = tSnap.data() || {};
+      shopName = String(t.businessName || t.name || shopName);
+    }
+  } catch {
+    // name is cosmetic
+  }
+
+  const num = `#${String(order.orderNumber ?? '').padStart(4, '0')}`;
+  const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+  const rows = (order.lines || []).map((l: any) => {
+    const opts = l.optionsLabel ? ` <span style="color:#64748b">(${String(l.optionsLabel)})</span>` : '';
+    return `<tr>
+      <td style="padding:6px 0;font-size:13px;color:#0f172a">${l.qtyOrdered}× ${String(l.name || 'Item')}${opts}</td>
+      <td style="padding:6px 0;font-size:13px;color:#0f172a;text-align:right">${money((l.unitPriceCents || 0) * (l.qtyOrdered || 0))}</td>
+    </tr>`;
+  }).join('');
+
+  const method = String(order.method || 'pickup');
+  const nextStep = method === 'ship'
+    ? 'We\u2019ll email tracking as soon as your package ships.'
+    : method === 'curbside'
+      ? 'We\u2019ll text or email when it\u2019s ready \u2014 tap the link below when you arrive and we\u2019ll bring it out.'
+      : 'We\u2019ll let you know the moment it\u2019s ready for pickup \u2014 your QR code is on the order page.';
+  const pickupNote = order.pickupAt && order.pickupAt !== 'ASAP'
+    ? `<p style="font-size:13px;color:#0f172a">Requested time: <strong>${String(order.pickupAt)}</strong></p>`
+    : '';
+
+  const html = `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:520px;margin:0 auto;padding:8px">
+    <p style="font-size:16px;color:#0f172a"><strong>Thanks${order.customerName ? `, ${String(order.customerName).split(' ')[0]}` : ''}!</strong> Your order ${num} is confirmed.</p>
+    <p style="font-size:13px;color:#64748b">${nextStep}</p>
+    ${pickupNote}
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
+      ${rows}
+    </table>
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="font-size:13px;color:#64748b">Subtotal</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.subtotalCents)}</td></tr>
+      ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
+      ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
+      <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">Total paid</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(session?.amount_total ?? order.totalCents)}</td></tr>
+    </table>
+    <p style="text-align:center;margin:24px 0">
+      <a href="${origin}/shop/${tenantId}/order/${orderId}" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">View my order</a>
+    </p>
+    <p style="font-size:11px;color:#94a3b8;text-align:center">${shopName}</p>
+  </div>`;
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [to],
+      subject: `${shopName} \u2014 order ${num} confirmed`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    console.error('[connect-webhook] Resend rejected confirmation:', (await res.text()).slice(0, 160));
+  }
 }
 
 /**
