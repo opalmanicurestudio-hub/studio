@@ -9,10 +9,19 @@ export default {
   ],
   theme: {
     extend: {
+      // Plus Jakarta Sans ships up to 800. Tailwind's font-black is 900, and a
+      // browser asked for a weight the family doesn't have will SYNTHESIZE it —
+      // smeared, slightly blurry letterforms. Mapping black to the real 800
+      // keeps every font-black label crisp and genuinely heavy.
+      fontWeight: {
+        black: '800',
+      },
       fontFamily: {
-        body: ['Figtree', 'sans-serif'],
-        headline: ['Figtree', 'sans-serif'],
-        code: ['JetBrains Mono', 'monospace'],
+        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        body: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        headline: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        code: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
         background: 'hsl(var(--background))',
