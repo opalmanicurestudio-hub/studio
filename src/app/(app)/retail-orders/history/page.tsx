@@ -45,6 +45,24 @@ const when = (iso?: string | null) => {
   });
 };
 
+/*
+ * Timeline armor: an event written with a malformed field (an object where a
+ * string belongs) crashes React on render and white-screens the whole page.
+ * History is exactly where you look when something already went wrong, so it
+ * renders defensively — bad data shows as text, never as a crash.
+ */
+const safeText = (v: any): string => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try {
+    const o = v as Record<string, any>;
+    return String(o.name ?? o.id ?? o.reason ?? o.text ?? JSON.stringify(v)).slice(0, 80);
+  } catch {
+    return '';
+  }
+};
+
 const EVENT_LABELS: Record<string, string> = {
   placed: 'Order placed', payment_confirmed: 'Payment confirmed', stock_reserved: 'Stock reserved',
   batch_claimed: 'Claimed for picking', batch_released: 'Released back to queue',
@@ -398,12 +416,12 @@ export default function RetailOrderHistoryPage() {
                         </div>
                         <div className="pb-4 min-w-0">
                           <p className="text-xs font-black uppercase tracking-tight">
-                            {EVENT_LABELS[ev.type] || ev.type}
+                            {EVENT_LABELS[safeText(ev.type)] || safeText(ev.type)}
                           </p>
                           <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
-                            {when(ev.at)} · {ev.actorName}
-                            {ev.meta?.reason ? ` · ${ev.meta.reason}` : ''}
-                            {ev.meta?.text ? ` · ${ev.meta.text}` : ''}
+                            {when(ev.at)} · {safeText(ev.actorName)}
+                            {ev.meta?.reason ? ` · ${safeText(ev.meta.reason)}` : ''}
+                            {ev.meta?.text ? ` · ${safeText(ev.meta.text)}` : ''}
                             {ev.meta?.qtyScanned != null ? ` · ${ev.meta.qtyScanned}/${ev.meta.qtyOrdered}` : ''}
                             {ev.meta?.amountCents != null ? ` · ${fmt(Number(ev.meta.amountCents))}` : ''}
                           </p>
