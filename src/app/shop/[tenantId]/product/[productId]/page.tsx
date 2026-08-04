@@ -221,6 +221,32 @@ export default function ProductPage() {
             )}
           </div>
 
+          {(product.optionGroups || []).length > 0 && (
+            <div className="space-y-3">
+              {(product.optionGroups || []).map((g) => (
+                <div key={g.id} className="space-y-1.5">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{g.name}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(g.choices || []).map((c) => {
+                      const active = (selections[g.id] || g.choices[0]?.id) === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setSelections({ ...selections, [g.id]: c.id })}
+                          className={cn('h-10 px-3.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
+                            active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}
+                        >
+                          {c.label}{c.deltaCents ? ` +$${(c.deltaCents / 100).toFixed(2)}` : ''}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 rounded-2xl border-2 p-1.5 bg-white">
               <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => stepQty(-1)}>
@@ -295,25 +321,4 @@ export default function ProductPage() {
       </main>
     </div>
   );
-}              {(product.optionGroups || []).length > 0 && (
-                <div className="space-y-2 mb-3">
-                  {(product.optionGroups || []).map((g) => (
-                    <div key={g.id} className="space-y-1">
-                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{g.name}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {g.choices.map((c) => {
-                          const active = (selections[g.id] || g.choices[0]?.id) === c.id;
-                          return (
-                            <button key={c.id} type="button"
-                              onClick={() => setSelections({ ...selections, [g.id]: c.id })}
-                              className={cn('h-9 px-3 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
-                                active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
-                              {c.label}{c.deltaCents ? ` +$${(c.deltaCents / 100).toFixed(2)}` : ''}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+}
