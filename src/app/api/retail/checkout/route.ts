@@ -352,6 +352,11 @@ async function handleCheckout(req: NextRequest) {
         payment_intent_data: {
           metadata: { type: 'retail_order', retailOrderId: orderId, tenantId },
         },
+        // Abandoned carts shouldn't haunt the board for a day. 30 minutes is
+        // Stripe's minimum session lifetime and matches the cart hold, so the
+        // expired-session webhook closes unpaid orders while the shopper is
+        // still in the same session of their life.
+        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
         success_url: `${origin}/shop/${tenantId}/order/${orderId}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/shop/${tenantId}?canceled=1`,
       },
