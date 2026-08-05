@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem } from '@/lib/retail-orders';
+import { publicDescription, collectImages } from '@/lib/product-public';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 
@@ -70,8 +71,8 @@ export async function GET(req: NextRequest) {
         id: item.id,
         name: String(item.name || '').trim() || 'Item',
         category: String(item.category || '') || 'General',
-        description: String(item.onlineDescription || ''),
-        imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.filter(Boolean) : [],
+        description: publicDescription(item).slice(0, 300),
+        imageUrls: collectImages(item),
         optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
         priceCents: listingPriceCents(item, 'retail'),
         wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
