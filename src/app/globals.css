@@ -13,35 +13,43 @@ h1, h2, h3, h4, h5, h6 {
 
 @layer base {
   :root {
-    /* PRD Colors: Primary #7955c4, Background #f0f0f5, Accent #4db6ac */
-    --background: 240 15% 96%; /* #f0f0f5 */
-    --foreground: 224 71.4% 4.1%;
+    /* INK — near-black does every job; nothing competes with product photos.
+       True #000 is avoided on purpose: it vibrates on bright screens and
+       makes small type harder to read. */
+    --background: 240 6% 97%;        /* #f7f7f8 cool white */
+    --foreground: 225 8% 9%;         /* #16171a ink */
     --card: 0 0% 100%;
-    --card-foreground: 224 71.4% 4.1%;
+    --card-foreground: 225 8% 9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71.4% 4.1%;
-    --primary: 259 50% 55%; /* #7955c4 */
-    --primary-foreground: 210 20% 98%;
-    --secondary: 240 10% 90%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 240 10% 92%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 174 42% 51%; /* #4db6ac */
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 10% 88%;
-    --input: 240 10% 88%;
-    --ring: 259 50% 55%;
-    --radius: 1.5rem;
+    --popover-foreground: 225 8% 9%;
+    --primary: 225 8% 9%;            /* buttons, active states, focus */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 5% 94%;
+    --secondary-foreground: 225 8% 9%;
+    --muted: 240 5% 95%;
+    --muted-foreground: 225 4% 45%;  /* #6d7075 */
+    --accent: 240 5% 94%;
+    --accent-foreground: 225 8% 9%;
+    --destructive: 4 62% 46%;        /* desaturated — still unmistakable */
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 5% 90%;            /* #e6e6e8 */
+    --input: 240 5% 90%;
+    --ring: 225 8% 9%;
+    --radius: 1.25rem;
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 224 71.4% 4.1%;
-    --sidebar-primary: 259 50% 55%;
-    --sidebar-primary-foreground: 210 20% 98%;
-    --sidebar-accent: 240 10% 96%;
-    --sidebar-accent-foreground: 222.2 47.4% 11.2%;
-    --sidebar-border: 240 10% 92%;
-    --sidebar-ring: 259 50% 55%;
+    --sidebar-foreground: 225 8% 9%;
+    --sidebar-primary: 225 8% 9%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 96%;
+    --sidebar-accent-foreground: 225 8% 9%;
+    --sidebar-border: 240 5% 92%;
+    --sidebar-ring: 225 8% 9%;
+
+    /* glass */
+    --glass-surface: 255 255 255;
+    --glass-card: 0.42;
+    --glass-panel: 0.86;
+    --glass-blur: 26px;
   }
 
   .dark {
@@ -51,7 +59,7 @@ h1, h2, h3, h4, h5, h6 {
     --card-foreground: 210 20% 90%;
     --popover: 220 15% 15%;
     --popover-foreground: 210 20% 90%;
-    --primary: 259 50% 55%;
+    --primary: 0 0% 96%;
     --primary-foreground: 210 20% 98%;
     --secondary: 220 15% 20%;
     --secondary-foreground: 210 20% 90%;
@@ -63,15 +71,15 @@ h1, h2, h3, h4, h5, h6 {
     --destructive-foreground: 0 0% 100%;
     --border: 220 15% 20%;
     --input: 220 15% 25%;
-    --ring: 259 50% 55%;
+    --ring: 0 0% 80%;
     --sidebar-background: 220 15% 12%;
     --sidebar-foreground: 210 20% 90%;
-    --sidebar-primary: 259 50% 55%;
+    --sidebar-primary: 0 0% 96%;
     --sidebar-primary-foreground: 210 20% 98%;
     --sidebar-accent: 220 15% 20%;
     --sidebar-accent-foreground: 210 20% 90%;
     --sidebar-border: 220 15% 20%;
-    --sidebar-ring: 259 50% 55%;
+    --sidebar-ring: 0 0% 80%;
   }
 }
 
@@ -174,4 +182,65 @@ h1, h2, h3, h4, h5, h6 {
   .uppercase { text-transform: uppercase; }
   .font-black { font-weight: 800; }
   .border-2 { border-width: 2px; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * GLASS
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Blur only reads against something, so the page carries a soft fixed tint
+ * for surfaces to catch. Cards float at 42% opacity; anything you must read
+ * while something else is behind it — dialogs, sheets, popovers, menus —
+ * stays near-solid, because a translucent dialog over a busy board is a
+ * legibility bill you pay every day. Print is forced solid.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+body {
+  background-image:
+    radial-gradient(120% 80% at 8% -5%, hsl(240 12% 91%) 0%, transparent 55%),
+    radial-gradient(100% 70% at 100% 0%, hsl(225 14% 93%) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+@layer utilities {
+  /* floating surfaces */
+  .bg-white,
+  .bg-card {
+    background-color: rgb(var(--glass-surface) / var(--glass-card));
+    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  }
+
+  /* things you read ON TOP of other things stay legible */
+  [role="dialog"] .bg-white,
+  [role="dialog"] .bg-card,
+  [data-radix-popper-content-wrapper] .bg-white,
+  .bg-popover,
+  .bg-background {
+    background-color: rgb(var(--glass-surface) / var(--glass-panel));
+    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  }
+
+  /* opt-in helper for anything new */
+  .glass {
+    background-color: rgb(var(--glass-surface) / var(--glass-card));
+    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    border: 1px solid rgb(255 255 255 / 0.6);
+  }
+}
+
+/* Devices that can't blur get solid surfaces instead of murky ones. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bg-white, .bg-card, .glass { background-color: rgb(var(--glass-surface) / 0.96); }
+}
+
+@media print {
+  body { background-image: none; }
+  .bg-white, .bg-card, .bg-background, .glass {
+    background-color: #ffffff;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
