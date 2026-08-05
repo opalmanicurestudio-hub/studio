@@ -13,8 +13,15 @@ export default {
       // browser asked for a weight the family doesn't have will SYNTHESIZE it —
       // smeared, slightly blurry letterforms. Mapping black to the real 800
       // keeps every font-black label crisp and genuinely heavy.
+      // Atelier: words go quiet, numerals stay loud. font-black is remapped
+      // rather than removed so every existing class keeps working — and the
+      // numeral utility below is what money and counts should carry.
       fontWeight: {
-        black: '800',
+        black: '500',
+        extrabold: '500',
+        bold: '500',
+        semibold: '500',
+        numeral: '700',
       },
       fontFamily: {
         sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
