@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
-import { verifyQuote } from '@/app/api/retail/shipping-quote/route';
+import { verifyQuote } from '@/lib/shipping-quote';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import {
