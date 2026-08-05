@@ -116,3 +116,62 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ATELIER — editorial lowercase
+ * ═══════════════════════════════════════════════════════════════════════════
+ * The whole interface softens from one place instead of a thousand class
+ * edits: micro-labels drop to lowercase mono at a light weight, headings sit
+ * large and calm, borders thin out, corners tighten. Two rules never bend —
+ * numerals stay heavy and tabular (money and counts are data, not
+ * decoration), and print output is untouched, because label printers and
+ * packing slips need their shouty uppercase.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  /* Micro-labels: the uppercase + wide-tracking pattern used app-wide becomes
+     lowercase mono — the single biggest change in feel. */
+  .uppercase {
+    text-transform: lowercase;
+  }
+
+  .tracking-widest {
+    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    letter-spacing: 0.1em;
+  }
+
+  /* Weight: hierarchy now comes from size, case and colour rather than mass. */
+  .font-black { font-weight: 500; }
+  .font-extrabold { font-weight: 500; }
+  .font-bold { font-weight: 500; }
+  .font-semibold { font-weight: 500; }
+
+  /* Numerals: mono bold, tabular so columns line up and totals stop dancing. */
+  .font-mono {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* Structure: thinner rules, tighter corners. */
+  .border-2 { border-width: 1px; }
+  .rounded-\[2rem\] { border-radius: 1.25rem; }
+  .rounded-\[2\.5rem\] { border-radius: 1.5rem; }
+}
+
+/* Headings breathe: larger, lighter, tighter tracking. */
+@layer base {
+  h1, h2, h3 {
+    font-weight: 400;
+    letter-spacing: -0.03em;
+  }
+}
+
+/* Print keeps its voice — receipts, packing slips and product labels are
+   scanned by machines and read across a room. */
+@media print {
+  .uppercase { text-transform: uppercase; }
+  .font-black { font-weight: 800; }
+  .border-2 { border-width: 2px; }
+}
