@@ -86,6 +86,9 @@ export default async function PrintCatalogPage({
 
   const categories = [...new Set(items.map((i) => i.category))];
   const printed = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const contact = [tenant.phone, tenant.email, tenant.website, tenant.address]
+    .map((v: any) => String(v || '').trim())
+    .filter(Boolean);
 
   if (items.length === 0) {
     return <p style={{ fontFamily: 'sans-serif', padding: 40 }}>No published products to print yet.</p>;
@@ -94,6 +97,7 @@ export default async function PrintCatalogPage({
   return (
     <html lang="en">
       <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{`${shopName} — ${wholesale ? 'Line sheet' : 'Catalog'}`}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
@@ -135,7 +139,32 @@ export default async function PrintCatalogPage({
           .bar { position: sticky; top: 0; background: #fff; padding: 10px 0 14px; display: flex; gap: 8px; }
           .bar button, .bar a { font-family: inherit; font-size: 12px; font-weight: 600; padding: 9px 14px; border-radius: 10px; border: 1px solid #16171a; background: #16171a; color: #fff; cursor: pointer; text-decoration: none; }
           .bar a.alt { background: #fff; color: #16171a; }
-          @media print { .bar { display: none; } }
+          .cat .count { float: right; color: #6d7075; font-size: 10px; }
+          .terms { margin-top: 18px; padding: 10px 12px; border: 1px solid #e6e6e8; border-radius: 10px; font-size: 10px; line-height: 1.5; color: #16171a; }
+
+          /* Screen on a phone: three across is unreadable, and the toolbar
+             needs to wrap. Print keeps the three-up sheet either way. */
+          @media screen and (max-width: 680px) {
+            body { padding: 0 14px; }
+            .grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+            .cover { flex-wrap: wrap; gap: 10px; }
+            .cover h1 { font-size: 21px; }
+            .cover .meta { margin-left: 0; width: 100%; text-align: left; }
+            .bar { flex-wrap: wrap; }
+            .bar button, .bar a { flex: 1 1 auto; text-align: center; }
+            .nm { font-size: 12px; }
+            .qr { width: 40px; height: 40px; }
+          }
+          @media screen and (max-width: 380px) {
+            .grid { grid-template-columns: 1fr; }
+          }
+
+          @media print {
+            .bar { display: none; }
+            .grid { grid-template-columns: repeat(3, 1fr); }
+            .cat { break-after: avoid; page-break-after: avoid; }
+            .sheet { padding-bottom: 0; }
+          }
         `}</style>
       </head>
       <body>
@@ -160,16 +189,20 @@ export default async function PrintCatalogPage({
               {printed}
               <br />
               {items.length} products
+              {contact.length > 0 ? <><br />{contact.join(' · ')}</> : null}
             </div>
           </div>
 
           {categories.map((c) => (
             <section key={c}>
-              <p className="cat">{c.toLowerCase()}</p>
+              <p className="cat">
+                {c.toLowerCase()}
+                <span className="count">{items.filter((i) => i.category === c).length}</span>
+              </p>
               <div className="grid">
                 {items.filter((i) => i.category === c).map((i) => (
                   <div className="item" key={i.id}>
-                    {i.image ? <img className="ph" src={i.image} alt={i.name} /> : <div className="ph-empty" />}
+                    {i.image ? <img className="ph" src={i.image} alt={i.name} loading="lazy" decoding="async" /> : <div className="ph-empty" />}
                     <p className="nm">{i.name}</p>
                     {i.size ? <p className="ds">{i.size}</p> : null}
                     {i.description ? <p className="ds">{i.description}</p> : null}
@@ -186,6 +219,13 @@ export default async function PrintCatalogPage({
               </div>
             </section>
           ))}
+
+          {wholesale ? (
+            <p className="terms">
+              to order: scan an item&rsquo;s code, or send this sheet back with quantities marked.
+              prices are wholesale and exclude shipping and tax. minimums shown per item.
+            </p>
+          ) : null}
 
           <div className="foot">
             <span>{shopName}</span>
