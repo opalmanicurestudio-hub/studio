@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem,
 } from '@/lib/retail-orders';
+import { publicFields } from '@/lib/product-public';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 
 // ─── /api/retail/product/route.ts ─────────────────────────────────────────────
@@ -53,6 +54,10 @@ export async function GET(req: NextRequest) {
   const tenant = tenantSnap.data() as any;
   const rs = tenant.retailSettings || {};
   const item = { id: itemSnap.id, ...itemSnap.data() } as SellableItem;
+  // Inventory and Shop Settings write different field names for the same
+  // things; publicFields() merges them so a product detailed on either screen
+  // shows up complete online.
+  const pub = publicFields(item);
 
   if (!isStorefrontVisible(item)) {
     return NextResponse.json({ error: 'Product not available' }, { status: 404 });
@@ -66,9 +71,9 @@ export async function GET(req: NextRequest) {
   const wsDiscount = wsAccess.account?.extraDiscountPercent || 0;
 
   const available = Math.max(0, sellableStock(item));
-  const specs = Array.isArray(item.specs)
-    ? item.specs.filter((s: any) => s && s.label && s.value).slice(0, 40)
-    : [];
+  // publicSpecs() also surfaces the inventory size/unit as a Size row, so an
+  // item detailed only in Inventory still has real specs on its page.
+  const specs = pub.specs.filter((s) => s.label && s.value).slice(0, 40);
   const documents = Array.isArray(item.documents)
     ? item.documents.filter((d: any) => d && d.name && /^https?:\/\//i.test(String(d.url || ''))).slice(0, 20)
     : [];
@@ -85,13 +90,13 @@ export async function GET(req: NextRequest) {
       name: item.name,
       category: item.category || 'General',
       sku: item.sku || '',
-      description: item.onlineDescription || '',
-      howToUse: (item.howToUse || '').trim(),
+      description: pub.description,
+      howToUse: pub.howToUse.trim(),
       specs,
       documents,
-      imageUrls: Array.isArray(item.imageUrls) ? item.imageUrls.filter(Boolean).slice(0, 10) : [],
+      imageUrls: pub.images.slice(0, 10),
       optionGroups: Array.isArray(item.optionGroups) ? item.optionGroups : [],
-      videoUrl: typeof item.videoUrl === 'string' ? item.videoUrl : '',
+      videoUrl: pub.videoUrl,
       priceCents: listingPriceCents(item, 'retail'),
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
