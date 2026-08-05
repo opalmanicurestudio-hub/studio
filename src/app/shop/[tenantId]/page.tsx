@@ -25,6 +25,7 @@ import {
   readWholesaleCode, touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
 import { ShopSectionsRenderer, type ShopPageConfig } from '@/lib/shop-sections';
+import { ShopMenu } from '@/components/shop/ShopMenu';
 import { cn } from '@/lib/utils';
 
 // ─── /shop/[tenantId]/page.tsx ────────────────────────────────────────────────
@@ -381,6 +382,11 @@ export default function ShopPage() {
     <div className="min-h-dvh bg-muted/5 pb-32">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
+          <ShopMenu
+            tenantId={tenantId}
+            shopName={shop.name}
+            categories={[...new Set(products.map((p) => p.category).filter(Boolean))].sort()}
+          />
           {shop.logoUrl ? (
             <Image src={shop.logoUrl} alt="" width={40} height={40} className="rounded-xl border-2 object-cover" />
           ) : (
@@ -392,7 +398,15 @@ export default function ShopPage() {
             <h1 className="font-black uppercase tracking-tighter text-lg leading-none truncate">{shop.name}</h1>
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">{shop.tagline || 'Shop'}</p>
           </div>
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="h-9 rounded-xl border-2 font-black uppercase text-[11px] tracking-widest hidden sm:inline-flex"
+          >
+            <Link href={`/shop/${tenantId}/catalog`}>All products</Link>
+          </Button>
+          <Button asChild variant="ghost" size="icon" aria-label="Your account" className="h-10 w-10 rounded-xl">
             <Link href={`/shop/${tenantId}/account`}><CircleUserRound className="h-5 w-5" /></Link>
           </Button>
           {shop.wholesaleOffered && !wholesale && (
