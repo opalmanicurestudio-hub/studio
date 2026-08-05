@@ -80,3 +80,27 @@ export function publicFields(item: any): PublicProductFields {
     sizeLabel: item?.size ? `${item.size}${item?.unit ? ` ${item.unit}` : ''}` : '',
   };
 }
+
+
+/**
+ * WRITE side of the same bridge. Inventory forms collect `imageUrl` and
+ * `description`; the storefront reads `imageUrls` and `onlineDescription`.
+ * Passing every inventory save through here keeps both in step from now on,
+ * without making anyone re-enter what they already typed.
+ *
+ * Rules: never overwrite shop copy that already exists (someone wrote it
+ * deliberately for customers), never drop images already in the list, and
+ * never invent values for empty fields.
+ */
+export function syncPublicFields<T extends Record<string, any>>(item: T): T {
+  const next: Record<string, any> = { ...item };
+
+  const merged = collectImages(item);
+  if (merged.length > 0) next.imageUrls = merged;
+
+  const online = typeof item.onlineDescription === 'string' ? item.onlineDescription.trim() : '';
+  const base = typeof item.description === 'string' ? item.description.trim() : '';
+  if (!online && base) next.onlineDescription = base;
+
+  return next as T;
+}
