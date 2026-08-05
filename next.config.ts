@@ -34,6 +34,28 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      // Uploaded product photos live in Firebase Storage. next/image refuses
+      // to optimize a host that isn't listed here and answers 400 instead —
+      // which is why every uploaded image rendered as a broken icon while
+      // stock/demo images kept working.
+      {
+        protocol: 'https',
+        hostname: 'firebasestorage.googleapis.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'storage.googleapis.com',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
 };
