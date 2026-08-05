@@ -244,3 +244,88 @@ body {
     -webkit-backdrop-filter: none;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ACCESSIBILITY (WCAG 2.1 AA)
+ * ═══════════════════════════════════════════════════════════════════════════
+ * App-wide fixes that no component has to know about. The type-size floor is
+ * the big one: the design leans on 8-10px micro-labels in thousands of
+ * places, and small grey text is the single most common real-world barrier —
+ * for aging eyes, in a bright salon, on a phone held at arm's length.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  /* Type-size floor. 11px minimum for labels, 12px for anything conveying
+     content. Tracking is relaxed slightly since tight tracking at small
+     sizes is its own legibility tax. */
+  .text-\[8px\]  { font-size: 11px; letter-spacing: 0.08em; }
+  .text-\[9px\]  { font-size: 11px; letter-spacing: 0.08em; }
+  .text-\[10px\] { font-size: 12px; }
+  .text-\[11px\] { font-size: 12px; }
+
+  /* Opacity below ~60% on grey text drops under the AA contrast line. */
+  .opacity-30, .opacity-40, .opacity-50 { opacity: 0.65; }
+}
+
+/* Keyboard focus must always be visible — several shadcn variants strip it. */
+:where(a, button, input, select, textarea, [role="button"], [tabindex]):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Skip link: invisible until tabbed to, then unmissable. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+}
+.skip-link:focus {
+  left: 1rem;
+  top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Touch targets: 44x44 is the practical floor on a phone. Icon buttons in a
+   dense toolbar keep their visual size but grow their hit area. */
+@media (pointer: coarse) {
+  button, [role="button"], a[href], summary {
+    min-height: 36px;
+  }
+  button.h-6, button.h-7, button.h-8, .h-8[role="button"] {
+    position: relative;
+  }
+  button.h-6::after, button.h-7::after, button.h-8::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+/* Motion: respect the system setting everywhere, not per-component. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Windows high-contrast / forced-colors: glass and blur disappear there, so
+   surfaces need real borders to stay distinguishable. */
+@media (forced-colors: active) {
+  .bg-white, .bg-card, .glass {
+    background-color: Canvas;
+    backdrop-filter: none;
+    border: 1px solid CanvasText;
+  }
+  :where(a, button):focus-visible { outline: 2px solid Highlight; }
+}
