@@ -127,7 +127,7 @@ export default function ProductDetailPage() {
         if (!firestore || !tenantId) return;
         const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', updatedProduct.id);
         updateDocumentNonBlocking(itemRef, updatedProduct);
-        toast({ title: "Dossier Synchronized", description: "Record updates committed to ledger." });
+        toast({ title: "Saved", description: "Your changes are saved." });
         setIsEditDialogOpen(false);
     };
     
@@ -250,17 +250,17 @@ export default function ProductDetailPage() {
 
     return (
         <div className="flex min-h-screen w-full flex-col bg-slate-50/50 overflow-x-hidden">
-            <AppHeader title="Product Dossier" />
+            <AppHeader title="Product" />
             <main className="flex-1 p-4 sm:p-6 md:p-10 space-y-8 md:space-y-10 w-full max-w-7xl mx-auto min-w-0 text-left">
                 
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
                     <div className="space-y-1 text-left">
-                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Product Record</h1>
-                        <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Asset definition & usage matrix</p>
+                        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none text-left">Product</h1>
+                        <p className="text-[10px] md:text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60 text-left">Product details</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
-                        <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/inventory" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Return</Link></Button>
-                        <Button size="sm" className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20" onClick={() => setIsEditDialogOpen(true)}><Edit className="h-4 w-4 mr-2" />Modify</Button>
+                        <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-white/50 backdrop-blur-sm shadow-sm"><Link href="/inventory" className="flex items-center"><ArrowLeft className="h-4 w-4 mr-2" />Back</Link></Button>
+                        <Button size="sm" className="flex-1 sm:flex-none h-12 px-4 md:px-6 rounded-2xl shadow-xl font-black uppercase text-[10px] tracking-widest shadow-primary/20" onClick={() => setIsEditDialogOpen(true)}><Edit className="h-4 w-4 mr-2" />Edit</Button>
                     </div>
                 </div>
 
@@ -268,8 +268,8 @@ export default function ProductDetailPage() {
                     <CardContent className="p-6 md:p-12 flex flex-col sm:flex-row items-center sm:items-start text-center sm:text-left gap-6 md:gap-12">
                         <div className="relative shrink-0">
                             <div className="w-32 h-32 md:w-48 md:h-48 rounded-[2rem] md:rounded-[3rem] overflow-hidden border-4 border-white shadow-2xl bg-muted/20 relative flex items-center justify-center">
-                                {product.imageUrl ? (
-                                    <Image src={product.imageUrl} alt={product.name} fill className='object-cover transition-transform duration-700' />
+                                {collectImages(product)[0] ? (
+                                    <Image src={collectImages(product)[0]} alt={product.name} fill className='object-cover transition-transform duration-700' />
                                 ) : (
                                     <Package className="w-16 h-16 md:w-24 md:h-24 text-muted-foreground/30" />
                                 )}
@@ -291,18 +291,18 @@ export default function ProductDetailPage() {
                             
                             <div className="flex flex-wrap justify-center sm:justify-start gap-x-10 gap-y-4 pt-2 text-left">
                                 <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Verified SKU</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">SKU</p>
                                     <p className="text-base md:text-xl font-black font-mono tracking-tighter text-primary text-left">{product.sku || product.id.slice(-6).toUpperCase()}</p>
                                 </div>
                                 <div className="space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Vendor Origin</p>
-                                    <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700 text-left">{product.supplier || 'Private Stock'}</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Supplier</p>
+                                    <p className="text-base md:text-xl font-black uppercase tracking-tight text-slate-700 text-left">{product.supplier || 'In-house'}</p>
                                 </div>
                             </div>
 
                             {product.description && (
                                 <div className="pt-4 space-y-1 text-left">
-                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Operational Context</p>
+                                    <p className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 text-left">Notes</p>
                                     <p className="text-xs md:text-sm font-medium text-slate-600 leading-relaxed italic border-l-4 border-primary/20 pl-4 text-left">
                                         "{product.description}"
                                     </p>
@@ -313,12 +313,12 @@ export default function ProductDetailPage() {
                                 <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm" onClick={() => {
                                     setQrModalContent({
                                         url: `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(`clarityflow://product/${product.id}`)}`,
-                                        alt: `Internal QR for ${product.name}`,
+                                        alt: `QR code for ${product.name}`,
                                         title: 'Internal Asset Code'
                                     });
                                     setIsQrModalOpen(true);
                                 }}>
-                                    <QrCode className="mr-2 h-3.5 w-3.5" /> Internal QR
+                                    <QrCode className="mr-2 h-3.5 w-3.5" /> QR code
                                 </Button>
                                 {product.supplierUrl && (
                                     <Button variant="outline" size="sm" className="h-9 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest bg-white shadow-sm" onClick={() => window.open(product.supplierUrl, '_blank')}>
@@ -552,7 +552,7 @@ export default function ProductDetailPage() {
                                                         <div className="space-y-1 text-left">
                                                             <CardTitle className="text-xs md:text-sm font-black uppercase tracking-widest flex items-center gap-3 text-left">
                                                                 <ImageIcon className="w-4 h-4 text-primary opacity-40" />
-                                                                Verified Brand Label
+                                                                Product label
                                                             </CardTitle>
                                                             <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60 text-left">Master asset for print production.</p>
                                                         </div>
