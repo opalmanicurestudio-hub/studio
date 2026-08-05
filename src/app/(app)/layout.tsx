@@ -41,8 +41,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (isSubscriptionPage || isBookingPage) {
     return (
       <AuthGuard>
+        <a href="#main" className="skip-link">Skip to content</a>
         <div className="bg-muted/40">
-          {children}
+          <main id="main">{children}</main>
         </div>
       </AuthGuard>
     );
@@ -56,11 +57,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // meaningful once AuthGuard has already let the request through.
   return (
     <AuthGuard>
+      <a href="#main" className="skip-link">Skip to content</a>
       <TenantProvider>
         <LocationProvider>
           <SidebarProvider>
             <AppSidebar />
-            <SidebarInset>{children}</SidebarInset>
+            <SidebarInset>
+              <main id="main">{children}</main>
+            </SidebarInset>
           </SidebarProvider>
         </LocationProvider>
       </TenantProvider>
