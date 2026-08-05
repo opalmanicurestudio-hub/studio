@@ -115,14 +115,37 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
  * Hook to access core Firebase services and user authentication state.
  * Throws error if core services are not available or used outside provider.
  */
+/*
+ * During `next build`, every page is pre-rendered on a machine with no
+ * Firebase credentials and no browser. Throwing there kills the whole build
+ * ("Error occurred prerendering page /_not-found"), which is a deployment
+ * outage caused by a page nobody was even visiting. So on the server the
+ * hook hands back empty services and lets the tree render a static shell;
+ * in the browser — where a missing provider is a real bug — it still throws
+ * loudly. Consumers already guard with `if (!firestore) return;` before
+ * touching data, which is why this is safe rather than merely quiet.
+ */
+const SSR_FALLBACK = {
+  firebaseApp: null,
+  firestore: null,
+  auth: null,
+  user: null,
+  isUserLoading: false,
+  userError: null,
+} as unknown as FirebaseServicesAndUser;
+
+const isServer = typeof window === 'undefined';
+
 export const useFirebase = (): FirebaseServicesAndUser => {
   const context = useContext(FirebaseContext);
 
   if (context === undefined) {
+    if (isServer) return SSR_FALLBACK;
     throw new Error('useFirebase must be used within a FirebaseProvider.');
   }
 
   if (!context.areServicesAvailable || !context.firebaseApp || !context.firestore || !context.auth) {
+    if (isServer) return SSR_FALLBACK;
     throw new Error('Firebase core services not available. Check FirebaseProvider props.');
   }
 
