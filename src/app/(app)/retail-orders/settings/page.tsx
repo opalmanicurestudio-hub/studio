@@ -147,6 +147,29 @@ export default function RetailSettingsPage() {
   );
   const liveCount = retailItems.filter((i: any) => i.showOnline === true && (i.msrp ?? 0) > 0).length;
 
+  /*
+   * Catalog health: "is my shop presentable?" answered on one screen instead
+   * of by scrolling the storefront hoping nothing looks broken. Only live
+   * items count — a draft with no photo is fine, a published one is not.
+   * Images read from BOTH field families, so a photo added in Inventory
+   * counts here exactly as it does online.
+   */
+  const health = useMemo(() => {
+    const live = retailItems.filter((i: any) => i.showOnline === true);
+    const hasImage = (i: any) =>
+      (Array.isArray(i.imageUrls) && i.imageUrls.some((u: any) => typeof u === 'string' && u.trim()))
+      || (typeof i.imageUrl === 'string' && i.imageUrl.trim());
+    const hasCopy = (i: any) =>
+      String(i.onlineDescription || '').trim().length > 0 || String(i.description || '').trim().length > 0;
+    return {
+      live,
+      noImage: live.filter((i: any) => !hasImage(i)),
+      noCopy: live.filter((i: any) => !hasCopy(i)),
+      noPrice: live.filter((i: any) => !((i.msrp ?? 0) > 0)),
+      noCategory: live.filter((i: any) => !String(i.category || '').trim()),
+    };
+  }, [retailItems]);
+
   const saveSettings = async () => {
     if (!firestore || !tenantId || saving) return;
     setSaving(true);
@@ -576,6 +599,75 @@ export default function RetailSettingsPage() {
               <Switch checked={rs.wholesaleTaxExempt === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Printer className="w-4 h-4 text-primary shrink-0" />
+              <p className="text-[11px] font-black uppercase tracking-widest">Catalog health &amp; printing</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { n: health.live.length, label: 'live online', tone: 'ok' },
+                { n: health.noImage.length, label: 'missing photo', tone: 'warn' },
+                { n: health.noCopy.length, label: 'missing description', tone: 'warn' },
+                { n: health.noPrice.length, label: 'missing price', tone: 'bad' },
+              ].map((s2) => (
+                <div
+                  key={s2.label}
+                  className={cn(
+                    'rounded-2xl border-2 p-3',
+                    s2.tone === 'ok' && 'bg-muted/20',
+                    s2.tone === 'warn' && s2.n > 0 && 'border-amber-200 bg-amber-50',
+                    s2.tone === 'bad' && s2.n > 0 && 'border-destructive/30 bg-destructive/5'
+                  )}
+                >
+                  <p className="font-mono text-xl font-bold leading-none">{s2.n}</p>
+                  <p className="mt-1 text-[11px] font-black uppercase tracking-widest text-muted-foreground">{s2.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {(health.noImage.length > 0 || health.noCopy.length > 0 || health.noPrice.length > 0) && (
+              <div className="rounded-2xl border-2 border-dashed p-3 space-y-1.5">
+                <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Needs attention</p>
+                {[...new Set([...health.noPrice, ...health.noImage, ...health.noCopy])].slice(0, 8).map((i: any) => (
+                  <p key={i.id} className="text-xs font-bold">
+                    {i.name}
+                    <span className="ml-2 font-mono text-[11px] font-normal text-muted-foreground">
+                      {[
+                        !((i.msrp ?? 0) > 0) ? 'price' : '',
+                        !(Array.isArray(i.imageUrls) && i.imageUrls.length) && !i.imageUrl ? 'photo' : '',
+                        !String(i.onlineDescription || i.description || '').trim() ? 'description' : '',
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  </p>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                onClick={() => window.open(`/print/catalog/${tenantId}`, '_blank')}
+                className="h-11 rounded-xl border-2 font-black uppercase text-[11px] tracking-widest"
+              >
+                Print catalog
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => window.open(`/print/catalog/${tenantId}?tier=wholesale`, '_blank')}
+                className="h-11 rounded-xl border-2 font-black uppercase text-[11px] tracking-widest"
+              >
+                Line sheet
+              </Button>
+            </div>
+            <p className="text-[11px] font-bold text-muted-foreground">
+              Opens a printable catalog of everything live — print it, or save as PDF to email a stockist.
+            </p>
           </CardContent>
         </Card>
 
