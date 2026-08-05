@@ -41,7 +41,7 @@ import { cn } from '@/lib/utils';
 // "@types/qrcode": "^1.5.5" in devDependencies to package.json.
 
 interface StatusLine {
-  lineId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyReturned?: number;
+  lineId?: string; productId?: string; name: string; qtyOrdered: number; qtyShorted: number; qtyReturned?: number;
   unitPriceCents: number; status: string;
 }
 interface StatusOrder {
@@ -89,6 +89,12 @@ export default function OrderStatusPage() {
   const [retNotes, setRetNotes] = useState('');
   const [retSending, setRetSending] = useState(false);
   const [retDone, setRetDone] = useState(false);
+  const [revLine, setRevLine] = useState<string | null>(null);
+  const [revRating, setRevRating] = useState(5);
+  const [revTitle, setRevTitle] = useState('');
+  const [revBody, setRevBody] = useState('');
+  const [revSending, setRevSending] = useState(false);
+  const [revDone, setRevDone] = useState<Record<string, boolean>>({});
   const activeRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -196,6 +202,32 @@ export default function OrderStatusPage() {
       toast({ variant: 'destructive', title: 'Could not cancel', description: e?.message });
     } finally {
       setCancelBusy(false);
+    }
+  };
+
+  const submitReview = async (productId: string) => {
+    if (!qrValue || revSending) return;
+    setRevSending(true);
+    try {
+      const res = await fetch('/api/retail/reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId, orderId, productId,
+          qrToken: qrValue ? qrValue.split('order/')[1] : '',
+          rating: revRating, title: revTitle.trim(), body: revBody.trim(),
+          name: order?.customerName || '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not save your review');
+      setRevDone({ ...revDone, [productId]: true });
+      setRevLine(null); setRevTitle(''); setRevBody(''); setRevRating(5);
+      toast({ title: 'Thank you', description: data.message });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not post that', description: e?.message });
+    } finally {
+      setRevSending(false);
     }
   };
 
@@ -630,6 +662,94 @@ export default function OrderStatusPage() {
           >
             {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : 'Cancel this order'}
           </Button>
+        )}
+
+        {qrValue && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-5 space-y-3">
+              <p className="text-[11px] font-black uppercase tracking-widest">How did it go?</p>
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Your review helps the next person decide — and only people who actually bought it can leave one.
+              </p>
+              {order.lines.filter((l) => l.lineId).map((l) => {
+                const pid = String((l as any).productId || l.lineId);
+                const open = revLine === pid;
+                if (revDone[pid]) {
+                  return (
+                    <p key={pid} className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-3 text-xs font-bold text-primary">
+                      Thanks for reviewing {l.name}
+                    </p>
+                  );
+                }
+                return (
+                  <div key={pid} className="rounded-2xl border-2 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="min-w-0 truncate text-xs font-black uppercase tracking-tight">{l.name}</p>
+                      {!open && (
+                        <Button
+                          variant="outline" size="sm"
+                          onClick={() => { setRevLine(pid); setRevRating(5); }}
+                          className="h-8 shrink-0 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
+                        >
+                          Write a review
+                        </Button>
+                      )}
+                    </div>
+
+                    {open && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5" role="group" aria-label="Star rating">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                              aria-pressed={revRating === n}
+                              onClick={() => setRevRating(n)}
+                              className={cn(
+                                'h-10 w-10 rounded-xl border-2 text-base font-bold transition-colors',
+                                n <= revRating ? 'bg-foreground text-background border-foreground' : 'bg-white'
+                              )}
+                            >
+                              ★
+                            </button>
+                          ))}
+                        </div>
+                        <Input
+                          placeholder="Sum it up (optional)"
+                          value={revTitle}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRevTitle(e.target.value)}
+                          className="h-11 rounded-2xl border-2 font-bold text-sm"
+                        />
+                        <Textarea
+                          placeholder="What did you think?"
+                          value={revBody}
+                          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRevBody(e.target.value)}
+                          className="min-h-[70px] rounded-2xl border-2 font-bold text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setRevLine(null)}
+                            className="h-11 flex-1 rounded-2xl border-2 text-[11px] font-black uppercase tracking-widest"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            disabled={revSending || revBody.trim().length < 4}
+                            onClick={() => submitReview(pid)}
+                            className="h-11 flex-1 rounded-2xl text-[11px] font-black uppercase tracking-widest"
+                          >
+                            {revSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Post review'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         )}
 
         {qrValue && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
