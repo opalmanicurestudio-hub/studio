@@ -1,73 +1,47 @@
-'use client';
-import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
-import { AppSidebar } from '@/components/shared/AppSidebar';
-import { AuthGuard } from '@/components/auth/AuthGuard';
-import { TenantProvider } from '@/context/TenantContext';
-import { LocationProvider } from '@/context/LocationContext';
-import { usePathname } from 'next/navigation';
+import type { Metadata, Viewport } from "next";
+import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
+import { FirebaseClientProvider } from "@/firebase";
 
-/**
- * IMPORTANT FINDING, not introduced by this change: TenantProvider was
- * never actually mounted anywhere in this codebase before this edit.
- * AuthGuard does its OWN independent owner/staff resolution inline
- * (ownerTenantQuery, staffDirectoryEntryRef) rather than consuming
- * TenantContext — the two systems compute overlapping things
- * (who owns/staffs which tenant) completely independently. TenantContext
- * existed as a real, well-written file with nothing rendering it; any
- * future call to useTenant() would have thrown "must be used within a
- * TenantProvider" regardless of anything to do with LocationProvider or
- * the booth-rental pages specifically.
- *
- * This is fixed here by mounting TenantProvider for real. It is NOT a
- * full fix for the duplication this reveals — AuthGuard's inline
- * isOwner/isStaff logic and TenantContext's role/selectedTenant logic
- * are now two parallel systems computing related things from the same
- * Firestore data. That consolidation (having AuthGuard read from
- * TenantContext instead of re-querying independently) is a separate,
- * deliberate refactor of AuthGuard itself — flagged here, not done as a
- * side effect of wiring in LocationProvider.
- */
+export const metadata: Metadata = {
+  title: "ClarityFlow",
+  description:
+    "A comprehensive business management application for solo service professionals.",
+};
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isSubscriptionPage = pathname.startsWith('/subscriptions');
-  const isBookingPage = pathname.startsWith('/book');
+// v70 — THE MOBILE FIX. Your previous layout declared the viewport as a raw
+// <meta> tag inside a manual <head>, which the App Router doesn't reliably
+// render — leaving pages with NO viewport tag, so phones laid them out at
+// ~980px and every `md:` breakpoint matched (the "fits like desktop" bug).
+// This export is the API Next.js actually honors.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Deliberately no maximumScale/userScalable — pinch-zoom stays enabled.
+};
 
-  // If on a public-facing page, render a simple layout without the app shell.
-  // Neither TenantProvider nor LocationProvider are mounted here: public
-  // pages (booking, subscriptions) are guest-facing and never call
-  // useTenant() or useLocation() — adding either provider here would run
-  // Firestore queries for every guest visit with no consumer to use them.
-  if (isSubscriptionPage || isBookingPage) {
-    return (
-      <AuthGuard>
-        <a href="#main" className="skip-link">Skip to content</a>
-        <div className="bg-muted/40">
-          <main id="main">{children}</main>
-        </div>
-      </AuthGuard>
-    );
-  }
-
-  // For all other app routes: TenantProvider must be the outermost of the
-  // two new providers, since LocationProvider's implementation calls
-  // useTenant() internally — it has to render beneath TenantProvider, not
-  // beside it. Both go inside AuthGuard: TenantProvider's own logic calls
-  // useFirebase()/useUser() for the signed-in user, which is only
-  // meaningful once AuthGuard has already let the request through.
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <AuthGuard>
-      <a href="#main" className="skip-link">Skip to content</a>
-      <TenantProvider>
-        <LocationProvider>
-          <SidebarProvider>
-            <AppSidebar />
-            <SidebarInset>
-              <main id="main">{children}</main>
-            </SidebarInset>
-          </SidebarProvider>
-        </LocationProvider>
-      </TenantProvider>
-    </AuthGuard>
+    <html lang="en">
+      <head>
+        {/* viewport meta REMOVED from here — it lives in the export above */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className={`font-body antialiased`}>
+        <FirebaseClientProvider>
+          {children}
+        </FirebaseClientProvider>
+        <Toaster />
+      </body>
+    </html>
   );
 }
