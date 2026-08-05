@@ -1,8 +1,6 @@
 'use client';
 
-import {
-  ArrowLeft, BookOpen, FileDown, ListChecks, Loader, Minus, Package, Plus, ShoppingBag,
-} from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -94,6 +92,8 @@ export default function ProductPage() {
     product.wholesalePriceCents < product.priceCents;
 
   const [selections, setSelections] = useState<Record<string, string>>({});
+  const [related, setRelated] = useState<any[]>([]);
+  const [showBar, setShowBar] = useState(false);
 
   const optionDeltaCents = (product?.optionGroups || []).reduce((sum: number, g: any) => {
     const choice = g.choices.find((c: any) => c.id === selections[g.id]) || g.choices[0];
@@ -129,6 +129,36 @@ export default function ProductPage() {
       </div>
     );
   }
+
+  useEffect(() => {
+    // Related items come from the catalog endpoint the shop already uses —
+    // same category first, then anything else, so a one-category shop still
+    // gets a row instead of an empty space.
+    if (!tenantId || !product) return;
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/retail/catalog?tenantId=${encodeURIComponent(tenantId)}`);
+        const data = await res.json();
+        if (!alive || !res.ok) return;
+        const all = (data.products || []).filter((p: any) => p.id !== product.id && p.inStock);
+        const sameCat = all.filter((p: any) => p.category === product.category);
+        setRelated([...sameCat, ...all.filter((p: any) => p.category !== product.category)].slice(0, 6));
+      } catch {
+        // a missing related row is cosmetic; never block the page
+      }
+    })();
+    return () => { alive = false; };
+  }, [tenantId, product?.id]);
+
+  useEffect(() => {
+    // Sticky buy bar appears once the main button scrolls away — the single
+    // biggest conversion fix on a long mobile product page.
+    const onScroll = () => setShowBar(window.scrollY > 520);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   const stepQty = (d: number) => {
     const min = wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1;
@@ -202,6 +232,16 @@ export default function ProductPage() {
         </div>
 
         <div className="space-y-5">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-[11px] font-bold text-muted-foreground">
+            <Link href={`/shop/${tenantId}`} className="hover:text-foreground">Shop</Link>
+            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <Link href={`/shop/${tenantId}/catalog?category=${encodeURIComponent(product.category || '')}`} className="hover:text-foreground truncate">
+              {product.category || 'All'}
+            </Link>
+            <ChevronRight className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate text-foreground">{product.name}</span>
+          </nav>
+
           <div className="space-y-2">
             <h1 className="font-black uppercase tracking-tighter text-2xl leading-tight">{product.name}</h1>
             {product.sku && (
@@ -263,6 +303,34 @@ export default function ProductPage() {
             </Button>
           </div>
 
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 text-[11px] font-bold',
+                product.inStock ? 'text-foreground' : 'text-muted-foreground'
+              )}
+            >
+              <span className={cn('h-2 w-2 rounded-full', product.inStock ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
+              {product.inStock
+                ? (product.lowStock ? `Only ${product.qtyAvailable} left` : 'In stock')
+                : 'Sold out'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' },
+              { icon: RotateCcw, title: 'Easy returns', sub: 'Start one from your order page' },
+              { icon: ShieldCheck, title: 'Secure checkout', sub: 'Card details never touch us' },
+            ].map((t) => (
+              <div key={t.title} className="rounded-2xl border-2 bg-white p-3 text-center">
+                <t.icon className="mx-auto h-4 w-4 text-primary" aria-hidden="true" />
+                <p className="mt-1.5 text-[11px] font-black uppercase tracking-tight leading-tight">{t.title}</p>
+                <p className="mt-0.5 text-[11px] font-bold text-muted-foreground leading-tight">{t.sub}</p>
+              </div>
+            ))}
+          </div>
+
           {product.howToUse && (
             <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
               <CardContent className="p-5 space-y-2">
@@ -318,7 +386,66 @@ export default function ProductPage() {
             </Card>
           )}
         </div>
-      </main>
-    </div>
-  );
+          {related.length > 0 && (
+            <section aria-labelledby="related-heading" className="space-y-3 pt-2">
+              <h2 id="related-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                You may also like
+              </h2>
+              <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2">
+                {related.map((r) => (
+                  <Link
+                    key={r.id}
+                    href={`/shop/${tenantId}/product/${r.id}`}
+                    className="w-36 shrink-0 overflow-hidden rounded-[1.5rem] border-2 bg-white"
+                  >
+                    <div className="relative aspect-square bg-muted/20">
+                      {r.imageUrls?.[0] ? (
+                        <Image src={r.imageUrls[0]} alt={r.name} fill sizes="144px" className="object-cover" />
+                      ) : null}
+                    </div>
+                    <div className="p-2.5">
+                      <p className="line-clamp-2 text-[11px] font-black uppercase leading-tight tracking-tight">{r.name}</p>
+                      <p className="mt-1 font-mono text-sm font-bold">{fmt(r.priceCents)}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section aria-labelledby="faq-heading" className="space-y-2 pt-2">
+            <h2 id="faq-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+              Good to know
+            </h2>
+            {[
+              { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' },
+              { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
+              { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' },
+            ].map((f) => (
+              <details key={f.q} className="rounded-2xl border-2 bg-white px-4 py-3">
+                <summary className="cursor-pointer list-none text-xs font-black uppercase tracking-tight">
+                  {f.q}
+                </summary>
+                <p className="mt-2 text-sm font-bold leading-relaxed text-muted-foreground">{f.a}</p>
+              </details>
+            ))}
+          </section>
+
+        </main>
+
+      {showBar && product.inStock && !paused && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t-2 bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[11px] font-black uppercase tracking-tight">{product.name}</p>
+              <p className="font-mono text-sm font-bold">{fmt((price + optionDeltaCents) * qty)}</p>
+            </div>
+            <Button onClick={add} className="h-12 shrink-0 rounded-2xl px-6 font-black uppercase text-xs tracking-widest">
+              Add to cart
+            </Button>
+          </div>
+        </div>
+      )}
+      </div>
+    );
 }
