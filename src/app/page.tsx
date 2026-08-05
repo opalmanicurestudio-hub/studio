@@ -328,7 +328,7 @@ const FAQS = [
 // ─── Small pieces ─────────────────────────────────────────────────────────────
 
 const Eyebrow = ({ children }: { children: React.ReactNode }) => (
-  <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-primary">
+  <span className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-[11px] font-black uppercase tracking-[0.2em] text-primary">
     {children}
   </span>
 );
@@ -350,6 +350,12 @@ export default function LandingPage() {
 
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-background selection:bg-primary/20">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-foreground focus:px-4 focus:py-3 focus:text-sm focus:font-bold focus:text-background"
+      >
+        Skip to content
+      </a>
       <style dangerouslySetInnerHTML={{ __html: MOTION_CSS }} />
       <script dangerouslySetInnerHTML={{ __html: RISE_JS }} />
 
@@ -390,7 +396,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <main className="relative z-10 flex-1">
+      <main id="main" className="relative z-10 flex-1">
         {/* ── Hero ─────────────────────────────────────────────────────────── */}
         <section className="mx-auto max-w-6xl px-5 pb-16 pt-12 sm:pb-24 sm:pt-20">
           <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-14">
@@ -403,9 +409,8 @@ export default function LandingPage() {
               </h1>
 
               <p className="text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Every other salon tool makes you pick one — employees on commission, or booth renters — and
-                fake the other in a spreadsheet. ClarityFlow runs both at once, on one calendar, with one
-                set of books.
+                Commission staff and booth renters, on one calendar and one set of books. No spreadsheet
+                doing the other half.
               </p>
 
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
@@ -429,7 +434,7 @@ export default function LandingPage() {
 
               <ul className="flex flex-wrap gap-x-5 gap-y-2">
                 {['Free in early access', 'No card', 'Live in an afternoon'].map(t => (
-                  <li key={t} className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  <li key={t} className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
                     <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" />{t}
                   </li>
                 ))}
@@ -446,7 +451,7 @@ export default function LandingPage() {
         {/* ── Replaces ─────────────────────────────────────────────────────── */}
         <section className="border-y bg-muted/30 py-12 sm:py-16">
           <div className="mx-auto max-w-6xl px-5">
-            <p data-rise className="mb-6 text-center text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
+            <p data-rise className="mb-6 text-center text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">
               Replaces, on day one
             </p>
             <ul data-rise className="flex flex-wrap items-center justify-center gap-2.5">
@@ -466,7 +471,7 @@ export default function LandingPage() {
             <SectionHead
               eyebrow="Show and tell · not a screenshot"
               title="Tap a grey time. It tells you exactly why it is closed."
-              sub="This is the real scheduling engine's logic, running in your browser. Most booking tools check two things: working hours and existing appointments. Watch what happens when a system checks all eight."
+              sub="The real engine, running here. Most tools check two things before booking. This checks eight."
             />
             <div data-rise>
               <AvailabilityDemo />
@@ -480,16 +485,15 @@ export default function LandingPage() {
             <SectionHead
               eyebrow="Guest experience"
               title="If you serve a coffee, that is a business too."
-              sub="A drink, a glass of prosecco, a warm neck wrap. Most salons run this out of goodwill and a shoebox, and it never shows up in the numbers. Here it is a menu, a delivery, and a settled charge."
+              sub="Drinks and extras usually run on goodwill and never reach the books. Here they are a menu, a delivery, a settled charge."
             />
             <div data-rise>
               <LoungeWalkthrough />
             </div>
 
             <p data-rise className="mx-auto mt-8 max-w-3xl text-center text-sm leading-relaxed text-muted-foreground">
-              Every order is recorded against the guest and the station, and shows up on the renter's own
-              profile with how it settled — comped, charged to their card, or paid by the client. Which
-              means the hospitality you are already giving away finally has a number next to it.
+              Every order lands on the guest and the renter's profile with how it settled — comped,
+              charged, or paid by the client.
             </p>
           </div>
         </section>
@@ -500,7 +504,7 @@ export default function LandingPage() {
             <SectionHead
               eyebrow="What it actually does"
               title="Six things, done properly"
-              sub="Not a feature list padded to look long. These are the six places a growing studio loses money and hours."
+              sub="The six places a growing studio loses money and hours."
             />
             <div className="grid gap-4 sm:grid-cols-2 lg:gap-6">
               {PILLARS.map(p => (
@@ -516,7 +520,7 @@ export default function LandingPage() {
             </div>
 
             <div data-rise className="mt-8 rounded-3xl border bg-card p-6 sm:mt-10 sm:p-8">
-              <p className="mb-5 text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground">
+              <p className="mb-5 text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">
                 And the rest of it
               </p>
               <ul className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -537,7 +541,7 @@ export default function LandingPage() {
             <SectionHead
               eyebrow="What it is worth"
               title="The money is already leaving. Move the sliders."
-              sub="These are the four leaks ClarityFlow plugs. Nothing here is a feature list — it is arithmetic on your own numbers."
+              sub="Four leaks, priced with your own numbers."
             />
             <div data-rise>
               <LeakCalculator billingLive={BILLING_LIVE} />
@@ -551,7 +555,7 @@ export default function LandingPage() {
             <SectionHead
               eyebrow="The screens"
               title="Four you will live in"
-              sub="Mocked from the real thing rather than screenshotted, so it stays true when a button moves and still reads on a phone."
+              sub="Built from the real interface, so it stays honest."
             />
             <div data-rise>
               <ProductTour />
@@ -606,11 +610,11 @@ export default function LandingPage() {
                   <p className="text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">{plan.name}</p>
                   <p className="mt-3 flex items-baseline gap-1.5">
                     <span className="text-5xl font-black tracking-tighter text-foreground">${plan.price}</span>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">/ month</span>
+                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">/ month</span>
                   </p>
                   <p className="mt-2 text-sm font-bold text-muted-foreground">{plan.tagline}</p>
                   {!BILLING_LIVE && (
-                    <p className="cf-pulse mt-2 text-[10px] font-black uppercase tracking-widest text-primary">
+                    <p className="cf-pulse mt-2 text-[11px] font-black uppercase tracking-widest text-primary">
                       Free during early access
                     </p>
                   )}
@@ -637,9 +641,8 @@ export default function LandingPage() {
             </div>
 
             <p data-rise className="mx-auto mt-8 max-w-2xl text-center text-xs leading-relaxed text-muted-foreground">
-              One price per studio, not per stylist. Card processing runs through your own Stripe account at
-              Stripe's published rates — we do not add a markup on top of your payments, and we will tell you
-              plainly if that ever changes.
+              One price per studio, not per stylist. Payments run through your own Stripe account at
+              Stripe's rates — no markup.
             </p>
           </div>
         </section>
@@ -674,8 +677,7 @@ export default function LandingPage() {
               Start with the booking page. Today.
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-              It takes an afternoon, it costs nothing while we are in early access, and it is the part that
-              pays for itself first.
+              An afternoon to set up. Free in early access.
             </p>
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Link href="/signup"
@@ -688,7 +690,7 @@ export default function LandingPage() {
                 Log in
               </Link>
             </div>
-            <p className="mt-5 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            <p className="mt-5 flex items-center justify-center gap-2 text-[11px] font-black uppercase tracking-widest text-muted-foreground">
               <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
               No card · no contract · export your data whenever
             </p>
@@ -721,7 +723,7 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <p className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">On this page</p>
+              <p className="mb-4 text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">On this page</p>
               <ul className="space-y-1">
                 {NAV.map(n => (
                   <li key={n.href}>
@@ -735,7 +737,7 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <p className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Your account</p>
+              <p className="mb-4 text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">Your account</p>
               <ul className="space-y-1">
                 <li>
                   <Link href="/signup" className="flex min-h-[44px] items-center text-xs font-bold text-muted-foreground transition-colors hover:text-foreground">
@@ -766,7 +768,7 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <p className="mb-4 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Legal</p>
+              <p className="mb-4 text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">Legal</p>
               <ul className="space-y-1">
                 <li>
                   <Link href="/legal/terms" className="flex min-h-[44px] items-center text-xs font-bold text-muted-foreground transition-colors hover:text-foreground">
@@ -783,10 +785,10 @@ export default function LandingPage() {
           </div>
 
           <div className="mt-10 flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
               © {year} ClarityFlow. All rights reserved.
             </p>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
               Built for studios that rent chairs and fill them
             </p>
           </div>
