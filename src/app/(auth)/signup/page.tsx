@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
-import { Loader, Sparkles, Building, User, ArrowRight, ArrowLeft, Users, Phone } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building, Check, Eye, EyeOff, Loader, Phone, Sparkles, User, Users } from 'lucide-react';
 import { ClarityFlowLogo } from '@/components/shared/AppSidebar';
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import Link from 'next/link';
@@ -54,6 +54,7 @@ export default function SignupPage() {
   const { toast } = useToast();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [step, setStep] = useState(1);
 
   const methods = useForm<SignupFormData>({
@@ -69,8 +70,15 @@ export default function SignupPage() {
     handleSubmit,
     control,
     trigger,
+    watch,
     formState: { errors },
   } = methods;
+
+  // Live feedback beats a rejection after submit: the rules are visible while
+  // you type, and "show" means nobody has to guess what they typed on a phone
+  // keyboard.
+  const passwordValue = watch('password') || '';
+  const confirmValue = watch('confirmPassword') || '';
 
   const handleNext = async () => {
     const fieldsToValidate: (keyof SignupFormData)[] =
@@ -308,27 +316,69 @@ export default function SignupPage() {
                     </div>
 
                     <div className="space-y-2 text-left">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
-                        Master Password
-                      </Label>
+                      <div className="flex items-center justify-between px-1">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          Password
+                        </Label>
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          aria-pressed={showPassword}
+                          className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          {showPassword ? 'Hide' : 'Show'}
+                        </button>
+                      </div>
                       <Input
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
                         {...register('password')}
                         className="h-14 rounded-2xl border-2 font-bold shadow-inner focus-visible:ring-primary/20"
                       />
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 pt-1">
+                        {[
+                          { ok: passwordValue.length >= 8, text: '8+ characters' },
+                          { ok: /[A-Z]/.test(passwordValue), text: 'a capital' },
+                          { ok: /[0-9]/.test(passwordValue), text: 'a number' },
+                        ].map((r) => (
+                          <span
+                            key={r.text}
+                            className={cn(
+                              'flex items-center gap-1 text-[10px] font-bold tracking-wide transition-colors',
+                              r.ok ? 'text-foreground' : 'text-muted-foreground/50'
+                            )}
+                          >
+                            <Check className={cn('w-3 h-3', !r.ok && 'opacity-30')} />
+                            {r.text}
+                          </span>
+                        ))}
+                      </div>
                       {errors.password && (
-                        <p className="text-[10px] font-bold text-destructive uppercase ml-1">
+                        <p className="text-[10px] font-bold text-destructive ml-1">
                           {errors.password.message}
                         </p>
                       )}
                     </div>
 
                     <div className="space-y-2 text-left">
-                      <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">
-                        Confirm Identity
-                      </Label>
+                      <div className="flex items-center justify-between px-1">
+                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          Confirm password
+                        </Label>
+                        {confirmValue.length > 0 && (
+                          <span className={cn(
+                            'flex items-center gap-1 text-[10px] font-bold tracking-wide',
+                            confirmValue === passwordValue ? 'text-foreground' : 'text-muted-foreground/60'
+                          )}>
+                            <Check className={cn('w-3 h-3', confirmValue !== passwordValue && 'opacity-30')} />
+                            {confirmValue === passwordValue ? 'Match' : 'No match yet'}
+                          </span>
+                        )}
+                      </div>
                       <Input
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
                         {...register('confirmPassword')}
                         className="h-14 rounded-2xl border-2 font-bold shadow-inner focus-visible:ring-primary/20"
                       />
