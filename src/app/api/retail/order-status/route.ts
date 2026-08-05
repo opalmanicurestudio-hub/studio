@@ -101,6 +101,7 @@ export async function GET(req: NextRequest) {
       customerName: order.customerName || '',
       lines: (order.lines || []).map((l: any) => ({
         lineId: l.lineId,
+        productId: l.productId,
         qtyReturned: l.qtyReturned || 0,
         name: l.name,
         qtyOrdered: l.qtyOrdered,
