@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { verifyQuote } from '@/app/api/retail/shipping-quote/route';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 import {
@@ -236,10 +237,28 @@ async function handleCheckout(req: NextRequest) {
   const taxCents = Math.round(subtotalCents * (taxRatePercent / 100));
 
   let shippingCents = 0;
+  let shippingService = '';
   if (method === 'ship') {
     const flat = Math.round((Number(rs.flatShippingDollars) || 0) * 100);
     const freeOver = Math.round((Number(rs.freeShippingOverDollars) || 0) * 100);
     shippingCents = freeOver > 0 && subtotalCents >= freeOver ? 0 : flat;
+    shippingService = 'Standard shipping';
+
+    // A customer-chosen carrier rate is honoured only when it carries our own
+    // signature: the browser picks the service, it never sets the price. An
+    // expired or forged quote silently falls back to the flat rate rather
+    // than failing the sale.
+    const q = body.shippingQuote;
+    if (q && typeof q === 'object') {
+      const amount = Math.max(0, Math.floor(Number(q.amountCents) || 0));
+      const service = String(q.service || '').slice(0, 60);
+      const exp = Number(q.exp) || 0;
+      if (verifyQuote(tenantId, amount, service, exp, String(q.token || ''))) {
+        const freeQualified = freeOver > 0 && subtotalCents >= freeOver;
+        shippingCents = freeQualified ? 0 : amount;
+        shippingService = service;
+      }
+    }
   }
 
   const tipCents = Math.min(
@@ -280,6 +299,7 @@ async function handleCheckout(req: NextRequest) {
     subtotalCents,
     taxCents,
     shippingCents,
+    shippingService,
     refundedCents: 0,
     tipCents,
     pickupAt,
@@ -332,7 +352,7 @@ async function handleCheckout(req: NextRequest) {
   if (shippingCents > 0) {
     lineItems.push({
       quantity: 1,
-      price_data: { currency: 'usd', unit_amount: shippingCents, product_data: { name: 'Shipping' } },
+      price_data: { currency: 'usd', unit_amount: shippingCents, product_data: { name: shippingService || 'Shipping' } },
     });
   }
   if (tipCents > 0) {
