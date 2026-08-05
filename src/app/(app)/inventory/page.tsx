@@ -28,6 +28,7 @@ import { AddProductDialog } from '@/components/inventory/AddProductDialog';
 import { AddRefreshmentDialog } from '@/components/inventory/AddRefreshmentDialog';
 import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
 import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
+import { syncPublicFields } from '@/lib/product-public';
 import { EditProductDialog } from '@/components/inventory/EditProductDialog';
 import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
 import { FloatingInventoryFAB } from '@/components/inventory/FloatingInventoryFAB';
@@ -485,14 +486,18 @@ export default function InventoryPage() {
   }, [orders]);
 
   const handleEditItem = (item: InventoryItem) => { setEditingItem(item); setIsEditDialogOpen(true); };
-  const handleUpdateItem = (updatedItem: InventoryItem) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id), updatedItem); toast({ title: "Item Updated", description: `${updatedItem.name} has been successfully updated.` }); setIsEditDialogOpen(false); };
+  const handleUpdateItem = (updatedItem: InventoryItem) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id), syncPublicFields(updatedItem)); toast({ title: "Item Updated", description: `${updatedItem.name} has been successfully updated.` }); setIsEditDialogOpen(false); };
   const handleItemSelect = useCallback((itemId: string) => { setSelectedItems(prev => { const s = new Set(prev); s.has(itemId) ? s.delete(itemId) : s.add(itemId); return s; }); }, []);
   const handleBulkDeleteClick = () => setIsBulkDeleteConfirmOpen(true);
   const handleBulkDeleteConfirm = useCallback(() => { if (!firestore || !tenantId) return; const n = selectedItems.size; const batch = writeBatch(firestore); selectedItems.forEach(id => batch.delete(doc(firestore, `tenants/${tenantId}/inventory`, id))); batch.commit(); setSelectedItems(new Set()); setIsBulkDeleteConfirmOpen(false); toast({ title: "Items Deleted", description: `${n} item(s) have been removed from your inventory.` }); }, [selectedItems, toast, firestore, tenantId]);
   const handleBulkArchive = useCallback(() => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); selectedItems.forEach(id => batch.update(doc(firestore, `tenants/${tenantId}/inventory`, id), { status: 'archived' })); batch.commit(); toast({ title: `${selectedItems.size} item(s) have been archived.` }); setSelectedItems(new Set()); }, [selectedItems, firestore, tenantId, toast]);
   const handleBulkUnarchive = useCallback(() => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); selectedItems.forEach(id => batch.update(doc(firestore, `tenants/${tenantId}/inventory`, id), { status: 'active' })); batch.commit(); toast({ title: `${selectedItems.size} item(s) have been restored.` }); setSelectedItems(new Set()); }, [selectedItems, firestore, tenantId, toast]);
   const handleOpenAddProductDialog = (type: 'professional' | 'retail') => { setAddProductDialogType(type); setIsAddProductDialogOpen(true); };
-  const handleProductAdded = (p: InventoryItem) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', p.id), JSON.parse(JSON.stringify(p)), {}); toast({ title: `New ${p.type} product created`, description: `${p.name} has been added to your inventory.` }); };
+  // Every write passes through syncPublicFields() so the photo and copy typed
+  // here also land in the fields the storefront reads. Without it, a product
+  // added in Inventory shows up online with no image — the exact disconnect
+  // this app had before.
+  const handleProductAdded = (p: InventoryItem) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', p.id), JSON.parse(JSON.stringify(syncPublicFields(p))), {}); toast({ title: `New ${p.type} product created`, description: `${p.name} has been added to your inventory.` }); };
 
   // ── Staff custody & replenishment ──────────────────────────────────────
   // Updated to accept the second argument AddEquipmentDialog now passes
