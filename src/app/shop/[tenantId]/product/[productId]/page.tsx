@@ -53,6 +53,10 @@ export default function ProductPage() {
   const [shopName, setShopName] = useState('');
   const [wholesale, setWholesale] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [cfg, setCfg] = useState<any>({
+    showTrust: true, showFaq: true, showRelated: true, showVideo: true, showStickyBar: true, faq: [],
+  });
+  const [fulfil, setFulfil] = useState({ offersPickup: true, offersShipping: true });
   const [loadError, setLoadError] = useState('');
   const [imgIdx, setImgIdx] = useState(0);
   const [qty, setQty] = useState(1);
@@ -76,6 +80,11 @@ export default function ProductPage() {
         setShopName(data.shop.name);
         setWholesale(data.shop.wholesaleUnlocked === true);
         setPaused(data.shop.paused === true);
+        if (data.shop.page) setCfg({ ...data.shop.page });
+        setFulfil({
+          offersPickup: data.shop.offersPickup !== false,
+          offersShipping: data.shop.offersShipping !== false,
+        });
         if (data.shop.wholesaleUnlocked && data.product.wholesaleMinQty > 0) {
           setQty(data.product.wholesaleMinQty);
         }
@@ -219,6 +228,18 @@ export default function ProductPage() {
               </Badge>
             )}
           </div>
+          {cfg.showVideo && product.videoUrl ? (
+            <video
+              src={product.videoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full rounded-[1.5rem] border-2 bg-black"
+            >
+              Your browser can&rsquo;t play this video.
+            </video>
+          ) : null}
+
           {product.imageUrls.length > 1 && (
             <div className="flex gap-2 overflow-x-auto">
               {product.imageUrls.map((url, i) => (
@@ -318,9 +339,12 @@ export default function ProductPage() {
             </span>
           </div>
 
+          {cfg.showTrust && (
           <div className="grid grid-cols-3 gap-2">
             {[
-              { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' },
+              fulfil.offersPickup
+                ? { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' }
+                : { icon: Truck, title: 'Ships to you', sub: 'Live carrier rates at checkout' },
               { icon: RotateCcw, title: 'Easy returns', sub: 'Start one from your order page' },
               { icon: ShieldCheck, title: 'Secure checkout', sub: 'Card details never touch us' },
             ].map((t) => (
@@ -331,6 +355,7 @@ export default function ProductPage() {
               </div>
             ))}
           </div>
+          )}
 
           {product.howToUse && (
             <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
@@ -387,7 +412,7 @@ export default function ProductPage() {
             </Card>
           )}
         </div>
-          {related.length > 0 && (
+          {cfg.showRelated && related.length > 0 && (
             <section aria-labelledby="related-heading" className="space-y-3 pt-2">
               <h2 id="related-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
                 You may also like
@@ -414,15 +439,20 @@ export default function ProductPage() {
             </section>
           )}
 
+          {cfg.showFaq && (
           <section aria-labelledby="faq-heading" className="space-y-2 pt-2">
             <h2 id="faq-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
               Good to know
             </h2>
-            {[
-              { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' },
+            {(cfg.faq && cfg.faq.length > 0 ? cfg.faq : [
+              fulfil.offersPickup
+                ? { q: 'How long until my order is ready?', a: 'Pickup orders are usually ready the same day. You get an email the moment yours is packed, and the order page shows live status.' }
+                : { q: 'How fast do you ship?', a: 'Orders are packed within a day or two and you get tracking by email the moment a label is bought.' },
               { q: 'What is the return policy?', a: 'Start a return from your order page once it has been picked up or delivered — choose the items and a reason, and the shop takes it from there.' },
-              { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' },
-            ].map((f) => (
+              fulfil.offersShipping
+                ? { q: 'Do you ship?', a: 'Yes. Shipping is quoted live at checkout from your address, so you see real carrier options and prices before paying.' }
+                : { q: 'Is this pickup only?', a: 'Yes — orders are collected in person, and you get a QR code to show when you arrive.' },
+            ]).map((f: { q: string; a: string }) => (
               <details key={f.q} className="rounded-2xl border-2 bg-white px-4 py-3">
                 <summary className="cursor-pointer list-none text-xs font-black uppercase tracking-tight">
                   {f.q}
@@ -431,6 +461,7 @@ export default function ProductPage() {
               </details>
             ))}
           </section>
+          )}
 
         </main>
 
