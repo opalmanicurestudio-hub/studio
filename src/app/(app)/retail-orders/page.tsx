@@ -105,18 +105,6 @@ export default function RetailFulfillmentBoard() {
     Math.floor(Number((selectedTenant as any)?.retailSettings?.readyStaleHours) || 24)
   );
 
-  const health = useMemo(() => {
-    const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
-    const slas = active.map((o) => slaFor(o, policy));
-    return {
-      late: slas.filter((x) => x.state === 'late').length,
-      due: slas.filter((x) => x.state === 'due').length,
-      working: active.length,
-      oldest: slas.reduce((a, b) => (b.waitedMinutes > a ? b.waitedMinutes : a), 0),
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, policy, tick]);
-
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
@@ -192,6 +180,19 @@ export default function RetailFulfillmentBoard() {
   const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
   const inProgress = useMemo(() => orders.filter((o) => ['picking', 'packed'].includes(o.stage)), [orders]);
   const ready = useMemo(() => orders.filter((o) => o.stage === 'ready'), [orders]);
+
+  const health = useMemo(() => {
+    const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
+    const slas = active.map((o) => slaFor(o, policy));
+    return {
+      late: slas.filter((x) => x.state === 'late').length,
+      due: slas.filter((x) => x.state === 'due').length,
+      working: active.length,
+      oldest: slas.reduce((a, b) => (b.waitedMinutes > a ? b.waitedMinutes : a), 0),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, policy, tick]);
+
 
   const staleReady = useMemo(
     () => ready.filter((o) => {
