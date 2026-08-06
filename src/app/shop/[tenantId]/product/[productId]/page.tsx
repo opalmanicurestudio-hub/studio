@@ -110,26 +110,6 @@ export default function ProductPage() {
     });
   };
 
-  if (loadError) {
-    return (
-      <div className="min-h-dvh flex flex-col items-center justify-center gap-4 p-8 text-center bg-muted/5">
-        <Package className="w-10 h-10 text-muted-foreground opacity-30" />
-        <p className="font-black uppercase tracking-tight text-lg">Product unavailable</p>
-        <p className="text-sm text-muted-foreground max-w-sm">{loadError}</p>
-        <Button asChild variant="outline" className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
-          <Link href={`/shop/${tenantId}`}>Back to shop</Link>
-        </Button>
-      </div>
-    );
-  }
-  if (!product) {
-    return (
-      <div className="min-h-dvh flex items-center justify-center bg-muted/5">
-        <Loader className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
   useEffect(() => {
     // Related items come from the catalog endpoint the shop already uses —
     // same category first, then anything else, so a one-category shop still
@@ -159,6 +139,27 @@ export default function ProductPage() {
     onScroll();
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+
+  if (loadError) {
+    return (
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-4 p-8 text-center bg-muted/5">
+        <Package className="w-10 h-10 text-muted-foreground opacity-30" />
+        <p className="font-black uppercase tracking-tight text-lg">Product unavailable</p>
+        <p className="text-sm text-muted-foreground max-w-sm">{loadError}</p>
+        <Button asChild variant="outline" className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+          <Link href={`/shop/${tenantId}`}>Back to shop</Link>
+        </Button>
+      </div>
+    );
+  }
+  if (!product) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center bg-muted/5">
+        <Loader className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const stepQty = (d: number) => {
     const min = wholesale && product.wholesaleMinQty ? product.wholesaleMinQty : 1;
