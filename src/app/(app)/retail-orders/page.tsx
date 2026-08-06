@@ -23,6 +23,7 @@ import { useFirebase, useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import {
   STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
+  fulfilmentPolicy, slaFor, type SlaInfo,
 } from '@/lib/retail-orders';
 import {
   cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
@@ -53,6 +54,20 @@ export default function RetailFulfillmentBoard() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { inventory } = useInventory();
+
+  // Promise policy comes from the shop's own settings: prep minutes for
+  // pickup, processing hours for shipments. Everything downstream — queue
+  // order, badges, the late count — reads from this one place.
+  const policy = useMemo(
+    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
+    [selectedTenant]
+  );
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    // Ages and countdowns need to move without a refresh.
+    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   // Picking is a visual task: a thumbnail is faster to match against a shelf
   // than a name, and it catches the classic "two products, similar words"
@@ -135,12 +150,23 @@ export default function RetailFulfillmentBoard() {
 
   // ── Derived lanes ─────────────────────────────────────────────────────────
   const queue = useMemo(
-    () => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock !== true).sort((a, b) => queuePriority(a) - queuePriority(b)),
+    () => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock !== true).sort((a, b) => queuePriority(a, policy) - queuePriority(b, policy)),
     [orders]
   );
   const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
   const inProgress = useMemo(() => orders.filter((o) => ['picking', 'packed'].includes(o.stage)), [orders]);
   const ready = useMemo(() => orders.filter((o) => o.stage === 'ready'), [orders]);
+  const health = useMemo(() => {
+    const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
+    const slas = active.map((o) => slaFor(o, policy));
+    const late = slas.filter((x) => x.state === 'late').length;
+    const due = slas.filter((x) => x.state === 'due').length;
+    const oldest = slas.reduce((a, b) => (b.waitedMinutes > a ? b.waitedMinutes : a), 0);
+    const readyWaiting = orders.filter((o) => o.stage === 'ready').length;
+    return { late, due, oldest, working: active.length, readyWaiting };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, policy, tick]);
+
   const arrived = useMemo(
     () => orders.filter((o) => o.stage === 'arrived')
       .sort((a, b) => (a.curbside?.arrivedAt || '').localeCompare(b.curbside?.arrivedAt || '')),
@@ -350,10 +376,13 @@ export default function RetailFulfillmentBoard() {
   const OrderCard = ({ o, children }: { o: BoardOrder; children?: React.ReactNode }) => {
     const Icon = methodIcon(o.method);
     const waiting = o.method === 'curbside' && !!o.curbside?.arrivedAt && o.stage !== 'arrived';
+    const sla: SlaInfo | null = ['paid', 'picking', 'packed'].includes(o.stage) ? slaFor(o, policy) : null;
     return (
       <Card className={cn(
         'border-2 rounded-[1.75rem] overflow-hidden bg-white',
         o.stage === 'arrived' && 'border-primary shadow-lg shadow-primary/15',
+        sla?.state === 'late' && 'border-destructive/60',
+        sla?.state === 'due' && 'border-amber-300',
         waiting && 'border-amber-300'
       )}>
         <CardContent className="p-4 space-y-3">
@@ -361,6 +390,16 @@ export default function RetailFulfillmentBoard() {
             <div className="min-w-0">
               <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{o.customerName}</p>
+              {sla && (
+                <p className={cn(
+                  'text-[10px] font-black uppercase tracking-widest mt-0.5',
+                  sla.state === 'late' ? 'text-destructive'
+                    : sla.state === 'due' ? 'text-amber-600'
+                    : 'text-muted-foreground/70'
+                )}>
+                  {sla.label} · waited {Math.round(sla.waitedMinutes)}m
+                </p>
+              )}
               {(o as any).pickupAt && (o as any).pickupAt !== 'ASAP' && (
                 <p className="text-[8px] font-black uppercase tracking-widest text-primary">Wants it {(o as any).pickupAt}</p>
               )}
@@ -591,6 +630,36 @@ export default function RetailFulfillmentBoard() {
           </Card>
         </section>
       )}
+
+      <div className="max-w-7xl mx-auto px-4 pt-4">
+        <div className={cn(
+          'rounded-[1.5rem] border-2 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3',
+          health.late > 0 ? 'border-destructive/50 bg-destructive/[0.04]' : 'bg-white'
+        )}>
+          {[
+            { n: health.late, label: 'past due', tone: health.late > 0 ? 'bad' : 'ok' },
+            { n: health.due, label: 'due soon', tone: health.due > 0 ? 'warn' : 'ok' },
+            { n: health.working, label: 'in the queue', tone: 'ok' },
+            { n: Math.round(health.oldest), label: 'oldest wait (min)', tone: health.oldest > 60 ? 'warn' : 'ok' },
+          ].map((k) => (
+            <div key={k.label} className="min-w-0">
+              <p className={cn(
+                'font-mono text-xl font-bold leading-none',
+                k.tone === 'bad' && 'text-destructive',
+                k.tone === 'warn' && 'text-amber-600'
+              )}>
+                {k.n}
+              </p>
+              <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">{k.label}</p>
+            </div>
+          ))}
+        </div>
+        {health.late > 0 && (
+          <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-destructive">
+            Past-due orders lead the queue — Take Next picks them first
+          </p>
+        )}
+      </div>
 
       <main className="max-w-7xl mx-auto px-4 py-5 grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
