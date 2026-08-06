@@ -431,7 +431,7 @@ export default function ShopPage() {
               </Button>
             </SheetTrigger>
 
-            <SheetContent className="w-full sm:max-w-md p-0 flex flex-col">
+            <SheetContent side="bottom" className="h-[92dvh] w-full rounded-t-[2rem] p-0 flex flex-col sm:side-right sm:h-full sm:max-w-md sm:rounded-none">
               <SheetHeader className="p-6 pb-3 border-b-2 text-left">
                 <SheetTitle className="font-black uppercase tracking-tighter text-xl">Your Order</SheetTitle>
               </SheetHeader>
@@ -497,7 +497,7 @@ export default function ShopPage() {
 
                     <div className="space-y-2">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How would you like it?</Label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
                         {([
                           { id: 'counter' as Method, label: 'Pickup', icon: Store, show: true },
                           { id: 'curbside' as Method, label: shop.curbsideMode === 'drive_thru' ? 'Drive-Thru' : 'Curbside', icon: Package, show: shop.curbsideOffered },
@@ -540,7 +540,7 @@ export default function ShopPage() {
                         <Input placeholder="Recipient name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
                         <Input placeholder="Street address" value={addr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line1: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
                         <Input placeholder="Apt / suite (optional)" value={addr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line2: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
                           <Input placeholder="City" value={addr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, city: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm col-span-1" />
                           <Input placeholder="State" value={addr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, state: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
                           <Input placeholder="ZIP" value={addr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, postalCode: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
