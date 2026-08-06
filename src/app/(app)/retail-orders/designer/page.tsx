@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
@@ -47,10 +48,24 @@ export default function ShopDesignerPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [theme, setTheme] = useState<ShopTheme>(DEFAULT_THEME);
+  const [pdp, setPdp] = useState<{
+    showTrust: boolean; showFaq: boolean; showRelated: boolean; showVideo: boolean;
+    showStickyBar: boolean; faq: { q: string; a: string }[];
+  }>({ showTrust: true, showFaq: true, showRelated: true, showVideo: true, showStickyBar: true, faq: [] });
+  const [openGroup, setOpenGroup] = useState<string>('look');
 
   useEffect(() => {
     if (loaded || !selectedTenant) return;
     setTheme(sanitizeTheme((selectedTenant as any)?.retailSettings?.shopTheme));
+    const rs = (selectedTenant as any)?.retailSettings || {};
+    setPdp({
+      showTrust: rs.pdpShowTrust !== false,
+      showFaq: rs.pdpShowFaq !== false,
+      showRelated: rs.pdpShowRelated !== false,
+      showVideo: rs.pdpShowVideo !== false,
+      showStickyBar: rs.pdpShowStickyBar !== false,
+      faq: Array.isArray(rs.pdpFaq) ? rs.pdpFaq : [],
+    });
     const raw = (selectedTenant as any)?.retailSettings?.shopPageConfig;
     setConfig(raw ? sanitizeShopConfig(raw) : defaultShopConfig());
     setLoaded(true);
@@ -111,6 +126,12 @@ export default function ShopDesignerPage() {
         retailSettings: {
           shopPageConfig: JSON.parse(JSON.stringify(sanitizeShopConfig(config))),
           shopTheme: JSON.parse(JSON.stringify(sanitizeTheme(theme))),
+          pdpShowTrust: pdp.showTrust,
+          pdpShowFaq: pdp.showFaq,
+          pdpShowRelated: pdp.showRelated,
+          pdpShowVideo: pdp.showVideo,
+          pdpShowStickyBar: pdp.showStickyBar,
+          pdpFaq: JSON.parse(JSON.stringify(pdp.faq.filter((f) => f.q.trim() && f.a.trim()).slice(0, 6))),
         },
       }, { merge: true });
       toast({ title: 'Shop saved', description: 'Brand, layout and sections go live on next load.' });
@@ -154,157 +175,233 @@ export default function ShopDesignerPage() {
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
-          <CardContent className="p-5 space-y-4">
+          <CardContent className="p-4 space-y-3 sm:p-5">
             <div className="flex items-center gap-2">
-              <Paintbrush className="w-4 h-4 text-primary" />
-              <p className="text-[11px] font-black uppercase tracking-widest">Brand &amp; layout</p>
+              <Paintbrush className="w-4 h-4 text-primary shrink-0" />
+              <p className="text-[11px] font-black uppercase tracking-widest">Your shop&rsquo;s look</p>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Start from a look</p>
-              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-                {THEME_PRESETS.map((p) => (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {THEME_PRESETS.map((p) => {
+                const active = theme.brand === (p.theme.brand || DEFAULT_THEME.brand)
+                  && theme.surface === (p.theme.surface || DEFAULT_THEME.surface);
+                return (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => setTheme(sanitizeTheme({ ...DEFAULT_THEME, ...p.theme }))}
-                    className="shrink-0 rounded-2xl border-2 p-2 text-left transition-shadow hover:shadow-md"
-                    style={{ background: (p.theme.surface || DEFAULT_THEME.surface) }}
+                    aria-pressed={active}
+                    className={cn('rounded-2xl border-2 p-2 text-left transition-shadow', active && 'ring-2 ring-primary')}
+                    style={{ background: p.theme.surface || DEFAULT_THEME.surface }}
                   >
-                    <span
-                      className="block h-10 w-24 rounded-xl"
-                      style={{ background: p.theme.brand || DEFAULT_THEME.brand }}
-                    />
-                    <span
-                      className="mt-1.5 block text-[11px] font-black uppercase tracking-widest"
-                      style={{ color: p.theme.ink || DEFAULT_THEME.ink }}
-                    >
+                    <span className="block h-8 w-full rounded-lg" style={{ background: p.theme.brand || DEFAULT_THEME.brand }} />
+                    <span className="mt-1.5 block truncate text-[11px] font-black uppercase tracking-widest"
+                      style={{ color: p.theme.ink || DEFAULT_THEME.ink }}>
                       {p.name}
                     </span>
-                    <span
-                      className="mt-0.5 block max-w-[9rem] text-[11px] font-bold leading-tight opacity-70"
-                      style={{ color: p.theme.ink || DEFAULT_THEME.ink }}
-                    >
-                      {p.blurb}
-                    </span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              {([
-                ['brand', 'Brand'],
-                ['accent', 'Accent'],
-                ['ink', 'Text'],
-                ['surface', 'Background'],
-              ] as const).map(([key, label]) => (
-                <div key={key} className="space-y-1.5">
-                  <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      aria-label={`${label} colour`}
-                      value={(theme as any)[key]}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
-                      className="h-10 w-10 shrink-0 cursor-pointer rounded-xl border-2 bg-white p-1"
-                    />
-                    <Input
-                      value={(theme as any)[key]}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
-                      className="h-10 rounded-xl border-2 font-mono text-xs"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {contrastRatio(theme.ink, theme.surface) < 4.5 && (
-              <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-[11px] font-bold text-amber-800">
-                That text colour is hard to read on that background, so the shop will use a readable one instead.
-                Pick a darker text colour to keep yours.
-              </p>
-            )}
 
             {([
-              ['layout', 'Product layout', [['grid', 'Grid'], ['editorial', 'Editorial'], ['list', 'List']]],
-              ['density', 'Spacing', [['cozy', 'Cozy'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]],
-              ['imageShape', 'Photo shape', [['square', 'Square'], ['portrait', 'Portrait'], ['landscape', 'Landscape']]],
-              ['captionStyle', 'Product caption', [['below', 'Below photo'], ['overlay', 'On the photo']]],
-              ['corners', 'Corners', [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']]],
-              ['surfaceStyle', 'Cards', [['soft', 'Soft'], ['flat', 'Flat'], ['glass', 'Glass'], ['bordered', 'Bordered']]],
-              ['buttonStyle', 'Buttons', [['solid', 'Solid'], ['outline', 'Outline'], ['soft', 'Soft'], ['underline', 'Underline']]],
-              ['headingFont', 'Headings', [['jakarta', 'Modern'], ['serif', 'Classic'], ['display', 'Editorial'], ['rounded', 'Friendly']]],
-              ['font', 'Body type', [['jakarta', 'Modern'], ['serif', 'Classic'], ['rounded', 'Friendly'], ['mono', 'Technical']]],
-              ['priceStyle', 'Prices', [['mono', 'Tabular'], ['plain', 'Plain'], ['tag', 'Tag']]],
-              ['backdrop', 'Background texture', [['plain', 'None'], ['tint', 'Brand tint'], ['grain', 'Grain'], ['grid', 'Grid']]],
-              ['headerStyle', 'Shop header', [['minimal', 'Minimal'], ['centered', 'Centered'], ['bold', 'Bold']]],
-              ['heroStyle', 'Hero', [['banner', 'Banner'], ['split', 'Split'], ['minimal', 'Minimal'], ['none', 'None']]],
-              ['motion', 'Motion', [['subtle', 'Subtle'], ['lively', 'Lively'], ['none', 'None']]],
-            ] as const).map(([key, label, opts]) => (
-              <div key={key} className="space-y-1.5">
-                <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {opts.map(([val, name]) => (
-                    <button
-                      key={val}
-                      type="button"
-                      aria-pressed={(theme as any)[key] === val}
-                      onClick={() => setTheme({ ...theme, [key]: val } as ShopTheme)}
-                      className={cn(
-                        'h-9 rounded-full border-2 px-3.5 text-[11px] font-black uppercase tracking-widest transition-colors',
-                        (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-white'
-                      )}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
+              ['look', 'Colours', null],
+              ['layout', 'Layout & spacing', null],
+              ['type', 'Type & buttons', null],
+              ['product', 'Product page', null],
+            ] as const).map(([id, label]) => {
+              const open = openGroup === id;
+              return (
+                <div key={id} className="rounded-2xl border-2 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setOpenGroup(open ? '' : id)}
+                    aria-expanded={open}
+                    className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
+                  >
+                    <span className="text-xs font-black uppercase tracking-tight">{label}</span>
+                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                      {open ? 'Close' : 'Edit'}
+                    </span>
+                  </button>
 
-            <div className="space-y-2">
-              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Preview</p>
-              {(() => {
-                const t = sanitizeTheme(theme);
-                const radius = t.corners === 'sharp' ? '0.25rem' : t.corners === 'round' ? '1.5rem' : '0.875rem';
-                const ratio = t.imageShape === 'portrait' ? '3 / 4' : t.imageShape === 'landscape' ? '4 / 3' : '1 / 1';
-                const pad = t.density === 'cozy' ? 10 : t.density === 'roomy' ? 22 : 16;
-                const btn: React.CSSProperties =
-                  t.buttonStyle === 'outline' ? { background: 'transparent', color: t.brand, border: `1px solid ${t.brand}` }
-                  : t.buttonStyle === 'underline' ? { background: 'transparent', color: t.brand, borderBottom: `2px solid ${t.brand}`, borderRadius: 0, paddingInline: 0 }
-                  : t.buttonStyle === 'soft' ? { background: `${t.brand}22`, color: t.brand, border: '1px solid transparent' }
-                  : { background: t.brand, color: readableOn(t.brand), border: `1px solid ${t.brand}` };
-                return (
-                  <div style={{ background: t.surface, color: t.ink, padding: pad, borderRadius: radius }} className="border-2">
-                    <div className="grid grid-cols-2" style={{ gap: pad / 2 }}>
-                      {['Cuticle oil', 'Soft gel tips'].map((name, i) => (
-                        <div key={name} style={{ borderRadius: radius, overflow: 'hidden', background: `${t.ink}0a`, position: 'relative' }}>
-                          <div style={{ aspectRatio: ratio, background: i === 0 ? `${t.brand}1f` : `${t.accent}1f` }} />
-                          <div style={{ padding: pad / 2, ...(t.captionStyle === 'overlay' ? { position: 'absolute', bottom: 0, left: 0, right: 0, background: `${t.surface}e6` } : {}) }}>
-                            <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: '-0.01em' }}>{name}</p>
-                            <p style={{
-                              marginTop: 3, fontSize: 12,
-                              ...(t.priceStyle === 'mono' ? { fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }
-                                : t.priceStyle === 'tag' ? { display: 'inline-block', padding: '2px 8px', borderRadius: 999, background: `${t.accent}22`, color: t.accent, fontWeight: 700 }
-                                : { fontWeight: 500 }),
-                            }}>
-                              ${i === 0 ? '24.00' : '18.00'}
-                            </p>
+                  {open && id === 'look' && (
+                    <div className="space-y-3 border-t-2 p-4">
+                      {([['brand', 'Brand'], ['accent', 'Accent'], ['ink', 'Text'], ['surface', 'Background']] as const).map(([key, lab]) => (
+                        <div key={key} className="flex items-center gap-3">
+                          <input
+                            type="color"
+                            aria-label={`${lab} colour`}
+                            value={(theme as any)[key]}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
+                            className="h-11 w-11 shrink-0 cursor-pointer rounded-xl border-2 bg-white p-1"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
+                            <Input
+                              value={(theme as any)[key]}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
+                              className="mt-1 h-10 rounded-xl border-2 font-mono text-xs"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      {contrastRatio(theme.ink, theme.surface) < 4.5 && (
+                        <p className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-[11px] font-bold text-amber-800">
+                          That text colour is hard to read on that background — the shop will use a readable one instead.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {open && id === 'layout' && (
+                    <div className="space-y-3 border-t-2 p-4">
+                      {([
+                        ['layout', 'Products', [['grid', 'Grid'], ['editorial', 'Editorial'], ['list', 'List']]],
+                        ['density', 'Spacing', [['cozy', 'Cozy'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]],
+                        ['imageShape', 'Photos', [['square', 'Square'], ['portrait', 'Portrait'], ['landscape', 'Landscape']]],
+                        ['corners', 'Corners', [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']]],
+                        ['surfaceStyle', 'Cards', [['soft', 'Soft'], ['flat', 'Flat'], ['glass', 'Glass'], ['bordered', 'Bordered']]],
+                        ['backdrop', 'Background', [['plain', 'None'], ['tint', 'Tint'], ['grain', 'Grain'], ['grid', 'Grid']]],
+                      ] as const).map(([key, lab, opts]) => (
+                        <div key={key} className="space-y-1.5">
+                          <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {opts.map(([val, name]) => (
+                              <button key={val} type="button"
+                                aria-pressed={(theme as any)[key] === val}
+                                onClick={() => setTheme({ ...theme, [key]: val } as ShopTheme)}
+                                className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest',
+                                  (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-white')}>
+                                {name}
+                              </button>
+                            ))}
                           </div>
                         </div>
                       ))}
                     </div>
-                    <span
-                      className="mt-3 inline-flex h-10 items-center px-4 text-[11px] font-black uppercase tracking-widest"
-                      style={{ ...btn, borderRadius: t.buttonStyle === 'underline' ? 0 : radius }}
-                    >
-                      Add to cart
-                    </span>
+                  )}
+
+                  {open && id === 'type' && (
+                    <div className="space-y-3 border-t-2 p-4">
+                      {([
+                        ['headingFont', 'Headings', [['jakarta', 'Modern'], ['serif', 'Classic'], ['display', 'Editorial'], ['rounded', 'Friendly']]],
+                        ['font', 'Body text', [['jakarta', 'Modern'], ['serif', 'Classic'], ['rounded', 'Friendly'], ['mono', 'Technical']]],
+                        ['buttonStyle', 'Buttons', [['solid', 'Solid'], ['outline', 'Outline'], ['soft', 'Soft'], ['underline', 'Underline']]],
+                        ['priceStyle', 'Prices', [['mono', 'Tabular'], ['plain', 'Plain'], ['tag', 'Tag']]],
+                      ] as const).map(([key, lab, opts]) => (
+                        <div key={key} className="space-y-1.5">
+                          <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {opts.map(([val, name]) => (
+                              <button key={val} type="button"
+                                aria-pressed={(theme as any)[key] === val}
+                                onClick={() => setTheme({ ...theme, [key]: val } as ShopTheme)}
+                                className={cn('h-10 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest',
+                                  (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-white')}>
+                                {name}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {open && id === 'product' && (
+                    <div className="space-y-3 border-t-2 p-4">
+                      {([
+                        ['showTrust', 'Trust badges'],
+                        ['showVideo', 'Product video'],
+                        ['showRelated', 'You may also like'],
+                        ['showFaq', 'Questions'],
+                        ['showStickyBar', 'Sticky buy bar'],
+                      ] as const).map(([key, lab]) => (
+                        <div key={key} className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-black uppercase tracking-tight">{lab}</span>
+                          <Switch checked={(pdp as any)[key]} onCheckedChange={(v: boolean) => setPdp({ ...pdp, [key]: v })} />
+                        </div>
+                      ))}
+
+                      <div className="space-y-2 border-t-2 pt-3">
+                        <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                          Your questions — tap to edit
+                        </Label>
+                        {pdp.faq.map((f, i) => (
+                          <div key={i} className="space-y-2 rounded-xl border-2 p-3">
+                            <Input
+                              placeholder="Question"
+                              value={f.q}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                const next = [...pdp.faq]; next[i] = { ...next[i], q: e.target.value }; setPdp({ ...pdp, faq: next });
+                              }}
+                              className="h-11 rounded-xl border-2 text-sm font-bold"
+                            />
+                            <Textarea
+                              placeholder="Answer"
+                              value={f.a}
+                              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                                const next = [...pdp.faq]; next[i] = { ...next[i], a: e.target.value }; setPdp({ ...pdp, faq: next });
+                              }}
+                              className="min-h-[64px] rounded-xl border-2 text-sm font-bold"
+                            />
+                            <Button variant="ghost" size="sm"
+                              onClick={() => setPdp({ ...pdp, faq: pdp.faq.filter((_, j) => j !== i) })}
+                              className="h-9 rounded-lg text-[11px] font-black uppercase tracking-widest text-destructive">
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                        {pdp.faq.length < 6 && (
+                          <Button variant="outline"
+                            onClick={() => setPdp({ ...pdp, faq: [...pdp.faq, { q: '', a: '' }] })}
+                            className="h-11 w-full rounded-xl border-2 text-[11px] font-black uppercase tracking-widest">
+                            Add a question
+                          </Button>
+                        )}
+                        <p className="text-[11px] font-bold text-muted-foreground">
+                          Leave empty to use the standard answers about pickup, returns and shipping.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {(() => {
+              const t = sanitizeTheme(theme);
+              const radius = t.corners === 'sharp' ? '0.25rem' : t.corners === 'round' ? '1.25rem' : '0.75rem';
+              const ratio = t.imageShape === 'portrait' ? '3 / 4' : t.imageShape === 'landscape' ? '4 / 3' : '1 / 1';
+              return (
+                <div className="rounded-2xl border-2 p-3" style={{ background: t.surface, color: t.ink }}>
+                  <p className="mb-2 text-[11px] font-black uppercase tracking-widest" style={{ opacity: 0.6 }}>Preview</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {['Cuticle oil', 'Soft gel tips'].map((name, i) => (
+                      <div key={name} style={{ borderRadius: radius, overflow: 'hidden', background: `${t.ink}0a` }}>
+                        <div style={{ aspectRatio: ratio, background: i === 0 ? `${t.brand}1f` : `${t.accent}1f` }} />
+                        <div className="p-2">
+                          <p className="truncate" style={{ fontSize: 12, fontWeight: 600 }}>{name}</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: t.priceStyle === 'mono' ? 'JetBrains Mono, monospace' : undefined }}>
+                            ${i === 0 ? '24.00' : '18.00'}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                );
-              })()}
-            </div>
+                  <span className="mt-2 inline-flex h-10 items-center px-4 text-[11px] font-black uppercase tracking-widest"
+                    style={{
+                      borderRadius: t.buttonStyle === 'underline' ? 0 : radius,
+                      background: t.buttonStyle === 'solid' ? t.brand : t.buttonStyle === 'soft' ? `${t.brand}22` : 'transparent',
+                      color: t.buttonStyle === 'solid' ? readableOn(t.brand) : t.brand,
+                      border: t.buttonStyle === 'outline' ? `1px solid ${t.brand}` : undefined,
+                      borderBottom: t.buttonStyle === 'underline' ? `2px solid ${t.brand}` : undefined,
+                    }}>
+                    Add to cart
+                  </span>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
 
