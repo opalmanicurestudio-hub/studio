@@ -27,8 +27,10 @@ export default {
         sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
         body: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
         headline: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-        code: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        // One typeface app-wide. Real code blocks can still opt in with an
+        // explicit font-family; nothing in the UI should carry a second face.
+        code: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
       },
       colors: {
         background: 'hsl(var(--background))',
