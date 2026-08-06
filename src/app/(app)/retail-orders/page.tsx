@@ -53,6 +53,19 @@ export default function RetailFulfillmentBoard() {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const { inventory } = useInventory();
+
+  // Picking is a visual task: a thumbnail is faster to match against a shelf
+  // than a name, and it catches the classic "two products, similar words"
+  // mistake before it reaches the box.
+  const photoFor = useMemo(() => {
+    const map = new Map<string, string>();
+    (inventory || []).forEach((i: any) => {
+      const url = (Array.isArray(i.imageUrls) && i.imageUrls.find((u: any) => typeof u === 'string' && u.trim()))
+        || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : '');
+      if (url) map.set(i.id, String(url));
+    });
+    return map;
+  }, [inventory]);
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
@@ -504,6 +517,16 @@ export default function RetailFulfillmentBoard() {
                             )}>
                               {doneLine ? <Check className="w-3.5 h-3.5" /> : null}
                             </div>
+                            {photoFor.get(l.productId) ? (
+                              <img
+                                src={photoFor.get(l.productId)}
+                                alt=""
+                                loading="lazy"
+                                className={cn('w-9 h-9 rounded-lg border object-cover shrink-0', doneLine && 'opacity-40')}
+                              />
+                            ) : (
+                              <div className={cn('w-9 h-9 rounded-lg border bg-muted/30 shrink-0', doneLine && 'opacity-40')} />
+                            )}
                             <p className={cn('text-[11px] font-bold flex-1 min-w-0 truncate', doneLine && 'opacity-50')}>
                               {l.name}
                               {(l as any).optionsLabel ? <span className="block text-[8px] font-black uppercase tracking-widest text-primary">{(l as any).optionsLabel}</span> : null}
