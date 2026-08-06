@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { FulfilmentPanel } from '@/components/fulfilment/FulfilmentPanel';
+import { permissionsFor } from '@/lib/fulfilment-access';
 import { useRouter } from 'next/navigation';
 import { setActiveStaffId, clearActiveStaffId } from '@/lib/staff-identity';
 import { registerPushForStaff } from '@/lib/push-notifications';
@@ -3847,7 +3849,7 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'>(staffMember.role === 'renter' ? 'rent' : 'today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'>(staffMember.role === 'renter' ? 'rent' : 'today');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -4244,11 +4246,15 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // Hybrids get everything: staff tabs + Rent + Documents.
   const RENT_TAB = { id:'rent' as any, label:'Rent', icon:Landmark as any };
   const DOCS_TAB = { id:'documents' as any, label:'Documents', icon:FileText as any };
+  const fulfilmentPerms = permissionsFor(staffMember as any);
+  const ORDERS_TAB = { id: 'orders', label: 'Orders', icon: ShoppingCart };
+
   const TABS = isRenter
     ? ([RENT_TAB] as any[]).concat(ALL_TABS.filter(t => t.id === 'messages' || t.id === 'inbox') as any[]).concat([DOCS_TAB])
     : isHybrid
       ? (ALL_TABS as any[]).concat([RENT_TAB, DOCS_TAB])
       : ALL_TABS;
+  const VISIBLE_TABS: any[] = fulfilmentPerms.canPick ? (TABS as any[]).concat([ORDERS_TAB]) : (TABS as any[]);
 
   // v63 — W-9 state lives in the main portal component so Documents tab can access it
   const [w9Status, setW9Status] = useState<{tinMasked:string;legalName:string;collectedAt:string}|null|'loading'>('loading');
@@ -4338,7 +4344,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
       {/* Tab bar */}
       <div className="flex bg-white border-b-2 border-slate-100 shrink-0">
-        {TABS.map(tab => (
+        {VISIBLE_TABS.map((tab: any) => (
           <button key={tab.id} onClick={() => { if ((tab as any).external) { setActiveStaffId(staffMember.id); router.push((tab as any).external); } else { setActiveTab(tab.id as any); } }}
             className={cn('flex-1 flex flex-col items-center gap-1 py-3 text-[8px] font-black uppercase tracking-widest transition-all relative shrink-0 min-w-[56px]', activeTab===tab.id ? 'text-primary border-b-2 border-primary' : 'text-muted-foreground')}>
             <div className="relative">
@@ -4362,6 +4368,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         <div className="px-4 pb-10 space-y-4">
 
           {/* TODAY */}
+          {activeTab==='orders' && (
+            <div className="p-4">
+              <FulfilmentPanel tenantId={tenantId} firestore={firestore as any} staffMember={staffMember as any} />
+            </div>
+          )}
+
           {activeTab==='today' && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
