@@ -55,23 +55,21 @@ export default function RetailFulfillmentBoard() {
   const { selectedTenant } = useTenant();
   const { inventory } = useInventory();
 
-  // Promise policy comes from the shop's own settings: prep minutes for
-  // pickup, processing hours for shipments. Everything downstream — queue
-  // order, badges, the late count — reads from this one place.
+  // Picking is a visual task: a thumbnail is faster to match against a shelf
+  // than a name, and it catches the classic "two products, similar words"
+  // mistake before it reaches the box.
   const policy = useMemo(
     () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
     [selectedTenant]
   );
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    // Ages and countdowns need to move without a refresh.
     const t = setInterval(() => setTick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, []);
 
-  // Picking is a visual task: a thumbnail is faster to match against a shelf
-  // than a name, and it catches the classic "two products, similar words"
-  // mistake before it reaches the box.
+  const [batchView, setBatchView] = useState<'orders' | 'shelf'>('shelf');
+
   const photoFor = useMemo(() => {
     const map = new Map<string, string>();
     (inventory || []).forEach((i: any) => {
@@ -81,6 +79,46 @@ export default function RetailFulfillmentBoard() {
     });
     return map;
   }, [inventory]);
+
+  const health = useMemo(() => {
+    const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
+    const slas = active.map((o) => slaFor(o, policy));
+    return {
+      late: slas.filter((x) => x.state === 'late').length,
+      due: slas.filter((x) => x.state === 'due').length,
+      working: active.length,
+      oldest: slas.reduce((a, b) => (b.waitedMinutes > a ? b.waitedMinutes : a), 0),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, policy, tick]);
+
+  const shelfList = useMemo(() => {
+    const map = new Map<string, {
+      productId: string; name: string; photo: string;
+      needed: number; scanned: number; orders: { number: number; qty: number }[];
+    }>();
+    myOrders.filter((o) => o.stage === 'picking').forEach((o) => {
+      (o.lines || []).forEach((l: any) => {
+        const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
+        if (open <= 0) return;
+        const key = String(l.productId);
+        const row = map.get(key) || {
+          productId: key, name: String(l.name || 'Item'), photo: photoFor.get(key) || '',
+          needed: 0, scanned: 0, orders: [],
+        };
+        row.needed += open;
+        row.scanned += Math.min(l.qtyScanned || 0, open);
+        row.orders.push({ number: Number(o.orderNumber) || 0, qty: open });
+        map.set(key, row);
+      });
+    });
+    return [...map.values()].sort((a, b) => {
+      const ad = a.scanned >= a.needed ? 1 : 0;
+      const bd = b.scanned >= b.needed ? 1 : 0;
+      return ad - bd || b.needed - a.needed || a.name.localeCompare(b.name);
+    });
+  }, [myOrders, photoFor]);
+
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
   const { toast } = useToast();
@@ -156,17 +194,6 @@ export default function RetailFulfillmentBoard() {
   const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
   const inProgress = useMemo(() => orders.filter((o) => ['picking', 'packed'].includes(o.stage)), [orders]);
   const ready = useMemo(() => orders.filter((o) => o.stage === 'ready'), [orders]);
-  const health = useMemo(() => {
-    const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
-    const slas = active.map((o) => slaFor(o, policy));
-    const late = slas.filter((x) => x.state === 'late').length;
-    const due = slas.filter((x) => x.state === 'due').length;
-    const oldest = slas.reduce((a, b) => (b.waitedMinutes > a ? b.waitedMinutes : a), 0);
-    const readyWaiting = orders.filter((o) => o.stage === 'ready').length;
-    return { late, due, oldest, working: active.length, readyWaiting };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orders, policy, tick]);
-
   const arrived = useMemo(
     () => orders.filter((o) => o.stage === 'arrived')
       .sort((a, b) => (a.curbside?.arrivedAt || '').localeCompare(b.curbside?.arrivedAt || '')),
@@ -391,12 +418,8 @@ export default function RetailFulfillmentBoard() {
               <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{o.customerName}</p>
               {sla && (
-                <p className={cn(
-                  'text-[10px] font-black uppercase tracking-widest mt-0.5',
-                  sla.state === 'late' ? 'text-destructive'
-                    : sla.state === 'due' ? 'text-amber-600'
-                    : 'text-muted-foreground/70'
-                )}>
+                <p className={cn('text-[10px] font-black uppercase tracking-widest mt-0.5',
+                  sla.state === 'late' ? 'text-destructive' : sla.state === 'due' ? 'text-amber-600' : 'text-muted-foreground/70')}>
                   {sla.label} · waited {Math.round(sla.waitedMinutes)}m
                 </p>
               )}
@@ -522,9 +545,19 @@ export default function RetailFulfillmentBoard() {
           <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white shadow-xl shadow-primary/10">
             <CardContent className="p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <ScanLine className="w-4 h-4 text-primary" />
-                  <p className="text-[10px] font-black uppercase tracking-widest">Your pick — scan every item</p>
+                <div className="flex items-center gap-2 min-w-0">
+                  <ScanLine className="w-4 h-4 text-primary shrink-0" />
+                  <p className="text-[10px] font-black uppercase tracking-widest truncate">Your pick — scan every item</p>
+                </div>
+                <div className="flex rounded-xl border-2 overflow-hidden shrink-0">
+                  {(['shelf', 'orders'] as const).map((v) => (
+                    <button key={v} type="button" aria-pressed={batchView === v}
+                      onClick={() => setBatchView(v)}
+                      className={cn('h-8 px-3 text-[9px] font-black uppercase tracking-widest',
+                        batchView === v ? 'bg-foreground text-background' : 'bg-white')}>
+                      {v === 'shelf' ? 'By shelf' : 'By order'}
+                    </button>
+                  ))}
                 </div>
                 <Button
                   variant="ghost" size="sm"
@@ -538,7 +571,42 @@ export default function RetailFulfillmentBoard() {
               <div className="grid md:grid-cols-2 gap-4">
                 <ScanGate onScan={onPickScan} label="Scan item barcode, SKU label, or product QR" />
                 <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
-                  {myOrders.map((o) => (
+                  {batchView === 'shelf' && (
+                    <>
+                      {shelfList.length === 0 && (
+                        <p className="py-6 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          Nothing left to pick
+                        </p>
+                      )}
+                      {shelfList.map((row) => {
+                        const done = row.scanned >= row.needed;
+                        return (
+                          <div key={row.productId} className={cn('flex items-center gap-3 rounded-2xl border-2 p-3', done && 'opacity-50')}>
+                            {row.photo ? (
+                              <img src={row.photo} alt="" loading="lazy" className="h-12 w-12 shrink-0 rounded-xl border object-cover" />
+                            ) : (
+                              <div className="h-12 w-12 shrink-0 rounded-xl border bg-muted/30" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-black uppercase tracking-tight">{row.name}</p>
+                              <p className="truncate text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                {row.orders.map((x) => `#${String(x.number).padStart(4, '0')}${x.qty > 1 ? ` ×${x.qty}` : ''}`).join(' · ')}
+                              </p>
+                            </div>
+                            <p className={cn('shrink-0 font-mono text-base font-black', done && 'text-primary')}>
+                              {row.scanned}/{row.needed}
+                            </p>
+                          </div>
+                        );
+                      })}
+                      {shelfList.length > 0 && (
+                        <p className="pt-1 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          Grab {shelfList.reduce((a, r) => a + Math.max(0, r.needed - r.scanned), 0)} item(s) · each scan still files to its own order
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {batchView === 'orders' && myOrders.map((o) => (
                     <div key={o.id} className="rounded-2xl border-2 p-3 space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="font-black uppercase tracking-tight text-xs">#{String(o.orderNumber).padStart(4, '0')} · {o.customerName}</p>
@@ -632,10 +700,8 @@ export default function RetailFulfillmentBoard() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 pt-4">
-        <div className={cn(
-          'rounded-[1.5rem] border-2 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3',
-          health.late > 0 ? 'border-destructive/50 bg-destructive/[0.04]' : 'bg-white'
-        )}>
+        <div className={cn('rounded-[1.5rem] border-2 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3',
+          health.late > 0 ? 'border-destructive/50 bg-destructive/[0.04]' : 'bg-white')}>
           {[
             { n: health.late, label: 'past due', tone: health.late > 0 ? 'bad' : 'ok' },
             { n: health.due, label: 'due soon', tone: health.due > 0 ? 'warn' : 'ok' },
@@ -643,13 +709,8 @@ export default function RetailFulfillmentBoard() {
             { n: Math.round(health.oldest), label: 'oldest wait (min)', tone: health.oldest > 60 ? 'warn' : 'ok' },
           ].map((k) => (
             <div key={k.label} className="min-w-0">
-              <p className={cn(
-                'font-mono text-xl font-bold leading-none',
-                k.tone === 'bad' && 'text-destructive',
-                k.tone === 'warn' && 'text-amber-600'
-              )}>
-                {k.n}
-              </p>
+              <p className={cn('font-mono text-xl font-bold leading-none',
+                k.tone === 'bad' && 'text-destructive', k.tone === 'warn' && 'text-amber-600')}>{k.n}</p>
               <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">{k.label}</p>
             </div>
           ))}
