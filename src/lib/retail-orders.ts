@@ -655,13 +655,130 @@ export function isClaimStale(batch: FulfillmentBatch, now: Date = new Date()): b
  * Curbside/counter ASAP orders beat ship orders; within a tier, promise time
  * then FIFO by paid time.
  */
-export function queuePriority(order: RetailOrder): number {
-  const tier =
-    order.method === 'curbside' ? 0 :
-    order.method === 'counter'  ? 1 :
-    order.method === 'in_store' ? 2 : 3; // ship last
-  const anchor = order.promiseAt ?? order.paidAt ?? order.placedAt;
-  return tier * 1e13 + new Date(anchor).getTime();
+/* ════════════════════════════════════════════════════════════════════════════
+ * PROMISES — first in, first out, unless something is actually due sooner
+ * ════════════════════════════════════════════════════════════════════════════
+ * Two fairness rules people can feel:
+ *
+ *   1. Orders are worked in the order they arrived. Anything else — picking
+ *      the small one, the familiar name, the one on top — is how a Tuesday
+ *      order ships on Friday.
+ *   2. Except when a promise is closer. Somebody who asked for 4pm pickup
+ *      beats a shipment placed an hour earlier, because only one of them has
+ *      a person standing at a counter.
+ *
+ * So every order gets a DUE TIME, derived from what it is, and the queue is
+ * ordered by that. Age breaks ties, which keeps it FIFO whenever promises
+ * are equal — the common case.
+ */
+
+export interface FulfilmentPolicy {
+  /** Minutes to get a pickup/curbside order ready. */
+  prepMinutes: number;
+  /** Business hours to get a shipment packed and labelled. */
+  shipHours: number;
+  /** Minutes before a due time that an order starts showing as "due soon". */
+  warnMinutes: number;
+}
+
+export const DEFAULT_POLICY: FulfilmentPolicy = {
+  prepMinutes: 30,
+  shipHours: 24,
+  warnMinutes: 15,
+};
+
+export function fulfilmentPolicy(retailSettings: any): FulfilmentPolicy {
+  const rs = retailSettings || {};
+  return {
+    prepMinutes: Math.max(1, Math.floor(Number(rs.prepMinutes) || DEFAULT_POLICY.prepMinutes)),
+    shipHours: Math.max(1, Math.floor(Number(rs.shipProcessingHours) || DEFAULT_POLICY.shipHours)),
+    warnMinutes: Math.max(1, Math.floor(Number(rs.slaWarnMinutes) || DEFAULT_POLICY.warnMinutes)),
+  };
+}
+
+/** When the customer was told (or reasonably expects) this to be done. */
+export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POLICY): number {
+  const placed = new Date(order.paidAt ?? order.placedAt ?? Date.now()).getTime();
+
+  // An explicit promise always wins — it is what the customer was shown.
+  if (order.promiseAt) {
+    const t = new Date(order.promiseAt).getTime();
+    if (Number.isFinite(t)) return t;
+  }
+
+  // "Wants it in ~30 min" from the storefront's pickup picker.
+  const wanted = String((order as any).pickupAt || '').trim();
+  const m = wanted.match(/(\d+)\s*min/i);
+  if (m) return placed + Number(m[1]) * 60_000;
+  if (/hour/i.test(wanted)) return placed + 60 * 60_000;
+
+  if (order.method === 'ship') return placed + policy.shipHours * 3_600_000;
+  return placed + policy.prepMinutes * 60_000;
+}
+
+export type SlaState = 'ontime' | 'due' | 'late';
+
+export interface SlaInfo {
+  dueAtMs: number;
+  minutesRemaining: number;   // negative once overdue
+  state: SlaState;
+  label: string;              // "due in 12m" / "18m late" / "1h 5m left"
+  waitedMinutes: number;      // how long since it was paid for
+}
+
+function human(mins: number): string {
+  const a = Math.abs(Math.round(mins));
+  if (a < 60) return `${a}m`;
+  const h = Math.floor(a / 60);
+  const r = a % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+}
+
+export function slaFor(
+  order: RetailOrder,
+  policy: FulfilmentPolicy = DEFAULT_POLICY,
+  now: number = Date.now()
+): SlaInfo {
+  const due = dueAt(order, policy);
+  const minutesRemaining = (due - now) / 60_000;
+  const placed = new Date(order.paidAt ?? order.placedAt ?? now).getTime();
+  const state: SlaState =
+    minutesRemaining < 0 ? 'late' : minutesRemaining <= policy.warnMinutes ? 'due' : 'ontime';
+  return {
+    dueAtMs: due,
+    minutesRemaining,
+    state,
+    waitedMinutes: Math.max(0, (now - placed) / 60_000),
+    label:
+      state === 'late' ? `${human(minutesRemaining)} late`
+      : state === 'due' ? `due in ${human(minutesRemaining)}`
+      : `${human(minutesRemaining)} left`,
+  };
+}
+
+/**
+ * Queue order. Lower sorts first.
+ *
+ * Due time is the spine — but a shipment that has been sitting for hours
+ * must never be leapfrogged forever by a stream of fresh pickups, so an
+ * order that is already LATE is pulled to the front regardless of method.
+ * Age breaks every tie, which makes the default behaviour plain FIFO.
+ */
+export function queuePriority(
+  order: RetailOrder,
+  policy: FulfilmentPolicy = DEFAULT_POLICY,
+  now: number = Date.now()
+): number {
+  const sla = slaFor(order, policy, now);
+  const placed = new Date(order.paidAt ?? order.placedAt ?? now).getTime();
+
+  // Late work first, oldest of the late ones leading.
+  if (sla.state === 'late') return -1e15 + placed;
+
+  // Otherwise: soonest due, then oldest. The tiny placed-time fraction only
+  // ever breaks an exact tie — it is far smaller than one millisecond of due
+  // time, so it can never reorder genuinely different promises.
+  return sla.dueAtMs + placed / 1e13;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
