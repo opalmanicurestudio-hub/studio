@@ -526,3 +526,53 @@ body {
   display: inline-block; padding: 2px 8px; border-radius: var(--shop-radius-pill);
   background: var(--shop-accent-soft); color: var(--shop-accent); font-weight: 700;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CONTAINMENT — nothing escapes the screen
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Flex and grid children default to min-width:auto, which means one long
+ * product name, a wide mono price or a chip row can push the whole page
+ * sideways. That is the cause of "everything flows off screen" on a phone,
+ * and it is invisible on a desktop where there is slack. Setting min-width:0
+ * on the containers, and letting long words break, keeps every layout inside
+ * the viewport without touching a single component.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+[data-shop-theme],
+.app-contain {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+[data-shop-theme] :where(div, section, main, header, footer, form, li, p, span) {
+  min-width: 0;
+}
+
+[data-shop-theme] :where(p, h1, h2, h3, h4, li, td, span) {
+  overflow-wrap: anywhere;
+}
+
+/* Grid tracks must be allowed to shrink; 1fr alone will not. */
+[data-shop-theme] .grid {
+  grid-template-columns: repeat(var(--shop-cols, 1), minmax(0, 1fr));
+}
+[data-shop-theme] .grid-cols-2 { --shop-cols: 2; }
+[data-shop-theme] .grid-cols-3 { --shop-cols: 3; }
+[data-shop-theme] .grid-cols-4 { --shop-cols: 4; }
+[data-shop-theme] .grid-cols-1 { --shop-cols: 1; }
+
+/* Roomy spacing is lovely at 800px and wasteful at 375px — cap it on phones. */
+@media (max-width: 480px) {
+  [data-shop-theme] {
+    --shop-pad: min(var(--shop-pad), 1rem);
+    --shop-gap: min(var(--shop-gap), 0.75rem);
+    --shop-section: min(var(--shop-section), 1.75rem);
+  }
+  [data-shop-theme] .grid-cols-3,
+  [data-shop-theme] .grid-cols-4 { --shop-cols: 2; }
+}
+
+/* Staff screens get the same protection without the theming. */
+main, [data-radix-scroll-area-viewport] { max-width: 100%; }
+main :where(div, section, form, li) { min-width: 0; }
