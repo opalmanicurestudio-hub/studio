@@ -21,6 +21,10 @@ import {
   SHOP_SECTION_DEFS, ShopSectionsRenderer, defaultShopConfig, newShopSection, sanitizeShopConfig,
   type ShopPageConfig, type ShopSection, type ShopSectionProduct, type ShopSectionType,
 } from '@/lib/shop-sections';
+import {
+  DEFAULT_THEME, THEME_PRESETS, contrastRatio, readableOn, sanitizeTheme,
+  type ShopTheme,
+} from '@/lib/shop-theme';
 import { cn } from '@/lib/utils';
 
 // ─── Shop Designer ────────────────────────────────────────────────────────────
@@ -42,9 +46,11 @@ export default function ShopDesignerPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [theme, setTheme] = useState<ShopTheme>(DEFAULT_THEME);
 
   useEffect(() => {
     if (loaded || !selectedTenant) return;
+    setTheme(sanitizeTheme((selectedTenant as any)?.retailSettings?.shopTheme));
     const raw = (selectedTenant as any)?.retailSettings?.shopPageConfig;
     setConfig(raw ? sanitizeShopConfig(raw) : defaultShopConfig());
     setLoaded(true);
@@ -102,9 +108,12 @@ export default function ShopDesignerPage() {
     setSaving(true);
     try {
       await setDoc(doc(firestore as Firestore, 'tenants', tenantId), {
-        retailSettings: { shopPageConfig: JSON.parse(JSON.stringify(sanitizeShopConfig(config))) },
+        retailSettings: {
+          shopPageConfig: JSON.parse(JSON.stringify(sanitizeShopConfig(config))),
+          shopTheme: JSON.parse(JSON.stringify(sanitizeTheme(theme))),
+        },
       }, { merge: true });
-      toast({ title: 'Landing page saved', description: 'The shop shows it on next load.' });
+      toast({ title: 'Shop saved', description: 'Brand, layout and sections go live on next load.' });
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Save failed', description: e?.message });
     } finally {
@@ -144,6 +153,122 @@ export default function ShopDesignerPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Paintbrush className="w-4 h-4 text-primary" />
+              <p className="text-[11px] font-black uppercase tracking-widest">Brand &amp; layout</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Start from a look</p>
+              <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                {THEME_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setTheme(sanitizeTheme({ ...DEFAULT_THEME, ...p.theme }))}
+                    className="shrink-0 rounded-2xl border-2 p-2 text-left transition-shadow hover:shadow-md"
+                    style={{ background: (p.theme.surface || DEFAULT_THEME.surface) }}
+                  >
+                    <span
+                      className="block h-10 w-24 rounded-xl"
+                      style={{ background: p.theme.brand || DEFAULT_THEME.brand }}
+                    />
+                    <span
+                      className="mt-1.5 block text-[11px] font-black uppercase tracking-widest"
+                      style={{ color: p.theme.ink || DEFAULT_THEME.ink }}
+                    >
+                      {p.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              {([
+                ['brand', 'Brand'],
+                ['ink', 'Text'],
+                ['surface', 'Background'],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="space-y-1.5">
+                  <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      aria-label={`${label} colour`}
+                      value={(theme as any)[key]}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
+                      className="h-10 w-10 shrink-0 cursor-pointer rounded-xl border-2 bg-white p-1"
+                    />
+                    <Input
+                      value={(theme as any)[key]}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
+                      className="h-10 rounded-xl border-2 font-mono text-xs"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {contrastRatio(theme.ink, theme.surface) < 4.5 && (
+              <p className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-3 text-[11px] font-bold text-amber-800">
+                That text colour is hard to read on that background, so the shop will use a readable one instead.
+                Pick a darker text colour to keep yours.
+              </p>
+            )}
+
+            {([
+              ['layout', 'Product layout', [['grid', 'Grid'], ['editorial', 'Editorial'], ['list', 'List']]],
+              ['corners', 'Corners', [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']]],
+              ['surfaceStyle', 'Cards', [['soft', 'Soft'], ['flat', 'Flat'], ['glass', 'Glass'], ['bordered', 'Bordered']]],
+              ['font', 'Type', [['jakarta', 'Modern'], ['serif', 'Classic'], ['rounded', 'Friendly'], ['mono', 'Technical']]],
+            ] as const).map(([key, label, opts]) => (
+              <div key={key} className="space-y-1.5">
+                <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {opts.map(([val, name]) => (
+                    <button
+                      key={val}
+                      type="button"
+                      aria-pressed={(theme as any)[key] === val}
+                      onClick={() => setTheme({ ...theme, [key]: val } as ShopTheme)}
+                      className={cn(
+                        'h-9 rounded-full border-2 px-3.5 text-[11px] font-black uppercase tracking-widest transition-colors',
+                        (theme as any)[key] === val ? 'border-foreground bg-foreground text-background' : 'bg-white'
+                      )}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Preview</p>
+              <div
+                className="rounded-2xl border-2 p-4"
+                style={{ background: sanitizeTheme(theme).surface, color: sanitizeTheme(theme).ink }}
+              >
+                <p className="text-base font-bold" style={{ letterSpacing: '-0.02em' }}>Nourishing cuticle oil</p>
+                <p className="mt-1 font-mono text-sm">$24.00</p>
+                <span
+                  className="mt-3 inline-flex h-10 items-center px-4 text-[11px] font-black uppercase tracking-widest"
+                  style={{
+                    background: theme.brand,
+                    color: readableOn(theme.brand),
+                    borderRadius: theme.corners === 'sharp' ? '0.25rem' : theme.corners === 'round' ? '999px' : '0.875rem',
+                  }}
+                >
+                  Add to cart
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-5 space-y-3">
             <div className="flex items-center justify-between gap-2">
