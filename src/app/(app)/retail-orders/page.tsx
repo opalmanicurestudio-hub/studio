@@ -70,6 +70,26 @@ export default function RetailFulfillmentBoard() {
 
   const [batchView, setBatchView] = useState<'orders' | 'shelf'>('shelf');
 
+  /*
+   * Where a product physically sits. The allocation system already records
+   * which station or provider holds units, and items can carry a storage
+   * note — so the pick line can say "Station 2" instead of leaving someone
+   * to remember. Back-stock only means no hint, which is the honest answer.
+   */
+  const shelfFor = useMemo(() => {
+    const map = new Map<string, string>();
+    (inventory || []).forEach((i: any) => {
+      const explicit = String(i.storageLocation || i.shelf || i.binLocation || '').trim();
+      if (explicit) { map.set(i.id, explicit); return; }
+      const allocs = Object.values((i.allocations && typeof i.allocations === 'object') ? i.allocations : {}) as any[];
+      const held = allocs.filter((a) => a && Number(a.qty) > 0).sort((a, b) => Number(b.qty) - Number(a.qty));
+      if (held.length > 0) {
+        map.set(i.id, held.length > 1 ? `${held[0].name} +${held.length - 1}` : String(held[0].name || ''));
+      }
+    });
+    return map;
+  }, [inventory]);
+
   const photoFor = useMemo(() => {
     const map = new Map<string, string>();
     (inventory || []).forEach((i: any) => {
@@ -79,6 +99,11 @@ export default function RetailFulfillmentBoard() {
     });
     return map;
   }, [inventory]);
+
+  const staleHours = Math.max(
+    1,
+    Math.floor(Number((selectedTenant as any)?.retailSettings?.readyStaleHours) || 24)
+  );
 
   const health = useMemo(() => {
     const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
@@ -91,33 +116,6 @@ export default function RetailFulfillmentBoard() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders, policy, tick]);
-
-  const shelfList = useMemo(() => {
-    const map = new Map<string, {
-      productId: string; name: string; photo: string;
-      needed: number; scanned: number; orders: { number: number; qty: number }[];
-    }>();
-    myOrders.filter((o) => o.stage === 'picking').forEach((o) => {
-      (o.lines || []).forEach((l: any) => {
-        const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-        if (open <= 0) return;
-        const key = String(l.productId);
-        const row = map.get(key) || {
-          productId: key, name: String(l.name || 'Item'), photo: photoFor.get(key) || '',
-          needed: 0, scanned: 0, orders: [],
-        };
-        row.needed += open;
-        row.scanned += Math.min(l.qtyScanned || 0, open);
-        row.orders.push({ number: Number(o.orderNumber) || 0, qty: open });
-        map.set(key, row);
-      });
-    });
-    return [...map.values()].sort((a, b) => {
-      const ad = a.scanned >= a.needed ? 1 : 0;
-      const bd = b.scanned >= b.needed ? 1 : 0;
-      return ad - bd || b.needed - a.needed || a.name.localeCompare(b.name);
-    });
-  }, [myOrders, photoFor]);
 
   const tenantId = selectedTenant?.id || '';
   const { user } = useUser();
@@ -194,6 +192,16 @@ export default function RetailFulfillmentBoard() {
   const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
   const inProgress = useMemo(() => orders.filter((o) => ['picking', 'packed'].includes(o.stage)), [orders]);
   const ready = useMemo(() => orders.filter((o) => o.stage === 'ready'), [orders]);
+
+  const staleReady = useMemo(
+    () => ready.filter((o) => {
+      const t = Date.parse(String((o as any).readyAt || o.placedAt || ''));
+      return Number.isFinite(t) && Date.now() - t > staleHours * 3_600_000;
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ready, staleHours, tick]
+  );
+
   const arrived = useMemo(
     () => orders.filter((o) => o.stage === 'arrived')
       .sort((a, b) => (a.curbside?.arrivedAt || '').localeCompare(b.curbside?.arrivedAt || '')),
@@ -204,6 +212,38 @@ export default function RetailFulfillmentBoard() {
     () => (myBatch ? inProgress.filter((o) => o.batchId === myBatch.id) : []),
     [myBatch, inProgress]
   );
+
+  const shelfList = useMemo(() => {
+    const map = new Map<string, {
+      productId: string; name: string; photo: string;
+      needed: number; scanned: number; orders: { number: number; qty: number }[];
+    }>();
+    myOrders.filter((o) => o.stage === 'picking').forEach((o) => {
+      (o.lines || []).forEach((l: any) => {
+        const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
+        if (open <= 0) return;
+        const key = String(l.productId);
+        const row = map.get(key) || {
+          productId: key, name: String(l.name || 'Item'), photo: photoFor.get(key) || '',
+          needed: 0, scanned: 0, orders: [],
+        };
+        row.needed += open;
+        row.scanned += Math.min(l.qtyScanned || 0, open);
+        row.orders.push({ number: Number(o.orderNumber) || 0, qty: open });
+        map.set(key, row);
+      });
+    });
+    // Group the walk by where things live, so the list reads like a route
+    // through the room rather than a jumble.
+    return [...map.values()].sort((a, b) => {
+      const ad = a.scanned >= a.needed ? 1 : 0;
+      const bd = b.scanned >= b.needed ? 1 : 0;
+      const al = shelfFor.get(a.productId) || 'zzz';
+      const bl = shelfFor.get(b.productId) || 'zzz';
+      return ad - bd || al.localeCompare(bl) || b.needed - a.needed || a.name.localeCompare(b.name);
+    });
+  }, [myOrders, photoFor, shelfFor]);
+
   const pendingRefunds = useMemo(
     () => orders.filter((o) => (o.pendingRefundCents || 0) > 0),
     [orders]
@@ -540,6 +580,47 @@ export default function RetailFulfillmentBoard() {
         )}
       </header>
 
+      {staleReady.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="rounded-[1.5rem] border-2 border-amber-300 bg-amber-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+              {staleReady.length} order{staleReady.length === 1 ? '' : 's'} waiting on the shelf over {staleHours}h
+            </p>
+            <p className="mt-1 text-[11px] font-bold text-amber-900/80">
+              Uncollected orders quietly become dead stock — a nudge usually clears them.
+            </p>
+            <div className="mt-3 space-y-2">
+              {staleReady.slice(0, 5).map((o) => (
+                <div key={o.id} className="flex items-center justify-between gap-3 rounded-xl border-2 border-amber-200 bg-white p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-black uppercase tracking-tight">
+                      #{String(o.orderNumber).padStart(4, '0')} · {o.customerName}
+                    </p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      ready {Math.round((Date.now() - Date.parse(String((o as any).readyAt || o.placedAt || ''))) / 3_600_000)}h ago
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {o.customerEmail && (
+                      <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest">
+                        <a href={`mailto:${o.customerEmail}?subject=${encodeURIComponent(`Your order #${String(o.orderNumber).padStart(4, '0')} is ready`)}&body=${encodeURIComponent(`Hi ${String(o.customerName || '').split(' ')[0]}, your order is packed and waiting for you whenever you can swing by.`)}`}>
+                          Remind
+                        </a>
+                      </Button>
+                    )}
+                    {o.customerPhone && (
+                      <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest">
+                        <a href={`sms:${o.customerPhone}`}>Text</a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {myBatch && (
         <section className="max-w-7xl mx-auto px-4 pt-5">
           <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white shadow-xl shadow-primary/10">
@@ -590,6 +671,7 @@ export default function RetailFulfillmentBoard() {
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-xs font-black uppercase tracking-tight">{row.name}</p>
                               <p className="truncate text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                {shelfFor.get(row.productId) ? `${shelfFor.get(row.productId)} · ` : ''}
                                 {row.orders.map((x) => `#${String(x.number).padStart(4, '0')}${x.qty > 1 ? ` ×${x.qty}` : ''}`).join(' · ')}
                               </p>
                             </div>
@@ -637,6 +719,11 @@ export default function RetailFulfillmentBoard() {
                             <p className={cn('text-[11px] font-bold flex-1 min-w-0 truncate', doneLine && 'opacity-50')}>
                               {l.name}
                               {(l as any).optionsLabel ? <span className="block text-[8px] font-black uppercase tracking-widest text-primary">{(l as any).optionsLabel}</span> : null}
+                              {shelfFor.get(l.productId) ? (
+                                <span className="block text-[8px] font-black uppercase tracking-widest text-muted-foreground/80">
+                                  {shelfFor.get(l.productId)}
+                                </span>
+                              ) : null}
                             </p>
                             <p className="font-black font-mono text-[11px]">{l.qtyScanned}/{l.qtyOrdered}</p>
                             {!doneLine && o.stage === 'picking' && (l.qtyShorted || 0) === 0 && (
@@ -706,7 +793,7 @@ export default function RetailFulfillmentBoard() {
             { n: health.late, label: 'past due', tone: health.late > 0 ? 'bad' : 'ok' },
             { n: health.due, label: 'due soon', tone: health.due > 0 ? 'warn' : 'ok' },
             { n: health.working, label: 'in the queue', tone: 'ok' },
-            { n: Math.round(health.oldest), label: 'oldest wait (min)', tone: health.oldest > 60 ? 'warn' : 'ok' },
+            { n: staleReady.length, label: `on shelf >${staleHours}h`, tone: staleReady.length > 0 ? 'warn' : 'ok' },
           ].map((k) => (
             <div key={k.label} className="min-w-0">
               <p className={cn('font-mono text-xl font-bold leading-none',
