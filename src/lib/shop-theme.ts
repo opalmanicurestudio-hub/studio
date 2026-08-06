@@ -64,7 +64,7 @@ export const DEFAULT_THEME: ShopTheme = {
   captionStyle: 'below',
   backdrop: 'plain',
   motion: 'subtle',
-  priceStyle: 'mono',
+  priceStyle: 'plain',
   headerStyle: 'minimal',
   heroStyle: 'banner',
   showPrices: true,
@@ -73,21 +73,21 @@ export const DEFAULT_THEME: ShopTheme = {
 /** Curated starting points — a shop picks one, then tweaks the brand colour. */
 export const THEME_PRESETS: { id: string; name: string; blurb: string; theme: Partial<ShopTheme> }[] = [
   { id: 'ink', name: 'Ink', blurb: 'Clean and neutral — the product does the talking',
-    theme: { brand: '#16171a', accent: '#8a5a20', surface: '#f7f7f8', surfaceStyle: 'soft', corners: 'soft', font: 'jakarta', headingFont: 'jakarta', density: 'comfortable', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'plain', priceStyle: 'mono', headerStyle: 'minimal' } },
+    theme: { brand: '#16171a', accent: '#8a5a20', surface: '#f7f7f8', surfaceStyle: 'soft', corners: 'soft', font: 'jakarta', headingFont: 'jakarta', density: 'comfortable', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'plain', priceStyle: 'plain', headerStyle: 'minimal' } },
   { id: 'atelier', name: 'Atelier', blurb: 'Gallery calm — light headings, generous space',
-    theme: { brand: '#1b1a17', accent: '#7a6a55', surface: '#f6f4f0', surfaceStyle: 'bordered', corners: 'sharp', font: 'serif', headingFont: 'serif', density: 'roomy', buttonStyle: 'underline', imageShape: 'portrait', captionStyle: 'below', backdrop: 'grain', priceStyle: 'plain', headerStyle: 'centered', heroStyle: 'split' } },
+    theme: { brand: '#1b1a17', accent: '#7a6a55', surface: '#f6f4f0', surfaceStyle: 'bordered', corners: 'sharp', font: 'jakarta', headingFont: 'jakarta', density: 'roomy', buttonStyle: 'underline', imageShape: 'portrait', captionStyle: 'below', backdrop: 'grain', priceStyle: 'plain', headerStyle: 'centered', heroStyle: 'split' } },
   { id: 'boutique', name: 'Boutique', blurb: 'Soft, warm and friendly — good for gifting',
-    theme: { brand: '#a8456b', accent: '#d98fb0', surface: '#fdf7f8', surfaceStyle: 'soft', corners: 'round', font: 'rounded', headingFont: 'rounded', density: 'comfortable', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'tint', priceStyle: 'tag', headerStyle: 'centered' } },
+    theme: { brand: '#a8456b', accent: '#d98fb0', surface: '#fdf7f8', surfaceStyle: 'soft', corners: 'round', font: 'jakarta', headingFont: 'jakarta', density: 'comfortable', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'tint', priceStyle: 'tag', headerStyle: 'centered' } },
   { id: 'studio', name: 'Studio', blurb: 'Muted green, roomy, quietly premium',
-    theme: { brand: '#3f5c4a', accent: '#7a6a3c', surface: '#f5f6f4', surfaceStyle: 'soft', corners: 'round', font: 'jakarta', headingFont: 'serif', density: 'roomy', buttonStyle: 'soft', imageShape: 'landscape', captionStyle: 'below', backdrop: 'plain', priceStyle: 'mono', headerStyle: 'minimal' } },
+    theme: { brand: '#3f5c4a', accent: '#7a6a3c', surface: '#f5f6f4', surfaceStyle: 'soft', corners: 'round', font: 'jakarta', headingFont: 'jakarta', density: 'roomy', buttonStyle: 'soft', imageShape: 'landscape', captionStyle: 'below', backdrop: 'plain', priceStyle: 'plain', headerStyle: 'minimal' } },
   { id: 'market', name: 'Market', blurb: 'Dense and busy — for shops with a lot to show',
     theme: { brand: '#1d4ed8', accent: '#b91c1c', surface: '#ffffff', surfaceStyle: 'flat', corners: 'sharp', font: 'jakarta', headingFont: 'jakarta', density: 'cozy', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'grid', priceStyle: 'tag', headerStyle: 'bold', layout: 'grid' } },
   { id: 'midnight', name: 'Midnight', blurb: 'Dark, glassy and modern',
-    theme: { brand: '#e8e6e1', accent: '#c9a227', ink: '#f5f5f4', surface: '#141414', surfaceStyle: 'glass', corners: 'soft', font: 'jakarta', headingFont: 'display', density: 'comfortable', buttonStyle: 'solid', imageShape: 'portrait', captionStyle: 'overlay', backdrop: 'tint', priceStyle: 'mono', headerStyle: 'minimal' } },
+    theme: { brand: '#e8e6e1', accent: '#c9a227', ink: '#f5f5f4', surface: '#141414', surfaceStyle: 'glass', corners: 'soft', font: 'jakarta', headingFont: 'jakarta', density: 'comfortable', buttonStyle: 'solid', imageShape: 'portrait', captionStyle: 'overlay', backdrop: 'tint', priceStyle: 'plain', headerStyle: 'minimal' } },
   { id: 'clay', name: 'Clay', blurb: 'Handmade warmth — terracotta and round edges',
-    theme: { brand: '#8c4f3a', accent: '#4a6b45', surface: '#f7f5f3', surfaceStyle: 'soft', corners: 'round', font: 'rounded', headingFont: 'serif', density: 'comfortable', buttonStyle: 'soft', imageShape: 'square', captionStyle: 'below', backdrop: 'grain', priceStyle: 'plain', headerStyle: 'centered' } },
+    theme: { brand: '#8c4f3a', accent: '#4a6b45', surface: '#f7f5f3', surfaceStyle: 'soft', corners: 'round', font: 'jakarta', headingFont: 'jakarta', density: 'comfortable', buttonStyle: 'soft', imageShape: 'square', captionStyle: 'below', backdrop: 'grain', priceStyle: 'plain', headerStyle: 'centered' } },
   { id: 'press', name: 'Press', blurb: 'Editorial and typographic — big headings, hairlines',
-    theme: { brand: '#111111', accent: '#b45309', surface: '#ffffff', surfaceStyle: 'bordered', corners: 'sharp', font: 'jakarta', headingFont: 'display', density: 'roomy', buttonStyle: 'outline', imageShape: 'landscape', captionStyle: 'below', backdrop: 'plain', priceStyle: 'plain', headerStyle: 'bold', layout: 'editorial' } },
+    theme: { brand: '#111111', accent: '#b45309', surface: '#ffffff', surfaceStyle: 'bordered', corners: 'sharp', font: 'jakarta', headingFont: 'jakarta', density: 'roomy', buttonStyle: 'outline', imageShape: 'landscape', captionStyle: 'below', backdrop: 'plain', priceStyle: 'plain', headerStyle: 'bold', layout: 'editorial' } },
 ];
 
 const RADII: Record<CornerStyle, { card: string; control: string; pill: string }> = {
