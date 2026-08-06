@@ -56,6 +56,7 @@ import { format, subDays, startOfDay, endOfDay, parseISO, isPast, differenceInDa
 import { cn } from '@/lib/utils';
 import { StaffDetailsSheet } from '@/components/staff/StaffDetailsSheet';
 import { useFirebase, setDocumentNonBlocking, updateDocumentNonBlocking, addDocumentNonBlocking, useCollection, useMemoFirebase, deleteDocumentNonBlocking } from '@/firebase';
+import { FULFILMENT_ROLES, describeRole, permissionsFor, type FulfilmentRole } from '@/lib/fulfilment-access';
 import { collection, doc, writeBatch, deleteField, setDoc } from 'firebase/firestore';
 import { EditStaffDialog } from '@/components/staff/EditStaffDialog';
 import { StaffOnboardingDialog } from '@/components/staff/StaffOnboardingDialog';
@@ -886,6 +887,45 @@ export default function StaffPage() {
           onComplete={() => uiToast({ title: 'Onboarding complete', description: `${onboardingStaff?.name} is cleared to work.` })}
         />
       )}
+      {canManage && staff && staff.length > 0 && (
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white mb-6">
+          <CardContent className="p-5 space-y-3">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest">Fulfilment access</p>
+              <p className="text-[11px] font-bold text-muted-foreground mt-0.5">
+                Who can pick, pack, buy shipping labels and cancel orders. Blank follows their staff role.
+              </p>
+            </div>
+            {staff.map((m: any) => {
+              const current = String(m.fulfilmentRole || '');
+              const effective = permissionsFor(m);
+              return (
+                <div key={m.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-black uppercase tracking-tight">{m.name}</p>
+                    <p className="truncate text-[11px] font-bold text-muted-foreground">
+                      {current ? describeRole(current as FulfilmentRole) : `Follows ${m.role} — ${describeRole(effective.canManage ? 'manager' : effective.canShip ? 'shipper' : effective.canPack ? 'packer' : effective.canPick ? 'picker' : 'none')}`}
+                    </p>
+                  </div>
+                  <select
+                    aria-label={`Fulfilment role for ${m.name}`}
+                    value={current}
+                    onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                      handleUpdateStaff({ ...(m as any), fulfilmentRole: e.target.value || null } as any)}
+                    className="h-10 shrink-0 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                  >
+                    <option value="">Follow role</option>
+                    {FULFILMENT_ROLES.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {selectedStaffMember && (
           <StaffDetailsSheet
             open={isDetailsSheetOpen}
