@@ -1,4 +1,4 @@
-@tailwind base;
+@@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -460,4 +460,69 @@ body {
   [data-shop-theme] .bg-white, [data-shop-theme] .bg-card {
     background: #fff; box-shadow: none; backdrop-filter: none;
   }
+}
+
+
+/* ── Shop theme: the wider design system ─────────────────────────────────────
+ * Density, image shape, backdrop texture, motion, button style and the
+ * heading/body font pairing. Each is a CSS variable set by the storefront
+ * layout, so a shop restyles without a single component being rewritten.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+[data-shop-theme] {
+  background-image: var(--shop-backdrop);
+  background-size: var(--shop-backdrop-size);
+  line-height: var(--shop-line-height);
+}
+
+[data-shop-theme] h1,
+[data-shop-theme] h2,
+[data-shop-theme] h3 {
+  font-family: var(--shop-heading-font);
+}
+
+/* Density drives the rhythm: card padding, grid gaps, space between blocks. */
+[data-shop-theme] .p-4, [data-shop-theme] .p-5 { padding: var(--shop-pad); }
+[data-shop-theme] .gap-3, [data-shop-theme] .gap-2 { gap: var(--shop-gap); }
+[data-shop-theme] .space-y-5 > * + *, [data-shop-theme] .space-y-6 > * + * {
+  margin-top: var(--shop-section);
+}
+
+/* Product imagery takes the shop's chosen shape. */
+[data-shop-theme] .aspect-square { aspect-ratio: var(--shop-image-ratio); }
+
+/* Accent — badges, sale flags, "only 3 left". */
+[data-shop-theme] .shop-accent { background: var(--shop-accent); color: var(--shop-on-accent); }
+[data-shop-theme] .shop-accent-soft { background: var(--shop-accent-soft); color: var(--shop-accent); }
+
+/* Motion is a preference, not a default: "none" removes lift entirely, and
+   the OS reduced-motion setting still wins over everything. */
+[data-shop-theme] a, [data-shop-theme] button {
+  transition: transform var(--shop-motion) ease, box-shadow var(--shop-motion) ease,
+              background-color var(--shop-motion) ease;
+}
+@media (hover: hover) {
+  [data-shop-theme] .hover\:shadow-lg:hover,
+  [data-shop-theme] .hover\:shadow-md:hover { transform: translateY(var(--shop-lift)); }
+}
+
+/* Button personalities. */
+[data-shop-theme] .shop-btn {
+  border-radius: var(--shop-radius-control);
+  font-family: var(--shop-font);
+}
+[data-shop-theme] .shop-btn-solid { background: var(--shop-brand); color: var(--shop-on-brand); border: 1px solid var(--shop-brand); }
+[data-shop-theme] .shop-btn-outline { background: transparent; color: var(--shop-brand); border: 1px solid var(--shop-brand); }
+[data-shop-theme] .shop-btn-soft { background: var(--shop-brand-soft); color: var(--shop-brand); border: 1px solid transparent; }
+[data-shop-theme] .shop-btn-underline {
+  background: transparent; color: var(--shop-brand); border: 0;
+  border-bottom: 2px solid var(--shop-brand); border-radius: 0; padding-inline: 0;
+}
+
+/* Price treatments. */
+[data-shop-theme] .shop-price-mono { font-family: var(--mono, "JetBrains Mono", monospace); font-variant-numeric: tabular-nums; font-weight: 700; }
+[data-shop-theme] .shop-price-plain { font-weight: 500; letter-spacing: -0.01em; }
+[data-shop-theme] .shop-price-tag {
+  display: inline-block; padding: 2px 8px; border-radius: var(--shop-radius-pill);
+  background: var(--shop-accent-soft); color: var(--shop-accent); font-weight: 700;
 }
