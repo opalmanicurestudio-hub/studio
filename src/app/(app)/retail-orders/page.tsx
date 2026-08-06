@@ -529,6 +529,15 @@ export default function RetailFulfillmentBoard() {
             </div>
           </div>
           <Button
+            variant="outline"
+            size="sm"
+            aria-pressed={stationMode}
+            onClick={() => setStationMode((v) => !v)}
+            className="h-11 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest shrink-0"
+          >
+            {stationMode ? 'Phone view' : 'Station view'}
+          </Button>
+          <Button
             onClick={takeNext}
             disabled={claiming || !!myBatch || queue.length === 0}
             className="flex-1 sm:flex-none h-12 sm:h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-md shadow-primary/20"
