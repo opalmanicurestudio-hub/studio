@@ -16,7 +16,7 @@ import {
   PanelLeftClose, PanelLeftOpen, ChevronRight, ExternalLink,
   Armchair, KeyRound, HandCoins, Receipt, Wallet, AlertTriangle, Bot,
   MessageSquare, DoorOpen, Send, Hourglass, PackageCheck, RotateCcw, ShoppingBag,
-  History as HistoryIcon, LifeBuoy, Paintbrush, Building2, Boxes, FlaskConical,
+  History as HistoryIcon, LifeBuoy, Paintbrush, Building2, Boxes, FlaskConical, Users2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { TenantSwitcher } from './TenantSwitcher';
