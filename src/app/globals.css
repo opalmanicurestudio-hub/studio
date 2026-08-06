@@ -579,3 +579,24 @@ body {
 /* Staff screens get the same protection without the theming. */
 main, [data-radix-scroll-area-viewport] { max-width: 100%; }
 main :where(div, section, form, li) { min-width: 0; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * STATION MODE — the board on a bench or wall tablet
+ * ═══════════════════════════════════════════════════════════════════════════
+ * A screen that is always on, read from a metre away, by someone holding a
+ * product in one hand. Bigger type, bigger targets, calmer chrome. It is a
+ * display mode rather than a separate app, so nothing can drift out of sync.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+.station-mode { font-size: 112%; }
+.station-mode .text-\[11px\] { font-size: 13px; }
+.station-mode .text-xs { font-size: 15px; }
+.station-mode .text-sm { font-size: 17px; }
+.station-mode button,
+.station-mode [role="button"] { min-height: 52px; }
+.station-mode .rounded-\[1\.75rem\] { border-radius: 1.25rem; }
+
+/* State reads at a glance: colour carries urgency, not decoration. */
+.station-mode .border-destructive\/60 { border-width: 3px; }
+.station-mode .border-amber-300 { border-width: 3px; }
