@@ -329,3 +329,66 @@ body {
   }
   :where(a, button):focus-visible { outline: 2px solid Highlight; }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * MOBILE — the storefront is used on a phone, in a hurry, one-handed
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Three iOS behaviours cause most "it feels broken on my phone" reports, and
+ * none of them are visible on a desktop browser:
+ *
+ *   1. Safari ZOOMS the page when you focus an input whose text is under
+ *      16px. Every field in the app is 14px, so tapping the email box on the
+ *      checkout sheet jumps the layout and the shopper has to pinch back out.
+ *   2. Fixed bottom bars sit UNDER the home indicator on notched phones, so
+ *      the last few pixels of a Pay button are unreachable.
+ *   3. Rubber-band scrolling and horizontal drift make a page feel unfinished
+ *      when one wide element escapes its container.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+@layer base {
+  /* No zoom-on-focus. 16px is the threshold, not a preference — Safari
+     ignores anything smaller. Applied on touch devices only, so desktop
+     keeps the tighter type. */
+  @media (pointer: coarse) {
+    input:not([type='checkbox']):not([type='radio']),
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+
+  /* Never scroll sideways: one over-wide element shouldn't drag the page. */
+  html, body {
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
+  }
+}
+
+@layer utilities {
+  /* Anything pinned to the bottom clears the home indicator. */
+  .fixed.bottom-0,
+  .sticky.bottom-0 {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  /* Sheets that open from the bottom get the same treatment, plus a height
+     that respects the browser chrome (dvh, not vh). */
+  [data-vaul-drawer],
+  [role='dialog'][data-state='open'] {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Horizontal chip/card rails: momentum scrolling, no scrollbar, and the
+     first item flush with the page edge. */
+  .overflow-x-auto {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+  .overflow-x-auto::-webkit-scrollbar { display: none; }
+  .overflow-x-auto > * { scroll-snap-align: start; }
+
+  /* Product images and media never exceed their column. */
+  img, video { max-width: 100%; height: auto; }
+}
