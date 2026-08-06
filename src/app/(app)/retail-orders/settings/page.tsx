@@ -39,6 +39,14 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  pdpShowTrust?: boolean;
+  pdpShowFaq?: boolean;
+  pdpShowRelated?: boolean;
+  pdpShowVideo?: boolean;
+  pdpShowStickyBar?: boolean;
+  pdpFaq?: { q: string; a: string }[];
+  pickupEnabled?: boolean;
+  shippingEnabled?: boolean;
   prepMinutes?: number;
   tipsEnabled?: boolean;
   scheduledPickup?: boolean;
@@ -116,6 +124,14 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      pdpShowTrust: existing.pdpShowTrust !== false,
+      pdpShowFaq: existing.pdpShowFaq !== false,
+      pdpShowRelated: existing.pdpShowRelated !== false,
+      pdpShowVideo: existing.pdpShowVideo !== false,
+      pdpShowStickyBar: existing.pdpShowStickyBar !== false,
+      pdpFaq: Array.isArray(existing.pdpFaq) ? existing.pdpFaq : [],
+      pickupEnabled: existing.pickupEnabled !== false,
+      shippingEnabled: existing.shippingEnabled !== false,
       prepMinutes: Number(existing.prepMinutes) || 0,
       tipsEnabled: existing.tipsEnabled === true,
       scheduledPickup: existing.scheduledPickup === true,
@@ -180,6 +196,14 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          pdpShowTrust: rs.pdpShowTrust !== false,
+          pdpShowFaq: rs.pdpShowFaq !== false,
+          pdpShowRelated: rs.pdpShowRelated !== false,
+          pdpShowVideo: rs.pdpShowVideo !== false,
+          pdpShowStickyBar: rs.pdpShowStickyBar !== false,
+          pdpFaq: JSON.parse(JSON.stringify((rs.pdpFaq || []).filter((f) => f.q.trim() && f.a.trim()).slice(0, 6))),
+          pickupEnabled: rs.pickupEnabled !== false,
+          shippingEnabled: rs.shippingEnabled !== false,
           prepMinutes: Math.max(0, Math.floor(Number(rs.prepMinutes) || 0)),
           tipsEnabled: rs.tipsEnabled === true,
           scheduledPickup: rs.scheduledPickup === true,
@@ -598,6 +622,103 @@ export default function RetailSettingsPage() {
               <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
               <Switch checked={rs.wholesaleTaxExempt === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-primary shrink-0" />
+              <p className="text-[11px] font-black uppercase tracking-widest">Product page layout</p>
+            </div>
+            <p className="text-[11px] font-bold text-muted-foreground">
+              Turn blocks off for shops that don&rsquo;t need them. Everything is on by default.
+            </p>
+
+            {([
+              ['pdpShowTrust', 'Trust badges', 'Pickup/returns/secure row under the buy button'],
+              ['pdpShowVideo', 'Product video', 'Plays the video uploaded on the item'],
+              ['pdpShowRelated', 'You may also like', 'Row of other products'],
+              ['pdpShowFaq', 'Good to know', 'Collapsible questions'],
+              ['pdpShowStickyBar', 'Sticky buy bar', 'Follows the shopper down the page'],
+            ] as const).map(([key, label, hint]) => (
+              <div key={key} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-tight">{label}</p>
+                  <p className="text-[11px] font-bold text-muted-foreground">{hint}</p>
+                </div>
+                <Switch
+                  checked={(rs as any)[key] !== false}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, [key]: v })}
+                />
+              </div>
+            ))}
+
+            <div className="rounded-2xl border-2 border-dashed p-3 space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                What this shop offers
+              </p>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-black uppercase tracking-tight">Local pickup</p>
+                <Switch checked={rs.pickupEnabled !== false}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, pickupEnabled: v })} />
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-black uppercase tracking-tight">Shipping</p>
+                <Switch checked={rs.shippingEnabled !== false}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, shippingEnabled: v })} />
+              </div>
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Turning pickup off swaps the pickup badge and answers for shipping ones — no more advertising
+                a counter you don&rsquo;t have.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                Your own questions (optional — replaces the defaults)
+              </p>
+              {(rs.pdpFaq || []).map((f, i) => (
+                <div key={i} className="rounded-2xl border-2 p-3 space-y-2">
+                  <Input
+                    placeholder="Question"
+                    value={f.q}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const next = [...(rs.pdpFaq || [])];
+                      next[i] = { ...next[i], q: e.target.value };
+                      setRs({ ...rs, pdpFaq: next });
+                    }}
+                    className="h-10 rounded-xl border-2 font-bold text-xs"
+                  />
+                  <Textarea
+                    placeholder="Answer"
+                    value={f.a}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                      const next = [...(rs.pdpFaq || [])];
+                      next[i] = { ...next[i], a: e.target.value };
+                      setRs({ ...rs, pdpFaq: next });
+                    }}
+                    className="min-h-[54px] rounded-xl border-2 font-bold text-xs"
+                  />
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => setRs({ ...rs, pdpFaq: (rs.pdpFaq || []).filter((_, j) => j !== i) })}
+                    className="h-8 rounded-lg text-destructive text-[11px] font-black uppercase tracking-widest"
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              {(rs.pdpFaq || []).length < 6 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setRs({ ...rs, pdpFaq: [...(rs.pdpFaq || []), { q: '', a: '' }] })}
+                  className="h-10 w-full rounded-xl border-2 text-[11px] font-black uppercase tracking-widest"
+                >
+                  Add a question
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
