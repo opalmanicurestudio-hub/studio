@@ -16,40 +16,78 @@
 export type LayoutPreset = 'grid' | 'editorial' | 'list';
 export type SurfaceStyle = 'soft' | 'flat' | 'glass' | 'bordered';
 export type CornerStyle = 'sharp' | 'soft' | 'round';
-export type FontPreset = 'jakarta' | 'serif' | 'mono' | 'rounded';
+export type FontPreset = 'jakarta' | 'serif' | 'mono' | 'rounded' | 'display';
+export type Density = 'cozy' | 'comfortable' | 'roomy';
+export type ButtonStyle = 'solid' | 'outline' | 'soft' | 'underline';
+export type ImageShape = 'square' | 'portrait' | 'landscape';
+export type CaptionStyle = 'below' | 'overlay';
+export type BackdropStyle = 'plain' | 'tint' | 'grain' | 'grid';
+export type MotionLevel = 'none' | 'subtle' | 'lively';
+export type PriceStyle = 'plain' | 'mono' | 'tag';
+export type HeaderStyle = 'minimal' | 'centered' | 'bold';
 
 export interface ShopTheme {
   brand: string;          // hex — buttons, links, active states
+  accent: string;         // hex — badges, sale flags, secondary emphasis
   ink: string;            // hex — body text
   surface: string;        // hex — page background
   layout: LayoutPreset;
   surfaceStyle: SurfaceStyle;
   corners: CornerStyle;
-  font: FontPreset;
-  heroStyle: 'banner' | 'minimal' | 'split';
+  font: FontPreset;           // body
+  headingFont: FontPreset;    // headings — pairing is most of a shop's voice
+  density: Density;
+  buttonStyle: ButtonStyle;
+  imageShape: ImageShape;
+  captionStyle: CaptionStyle;
+  backdrop: BackdropStyle;
+  motion: MotionLevel;
+  priceStyle: PriceStyle;
+  headerStyle: HeaderStyle;
+  heroStyle: 'banner' | 'minimal' | 'split' | 'none';
   showPrices: boolean;
 }
 
 export const DEFAULT_THEME: ShopTheme = {
   brand: '#16171a',
+  accent: '#8a5a20',
   ink: '#16171a',
   surface: '#f7f7f8',
   layout: 'grid',
   surfaceStyle: 'soft',
   corners: 'soft',
   font: 'jakarta',
+  headingFont: 'jakarta',
+  density: 'comfortable',
+  buttonStyle: 'solid',
+  imageShape: 'square',
+  captionStyle: 'below',
+  backdrop: 'plain',
+  motion: 'subtle',
+  priceStyle: 'mono',
+  headerStyle: 'minimal',
   heroStyle: 'banner',
   showPrices: true,
 };
 
 /** Curated starting points — a shop picks one, then tweaks the brand colour. */
-export const THEME_PRESETS: { id: string; name: string; theme: Partial<ShopTheme> }[] = [
-  { id: 'ink',      name: 'Ink',      theme: { brand: '#16171a', surface: '#f7f7f8', surfaceStyle: 'soft',     corners: 'soft',  font: 'jakarta' } },
-  { id: 'paper',    name: 'Paper',    theme: { brand: '#1b1a17', surface: '#f6f4f0', surfaceStyle: 'bordered', corners: 'sharp', font: 'serif'   } },
-  { id: 'sage',     name: 'Sage',     theme: { brand: '#3f5c4a', surface: '#f5f6f4', surfaceStyle: 'soft',     corners: 'round', font: 'rounded' } },
-  { id: 'clay',     name: 'Clay',     theme: { brand: '#8c4f3a', surface: '#f7f5f3', surfaceStyle: 'soft',     corners: 'round', font: 'jakarta' } },
-  { id: 'midnight', name: 'Midnight', theme: { brand: '#e8e6e1', ink: '#f5f5f4', surface: '#141414', surfaceStyle: 'glass', corners: 'soft', font: 'jakarta' } },
-  { id: 'bloom',    name: 'Bloom',    theme: { brand: '#a8456b', surface: '#fdf7f8', surfaceStyle: 'soft',     corners: 'round', font: 'rounded' } },
+export const THEME_PRESETS: { id: string; name: string; blurb: string; theme: Partial<ShopTheme> }[] = [
+  { id: 'ink', name: 'Ink', blurb: 'Clean and neutral — the product does the talking',
+    theme: { brand: '#16171a', accent: '#8a5a20', surface: '#f7f7f8', surfaceStyle: 'soft', corners: 'soft', font: 'jakarta', headingFont: 'jakarta', density: 'comfortable', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'plain', priceStyle: 'mono', headerStyle: 'minimal' } },
+  { id: 'atelier', name: 'Atelier', blurb: 'Gallery calm — light headings, generous space',
+    theme: { brand: '#1b1a17', accent: '#7a6a55', surface: '#f6f4f0', surfaceStyle: 'bordered', corners: 'sharp', font: 'serif', headingFont: 'serif', density: 'roomy', buttonStyle: 'underline', imageShape: 'portrait', captionStyle: 'below', backdrop: 'grain', priceStyle: 'plain', headerStyle: 'centered', heroStyle: 'split' } },
+  { id: 'boutique', name: 'Boutique', blurb: 'Soft, warm and friendly — good for gifting',
+    theme: { brand: '#a8456b', accent: '#d98fb0', surface: '#fdf7f8', surfaceStyle: 'soft', corners: 'round', font: 'rounded', headingFont: 'rounded', density: 'comfortable', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'tint', priceStyle: 'tag', headerStyle: 'centered' } },
+  { id: 'studio', name: 'Studio', blurb: 'Muted green, roomy, quietly premium',
+    theme: { brand: '#3f5c4a', accent: '#7a6a3c', surface: '#f5f6f4', surfaceStyle: 'soft', corners: 'round', font: 'jakarta', headingFont: 'serif', density: 'roomy', buttonStyle: 'soft', imageShape: 'landscape', captionStyle: 'below', backdrop: 'plain', priceStyle: 'mono', headerStyle: 'minimal' } },
+  { id: 'market', name: 'Market', blurb: 'Dense and busy — for shops with a lot to show',
+    theme: { brand: '#1d4ed8', accent: '#b91c1c', surface: '#ffffff', surfaceStyle: 'flat', corners: 'sharp', font: 'jakarta', headingFont: 'jakarta', density: 'cozy', buttonStyle: 'solid', imageShape: 'square', captionStyle: 'below', backdrop: 'grid', priceStyle: 'tag', headerStyle: 'bold', layout: 'grid' } },
+  { id: 'midnight', name: 'Midnight', blurb: 'Dark, glassy and modern',
+    theme: { brand: '#e8e6e1', accent: '#c9a227', ink: '#f5f5f4', surface: '#141414', surfaceStyle: 'glass', corners: 'soft', font: 'jakarta', headingFont: 'display', density: 'comfortable', buttonStyle: 'solid', imageShape: 'portrait', captionStyle: 'overlay', backdrop: 'tint', priceStyle: 'mono', headerStyle: 'minimal' } },
+  { id: 'clay', name: 'Clay', blurb: 'Handmade warmth — terracotta and round edges',
+    theme: { brand: '#8c4f3a', accent: '#4a6b45', surface: '#f7f5f3', surfaceStyle: 'soft', corners: 'round', font: 'rounded', headingFont: 'serif', density: 'comfortable', buttonStyle: 'soft', imageShape: 'square', captionStyle: 'below', backdrop: 'grain', priceStyle: 'plain', headerStyle: 'centered' } },
+  { id: 'press', name: 'Press', blurb: 'Editorial and typographic — big headings, hairlines',
+    theme: { brand: '#111111', accent: '#b45309', surface: '#ffffff', surfaceStyle: 'bordered', corners: 'sharp', font: 'jakarta', headingFont: 'display', density: 'roomy', buttonStyle: 'outline', imageShape: 'landscape', captionStyle: 'below', backdrop: 'plain', priceStyle: 'plain', headerStyle: 'bold', layout: 'editorial' } },
 ];
 
 const RADII: Record<CornerStyle, { card: string; control: string; pill: string }> = {
@@ -63,6 +101,29 @@ const FONTS: Record<FontPreset, string> = {
   serif:   'Georgia, "Times New Roman", serif',
   mono:    '"JetBrains Mono", ui-monospace, monospace',
   rounded: '"Nunito", "Plus Jakarta Sans", system-ui, sans-serif',
+  display: '"Playfair Display", Georgia, serif',
+};
+
+const DENSITY: Record<Density, { gap: string; pad: string; section: string; line: string }> = {
+  cozy:        { gap: '0.5rem',  pad: '0.75rem', section: '1.25rem', line: '1.45' },
+  comfortable: { gap: '0.75rem', pad: '1.125rem', section: '2rem',   line: '1.6'  },
+  roomy:       { gap: '1.25rem', pad: '1.5rem',  section: '3rem',    line: '1.75' },
+};
+
+const IMAGE_RATIO: Record<ImageShape, string> = {
+  square: '1 / 1',
+  portrait: '3 / 4',
+  landscape: '4 / 3',
+};
+
+const BACKDROPS: Record<BackdropStyle, (surface: string, brand: string) => string> = {
+  plain: () => 'none',
+  tint: (surface, brand) =>
+    `radial-gradient(120% 80% at 10% -10%, color-mix(in srgb, ${brand} 14%, transparent) 0%, transparent 60%)`,
+  grain: () =>
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E\")",
+  grid: (surface, brand) =>
+    `linear-gradient(color-mix(in srgb, ${brand} 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, ${brand} 7%, transparent) 1px, transparent 1px)`,
 };
 
 /* ── colour helpers ───────────────────────────────────────────────────────── */
@@ -120,11 +181,21 @@ export function sanitizeTheme(raw: any): ShopTheme {
     brand,
     ink,
     surface,
+    accent: hex(raw?.accent, DEFAULT_THEME.accent),
+    headingFont: pick(raw?.headingFont, ['jakarta', 'serif', 'mono', 'rounded', 'display'] as const, DEFAULT_THEME.headingFont),
+    density: pick(raw?.density, ['cozy', 'comfortable', 'roomy'] as const, DEFAULT_THEME.density),
+    buttonStyle: pick(raw?.buttonStyle, ['solid', 'outline', 'soft', 'underline'] as const, DEFAULT_THEME.buttonStyle),
+    imageShape: pick(raw?.imageShape, ['square', 'portrait', 'landscape'] as const, DEFAULT_THEME.imageShape),
+    captionStyle: pick(raw?.captionStyle, ['below', 'overlay'] as const, DEFAULT_THEME.captionStyle),
+    backdrop: pick(raw?.backdrop, ['plain', 'tint', 'grain', 'grid'] as const, DEFAULT_THEME.backdrop),
+    motion: pick(raw?.motion, ['none', 'subtle', 'lively'] as const, DEFAULT_THEME.motion),
+    priceStyle: pick(raw?.priceStyle, ['plain', 'mono', 'tag'] as const, DEFAULT_THEME.priceStyle),
+    headerStyle: pick(raw?.headerStyle, ['minimal', 'centered', 'bold'] as const, DEFAULT_THEME.headerStyle),
     layout: pick(raw?.layout, ['grid', 'editorial', 'list'] as const, DEFAULT_THEME.layout),
     surfaceStyle: pick(raw?.surfaceStyle, ['soft', 'flat', 'glass', 'bordered'] as const, DEFAULT_THEME.surfaceStyle),
     corners: pick(raw?.corners, ['sharp', 'soft', 'round'] as const, DEFAULT_THEME.corners),
     font: pick(raw?.font, ['jakarta', 'serif', 'mono', 'rounded'] as const, DEFAULT_THEME.font),
-    heroStyle: pick(raw?.heroStyle, ['banner', 'minimal', 'split'] as const, DEFAULT_THEME.heroStyle),
+    heroStyle: pick(raw?.heroStyle, ['banner', 'minimal', 'split', 'none'] as const, DEFAULT_THEME.heroStyle),
     showPrices: raw?.showPrices !== false,
   };
 }
@@ -158,7 +229,28 @@ export function themeToCss(theme: ShopTheme): string {
     `--shop-card-blur:${t.surfaceStyle === 'glass' ? '20px' : '0px'}`,
     `--shop-card-shadow:${t.surfaceStyle === 'soft' ? '0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px -12px rgb(0 0 0 / 0.12)' : 'none'}`,
     `--shop-card-border:${t.surfaceStyle === 'flat' ? '0px' : '1px'}`,
+    `--shop-accent:${t.accent}`,
+    `--shop-on-accent:${readableOn(t.accent)}`,
+    `--shop-accent-soft:${mix(t.accent, luminance(t.surface) > 0.5 ? 'white' : 'black', 0.86)}`,
+    `--shop-heading-font:${FONTS[t.headingFont]}`,
+    `--shop-gap:${DENSITY[t.density].gap}`,
+    `--shop-pad:${DENSITY[t.density].pad}`,
+    `--shop-section:${DENSITY[t.density].section}`,
+    `--shop-line-height:${DENSITY[t.density].line}`,
+    `--shop-image-ratio:${IMAGE_RATIO[t.imageShape]}`,
+    `--shop-backdrop:${BACKDROPS[t.backdrop](t.surface, t.brand)}`,
+    `--shop-backdrop-size:${t.backdrop === 'grid' ? '28px 28px' : t.backdrop === 'grain' ? '120px 120px' : 'auto'}`,
+    `--shop-motion:${t.motion === 'none' ? '0ms' : t.motion === 'lively' ? '260ms' : '160ms'}`,
+    `--shop-lift:${t.motion === 'lively' ? '-3px' : t.motion === 'subtle' ? '-1px' : '0px'}`,
   ].join(';');
+}
+
+/** Button classes per style — solid, outline, soft tint, or a bare underline. */
+export function buttonClassFor(style: ButtonStyle): string {
+  if (style === 'outline') return 'shop-btn shop-btn-outline';
+  if (style === 'soft') return 'shop-btn shop-btn-soft';
+  if (style === 'underline') return 'shop-btn shop-btn-underline';
+  return 'shop-btn shop-btn-solid';
 }
 
 /** Product grid columns per layout preset — phone first, then wider screens. */
