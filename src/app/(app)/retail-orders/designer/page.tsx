@@ -181,14 +181,21 @@ export default function ShopDesignerPage() {
                     >
                       {p.name}
                     </span>
+                    <span
+                      className="mt-0.5 block max-w-[9rem] text-[11px] font-bold leading-tight opacity-70"
+                      style={{ color: p.theme.ink || DEFAULT_THEME.ink }}
+                    >
+                      {p.blurb}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {([
                 ['brand', 'Brand'],
+                ['accent', 'Accent'],
                 ['ink', 'Text'],
                 ['surface', 'Background'],
               ] as const).map(([key, label]) => (
@@ -221,9 +228,19 @@ export default function ShopDesignerPage() {
 
             {([
               ['layout', 'Product layout', [['grid', 'Grid'], ['editorial', 'Editorial'], ['list', 'List']]],
+              ['density', 'Spacing', [['cozy', 'Cozy'], ['comfortable', 'Comfortable'], ['roomy', 'Roomy']]],
+              ['imageShape', 'Photo shape', [['square', 'Square'], ['portrait', 'Portrait'], ['landscape', 'Landscape']]],
+              ['captionStyle', 'Product caption', [['below', 'Below photo'], ['overlay', 'On the photo']]],
               ['corners', 'Corners', [['sharp', 'Sharp'], ['soft', 'Soft'], ['round', 'Round']]],
               ['surfaceStyle', 'Cards', [['soft', 'Soft'], ['flat', 'Flat'], ['glass', 'Glass'], ['bordered', 'Bordered']]],
-              ['font', 'Type', [['jakarta', 'Modern'], ['serif', 'Classic'], ['rounded', 'Friendly'], ['mono', 'Technical']]],
+              ['buttonStyle', 'Buttons', [['solid', 'Solid'], ['outline', 'Outline'], ['soft', 'Soft'], ['underline', 'Underline']]],
+              ['headingFont', 'Headings', [['jakarta', 'Modern'], ['serif', 'Classic'], ['display', 'Editorial'], ['rounded', 'Friendly']]],
+              ['font', 'Body type', [['jakarta', 'Modern'], ['serif', 'Classic'], ['rounded', 'Friendly'], ['mono', 'Technical']]],
+              ['priceStyle', 'Prices', [['mono', 'Tabular'], ['plain', 'Plain'], ['tag', 'Tag']]],
+              ['backdrop', 'Background texture', [['plain', 'None'], ['tint', 'Brand tint'], ['grain', 'Grain'], ['grid', 'Grid']]],
+              ['headerStyle', 'Shop header', [['minimal', 'Minimal'], ['centered', 'Centered'], ['bold', 'Bold']]],
+              ['heroStyle', 'Hero', [['banner', 'Banner'], ['split', 'Split'], ['minimal', 'Minimal'], ['none', 'None']]],
+              ['motion', 'Motion', [['subtle', 'Subtle'], ['lively', 'Lively'], ['none', 'None']]],
             ] as const).map(([key, label, opts]) => (
               <div key={key} className="space-y-1.5">
                 <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
@@ -248,23 +265,45 @@ export default function ShopDesignerPage() {
 
             <div className="space-y-2">
               <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Preview</p>
-              <div
-                className="rounded-2xl border-2 p-4"
-                style={{ background: sanitizeTheme(theme).surface, color: sanitizeTheme(theme).ink }}
-              >
-                <p className="text-base font-bold" style={{ letterSpacing: '-0.02em' }}>Nourishing cuticle oil</p>
-                <p className="mt-1 font-mono text-sm">$24.00</p>
-                <span
-                  className="mt-3 inline-flex h-10 items-center px-4 text-[11px] font-black uppercase tracking-widest"
-                  style={{
-                    background: theme.brand,
-                    color: readableOn(theme.brand),
-                    borderRadius: theme.corners === 'sharp' ? '0.25rem' : theme.corners === 'round' ? '999px' : '0.875rem',
-                  }}
-                >
-                  Add to cart
-                </span>
-              </div>
+              {(() => {
+                const t = sanitizeTheme(theme);
+                const radius = t.corners === 'sharp' ? '0.25rem' : t.corners === 'round' ? '1.5rem' : '0.875rem';
+                const ratio = t.imageShape === 'portrait' ? '3 / 4' : t.imageShape === 'landscape' ? '4 / 3' : '1 / 1';
+                const pad = t.density === 'cozy' ? 10 : t.density === 'roomy' ? 22 : 16;
+                const btn: React.CSSProperties =
+                  t.buttonStyle === 'outline' ? { background: 'transparent', color: t.brand, border: `1px solid ${t.brand}` }
+                  : t.buttonStyle === 'underline' ? { background: 'transparent', color: t.brand, borderBottom: `2px solid ${t.brand}`, borderRadius: 0, paddingInline: 0 }
+                  : t.buttonStyle === 'soft' ? { background: `${t.brand}22`, color: t.brand, border: '1px solid transparent' }
+                  : { background: t.brand, color: readableOn(t.brand), border: `1px solid ${t.brand}` };
+                return (
+                  <div style={{ background: t.surface, color: t.ink, padding: pad, borderRadius: radius }} className="border-2">
+                    <div className="grid grid-cols-2" style={{ gap: pad / 2 }}>
+                      {['Cuticle oil', 'Soft gel tips'].map((name, i) => (
+                        <div key={name} style={{ borderRadius: radius, overflow: 'hidden', background: `${t.ink}0a`, position: 'relative' }}>
+                          <div style={{ aspectRatio: ratio, background: i === 0 ? `${t.brand}1f` : `${t.accent}1f` }} />
+                          <div style={{ padding: pad / 2, ...(t.captionStyle === 'overlay' ? { position: 'absolute', bottom: 0, left: 0, right: 0, background: `${t.surface}e6` } : {}) }}>
+                            <p style={{ fontSize: 12, fontWeight: 600, letterSpacing: '-0.01em' }}>{name}</p>
+                            <p style={{
+                              marginTop: 3, fontSize: 12,
+                              ...(t.priceStyle === 'mono' ? { fontFamily: 'JetBrains Mono, monospace', fontWeight: 700 }
+                                : t.priceStyle === 'tag' ? { display: 'inline-block', padding: '2px 8px', borderRadius: 999, background: `${t.accent}22`, color: t.accent, fontWeight: 700 }
+                                : { fontWeight: 500 }),
+                            }}>
+                              ${i === 0 ? '24.00' : '18.00'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <span
+                      className="mt-3 inline-flex h-10 items-center px-4 text-[11px] font-black uppercase tracking-widest"
+                      style={{ ...btn, borderRadius: t.buttonStyle === 'underline' ? 0 : radius }}
+                    >
+                      Add to cart
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
