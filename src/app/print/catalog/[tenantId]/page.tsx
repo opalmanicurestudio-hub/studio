@@ -1,5 +1,7 @@
 import QRCode from 'qrcode';
 
+import { collectImages } from '@/lib/product-public';
+
 // ─── /print/catalog/[tenantId]?tier=retail|wholesale&cat=Oils&qr=1 ────────────
 // The branded catalog — a lookbook at retail tier, a line sheet at wholesale.
 //
@@ -72,7 +74,10 @@ export default async function PrintCatalogPage({
       category: String(i.category || 'General'),
       size: String(i.size ? `${i.size}${i.unit ? ` ${i.unit}` : ''}` : ''),
       description: String(i.onlineDescription || i.description || '').slice(0, 130),
-      image: Array.isArray(i.imageUrls) && i.imageUrls[0] ? String(i.imageUrls[0]) : '',
+      // Photos live under imageUrls (shop editor) OR imageUrl (inventory
+      // forms) — the catalog only read the first, so anything photographed
+      // in Inventory printed as an empty square.
+      image: collectImages(i)[0] || '',
       price: wholesale && i.wholesalePriceDollars != null ? Number(i.wholesalePriceDollars) : Number(i.msrp) || 0,
       minQty: wholesale && i.wholesaleMinQty ? Number(i.wholesaleMinQty) : 0,
       stock: Number(i.totalStock) || 0,
