@@ -145,7 +145,6 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .tracking-widest {
-    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
     letter-spacing: 0.1em;
   }
 
@@ -156,7 +155,11 @@ h1, h2, h3, h4, h5, h6 {
   .font-semibold { font-weight: 500; }
 
   /* Numerals: mono bold, tabular so columns line up and totals stop dancing. */
+  /* Numbers stay aligned and heavy, but in Plus Jakarta Sans — a second
+     typeface for every price, count and label was the "secondary font"
+     showing up across the whole app. */
   .font-mono {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
