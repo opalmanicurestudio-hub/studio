@@ -392,3 +392,72 @@ body {
   /* Product images and media never exceed their column. */
   img, video { max-width: 100%; height: auto; }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * SHOP THEME — per-business storefront branding
+ * ═══════════════════════════════════════════════════════════════════════════
+ * The /shop/[tenantId]/layout injects each shop's colours, corners and font
+ * as CSS variables. These rules let existing markup pick them up without
+ * every component being rewritten: inside a themed storefront, the generic
+ * white cards and near-black buttons become the shop's own.
+ *
+ * Deliberately scoped to [data-shop-theme] so the staff app is untouched —
+ * a tenant's brand belongs on their storefront, not on the tools.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+[data-shop-theme] {
+  background: var(--shop-surface);
+  color: var(--shop-ink);
+  font-family: var(--shop-font);
+}
+
+[data-shop-theme] .bg-white,
+[data-shop-theme] .bg-card {
+  background-color: var(--shop-card);
+  backdrop-filter: blur(var(--shop-card-blur));
+  -webkit-backdrop-filter: blur(var(--shop-card-blur));
+  box-shadow: var(--shop-card-shadow);
+}
+
+[data-shop-theme] .border-2,
+[data-shop-theme] .border {
+  border-width: var(--shop-card-border);
+  border-color: var(--shop-line);
+}
+
+[data-shop-theme] .rounded-\[2rem\],
+[data-shop-theme] .rounded-\[2\.5rem\],
+[data-shop-theme] .rounded-\[1\.5rem\] {
+  border-radius: var(--shop-radius-card);
+}
+
+[data-shop-theme] .rounded-2xl,
+[data-shop-theme] .rounded-xl {
+  border-radius: var(--shop-radius-control);
+}
+
+[data-shop-theme] .rounded-full {
+  border-radius: var(--shop-radius-pill);
+}
+
+/* Primary actions carry the brand, with text guaranteed to read on it. */
+[data-shop-theme] .bg-primary,
+[data-shop-theme] .bg-foreground {
+  background-color: var(--shop-brand);
+  color: var(--shop-on-brand);
+}
+[data-shop-theme] .text-primary { color: var(--shop-brand); }
+[data-shop-theme] .bg-primary\/10,
+[data-shop-theme] .bg-primary\/5 { background-color: var(--shop-brand-soft); }
+[data-shop-theme] .text-muted-foreground { color: var(--shop-muted); }
+[data-shop-theme] .border-primary,
+[data-shop-theme] .border-foreground { border-color: var(--shop-brand); }
+
+/* Print keeps ink on white — a customer's receipt is not a brand moment. */
+@media print {
+  [data-shop-theme] { background: #fff; color: #111; }
+  [data-shop-theme] .bg-white, [data-shop-theme] .bg-card {
+    background: #fff; box-shadow: none; backdrop-filter: none;
+  }
+}
