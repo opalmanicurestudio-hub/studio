@@ -41,6 +41,7 @@ export default function WavesPage() {
   const [busy, setBusy] = useState(false);
   const [maxTotes, setMaxTotes] = useState('12');
   const [cutoff, setCutoff] = useState('');
+  const [autoTried, setAutoTried] = useState(false);
 
   const actor = useMemo(
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
@@ -106,6 +107,49 @@ export default function WavesPage() {
     () => (active ? waveSummary(rows, active) : null),
     [rows, active]
   );
+
+  /*
+   * Auto-build. A morning wave is a decision nobody should have to remember
+   * while the phone is ringing, so a shop can set an hour and a tote cap and
+   * have the wave waiting.
+   *
+   * Deliberately conservative: it runs only when a manager or packer actually
+   * opens this page after the set hour, only if no wave was built today, and
+   * only if orders are waiting. That avoids the two failure modes of a real
+   * scheduler here — a wave built at 6am for a shop that opens at 10, and
+   * duplicate waves from two devices racing. The buildWave transaction would
+   * reject the second anyway.
+   */
+  useEffect(() => {
+    if (autoTried || busy || !firestore || active) return;
+    const rs = (selectedTenant as any)?.retailSettings || {};
+    if (!rs.autoWaveEnabled) return;
+    if (!perms.canPack) return;
+
+    const hour = Math.min(23, Math.max(0, Number(rs.autoWaveHour) || 9));
+    const now = new Date();
+    if (now.getHours() < hour) return;
+
+    const today = now.toISOString().slice(0, 10);
+    const builtToday = waves.some((w) => String(w.createdAt || '').slice(0, 10) === today);
+    if (builtToday) return;
+
+    const eligible = eligibleForWave(orders, new Date().toISOString());
+    if (eligible.length === 0) return;
+
+    setAutoTried(true);
+    (async () => {
+      setBusy(true);
+      const res = await buildWave(
+        firestore as Firestore, tenantId, orders,
+        { maxTotes: Math.max(1, Number(rs.autoWaveTotes) || Number(maxTotes) || 12), cutoffAt: new Date().toISOString(), name: `Morning wave` },
+        actor
+      );
+      setBusy(false);
+      if (res.ok) toast({ title: 'Morning wave ready', description: res.message });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoTried, busy, firestore, active, waves, orders, perms.canPack, selectedTenant]);
 
   const build = async () => {
     if (!firestore || busy) return;
