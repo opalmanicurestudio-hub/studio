@@ -294,12 +294,38 @@ export async function recordItemScan(
  * board surfaces it until executed in Stripe) or parks a backorder child
  * order that re-enters the queue when you release it after restocking.
  */
+/**
+ * Tell the customer, without making the picker think about it.
+ *
+ * Fired AFTER the transaction commits, never inside it — Firestore retries a
+ * contended transaction, and a fetch in the retried body would send the same
+ * apology two or three times. The route is idempotent per line as well, so
+ * both ends hold that line.
+ *
+ * Deliberately un-awaited and never thrown: the short is already true in the
+ * database. A dead network or an unconfigured mail key must not turn a
+ * successful short into an error the picker has to interpret at the shelf.
+ */
+function notifyCustomerOfShort(tenantId: string, orderId: string, lineId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    void fetch('/api/retail/short-notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, orderId, lineId }),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    // best effort by design
+  }
+}
+
 export async function resolveShortLine(
   fs: Firestore, tenantId: string, orderId: string, lineId: string,
   reason: string, resolution: ShortResolution, actor: Actor
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    return await runTransaction(fs, async (txn) => {
+    const shortResult = await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
       const oSnap = await txn.get(oRef);
       if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
@@ -364,6 +390,9 @@ export async function resolveShortLine(
           : `Shorted ${qtyShorted} — backorder created, parked until restock`,
       };
     });
+
+    if (shortResult.ok) notifyCustomerOfShort(tenantId, orderId, lineId);
+    return shortResult;
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not short the line.' };
   }
