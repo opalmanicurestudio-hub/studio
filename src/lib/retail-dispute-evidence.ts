@@ -127,6 +127,17 @@ export function buildNarrative(order: any, tenant: any): string {
     s.push(`At the merchant's cost, ${protBits.join(' and ')}.`);
   }
 
+  // The photograph, if the bench took one. Placed before the arithmetic because
+  // it is the piece a human — an issuer's analyst, or the customer themselves —
+  // finds most persuasive, and because it is the only evidence that shows the
+  // contents rather than describing them.
+  const photos: string[] = Array.isArray(order?.packPhotoUrls) ? order.packPhotoUrls : [];
+  if (photos.length > 0) {
+    s.push('');
+    s.push('PHOTOGRAPHIC RECORD');
+    s.push(`The contents of this parcel were photographed at the packing bench before it was sealed${order?.packPhotoAt ? ` on ${String(order.packPhotoAt).slice(0, 10)}` : ''}${order?.packPhotoBy ? ` by ${String(order.packPhotoBy)}` : ''}. ${photos.length} image${photos.length === 1 ? ' is' : 's are'} held on file and can be supplied on request.`);
+  }
+
   // Weight — the strongest missing-item answer
   const wc = order?.carrierTrail?.weightCheck;
   if (wc && wc.verdict && wc.verdict !== 'unknown') {
@@ -159,6 +170,28 @@ export function buildNarrative(order: any, tenant: any): string {
     s.push(`Most recent notification sent ${when(trail.customerNotifiedAt)} to ${String(trail.customerNotifiedTo || order?.customerEmail || '')}.`);
   }
   s.push('The delivery notification asked the customer to report any problem within 7 days. No such report was received before this dispute was filed.');
+
+  // The policy as it stood WHEN THEY BOUGHT, not as it reads today. Quoting a
+  // policy edited since the sale would be a misrepresentation, however honest
+  // the intent.
+  const snap = order?.policySnapshot;
+  if (snap?.text) {
+    s.push('');
+    s.push('POLICY SHOWN AT CHECKOUT');
+    s.push(`${String(snap.text)}${snap.shownAt ? ` (shown to this customer on ${String(snap.shownAt).slice(0, 10)}, above the pay button, before payment was authorised)` : ''}`);
+  }
+
+  // The address check, when one was run before the sale
+  const ac = order?.addressCheck;
+  if (ac?.verdict && ac.verdict !== 'skipped') {
+    s.push('');
+    s.push('ADDRESS VERIFICATION');
+    s.push(ac.verdict === 'valid'
+      ? 'The delivery address the customer entered was confirmed as deliverable by the carrier network before payment was taken.'
+      : ac.verdict === 'corrected'
+        ? 'The delivery address the customer entered was confirmed by the carrier network, with minor formatting normalised. The parcel was sent to the address the customer supplied.'
+        : `The carrier network returned "${String(ac.verdict)}" for the address supplied by the customer at checkout; the parcel was despatched to the address as the customer entered it.`);
+  }
 
   // Refunds already given — never claim money you gave back
   const refunded = Number(order?.refundedCents) || 0;
