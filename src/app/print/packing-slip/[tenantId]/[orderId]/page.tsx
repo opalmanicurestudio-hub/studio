@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import QRCode from 'qrcode';
 
 // ─── /print/packing-slip/[tenantId]/[orderId]?t=<qrToken> ────────────────────
@@ -6,6 +7,22 @@ import QRCode from 'qrcode';
 // customer's details. The slip's QR is the same handoff token — the PAPER
 // works at the counter if the customer's phone is dead. Auto-opens the print
 // dialog.
+
+// ONE SHEET, TWO DOCUMENTS. Above the cut line is the staff slip that has
+// always been here. Below it is a tear-off CUSTOMER CARD that goes in the box.
+// The two readers need opposite things: the picker needs SKUs, totes and shelf
+// slots; the customer needs a way to reach you without composing an email.
+//
+// The card's QR is an ordinary https link to the tracking page, NOT the
+// clarityflow:// handoff token above it — a phone camera has to open it cold,
+// from inside a box, with no app installed. That one code is already the front
+// door to tracking, self-serve cancel, start-a-return, message-the-shop and the
+// review prompt, so it retires most of the "where is my stuff / how do I return
+// this / who do I email" traffic before it is ever typed.
+//
+// It also states, in plain English, what ISN'T in the box. A short the customer
+// discovers at the door is the expensive kind; a short they read about on the
+// slip while unpacking is a footnote.
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +70,20 @@ export default async function PackingSlipPage({
 
   const qrDataUrl = await QRCode.toDataURL(`clarityflow://order/${order.qrToken}`, { width: 320, margin: 1 });
   const num = `#${String(order.orderNumber).padStart(4, '0')}`;
+
+  const hdrs = await headers();
+  const envOrigin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
+  const host = hdrs.get('x-forwarded-host') || hdrs.get('host') || '';
+  const proto = hdrs.get('x-forwarded-proto') || 'https';
+  const origin = envOrigin || (host ? `${proto}://${host}` : '');
+  const orderUrl = origin ? `${origin}/shop/${tenantId}/order/${orderId}` : '';
+  const customerQr = orderUrl ? await QRCode.toDataURL(orderUrl, { width: 360, margin: 1 }) : '';
+
+  const retailSettings = tenant.retailSettings || {};
+  const returnDays = Math.max(1, Math.floor(Number(retailSettings.returnWindowDays) || 30));
+  const contactBits = [tenant.phone, tenant.email, tenant.website].filter(Boolean).map(String);
+  const missing = (order.lines || []).filter((l: any) => (Number(l.qtyShorted) || 0) > 0);
+  const firstName = String(order.customerName || '').split(' ')[0];
   const methodLabel =
     order.method === 'curbside' ? 'CURBSIDE PICKUP' :
     order.method === 'ship' ? 'SHIPPING' :
@@ -86,7 +117,23 @@ export default async function PackingSlipPage({
           .totals .grand { font-size: 17px; font-weight: 900; margin-top: 6px; }
           .slot { display: inline-block; margin-top: 6px; padding: 4px 12px; border: 2px solid #16171a; border-radius: 8px; font-size: 18px; font-weight: 800; letter-spacing: .04em; }
           .slot.tote { margin-left: 6px; border-style: dashed; }
-          @media print { .noprint { display: none; } }
+          .opt { color: #64748b; font-weight: 700; }
+          .cut { margin: 26px 0 0; border-top: 2px dashed #94a3b8; position: relative; }
+          .cut span { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 0 10px; font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; }
+          .card { border: 2px solid #0f172a; border-radius: 14px; padding: 16px 18px; margin-top: 18px; display: flex; gap: 18px; align-items: flex-start; }
+          .card .body { flex: 1; min-width: 0; }
+          .card h2 { font-size: 15px; font-weight: 900; margin: 0 0 2px; letter-spacing: -0.3px; }
+          .card .lede { font-size: 11px; font-weight: 700; color: #334155; margin: 0 0 10px; line-height: 1.5; }
+          .card .why { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; margin: 12px 0 4px; }
+          .card ul { margin: 0; padding-left: 15px; }
+          .card li { font-size: 10.5px; font-weight: 700; color: #0f172a; line-height: 1.6; }
+          .card .contact { font-size: 10.5px; font-weight: 800; color: #0f172a; margin: 11px 0 0; }
+          .cqr { width: 128px; height: 128px; border: 2px solid #0f172a; border-radius: 12px; display: block; }
+          .cqr-note { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.4px; color: #64748b; margin: 5px 0 0; text-align: center; width: 128px; line-height: 1.5; }
+          .short-box { border: 2px solid #b45309; border-radius: 10px; padding: 9px 12px; margin: 10px 0 0; }
+          .short-box p:first-child { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #b45309; margin: 0 0 4px; }
+          .short-box p { font-size: 10.5px; font-weight: 700; color: #0f172a; margin: 0; line-height: 1.55; }
+          @media print { .noprint { display: none; } .card, .short-box { break-inside: avoid; } }
         `}
         </style>
       </head>
@@ -159,6 +206,52 @@ export default async function PackingSlipPage({
             {order.refundedCents > 0 ? <p style={{ color: '#b45309' }}>Refunded −{money(order.refundedCents)}</p> : null}
             <p className="grand">Total {money(order.totalCents || 0)}</p>
           </div>
+        </div>
+
+        <div className="cut"><span>Tear here — this half goes in the box</span></div>
+
+        <div className="card">
+          <div className="body">
+            <h2>{shopName} · Order {num}</h2>
+            <p className="lede">
+              {firstName ? `${firstName}, thank you` : 'Thank you'} — everything you need is on this
+              card, so you never have to go hunting for an email address.
+            </p>
+
+            {missing.length > 0 ? (
+              <div className="short-box">
+                <p>Not in this box</p>
+                {missing.map((l: any, i: number) => (
+                  <p key={i}>
+                    {l.qtyShorted}× {l.name}
+                    {l.status === 'backordered'
+                      ? ' — we came up short. It ships on its own as soon as it is back in, at no extra shipping cost.'
+                      : ` — we came up short and refunded ${money((l.unitPriceCents || 0) * (l.qtyShorted || 0))} to your card (5–10 business days).`}
+                  </p>
+                ))}
+                <p style={{ marginTop: 5 }}>Would you rather have it the other way? Scan the code and send us a message — we will switch it.</p>
+              </div>
+            ) : null}
+
+            <p className="why">Scan the code to</p>
+            <ul>
+              <li>Track this order or see what shipped</li>
+              <li>Start a return or exchange — {returnDays} days, no email needed</li>
+              <li>Message us about anything and get the answer on that same page</li>
+              <li>Leave a review once you have used it</li>
+            </ul>
+
+            {contactBits.length > 0 ? (
+              <p className="contact">Or reach us: {contactBits.join(' · ')}</p>
+            ) : null}
+          </div>
+
+          {customerQr ? (
+            <div>
+              <img className="cqr" src={customerQr} alt="Scan for your order" />
+              <p className="cqr-note">Point your camera here · order {num}</p>
+            </div>
+          ) : null}
         </div>
 
         <script dangerouslySetInnerHTML={{ __html: 'setTimeout(function(){window.print()},400);' }} />
