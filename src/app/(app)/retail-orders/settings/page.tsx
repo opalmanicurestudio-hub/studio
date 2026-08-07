@@ -81,6 +81,7 @@ interface RetailSettings {
   shopTagline?: string;
   shopAnnouncement?: string;
   taxRatePercent?: number;
+  stripeTaxEnabled?: boolean;
   flatShippingDollars?: number;
   freeShippingOverDollars?: number;
   shippingOffered?: boolean;
@@ -187,6 +188,7 @@ export default function RetailSettingsPage() {
       shopTagline: existing.shopTagline || '',
       shopAnnouncement: existing.shopAnnouncement || '',
       taxRatePercent: existing.taxRatePercent ?? 0,
+      stripeTaxEnabled: existing.stripeTaxEnabled === true,
       flatShippingDollars: existing.flatShippingDollars ?? 0,
       freeShippingOverDollars: existing.freeShippingOverDollars ?? 0,
       shippingOffered: existing.shippingOffered !== false,
@@ -236,6 +238,7 @@ export default function RetailSettingsPage() {
         retailSettings: JSON.parse(JSON.stringify({
           ...rs,
           taxRatePercent: Number(rs.taxRatePercent) || 0,
+          stripeTaxEnabled: rs.stripeTaxEnabled === true,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
           shipProcessingHours: Math.max(1, Math.floor(Number(rs.shipProcessingHours) || 24)),
@@ -585,6 +588,20 @@ export default function RetailSettingsPage() {
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-3">
+              <div className="min-w-0">
+                <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                  Automatic sales tax on shipped orders
+                </Label>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {rs.stripeTaxEnabled === true
+                    ? 'Stripe Tax sets the rate from the delivery state on shipped orders. Pickup orders keep the flat rate above. Requires Stripe Tax activated, your registrations added, and an origin address in your Stripe dashboard — if that setup is missing, checkout quietly falls back to the flat rate so a customer is never blocked.'
+                    : 'Off — every order uses the flat Tax % above. Right for pickup-only shops; a parcel crossing state lines should be taxed at its destination, which is what turning this on does.'}
+                </p>
+              </div>
+              <Switch checked={rs.stripeTaxEnabled === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, stripeTaxEnabled: v })} />
             </div>
           </CardContent>
         </Card>
