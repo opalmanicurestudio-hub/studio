@@ -5,9 +5,8 @@
 // WHY THIS EXISTS. The Dispute Center was built for the service side, and it is
 // good at that: consent form, signature, appointment, service date. But a
 // retail chargeback lands in the same place, and until now it inherited that
-// shape — a disputed bottle of cuticle oil was described to Stripe as
-// "Professional nail services rendered in full", with a refund policy reading
-// "Services are non-refundable once rendered".
+// shape — a disputed physical product was described to Stripe as services
+// rendered in full, under a refund policy written for appointments.
 //
 // That is worse than submitting nothing. On a product_not_received dispute the
 // issuer is looking for a carrier, a tracking number and a delivery address. A
@@ -183,6 +182,66 @@ export function retailDisputeEvidence(order: any, tenant: any): RetailEvidence {
     shippingAddress: formatShippingAddress(order),
     narrative: buildNarrative(order, tenant),
   };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * TENANT-NEUTRAL SERVICE EVIDENCE
+ *
+ * This platform is multi-tenant and not tied to any one trade, but the dispute
+ * path was written when it was one salon: a specific business name and a
+ * specific profession were baked into the text submitted to Stripe. On another
+ * tenant's dispute that is not a cosmetic slip — it names the wrong business in
+ * a financial submission and describes work they do not do.
+ *
+ * These builders take everything from the tenant and the appointment. Where
+ * something genuinely is not on file they fall back to wording that is true for
+ * any business: "services", not a trade; "a team member", not a job title.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export function businessNameOf(tenant: any): string {
+  return String(tenant?.businessName || tenant?.name || '').trim() || 'the merchant';
+}
+
+/** What was sold, when the sale was a service rather than goods. */
+export function describeService(tenant: any, appointment: any, txnDescriptions?: string[]): string {
+  const named = (txnDescriptions || [])
+    .map((d) => String(d || '').trim())
+    .filter(Boolean);
+  if (named.length > 0) return named.join(', ');
+
+  const svc = String(appointment?.serviceName || '').trim();
+  const biz = businessNameOf(tenant);
+  return svc
+    ? `${svc}, booked and completed at ${biz}.`
+    : `Services booked and rendered in full at ${biz}.`;
+}
+
+/** The SERVICE DETAILS block, with no assumed trade or job title. */
+export function serviceDetailLine(tenant: any, appointment: any): string {
+  if (!appointment) return '';
+  const svc = String(appointment.serviceName || '').trim() || 'Service';
+  const mins = Math.max(1, Math.floor(Number(appointment.duration) || 60));
+  const who = String(appointment.staffName || '').trim() || 'a team member';
+  return `SERVICE DETAILS: ${svc}, ${mins} minutes, performed by ${who} at ${businessNameOf(tenant)}`;
+}
+
+/**
+ * The merchant statement prefilled into the evidence builder for a SERVICE
+ * dispute. Reads from the tenant, so each business describes its own work.
+ */
+export function serviceStatement(tenant: any, appointment: any): string {
+  const biz = businessNameOf(tenant);
+  const svc = String(appointment?.serviceName || '').trim();
+  return svc
+    ? `This charge represents ${svc} booked and provided by ${biz}. The work was completed in full at the time of the appointment.`
+    : `This charge represents services booked and provided by ${biz}. The work was completed in full at the time of the appointment.`;
+}
+
+/** A service refund policy for a tenant that has not written one. */
+export function serviceRefundPolicy(tenant: any): string {
+  const stated = String(tenant?.refundPolicy || '').trim();
+  if (stated) return stated;
+  return `Appointments are booked in advance and the time is reserved exclusively for the customer. Completed work is not refundable once provided. Cancellation and rescheduling terms are shown to the customer at the time of booking. ${businessNameOf(tenant)} resolves any concern raised directly and promptly.`;
 }
 
 /**
