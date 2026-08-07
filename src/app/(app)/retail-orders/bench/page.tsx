@@ -1,6 +1,6 @@
 'use client';
 
-import { type Firestore, collection, onSnapshot, query, where } from 'firebase/firestore';
+import { type Firestore, collection, doc, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, Loader, PackageCheck, ScanLine, WifiOff,
 } from 'lucide-react';
@@ -89,12 +89,34 @@ export default function PackBenchPage() {
     const unsub = onSnapshot(
       query(
         collection(firestore as Firestore, `tenants/${tenantId}/retailOrders`),
-        where('stage', 'in', ['picking', 'packed', 'cancelled'])
+        where('stage', 'in', ['picking', 'packed', 'ready', 'cancelled'])
       ),
       (snap) => setOrders(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
     );
     return unsub;
   }, [firestore, tenantId]);
+
+  /*
+   * Pickup shelf slots. The bottleneck nobody predicts: an order is Ready,
+   * the customer walks in, and someone hunts through fifteen identical bags.
+   * A slot is assigned the moment the bag lands on the shelf — lowest free
+   * slot, so the shelf fills front to back — and it is released when the
+   * order leaves. Slots never collide because the free list is derived from
+   * what is actually on the shelf right now, not from a counter.
+   */
+  const nextFreeSlot = (readyOrders: any[]): string => {
+    const taken = new Set(
+      readyOrders.map((o) => String(o.shelfSlot || '').trim().toUpperCase()).filter(Boolean)
+    );
+    const rows = ['A', 'B', 'C', 'D', 'E', 'F'];
+    for (const row of rows) {
+      for (let n = 1; n <= 12; n += 1) {
+        const slot = `${row}${n}`;
+        if (!taken.has(slot)) return slot;
+      }
+    }
+    return 'OVERFLOW';
+  };
 
   const photoFor = useMemo(() => {
     const map = new Map<string, string>();
@@ -109,6 +131,11 @@ export default function PackBenchPage() {
   // The bench queue: tote order when the order came from a wave, then the rest
   // oldest first. Cancelled orders stay visible only while they are the one on
   // the table, so nobody tapes shut a box for an order that no longer exists.
+  const readyOrders = useMemo(
+    () => orders.filter((o) => String(o.stage) === 'ready'),
+    [orders]
+  );
+
   const queue = useMemo(
     () => orders
       .filter((o) => ['picking', 'packed'].includes(String(o.stage)))
@@ -253,6 +280,7 @@ export default function PackBenchPage() {
                       {String(active.method || '').replace('_', ' ')}
                       {active.waveTote ? ` · tote ${active.waveTote}` : ''}
                       {active.stage === 'packed' ? ' · packed' : ''}
+                      {active.shelfSlot ? ` · shelf ${active.shelfSlot}` : ''}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -379,7 +407,22 @@ export default function PackBenchPage() {
                     {active.stage === 'packed' && active.method !== 'ship' && (
                       <Button
                         disabled={busy === 'ready'}
-                        onClick={() => firestore && act('ready', () => markReady(firestore as Firestore, tenantId, active.id, actor))}
+                        onClick={async () => {
+                          if (!firestore) return;
+                          const res = await act('ready', () => markReady(firestore as Firestore, tenantId, active.id, actor));
+                          if (res?.ok) {
+                            const slot = nextFreeSlot(readyOrders);
+                            try {
+                              await updateDoc(
+                                doc(firestore as Firestore, `tenants/${tenantId}/retailOrders`, active.id),
+                                { shelfSlot: slot }
+                              );
+                              toast({ title: `Put it on shelf ${slot}`, description: 'The slot is on the customer\u2019s order page too.' });
+                            } catch {
+                              // a missing slot is cosmetic; the order is still ready
+                            }
+                          }
+                        }}
                         className="h-14 w-full rounded-2xl text-xs font-black uppercase tracking-widest"
                       >
                         {busy === 'ready' ? <Loader className="h-4 w-4 animate-spin" /> : 'On the shelf — tell the customer'}
