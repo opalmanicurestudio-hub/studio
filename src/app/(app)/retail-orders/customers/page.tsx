@@ -4,7 +4,7 @@ import {
   collection, getDocs, limit, orderBy, query, type Firestore,
 } from 'firebase/firestore';
 import {
-  ArrowLeft, Crown, Loader, Mail, Search, Sparkles, Clock, Users,
+  ArrowLeft, Crown, Loader, Mail, Search, Sparkles, Clock, Trophy, Users, UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/sheet';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
+import { milestones, newVsReturningByMonth, shopTotals, windowSafe } from '@/lib/shopper-insights';
 import { cn } from '@/lib/utils';
 
 // ─── Shoppers ─────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ export default function ShoppersPage() {
 
   const [loading, setLoading] = useState(true);
   const [shoppers, setShoppers] = useState<Shopper[]>([]);
+  const [rawOrders, setRawOrders] = useState<any[]>([]);
   const [term, setTerm] = useState('');
   const [segment, setSegment] = useState<'all' | 'repeat' | 'top' | 'lapsed' | 'new'>('all');
   const [detail, setDetail] = useState<Shopper | null>(null);
@@ -119,14 +121,21 @@ export default function ShoppersPage() {
 
         if (!alive) return;
         setShoppers([...byEmail.values()].sort((a, b) => b.spendCents - a.spendCents));
+        setRawOrders(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
       } catch {
-        if (alive) setShoppers([]);
+        if (alive) { setShoppers([]); setRawOrders([]); }
       } finally {
         if (alive) setLoading(false);
       }
     })();
     return () => { alive = false; };
   }, [firestore, tenantId]);
+
+  // Derived from the same 1,000 orders already in memory — no extra reads.
+  const insights = useMemo(() => shopTotals(rawOrders), [rawOrders]);
+  const months = useMemo(() => newVsReturningByMonth(rawOrders).slice(-6), [rawOrders]);
+  const trophies = useMemo(() => milestones(rawOrders), [rawOrders]);
+  const ordinalsTrustworthy = useMemo(() => windowSafe(rawOrders, 1000), [rawOrders]);
 
   const totals = useMemo(() => {
     const orders = shoppers.reduce((a, s) => a + s.orders, 0);
@@ -190,6 +199,98 @@ export default function ShoppersPage() {
             </div>
           ))}
         </div>
+
+        {rawOrders.length > 0 && (
+          <div className="rounded-2xl border-2 bg-white p-4">
+            <div className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-[11px] font-black uppercase tracking-widest">New vs returning</p>
+            </div>
+            <p className="mt-2 text-xs font-bold text-muted-foreground">
+              {insights.returningRevenueRate}% of revenue comes from people who had ordered before,
+              on {insights.returningOrderRate}% of orders.
+              {insights.returningRevenueRate > insights.returningOrderRate
+                ? ' Returning customers spend more per order than first-timers.'
+                : insights.returningRevenueRate < insights.returningOrderRate
+                  ? ' First orders are the bigger ones — worth asking what brings people back.'
+                  : ''}
+            </p>
+
+            {months.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {months.map((m) => {
+                  const total = m.newOrders + m.returningOrders;
+                  const pctNew = total ? Math.round((m.newOrders / total) * 100) : 0;
+                  return (
+                    <div key={m.month} className="flex items-center gap-2">
+                      <p className="w-16 shrink-0 font-mono text-[11px] font-bold text-muted-foreground">{m.month}</p>
+                      <div className="flex h-4 flex-1 overflow-hidden rounded-full border">
+                        <div className="bg-foreground" style={{ width: `${pctNew}%` }} />
+                        <div className="bg-muted" style={{ width: `${100 - pctNew}%` }} />
+                      </div>
+                      <p className="w-24 shrink-0 text-right font-mono text-[11px] font-bold">
+                        {m.newOrders} new · {m.returningOrders} back
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {!ordinalsTrustworthy && (
+              <p className="mt-3 text-[11px] font-bold text-amber-700">
+                This shop has more than 1,000 orders, so the oldest are outside this view — some
+                returning customers will be counted as new. Treat the split as a floor.
+              </p>
+            )}
+          </div>
+        )}
+
+        {rawOrders.length > 0 && (
+          <div className="rounded-2xl border-2 bg-white p-4">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-[11px] font-black uppercase tracking-widest">Milestones</p>
+            </div>
+
+            {trophies.closest && (
+              <div className="mt-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-black">{trophies.closest.label}</p>
+                  <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                    {trophies.closest.remaining}
+                  </p>
+                </div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-foreground"
+                    style={{ width: `${Math.round(trophies.closest.progress * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {trophies.reached.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {trophies.reached.map((m) => (
+                  <span
+                    key={m.id}
+                    className="rounded-full border-2 bg-muted/30 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest"
+                  >
+                    {m.label}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {trophies.bestMonth && (
+              <p className="mt-3 text-xs font-bold text-muted-foreground">
+                Best month so far was {trophies.bestMonth.month} at {money(trophies.bestMonth.revenueCents)}
+                {trophies.firstSaleAt ? ` · first sale ${trophies.firstSaleAt.slice(0, 10)}` : ''}.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="relative">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" aria-hidden="true" />
