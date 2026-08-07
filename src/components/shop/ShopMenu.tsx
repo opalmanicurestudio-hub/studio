@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  CircleUserRound, Grid3x3, LifeBuoy, Menu, PackageSearch, Store, Truck, X,
+  CircleUserRound, Grid3x3, LifeBuoy, Lock, Menu, PackageSearch, Store, Truck, X,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useState } from 'react';
@@ -26,9 +26,16 @@ export interface ShopMenuProps {
   categories?: string[];
   activeCategory?: string;
   policies?: { returns?: string; shipping?: string };
+  /** Rendered only when the shop offers B2B pricing and it is not yet unlocked.
+   *  It used to live in the header, where it was one of six competing controls
+   *  on a phone; it belongs here, with the other things most shoppers never
+   *  need. */
+  onUnlockWholesale?: () => void;
 }
 
-export function ShopMenu({ tenantId, shopName, categories = [], activeCategory }: ShopMenuProps) {
+export function ShopMenu({
+  tenantId, shopName, categories = [], activeCategory, onUnlockWholesale,
+}: ShopMenuProps) {
   const [open, setOpen] = useState(false);
 
   const close = () => setOpen(false);
@@ -80,6 +87,16 @@ export function ShopMenu({ tenantId, shopName, categories = [], activeCategory }
               >
                 <Grid3x3 className="h-4 w-4 shrink-0" aria-hidden="true" /> All products
               </Link>
+
+              {onUnlockWholesale && (
+                <button
+                  type="button"
+                  onClick={() => { close(); onUnlockWholesale(); }}
+                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold hover:bg-muted/60"
+                >
+                  <Lock className="h-4 w-4 shrink-0" aria-hidden="true" /> Wholesale access
+                </button>
+              )}
 
               {categories.length > 0 && (
                 <>
