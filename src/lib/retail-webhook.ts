@@ -10,9 +10,13 @@
  *   2. Reserve stock per line (stockReserved += qty on each inventory item)
  *   3. Generate the HMAC-signed pickup QR token
  *   4. Match-or-create the client by email (mirrors the deposit flow)
- *   5. Post the Retail income transaction (taxBucket 'revenue', with
- *      checkoutSessionId so the existing charge.succeeded handler backfills
- *      the exact Stripe fee automatically)
+ *   5. Post the sale to the ledger SPLIT BY BUCKET — merchandise + shipping
+ *      as 'revenue' (with checkoutSessionId so the existing charge.succeeded
+ *      handler backfills the exact Stripe fee onto exactly that one entry),
+ *      collected sales tax as 'tax_collected' (a liability held for the
+ *      state, never income), and the tip as 'gratuity'. One fused number
+ *      would overstate revenue by the tax and the tip — money that was never
+ *      the shop's to keep.
  *   6. Append payment_confirmed + stock_reserved audit events
  *
  * NOTE on oversell races: if two orders paid for the last unit simultaneously,
@@ -74,11 +78,22 @@ export async function handleRetailOrderPaid(
   // Idempotency — Stripe retries events; only the first one does work.
   if (order.stage !== 'placed') return;
 
+  // In stripe-tax mode the draft was written with taxCents 0 — Stripe only
+  // learns the jurisdiction when the customer types an address — so the tax
+  // exists nowhere but on the session until this handler writes it back.
+  const clampCents = (v: any) => Math.max(0, Math.round(Number(v) || 0));
+  const stripeTaxMode = order.taxMode === 'stripe';
+  const sessionTaxCents = clampCents(session?.total_details?.amount_tax);
+  const sessionTotalCents = session?.amount_total != null ? clampCents(session.amount_total) : null;
+
   // Sanity: what Stripe collected should match what we quoted at checkout.
-  if (session.amount_total != null && session.amount_total !== order.totalCents) {
+  // In stripe-tax mode the quote deliberately excluded tax, so the honest
+  // comparison adds Stripe's own tax figure back before crying mismatch.
+  const expectedTotal = (Number(order.totalCents) || 0) + (stripeTaxMode ? sessionTaxCents : 0);
+  if (sessionTotalCents != null && sessionTotalCents !== expectedTotal) {
     console.warn(
       `[connect-webhook] retail order ${orderId} amount mismatch: ` +
-      `session ${session.amount_total} vs order ${order.totalCents} — proceeding, flagging in events`
+      `session ${sessionTotalCents} vs expected ${expectedTotal} — proceeding, flagging in events`
     );
   }
 
@@ -157,6 +172,13 @@ export async function handleRetailOrderPaid(
     txn.update(orderRef, {
       orderNumber: assignedNumber,
       isDraft: false,
+      // The customer's order page, the receipt email and every refund
+      // calculation read these off the order — so the moment tax becomes
+      // known it becomes part of the order, atomically with 'paid'.
+      ...(fresh.taxMode === 'stripe' ? {
+        taxCents: sessionTaxCents,
+        ...(sessionTotalCents != null ? { totalCents: sessionTotalCents } : {}),
+      } : {}),
       stage: 'paid',
       paidAt: now,
       qrToken,
@@ -200,18 +222,38 @@ export async function handleRetailOrderPaid(
     }),
   });
 
+  // ── The ledger split ─────────────────────────────────────────────────────
+  // order is the re-merged post-transaction snapshot, so in stripe-tax mode
+  // taxCents/totalCents here are already the written-back real figures. Every
+  // number is clamped and derived so junk cents on a legacy order degrade to
+  // zero instead of a negative posting.
+  const grossCents = clampCents(order.totalCents);
+  const taxCollectedCents = clampCents(order.taxCents);
+  const tipCollectedCents = clampCents(order.tipCents);
+  const shippingCollectedCents = clampCents(order.shippingCents);
+  const merchandiseCents = Math.max(
+    0, grossCents - taxCollectedCents - tipCollectedCents - shippingCollectedCents
+  );
+  const orderLabel = `Order #${String(order.orderNumber).padStart(4, '0')}`;
+
+  // Merchandise + shipping = the shop's actual revenue. This entry alone
+  // carries checkoutSessionId, so the charge.succeeded fee backfill still
+  // finds exactly one 'revenue' transaction to stamp the Stripe fee onto.
   const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
   batch.set(txnRef, {
     id: txnRef.id,
     date: now,
-    description: `${order.priceTier === 'wholesale' ? 'Wholesale Sale' : 'Online Retail Sale'} — Order #${String(order.orderNumber).padStart(4, '0')}${order.poNumber ? ` (PO ${order.poNumber})` : ''}`,
+    description: `${order.priceTier === 'wholesale' ? 'Wholesale Sale' : 'Online Retail Sale'} — ${orderLabel}${order.poNumber ? ` (PO ${order.poNumber})` : ''}`,
     clientOrVendor: order.customerName || 'Guest',
     clientId: clientId || null,
     type: 'income',
     context: 'Business',
     category: 'Retail',
     taxBucket: 'revenue',
-    amount: (order.totalCents || 0) / 100,
+    amount: (merchandiseCents + shippingCollectedCents) / 100,
+    grossOrderTotal: grossCents / 100,
+    merchandiseSubtotal: merchandiseCents / 100,
+    shippingCollected: shippingCollectedCents / 100,
     paymentMethod: 'Online Checkout',
     hasReceipt: false,
     retailOrderId: orderId,
@@ -220,6 +262,53 @@ export async function handleRetailOrderPaid(
     stripeConnectedAccountId: connAcct,
     tenantId,
   });
+
+  // Tax collected is the state's money passing through — 'tax_collected'
+  // keeps it out of revenue so income is never overstated and the quarterly
+  // remittance figure is one filtered column. A tax-exempt wholesale order
+  // carries zero tax and posts nothing here.
+  if (taxCollectedCents > 0) {
+    const taxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    batch.set(taxRef, {
+      id: taxRef.id,
+      date: now,
+      description: `Sales tax collected — ${orderLabel}`,
+      clientOrVendor: order.customerName || 'Guest',
+      clientId: clientId || null,
+      type: 'income',
+      context: 'Business',
+      category: 'Tax Collected',
+      taxBucket: 'tax_collected',
+      amount: taxCollectedCents / 100,
+      taxMode: order.taxMode || 'flat',
+      paymentMethod: 'Online Checkout',
+      hasReceipt: false,
+      retailOrderId: orderId,
+      stripeConnectedAccountId: connAcct,
+      tenantId,
+    });
+  }
+
+  if (tipCollectedCents > 0) {
+    const tipRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    batch.set(tipRef, {
+      id: tipRef.id,
+      date: now,
+      description: `Tip — ${orderLabel}`,
+      clientOrVendor: order.customerName || 'Guest',
+      clientId: clientId || null,
+      type: 'income',
+      context: 'Business',
+      category: 'Tips',
+      taxBucket: 'gratuity',
+      amount: tipCollectedCents / 100,
+      paymentMethod: 'Online Checkout',
+      hasReceipt: false,
+      retailOrderId: orderId,
+      stripeConnectedAccountId: connAcct,
+      tenantId,
+    });
+  }
 
   await batch.commit();
   console.log(`[connect-webhook] Retail order ${orderId} paid — stock reserved for tenant ${tenantId}`);
@@ -300,6 +389,7 @@ async function sendOrderConfirmation(
     <table style="width:100%;border-collapse:collapse">
       <tr><td style="font-size:13px;color:#64748b">Subtotal</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.subtotalCents)}</td></tr>
       ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
+      ${(order.taxCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Sales tax</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.taxCents)}</td></tr>` : ''}
       ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">Total paid</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(session?.amount_total ?? order.totalCents)}</td></tr>
     </table>
