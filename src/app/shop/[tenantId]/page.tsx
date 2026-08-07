@@ -344,14 +344,18 @@ export default function ShopPage() {
 
   if (shop.paused) {
     return (
-      <div className="min-h-dvh bg-muted/5 flex flex-col">
-        <header className="bg-white border-b-2">
-          <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
+      <div className="flex min-h-dvh flex-col">
+        <header className="bg-white border-b">
+          <div className="mx-auto flex h-16 max-w-5xl items-center gap-2.5 px-4">
+            {/* Same treatment as the live header — a transparent logo must not
+                get a cropped box here either. This is the view a shopper sees
+                when the shop is closed, so it is the first impression more
+                often than anyone expects. */}
             {shop.logoUrl ? (
-              <Image src={shop.logoUrl} alt="" width={40} height={40} className="rounded-xl border-2 object-cover" />
+              <Image src={shop.logoUrl} alt={shop.name} width={80} height={80} className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10" />
             ) : (
-              <div className="w-10 h-10 rounded-xl border-2 bg-primary/10 flex items-center justify-center">
-                <Store className="w-5 h-5 text-primary" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:h-10 sm:w-10">
+                <Store className="h-4 w-4 text-primary" />
               </div>
             )}
             <div className="min-w-0">
@@ -379,68 +383,112 @@ export default function ShopPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-muted/5 pb-32">
-      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-3">
+    <div className="min-h-dvh pb-32">
+      {/* HEADER — deliberately three things, not six.
+          The old row put the menu, the logo, the name, an All-products button,
+          an account icon, a wholesale button and the cart in ONE non-wrapping
+          flex line. A long business name had nowhere to go, so it pushed the
+          row wider than the screen and the whole page could be dragged
+          sideways. Now: identity on the left, cart on the right, everything
+          else inside the menu. `min-w-0` on the identity block plus `shrink-0`
+          on the actions is what actually contains a long name — truncate alone
+          does nothing if a sibling can still grow.
+
+          Colours come from the tenant's theme, not the app's greys. The
+          storefront theme layer maps `.bg-white` to the shop's card colour but
+          NOT `.bg-white/90`, which is why this header used to sit there stubbornly
+          grey inside an otherwise branded page. */}
+      <header className="sticky top-0 z-30 bg-white backdrop-blur border-b">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center gap-2 sm:gap-3">
           <ShopMenu
             tenantId={tenantId}
             shopName={shop.name}
             categories={[...new Set(products.map((p) => p.category).filter(Boolean))].sort()}
+            onUnlockWholesale={shop.wholesaleOffered && !wholesale ? () => setUnlockOpen(true) : undefined}
           />
-          {shop.logoUrl ? (
-            <Image src={shop.logoUrl} alt="" width={40} height={40} className="rounded-xl border-2 object-cover" />
-          ) : (
-            <div className="w-10 h-10 rounded-xl border-2 bg-primary/10 flex items-center justify-center">
-              <Store className="w-5 h-5 text-primary" />
-            </div>
-          )}
-          <div className="min-w-0 flex-1">
-            <h1 className="font-black uppercase tracking-tighter text-lg leading-none truncate">{shop.name}</h1>
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5">{shop.tagline || 'Shop'}</p>
-          </div>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-9 rounded-xl border-2 font-black uppercase text-[11px] tracking-widest hidden sm:inline-flex"
+
+          <Link
+            href={`/shop/${tenantId}`}
+            className="flex min-w-0 flex-1 items-center gap-2.5"
+            aria-label={`${shop.name} home`}
           >
-            <Link href={`/shop/${tenantId}/catalog`}>All products</Link>
-          </Button>
-          <Button asChild variant="ghost" size="icon" aria-label="Your account" className="h-10 w-10 rounded-xl">
+            {shop.logoUrl ? (
+              // object-contain, no border, no background: a logo with a
+              // transparent background should sit ON the header, not inside a
+              // cropped grey box. object-cover was also silently cropping any
+              // logo that was not square.
+              <Image
+                src={shop.logoUrl}
+                alt={shop.name}
+                width={80}
+                height={80}
+                className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10"
+              />
+            ) : (
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:h-10 sm:w-10">
+                <Store className="h-4 w-4 text-primary" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <h1 className="truncate text-[15px] font-black uppercase leading-tight tracking-tight sm:text-lg">
+                {shop.name}
+              </h1>
+              {shop.tagline && (
+                // Long taglines used to overflow — this one had no truncate at
+                // all. Hidden on the narrowest screens, where the name is the
+                // only thing worth the space.
+                <p className="hidden truncate text-[10px] font-black uppercase tracking-widest text-muted-foreground min-[420px]:block">
+                  {shop.tagline}
+                </p>
+              )}
+            </div>
+          </Link>
+
+          <Button asChild variant="ghost" size="icon" aria-label="Your account" className="h-10 w-10 shrink-0 rounded-xl">
             <Link href={`/shop/${tenantId}/account`}><CircleUserRound className="h-5 w-5" /></Link>
           </Button>
-          {shop.wholesaleOffered && !wholesale && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
-              onClick={() => setUnlockOpen(true)}
-            >
-              <Lock className="mr-1.5 h-3 w-3" /> Wholesale
-            </Button>
-          )}
           <Sheet open={cartOpen} onOpenChange={setCartOpen}>
             <SheetTrigger asChild>
-              <Button className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-md shadow-primary/20 relative">
-                <ShoppingBag className="mr-1.5 h-4 w-4" /> Cart
+              <Button
+                aria-label={cartCount > 0 ? `Cart, ${cartCount} item${cartCount === 1 ? '' : 's'}` : 'Cart'}
+                className="relative h-10 w-10 shrink-0 rounded-xl p-0 font-black uppercase tracking-widest sm:w-auto sm:px-4 sm:text-[10px]"
+              >
+                <ShoppingBag className="h-4 w-4 sm:mr-1.5" />
+                <span className="hidden sm:inline">Cart</span>
                 {cartCount > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 h-5 min-w-5 px-1 rounded-full bg-foreground text-background text-[10px] font-black flex items-center justify-center">
+                  <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground px-1 text-[10px] font-black text-background">
                     {cartCount}
                   </span>
                 )}
               </Button>
             </SheetTrigger>
 
-            <SheetContent side="bottom" className="h-[92dvh] w-full rounded-t-[2rem] p-0 flex flex-col sm:side-right sm:h-full sm:max-w-md sm:rounded-none">
-              <SheetHeader className="p-6 pb-3 border-b-2 text-left">
-                <SheetTitle className="font-black uppercase tracking-tighter text-xl">Your Order</SheetTitle>
+            {/* WHY THE CART WAS UNREACHABLE ON A PHONE.
+                Three faults stacked. First, `flex-1 overflow-y-auto` inside a
+                `flex flex-col` has an implicit `min-height: auto`, so the
+                scroll pane grew to fit its contents instead of scrolling —
+                which pushed the footer, and the Checkout button with it, clean
+                off the bottom of the screen. `min-h-0` is the fix and it is
+                the whole reason this was unusable rather than merely awkward.
+                Second, `sm:side-right` is not a class — side is a prop — so it
+                did nothing on any screen. Third, the footer had no safe-area
+                padding, so on any iPhone the last inch sat under the home
+                indicator. */}
+            <SheetContent
+              side="bottom"
+              className="flex h-[90dvh] max-h-[90dvh] w-full flex-col rounded-t-[2rem] p-0"
+            >
+              <SheetHeader className="shrink-0 border-b p-5 pb-3 text-left">
+                <SheetTitle className="text-xl font-black uppercase tracking-tighter">Your Order</SheetTitle>
               </SheetHeader>
 
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain p-5">
                 {cartEntries.length === 0 ? (
-                  <div className="text-center py-16 space-y-3">
-                    <Package className="w-10 h-10 mx-auto opacity-20" />
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Your cart is empty</p>
+                  <div className="space-y-3 py-16 text-center">
+                    <Package className="mx-auto h-10 w-10 text-primary/30" />
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                      Your cart is empty
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -552,7 +600,10 @@ export default function ShopPage() {
               </div>
 
               {cartEntries.length > 0 && (
-                <div className="border-t-2 p-6 space-y-3 bg-white">
+                <div
+                  className="shrink-0 space-y-3 border-t bg-white p-5"
+                  style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+                >
                   <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
                     <span>Subtotal</span><span className="font-mono">{fmt(subtotalCents)}</span>
                   </div>
