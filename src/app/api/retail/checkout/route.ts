@@ -269,16 +269,14 @@ async function handleCheckout(req: NextRequest) {
   const totalCents = subtotalCents + taxCents + shippingCents + tipCents;
   if (totalCents <= 0) return NextResponse.json({ error: 'Order total must be positive' }, { status: 400 });
 
-  // ── Sequential order number ───────────────────────────────────────────────
-  const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
-  const orderNumber: number = await db.runTransaction(async (txn: any) => {
-    const c = await txn.get(counterRef);
-    const next = ((c.exists ? c.data().value : 0) || 0) + 1;
-    txn.set(counterRef, { value: next }, { merge: true });
-    return next;
-  });
-
-  // ── Create the order in 'placed' ──────────────────────────────────────────
+  // ── Create the order as a DRAFT ───────────────────────────────────────────
+  // No order number is issued here. A cart that never pays is not a sale, and
+  // burning #0042 on an abandoned cart leaves a permanent hole in the sequence
+  // — awkward for the customer who asks "what happened to 42?", worse for
+  // reconciliation, and it inflates every count derived from retailOrders.
+  // The number is minted by the webhook at the moment money actually lands,
+  // so the sequence reflects real sales with no gaps, in payment order.
+  // Until then this doc exists only to hold the priced cart for Stripe.
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc();
   const orderId = orderRef.id;
   const now = new Date().toISOString();
@@ -286,7 +284,8 @@ async function handleCheckout(req: NextRequest) {
   const order = {
     id: orderId,
     tenantId,
-    orderNumber,
+    orderNumber: null,
+    isDraft: true,
     stage: 'placed',
     method,
     priceTier,
@@ -384,7 +383,7 @@ async function handleCheckout(req: NextRequest) {
     );
 
     await orderRef.set({ stripeCheckoutSessionId: session.id }, { merge: true });
-    return NextResponse.json({ url: session.url, orderId, orderNumber });
+    return NextResponse.json({ url: session.url, orderId, orderNumber: null, isDraft: true });
   } catch (err: any) {
     const detail = String(err?.raw?.message || err?.message || 'Unknown Stripe error').slice(0, 220);
     console.error('[retail-checkout] Stripe session creation failed:', detail, err?.raw?.param || '');
