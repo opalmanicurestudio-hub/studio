@@ -457,6 +457,143 @@ body {
 [data-shop-theme] .border-primary,
 [data-shop-theme] .border-foreground { border-color: var(--shop-brand); }
 
+/* ── Finishing the job: the greys the first pass missed ──────────────────────
+ * The mappings above cover the plain utilities — .bg-white, .bg-card,
+ * .text-muted-foreground. They do NOT cover the OPACITY VARIANTS, and those are
+ * what a real page is actually built from: a sticky header is bg-white/90, a
+ * page background is bg-muted/5, a hover state is bg-muted/60. Tailwind emits
+ * each of those as its own class, so `.bg-white` never matched them and they
+ * stayed the app's neutral grey inside an otherwise branded storefront. That
+ * mismatch is the whole reason a themed shop still read as grey.
+ *
+ * Two ideas do the work.
+ *
+ * First, --shop-tint: a muted PANEL should be a faint wash of the shop's own
+ * ink over its own surface, not a neutral grey laid on top. On a warm brand it
+ * reads warm, on a cool one it reads cool, and on a dark theme it lightens
+ * instead of turning into a smudge. That is the difference between "muted" and
+ * "grey", and it is why this cannot be fixed by picking a nicer grey.
+ *
+ * Second, everything is expressed as a percentage of a variable rather than a
+ * fixed colour, so a tenant switching preset changes all of it at once and
+ * nothing here needs revisiting.
+ *
+ * color-mix has a fallback below for older Safari — a themed shop must not
+ * lose its panel backgrounds on someone's two-year-old phone.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+[data-shop-theme] {
+  --shop-tint: color-mix(in srgb, var(--shop-ink) 5%, var(--shop-surface));
+  --shop-tint-strong: color-mix(in srgb, var(--shop-ink) 9%, var(--shop-surface));
+}
+@supports not (background: color-mix(in srgb, red 5%, blue)) {
+  [data-shop-theme] {
+    --shop-tint: var(--shop-surface);
+    --shop-tint-strong: var(--shop-card);
+  }
+}
+
+/* Translucent card surfaces — sticky headers and glass panels. The alpha is
+   kept, because that translucency is what makes a sticky header feel attached
+   to the page it floats over; only the colour underneath changes. */
+[data-shop-theme] .bg-white\/95,
+[data-shop-theme] .bg-white\/90,
+[data-shop-theme] .bg-white\/80,
+[data-shop-theme] .bg-card\/95,
+[data-shop-theme] .bg-card\/90,
+[data-shop-theme] .bg-card\/80 {
+  background-color: color-mix(in srgb, var(--shop-card) 92%, transparent);
+  backdrop-filter: blur(var(--shop-card-blur));
+  -webkit-backdrop-filter: blur(var(--shop-card-blur));
+}
+@supports not (background: color-mix(in srgb, red 5%, blue)) {
+  [data-shop-theme] .bg-white\/95,
+  [data-shop-theme] .bg-white\/90,
+  [data-shop-theme] .bg-white\/80,
+  [data-shop-theme] .bg-card\/95,
+  [data-shop-theme] .bg-card\/90,
+  [data-shop-theme] .bg-card\/80 { background-color: var(--shop-card); }
+}
+
+/* Muted washes: page backgrounds, hover states, quiet panels. */
+[data-shop-theme] .bg-muted\/5,
+[data-shop-theme] .bg-muted\/10 { background-color: var(--shop-tint); }
+
+[data-shop-theme] .bg-muted\/20,
+[data-shop-theme] .bg-muted\/30,
+[data-shop-theme] .bg-muted\/40,
+[data-shop-theme] .bg-muted\/50,
+[data-shop-theme] .bg-muted\/60,
+[data-shop-theme] .bg-muted,
+[data-shop-theme] .bg-secondary { background-color: var(--shop-tint-strong); }
+
+[data-shop-theme] .hover\:bg-muted\/60:hover,
+[data-shop-theme] .hover\:bg-muted\/50:hover,
+[data-shop-theme] .hover\:bg-muted:hover { background-color: var(--shop-tint-strong); }
+
+/* Brand at reduced strength. .text-primary was mapped; its opacity variants
+   were not, so a deliberately soft brand accent fell back to app blue. */
+[data-shop-theme] .text-primary\/60 { color: color-mix(in srgb, var(--shop-brand) 60%, transparent); }
+[data-shop-theme] .text-primary\/40 { color: color-mix(in srgb, var(--shop-brand) 40%, transparent); }
+[data-shop-theme] .text-primary\/30 { color: color-mix(in srgb, var(--shop-brand) 30%, transparent); }
+[data-shop-theme] .bg-primary\/20 { background-color: color-mix(in srgb, var(--shop-brand) 20%, transparent); }
+[data-shop-theme] .border-primary\/40,
+[data-shop-theme] .border-primary\/30,
+[data-shop-theme] .border-primary\/20 { border-color: color-mix(in srgb, var(--shop-brand) 35%, transparent); }
+[data-shop-theme] .bg-foreground\/85,
+[data-shop-theme] .bg-foreground\/80 { background-color: color-mix(in srgb, var(--shop-ink) 85%, transparent); }
+
+/* Hard-coded palette greys. These ignore every theme variable by design, so
+   they have to be named individually — and they are the ones that look most
+   obviously wrong on a coloured storefront. */
+[data-shop-theme] .bg-slate-50,
+[data-shop-theme] .bg-slate-100,
+[data-shop-theme] .bg-gray-50,
+[data-shop-theme] .bg-gray-100,
+[data-shop-theme] .bg-neutral-100 { background-color: var(--shop-tint-strong); }
+
+[data-shop-theme] .text-slate-400,
+[data-shop-theme] .text-slate-500,
+[data-shop-theme] .text-slate-600,
+[data-shop-theme] .text-gray-400,
+[data-shop-theme] .text-gray-500,
+[data-shop-theme] .text-gray-600 { color: var(--shop-muted); }
+
+[data-shop-theme] .text-slate-700,
+[data-shop-theme] .text-slate-800,
+[data-shop-theme] .text-slate-900,
+[data-shop-theme] .text-gray-900 { color: var(--shop-ink); }
+
+[data-shop-theme] .border-muted,
+[data-shop-theme] .border-border,
+[data-shop-theme] .border-slate-200,
+[data-shop-theme] .border-gray-200,
+[data-shop-theme] .divide-y > * + *,
+[data-shop-theme] .divide-x > * + * { border-color: var(--shop-line); }
+
+/* Placeholders and disabled text follow the shop's muted tone, not the app's. */
+[data-shop-theme] ::placeholder { color: var(--shop-muted); opacity: 0.75; }
+[data-shop-theme] input,
+[data-shop-theme] textarea,
+[data-shop-theme] select { color: var(--shop-ink); }
+
+/* Faded icons and labels. Opacity on a near-black icon is what actually
+   produces grey, so the low steps get colour AND a raised floor — the same
+   move the ADA layer makes for small type, applied to the theme. */
+[data-shop-theme] .opacity-10,
+[data-shop-theme] .opacity-15,
+[data-shop-theme] .opacity-20,
+[data-shop-theme] .opacity-30 { color: var(--shop-muted); opacity: 0.4; }
+[data-shop-theme] .opacity-40,
+[data-shop-theme] .opacity-50 { color: var(--shop-muted); opacity: 0.7; }
+[data-shop-theme] .opacity-60,
+[data-shop-theme] .opacity-70 { opacity: 0.85; }
+
+/* An image must never be recoloured or faded by any of the above. */
+[data-shop-theme] img,
+[data-shop-theme] video,
+[data-shop-theme] svg image { color: initial; opacity: 1; }
+
 /* Print keeps ink on white — a customer's receipt is not a brand moment. */
 @media print {
   [data-shop-theme] { background: #fff; color: #111; }
