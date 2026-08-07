@@ -41,7 +41,7 @@ const SAMPLES: Record<string, (studio: string) => string> = {
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const type = url.searchParams.get('type') || '';
-  const studio = (url.searchParams.get('studio') || 'Opal Manicure Studio').slice(0, 60);
+  const studio = (url.searchParams.get('studio') || 'Your Business').slice(0, 60);
 
   if (SAMPLES[type]) {
     return new NextResponse(SAMPLES[type](studio), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
