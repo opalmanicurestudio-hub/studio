@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,15 +14,16 @@ import {
   AlertTriangle, Clock, CheckCircle2, XCircle, FileText,
   Upload, Shield, ChevronRight, Loader, ExternalLink,
   FileSignature, Receipt, User, Calendar, DollarSign,
-  AlertCircle, Info, Check, ShieldCheck, FlaskConical,
+  AlertCircle, Info, Check, ShieldCheck, FlaskConical, Package,
 } from 'lucide-react';
 import { nanoid } from 'nanoid';
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking } from '@/firebase';
 import { useSearchParams } from 'next/navigation';
-import { setDoc, doc, collection } from 'firebase/firestore';
+import { setDoc, doc, collection, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { format } from 'date-fns';
+import { buildNarrative } from '@/lib/retail-dispute-evidence';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
@@ -46,6 +47,7 @@ interface Dispute {
   signatureUrls?:        string[];
   receiptUrl?:           string;
   appointmentId?:        string;
+  retailOrderId?:        string;
   stripeConnectedAccountId: string;
   createdAt:             string;
   tenantId:              string;
@@ -88,13 +90,15 @@ function getDaysUntilDeadline(deadline?: string): number | null {
 
 // ─── Evidence Builder Dialog ──────────────────────────────────────────────────
 function EvidenceBuilderDialog({
-  open, onOpenChange, dispute, tenantId, onSubmitted,
+  open, onOpenChange, dispute, tenantId, onSubmitted, retailOrder, tenant,
 }: {
   open:          boolean;
   onOpenChange:  (v: boolean) => void;
   dispute:       Dispute;
   tenantId:      string;
   onSubmitted:   () => void;
+  retailOrder?:  any;
+  tenant?:       any;
 }) {
   const { toast }         = useToast();
   const [step,            setStep]            = useState<'review' | 'submitting' | 'done'>('review');
@@ -107,8 +111,23 @@ function EvidenceBuilderDialog({
 
   const daysLeft = getDaysUntilDeadline(dispute.deadline);
 
-  // Pre-built evidence text Stripe accepts
+  // Pre-built evidence text Stripe accepts.
+  //
+  // A shipped order gets the SHIPPING narrative. The service wording below is
+  // not merely unhelpful on a parcel — it asserts a nail service was performed,
+  // which the customer knows is false and which undermines the carrier evidence
+  // submitted alongside it. This text reaches Stripe as the merchant's own
+  // statement, so it has to describe what was actually sold.
   const buildEvidenceText = () => {
+    if (retailOrder) {
+      return [
+        buildNarrative(retailOrder, tenant || {}),
+        `DISPUTE REASON AS FILED: ${REASON_LABELS[dispute.reason] || dispute.reason}`,
+        `AMOUNT DISPUTED: $${dispute.amount.toFixed(2)}`,
+        extraNotes ? `ADDITIONAL CONTEXT FROM THE MERCHANT:\n${extraNotes}` : '',
+      ].filter(Boolean).join('\n\n');
+    }
+
     const lines = [
       `SERVICE DATE: ${dispute.createdAt ? format(safeDate(dispute.createdAt), 'MMMM d, yyyy') : 'On file'}`,
       `CLIENT NAME: ${dispute.clientName}`,
@@ -456,7 +475,9 @@ function EvidenceItem({ icon, label, available, description, tip }: {
 }
 
 // ─── Dispute Card ─────────────────────────────────────────────────────────────
-function DisputeCard({ dispute, onOpenEvidence }: { dispute: Dispute; onOpenEvidence: (d: Dispute) => void }) {
+function DisputeCard({ dispute, onOpenEvidence, retailOrder }: {
+  dispute: Dispute; onOpenEvidence: (d: Dispute) => void; retailOrder?: any;
+}) {
   const cfg      = STATUS_CONFIG[dispute.status] || STATUS_CONFIG['needs_response'];
   const daysLeft = getDaysUntilDeadline(dispute.deadline);
   const isOpen   = ['warning_needs_response', 'needs_response'].includes(dispute.status);
@@ -510,15 +531,45 @@ function DisputeCard({ dispute, onOpenEvidence }: { dispute: Dispute; onOpenEvid
           </div>
         )}
 
-        {/* Evidence status */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <EvidencePill
-            label="Consent"
-            has={(dispute.consentFormUrls?.length || 0) + (dispute.signatureUrls?.length || 0) > 0}
-          />
-          <EvidencePill label="Receipt"     has={!!dispute.receiptUrl}    />
-          <EvidencePill label="Appointment" has={!!dispute.appointmentId} />
-        </div>
+        {/* Evidence status — a shipped order has none of the service evidence
+            and all of the carrier evidence, so it gets its own row. Showing
+            "Consent: missing" on a parcel reads as a weak case when the case is
+            actually strong. */}
+        {retailOrder ? (
+          <>
+            <div className="flex items-center gap-2 rounded-xl border-2 border-dashed px-3 py-2">
+              <Package className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <p className="min-w-0 truncate text-[11px] font-black uppercase tracking-widest">
+                Online order{typeof retailOrder.orderNumber === 'number' && retailOrder.orderNumber > 0
+                  ? ` #${String(retailOrder.orderNumber).padStart(4, '0')}`
+                  : ''}
+                {retailOrder.carrierTrail?.carrier ? ` · ${retailOrder.carrierTrail.carrier}` : ''}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <EvidencePill label="Tracking" has={!!(retailOrder.carrierTrail?.trackingNumber || retailOrder.trackingNumber)} />
+              <EvidencePill label="Delivery scan" has={!!retailOrder.deliveredAt} />
+              <EvidencePill label="Weight check" has={
+                !!retailOrder.carrierTrail?.weightCheck &&
+                retailOrder.carrierTrail.weightCheck.verdict !== 'unknown'
+              } />
+              <EvidencePill label="Signature" has={
+                !!retailOrder.shipmentProtection?.signature &&
+                retailOrder.shipmentProtection.signature !== 'NONE'
+              } />
+              <EvidencePill label="Customer told" has={!!retailOrder.carrierTrail?.customerNotifiedAt} />
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center gap-2 flex-wrap">
+            <EvidencePill
+              label="Consent"
+              has={(dispute.consentFormUrls?.length || 0) + (dispute.signatureUrls?.length || 0) > 0}
+            />
+            <EvidencePill label="Receipt"     has={!!dispute.receiptUrl}    />
+            <EvidencePill label="Appointment" has={!!dispute.appointmentId} />
+          </div>
+        )}
 
         {/* Actions */}
         {isOpen && !dispute.evidenceSubmitted && (
@@ -571,6 +622,53 @@ function DisputeCenterContent() {
   }, [firestore, tenantId]);
 
   const { data: disputes, isLoading } = useCollection<Dispute>(disputesQuery);
+
+  // ── Which of these are shipped orders? ──────────────────────────────────────
+  // The dispute record does not say — it was written before retail existed on
+  // this path. But the revenue transaction behind the charge carries
+  // retailOrderId, so follow it. Resolving HERE rather than requiring a webhook
+  // backfill means every dispute already in the system gets the right shape.
+  //
+  // Keyed on the dispute ids, not the array, because useCollection hands back a
+  // fresh array on every snapshot and depending on it would re-query forever.
+  const [retailByDispute, setRetailByDispute] = useState<Record<string, any>>({});
+  const disputeKey = useMemo(
+    () => (disputes || []).map((d) => `${d.id}:${d.stripeChargeId || ''}`).sort().join('|'),
+    [disputes]
+  );
+
+  useEffect(() => {
+    if (!firestore || !tenantId || !disputes || disputes.length === 0) return;
+    let alive = true;
+    (async () => {
+      const found: Record<string, any> = {};
+      // Bounded: a shop with hundreds of open disputes has a bigger problem
+      // than this page, and an unbounded loop here would hammer Firestore.
+      for (const d of disputes.slice(0, 40)) {
+        try {
+          let orderId = String(d.retailOrderId || '').trim();
+          if (!orderId && d.stripeChargeId) {
+            const snap = await getDocs(query(
+              collection(firestore, `tenants/${tenantId}/transactions`),
+              where('stripeChargeId', '==', d.stripeChargeId),
+              where('taxBucket', '==', 'revenue'),
+              limit(1),
+            ));
+            if (!snap.empty) orderId = String(snap.docs[0].data().retailOrderId || '').trim();
+          }
+          if (!orderId) continue;
+          const oSnap = await getDoc(doc(firestore, `tenants/${tenantId}/retailOrders`, orderId));
+          if (oSnap.exists()) found[d.id] = { id: oSnap.id, ...(oSnap.data() as any) };
+        } catch {
+          // One unresolvable dispute must not stop the rest — it simply falls
+          // back to the service shape, which is what it does today.
+        }
+      }
+      if (alive) setRetailByDispute(found);
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId, disputeKey]);
 
   const openDisputes = useMemo(() =>
     (disputes || [])
@@ -698,7 +796,7 @@ function DisputeCenterContent() {
             ) : (
               <div className="grid gap-4">
                 {openDisputes.map(d => (
-                  <DisputeCard key={d.id} dispute={d} onOpenEvidence={handleOpenEvidence} />
+                  <DisputeCard key={d.id} dispute={d} onOpenEvidence={handleOpenEvidence} retailOrder={retailByDispute[d.id]} />
                 ))}
               </div>
             )}
@@ -713,7 +811,7 @@ function DisputeCenterContent() {
             ) : (
               <div className="grid gap-4">
                 {closedDisputes.map(d => (
-                  <DisputeCard key={d.id} dispute={d} onOpenEvidence={handleOpenEvidence} />
+                  <DisputeCard key={d.id} dispute={d} onOpenEvidence={handleOpenEvidence} retailOrder={retailByDispute[d.id]} />
                 ))}
               </div>
             )}
@@ -750,6 +848,8 @@ function DisputeCenterContent() {
           dispute={selectedDispute}
           tenantId={tenantId!}
           onSubmitted={handleEvidenceSubmitted}
+          retailOrder={retailByDispute[selectedDispute.id]}
+          tenant={selectedTenant}
         />
       )}
     </div>
