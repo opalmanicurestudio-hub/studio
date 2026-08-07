@@ -265,13 +265,23 @@ export async function recordItemScan(
       const { result, lines } = applyScan(order.lines, resolvedValue);
       if (!result.ok) {
         txn.set(doc(collection(oRef, 'events')),
-          evPayload('scan_mismatch', actor, { scannedValue: scannedValue.slice(0, 80), code: result.code }));
+          evPayload('scan_mismatch', actor, {
+            scannedValue: scannedValue.slice(0, 80), code: result.code,
+            phase: order.waveId ? 'pack' : 'pick',
+          }));
         return { ok: false, message: result.message };
       }
 
       txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      // PHASE STAMP. There is one scan counter per line, and where it gets
+      // filled depends on the route the order took: the board's scanner during
+      // ad-hoc picking, or the pack bench after a wave was ticked off a sheet.
+      // Without recording which, the audit trail cannot answer "was this
+      // verified at the shelf or at the box" — and the KPI derivation cannot
+      // tell a picker's work from a packer's.
       txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, {
         lineId: result.lineId, qtyScanned: result.qtyScanned, qtyOrdered: result.qtyOrdered,
+        phase: order.waveId ? 'pack' : 'pick',
       }));
       if (result.pickComplete) {
         txn.set(doc(collection(oRef, 'events')), evPayload('pick_complete', actor));
