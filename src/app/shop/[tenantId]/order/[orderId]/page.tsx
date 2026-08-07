@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
+import { customerOutcomeHeadline, fulfilmentSummary } from '@/lib/fulfilment-state';
 import { cn } from '@/lib/utils';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
@@ -318,6 +319,10 @@ export default function OrderStatusPage() {
 
   const refundedLines = order.lines.filter((l) => l.qtyShorted > 0);
 
+  // What the customer actually received, as opposed to where the order got to.
+  const fulfilment = fulfilmentSummary(order.lines);
+  const outcome = customerOutcomeHeadline(fulfilment, isShip);
+
   return (
     <div className="min-h-dvh bg-muted/5 pb-20">
       <header className="bg-white border-b-2">
@@ -327,7 +332,9 @@ export default function OrderStatusPage() {
               {isShip ? 'Shipping Order' : order.method === 'curbside' ? 'Curbside Order' : 'Pickup Order'}
             </p>
             <h1 className="font-black uppercase tracking-tighter text-2xl leading-none">
-              Order #{String(order.orderNumber).padStart(4, '0')}
+              {typeof order.orderNumber === 'number' && order.orderNumber > 0
+                ? `Order #${String(order.orderNumber).padStart(4, '0')}`
+                : 'Your order'}
             </h1>
           </div>
           {order.priceTier === 'wholesale' && (
@@ -520,12 +527,18 @@ export default function OrderStatusPage() {
         )}
 
         {['handed_off', 'completed'].includes(order.stage) && (
-          <Card className="border-2 border-green-200 rounded-[2rem] overflow-hidden bg-green-50/50">
+          <Card className={cn(
+            'border-2 rounded-[2rem] overflow-hidden',
+            outcome.tone === 'good' ? 'border-green-200 bg-green-50/50' : 'border-amber-200 bg-amber-50/50'
+          )}>
             <CardContent className="p-6 text-center space-y-2">
-              <CheckCircle2 className="w-8 h-8 mx-auto text-green-600" />
-              <p className="font-black uppercase tracking-tight">
-                {isShip ? 'Delivered — enjoy!' : 'Picked up — enjoy!'}
-              </p>
+              {outcome.tone === 'good'
+                ? <CheckCircle2 className="w-8 h-8 mx-auto text-green-600" />
+                : <PackageCheck className="w-8 h-8 mx-auto text-amber-600" />}
+              <p className="font-black uppercase tracking-tight">{outcome.title}</p>
+              {outcome.detail && (
+                <p className="text-xs font-bold text-muted-foreground leading-relaxed">{outcome.detail}</p>
+              )}
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 Thanks, {order.customerName.split(' ')[0]}
               </p>
