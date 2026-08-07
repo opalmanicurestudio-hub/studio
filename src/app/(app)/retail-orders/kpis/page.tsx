@@ -12,6 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase, useUser } from '@/firebase';
 import { permissionsFor, staffKpis, teamKpis, type StaffKpis } from '@/lib/fulfilment-access';
+import { recentWaves, type Wave } from '@/lib/waves';
 import { dueAt, fulfilmentPolicy } from '@/lib/retail-orders';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,7 @@ export default function FulfilmentKpisPage() {
   const [rows, setRows] = useState<StaffKpis[]>([]);
   const [loading, setLoading] = useState(true);
   const [orderCount, setOrderCount] = useState(0);
+  const [waves, setWaves] = useState<Wave[]>([]);
 
   const perms = useMemo(() => {
     const staff = (selectedTenant as any)?.staffMember || { role: (selectedTenant as any)?.role || 'staff' };
@@ -92,6 +94,13 @@ export default function FulfilmentKpisPage() {
             dueAtMs: dueAt(data, policy),
           };
         }));
+
+        try {
+          const ws = await recentWaves(firestore as Firestore, tenantId, 8);
+          if (alive) setWaves(ws);
+        } catch {
+          // wave history is a bonus panel, never a reason to fail the page
+        }
 
         if (!alive) return;
         setOrderCount(withEvents.length);
@@ -199,6 +208,45 @@ export default function FulfilmentKpisPage() {
                 {stat('on time', team.onTimeRate === null ? '—' : `${team.onTimeRate}%`,
                   team.onTimeRate !== null && team.onTimeRate < 90 ? 'warn' : 'good')}
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!loading && perms.canSeeTeam && waves.length > 0 && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Gauge className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                <p className="text-[11px] font-black uppercase tracking-widest">Recent waves</p>
+              </div>
+              {waves.slice(0, 6).map((w) => {
+                const total = (w.orders || []).length;
+                const done = (w.orders || []).filter((o: any) => o.packed).length;
+                const units = (w.orders || []).reduce((a: number, o: any) => a + (Number(o.itemCount) || 0), 0);
+                const started = Date.parse(String(w.createdAt || ''));
+                const label = Number.isFinite(started)
+                  ? new Date(started).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                  : '—';
+                return (
+                  <div key={w.id} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-black uppercase tracking-tight">{w.name || 'Wave'}</p>
+                      <p className="truncate text-[11px] font-bold text-muted-foreground">
+                        {label} · {w.createdBy || 'staff'} · {w.status}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-mono text-sm font-bold">{total} totes</p>
+                      <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                        {units} units{total > 0 ? ` · ${Math.round((done / total) * 100)}% packed` : ''}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Units per wave is the number to watch — it tells you whether your tote count matches the day.
+              </p>
             </CardContent>
           </Card>
         )}
