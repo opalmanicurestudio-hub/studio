@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import {
+  insurableValueCents, protectionFor, protectionPolicy, shippoExtra,
+} from '@/lib/shipment-protection';
+
 // ─── /api/retail/shipping-label/route.ts ──────────────────────────────────────
 // Shippo labels in the shape a human ships: see real rates, pick one, buy —
 // and now UNDO: void a label that hasn't shipped and Shippo refunds the
@@ -162,8 +166,15 @@ export async function POST(req: NextRequest) {
         weight: String(Math.max(1, Number(p.weightOz) || 16)),
         mass_unit: 'oz',
       }));
+      // Signature and insurance are priced by the carrier on the shipment, so
+      // they are added HERE and not at purchase — otherwise staff would be
+      // shown one price and charged another.
+      const decision = protectionFor(order, protectionPolicy(rs));
+      const extra = shippoExtra(decision);
+
       const shipment = await shippo(apiKey, '/shipments/', {
         address_from: addressFrom, address_to: addressTo, parcels, async: false,
+        ...(extra ? { extra } : {}),
       });
       const rates = (shipment.rates || [])
         .map((r: any) => ({
@@ -179,7 +190,15 @@ export async function POST(req: NextRequest) {
       if (rates.length === 0) {
         return NextResponse.json({ error: 'No rates returned — check the addresses and parcel size.' }, { status: 422 });
       }
-      return NextResponse.json({ rates });
+      return NextResponse.json({
+        rates,
+        // Surfaced so the ship dialog can say why a rate costs more than usual.
+        protection: {
+          signature: decision.signature,
+          insuranceCents: decision.insuranceCents,
+          reasons: decision.reasons,
+        },
+      });
     }
 
     // purchase
@@ -220,9 +239,25 @@ export async function POST(req: NextRequest) {
       packageCount: 1 + extraLabelUrls.length,
     };
 
+    // The weight the system expected, from the per-item weights the board
+    // summed. Written at purchase because it cannot be reconstructed later,
+    // and because a carrier-scanned weight is meaningless without it.
+    const purchaseDecision = protectionFor(order, protectionPolicy(rs));
+    const expectedWeightOz = (Array.isArray(body.parcels) && body.parcels.length > 0
+      ? body.parcels
+      : [body.parcel || {}]
+    ).reduce((a: number, p: any) => a + (Number(p?.weightOz) || 0), 0);
+
     const evRef = orderRef.collection('events').doc();
     const batch = db.batch();
     batch.set(orderRef, {
+      shipmentProtection: {
+        signature: purchaseDecision.signature,
+        insuranceCents: purchaseDecision.insuranceCents,
+        insurableValueCents: insurableValueCents(order),
+        expectedWeightOz,
+        decidedAt: new Date().toISOString(),
+      },
       trackingNumber: result.trackingNumber,
       carrier: result.carrier,
       trackingUrl: result.trackingUrl,
@@ -235,11 +270,26 @@ export async function POST(req: NextRequest) {
     batch.set(evRef, {
       id: evRef.id, type: 'label_generated', at: new Date().toISOString(),
       actorId: 'shippo', actorName: 'Shippo',
-      meta: { carrier: result.carrier, trackingNumber: result.trackingNumber, packages: result.packageCount },
+      meta: {
+        carrier: result.carrier,
+        trackingNumber: result.trackingNumber,
+        packages: result.packageCount,
+        signature: purchaseDecision.signature,
+        insuranceCents: purchaseDecision.insuranceCents,
+        expectedWeightOz,
+        text: purchaseDecision.reasons.join(' · ') || 'No added protection on this shipment',
+      },
     });
     await batch.commit();
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      protection: {
+        signature: purchaseDecision.signature,
+        insuranceCents: purchaseDecision.insuranceCents,
+        reasons: purchaseDecision.reasons,
+      },
+    });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || 'Shipping label request failed').slice(0, 300) }, { status: 502 });
   }
