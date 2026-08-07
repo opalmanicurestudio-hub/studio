@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-import { goodsRefundPolicy, retailDisputeEvidence } from '@/lib/retail-dispute-evidence';
+import {
+  describeService, goodsRefundPolicy, retailDisputeEvidence,
+  serviceDetailLine, serviceRefundPolicy,
+} from '@/lib/retail-dispute-evidence';
 
 // ─── /api/stripe/submit-dispute-evidence/route.ts ─────────────────────────────
 // Assembles and submits evidence to Stripe for a dispute.
@@ -159,20 +162,23 @@ export async function POST(req: NextRequest) {
       console.error('[dispute-evidence] retail order lookup failed:', err);
     }
 
-    // Fetch checkout transactions for service description
-    let serviceDescription = 'Professional nail services rendered in full.';
+    // Fetch checkout transactions for the service description.
+    //
+    // MULTI-TENANT: this used to hardcode one trade's wording, which meant every
+    // other business on the platform submitted a description of work they do not
+    // perform. Everything now comes from the tenant, the appointment, or the
+    // transaction, with a trade-neutral fallback.
+    let txnDescriptions: string[] = [];
     if (dispute.checkoutSessionId) {
       const txnsSnap = await db.collection(`tenants/${tenantId}/transactions`)
         .where('checkoutSessionId', '==', dispute.checkoutSessionId)
         .where('type', '==', 'income')
         .get();
-      const descriptions = txnsSnap.docs
+      txnDescriptions = txnsSnap.docs
         .map((d: any) => d.data().description)
         .filter((d: string) => d && !d.includes('Tax') && !d.includes('Tip'));
-      if (descriptions.length > 0) {
-        serviceDescription = descriptions.join(', ');
-      }
     }
+    const serviceDescription = describeService(tenant, appointment, txnDescriptions);
 
     // ── Build evidence object ─────────────────────────────────────────────────
     const goods = retailOrder ? retailDisputeEvidence(retailOrder, tenant) : null;
@@ -208,14 +214,10 @@ export async function POST(req: NextRequest) {
         !goods && client?.address
           ? `CLIENT ADDRESS: ${client.address.street}, ${client.address.city}, ${client.address.state} ${client.address.zip}`
           : '',
-        !goods && appointment
-          ? `SERVICE DETAILS: ${appointment.serviceName || 'Nail Service'}, ${appointment.duration || 60} minutes, performed by ${appointment.staffName || 'Studio technician'}`
-          : '',
+        !goods && appointment ? serviceDetailLine(tenant, appointment) : '',
       ].filter(Boolean).join('\n\n') || undefined,
 
-      refund_policy: goods
-        ? goodsRefundPolicy(tenant)
-        : (tenant.refundPolicy || 'All sales are final. Services are non-refundable once rendered.'),
+      refund_policy: goods ? goodsRefundPolicy(tenant) : serviceRefundPolicy(tenant),
     };
 
     // ── Upload files to Stripe ────────────────────────────────────────────────
