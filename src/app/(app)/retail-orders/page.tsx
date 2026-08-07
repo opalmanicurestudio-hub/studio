@@ -458,6 +458,11 @@ export default function RetailFulfillmentBoard() {
             <div className="min-w-0">
               <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{o.customerName}</p>
+              {(o as any).shelfSlot && ['ready', 'arrived'].includes(o.stage) && (
+                <p className="mt-1 inline-flex items-center gap-1 rounded-lg border-2 border-primary/40 bg-primary/5 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-primary">
+                  Shelf {(o as any).shelfSlot}
+                </p>
+              )}
               {sla && (
                 <p className={cn('text-[10px] font-black uppercase tracking-widest mt-0.5',
                   sla.state === 'late' ? 'text-destructive' : sla.state === 'due' ? 'text-amber-600' : 'text-muted-foreground/70')}>
