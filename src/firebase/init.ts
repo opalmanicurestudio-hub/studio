@@ -2,7 +2,9 @@
 import { firebaseConfig } from '@/firebase/config';
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+} from 'firebase/firestore';
 
 /*
  * Initialization must never THROW. During `next build`, every page is
@@ -44,12 +46,43 @@ export function initializeFirebase(): FirebaseSdks {
   }
 }
 
+/*
+ * OFFLINE FIRST.
+ *
+ * A stockroom is the worst signal in the building, which is exactly where
+ * picking happens. With a persistent local cache, Firestore serves reads from
+ * disk and queues writes until the connection returns — so scanning, claiming,
+ * shorting and packing keep working through a dead zone and sync themselves
+ * afterwards. What still needs a network is anything that talks to somebody
+ * else: buying a label, sending an email, taking a payment.
+ *
+ * persistentMultipleTabManager matters because a bench tablet often has the
+ * board open in one tab and the pack bench in another; without it the second
+ * tab silently loses persistence.
+ *
+ * initializeFirestore must run BEFORE any getFirestore call on the same app,
+ * and only in a browser — on the server there is no IndexedDB, so we fall
+ * straight through to the plain instance.
+ */
+function firestoreFor(firebaseApp: FirebaseApp) {
+  if (typeof window === 'undefined') return getFirestore(firebaseApp);
+  try {
+    return initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+    });
+  } catch {
+    // Already initialized elsewhere, or the browser blocks storage (private
+    // mode, disabled cookies) — the online-only instance still works.
+    return getFirestore(firebaseApp);
+  }
+}
+
 export function getSdks(firebaseApp: FirebaseApp): FirebaseSdks {
   try {
     return {
       firebaseApp,
       auth: getAuth(firebaseApp),
-      firestore: getFirestore(firebaseApp),
+      firestore: firestoreFor(firebaseApp),
     };
   } catch {
     return { firebaseApp, auth: null, firestore: null };
