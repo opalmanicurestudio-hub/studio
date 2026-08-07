@@ -23,7 +23,7 @@ import { useSearchParams } from 'next/navigation';
 import { setDoc, doc, collection, getDoc, getDocs, limit, query, where } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { format } from 'date-fns';
-import { buildNarrative } from '@/lib/retail-dispute-evidence';
+import { buildNarrative, businessNameOf, serviceStatement } from '@/lib/retail-dispute-evidence';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 
@@ -113,11 +113,12 @@ function EvidenceBuilderDialog({
 
   // Pre-built evidence text Stripe accepts.
   //
-  // A shipped order gets the SHIPPING narrative. The service wording below is
-  // not merely unhelpful on a parcel — it asserts a nail service was performed,
-  // which the customer knows is false and which undermines the carrier evidence
-  // submitted alongside it. This text reaches Stripe as the merchant's own
-  // statement, so it has to describe what was actually sold.
+  // A shipped order gets the SHIPPING narrative; anything else gets a SERVICE
+  // statement built from the tenant. Neither is hardcoded, because this text
+  // reaches Stripe as the merchant's own statement and the platform is
+  // multi-tenant: naming one business, or one trade, in another tenant's
+  // financial submission describes work they do not do at a business that is
+  // not theirs.
   const buildEvidenceText = () => {
     if (retailOrder) {
       return [
@@ -129,14 +130,14 @@ function EvidenceBuilderDialog({
     }
 
     const lines = [
+      `BUSINESS: ${businessNameOf(tenant)}`,
       `SERVICE DATE: ${dispute.createdAt ? format(safeDate(dispute.createdAt), 'MMMM d, yyyy') : 'On file'}`,
       `CLIENT NAME: ${dispute.clientName}`,
       `AMOUNT CHARGED: $${dispute.amount.toFixed(2)}`,
       `DISPUTE REASON: ${REASON_LABELS[dispute.reason] || dispute.reason}`,
       '',
       'SERVICE DOCUMENTATION:',
-      'This charge represents professional nail services rendered at Opal Manicure Studio.',
-      'Services were completed in full at the time of the appointment.',
+      serviceStatement(tenant, null),
       dispute.checkoutSessionId
         ? `Checkout session reference: ${dispute.checkoutSessionId}`
         : '',
