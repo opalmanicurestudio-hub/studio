@@ -84,9 +84,17 @@ const STAGE_FILTERS: { id: 'all' | 'active' | OrderStage; label: string }[] = [
   { id: 'shipped', label: 'Shipped' },
   { id: 'cancelled', label: 'Cancelled' },
   { id: 'refunded', label: 'Refunded' },
+  { id: 'placed', label: 'Drafts' },
 ];
 
-const ACTIVE_STAGES = ['placed', 'paid', 'picking', 'packed', 'ready', 'arrived'];
+const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
+
+// A draft is a cart that reached checkout and never paid. It has no order
+// number, because the webhook mints that only when money lands. Showing it as
+// "#null" would be a bug; showing it as "#0000" would be a lie. It gets its own
+// label, and it stays out of every view except the one you open on purpose.
+const orderLabel = (n: unknown) =>
+  typeof n === 'number' && n > 0 ? `#${String(n).padStart(4, '0')}` : 'DRAFT';
 
 type HistoryOrder = RetailOrder & { id: string };
 
@@ -159,10 +167,12 @@ export default function RetailOrderHistoryPage() {
   const shown = useMemo(() => {
     const t = term.trim().toLowerCase();
     return orders.filter((o) => {
+      const isDraft = o.stage === 'placed';
+      if (filter !== 'placed' && isDraft) return false;
       if (filter === 'active' ? !ACTIVE_STAGES.includes(o.stage) : filter !== 'all' && o.stage !== filter) return false;
       if (!t) return true;
       return (
-        String(o.orderNumber).includes(t.replace(/^#/, '')) ||
+        String(o.orderNumber ?? '').includes(t.replace(/^#/, '')) ||
         (o.customerName || '').toLowerCase().includes(t) ||
         (o.customerEmail || '').toLowerCase().includes(t) ||
         (o.businessName || '').toLowerCase().includes(t) ||
@@ -272,7 +282,7 @@ export default function RetailOrderHistoryPage() {
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex items-center gap-2">
                       <Icon className="w-3.5 h-3.5 text-muted-foreground sm:hidden shrink-0" />
-                      <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
+                      <p className="font-black uppercase tracking-tight text-sm">{orderLabel(o.orderNumber)}</p>
                       {o.priceTier === 'wholesale' && (
                         <Badge className="h-5 px-1.5 bg-primary/10 text-primary border-2 border-primary/20 font-black text-[7px] uppercase tracking-widest">B2B</Badge>
                       )}
@@ -311,7 +321,7 @@ export default function RetailOrderHistoryPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <SheetTitle className="font-black uppercase tracking-tighter text-2xl leading-none">
-                      #{String(detail.orderNumber).padStart(4, '0')}
+                      {orderLabel(detail.orderNumber)}
                     </SheetTitle>
                     <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-1">
                       {detail.customerName} · {when(detail.placedAt)}
