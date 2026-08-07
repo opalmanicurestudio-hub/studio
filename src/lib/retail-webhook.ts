@@ -69,7 +69,7 @@ export async function handleRetailOrderPaid(
     console.warn(`[connect-webhook] retail order ${orderId} not found for tenant ${tenantId}`);
     return;
   }
-  const order = orderSnap.data();
+  let order = orderSnap.data();
 
   // Idempotency — Stripe retries events; only the first one does work.
   if (order.stage !== 'placed') return;
@@ -113,7 +113,16 @@ export async function handleRetailOrderPaid(
   const qrToken = makeQrToken(orderId);
   const now = new Date().toISOString();
 
-  // ── placed → paid + stock reservation, atomically ────────────────────────
+  // ── draft → paid: mint the number, reserve stock, all atomically ─────────
+  // The order number is issued HERE and nowhere else. Checkout creates a draft
+  // with orderNumber null; money landing is what turns it into a sale. Because
+  // the mint lives inside the same transaction that flips the stage, a webhook
+  // retry finds stage !== 'placed' and returns before touching the counter —
+  // so a redelivered event can never burn a second number, and the sequence
+  // stays gapless and in payment order.
+  const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
+  let assignedNumber: number | null = null;
+
   await db.runTransaction(async (txn: any) => {
     const freshSnap = await txn.get(orderRef);
     if (!freshSnap.exists || freshSnap.data().stage !== 'placed') return;
@@ -122,7 +131,19 @@ export async function handleRetailOrderPaid(
     const itemRefs = (fresh.lines || []).map((l: any) =>
       db.collection(`tenants/${tenantId}/inventory`).doc(l.productId)
     );
-    const itemSnaps = await Promise.all(itemRefs.map((r: any) => txn.get(r)));
+    // Every read must precede every write in a Firestore transaction, so the
+    // counter is read alongside the inventory docs rather than after them.
+    const [counterSnap, itemSnaps] = await Promise.all([
+      txn.get(counterRef),
+      Promise.all(itemRefs.map((r: any) => txn.get(r))),
+    ]);
+
+    // A legacy order that already carries a number keeps it — this route has
+    // to stay safe for anything created before drafts existed.
+    assignedNumber = typeof fresh.orderNumber === 'number' && fresh.orderNumber > 0
+      ? fresh.orderNumber
+      : ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
+    txn.set(counterRef, { value: assignedNumber }, { merge: true });
 
     itemSnaps.forEach((snap: any, i: number) => {
       if (!snap.exists) {
@@ -134,6 +155,8 @@ export async function handleRetailOrderPaid(
     });
 
     txn.update(orderRef, {
+      orderNumber: assignedNumber,
+      isDraft: false,
       stage: 'paid',
       paidAt: now,
       qrToken,
@@ -147,6 +170,11 @@ export async function handleRetailOrderPaid(
   // have won); if we didn't flip it, skip the side effects too.
   const confirmed = await orderRef.get();
   if (confirmed.data()?.qrToken !== qrToken) return;
+
+  // Everything below (income transaction description, confirmation email) read
+  // the PRE-transaction snapshot, whose orderNumber is still null on a draft.
+  // Re-point them at the freshly numbered document.
+  order = { ...order, ...(confirmed.data() || {}) };
 
   // ── Audit events + income transaction (batched) ─────────────────────────
   const batch = db.batch();
