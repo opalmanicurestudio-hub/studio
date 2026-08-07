@@ -1,5 +1,4 @@
-
-l// ─── src/lib/fulfilment-access.ts ─────────────────────────────────────────────
+// ─── src/lib/fulfilment-access.ts ─────────────────────────────────────────────
 // Who may do what on the fulfilment board, and how a person's work is measured.
 //
 // Both halves live together on purpose: the same actor stamp that authorises
