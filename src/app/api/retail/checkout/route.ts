@@ -239,7 +239,15 @@ async function handleCheckout(req: NextRequest) {
   const rs = tenant.retailSettings || {};
   const taxExempt = priceTier === 'wholesale' && rs.wholesaleTaxExempt === true;
   const taxRatePercent = taxExempt ? 0 : Number(rs.taxRatePercent) || 0;
-  const taxCents = Math.round(subtotalCents * (taxRatePercent / 100));
+  // A single flat rate is exactly right for a pickup order — the sale happens
+  // at the shop, so the shop's own rate applies. It is exactly wrong for a
+  // parcel crossing state lines, where the destination sets the rate. So
+  // Stripe Tax (opt-in per tenant, registrations live in THEIR dashboard)
+  // takes over only for shipped orders; pickup and tax-exempt wholesale keep
+  // the flat path untouched. In stripe mode the draft carries taxCents 0 —
+  // Stripe computes the real figure at payment and the webhook writes it back.
+  const stripeTax = rs.stripeTaxEnabled === true && method === 'ship' && !taxExempt;
+  const taxCents = stripeTax ? 0 : Math.round(subtotalCents * (taxRatePercent / 100));
 
   let shippingCents = 0;
   let shippingService = '';
@@ -331,6 +339,7 @@ async function handleCheckout(req: NextRequest) {
     lines,
     subtotalCents,
     taxCents,
+    taxMode: stripeTax ? 'stripe' : 'flat',
     shippingCents,
     shippingService,
     refundedCents: 0,
@@ -368,56 +377,110 @@ async function handleCheckout(req: NextRequest) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2025-04-30.basil' as any });
   const origin = req.headers.get('origin') || req.nextUrl.origin;
 
-  const lineItems: any[] = lines.map((l) => ({
-    quantity: l.qtyOrdered,
-    price_data: {
-      currency: 'usd',
-      unit_amount: l.unitPriceCents,
-      product_data: { name: l.name },
+  // In stripe-tax mode every line declares what it IS, so the right rule
+  // applies per line: goods are taxed as tangible goods, shipping follows
+  // each state's own shipping rule (some tax it, some don't), and a tip is
+  // never taxed — taxing a gratuity would be charging the customer tax on
+  // their own generosity. Prices stay tax-exclusive so the sticker price the
+  // shop set is the price the customer saw.
+  const buildLineItems = (withTaxCodes: boolean, flatTaxCents: number): any[] => {
+    const items: any[] = lines.map((l) => ({
+      quantity: l.qtyOrdered,
+      price_data: {
+        currency: 'usd',
+        unit_amount: l.unitPriceCents,
+        product_data: { name: l.name, ...(withTaxCodes ? { tax_code: 'txcd_99999999' } : {}) },
+        ...(withTaxCodes ? { tax_behavior: 'exclusive' } : {}),
+      },
+    }));
+    if (flatTaxCents > 0) {
+      items.push({
+        quantity: 1,
+        price_data: { currency: 'usd', unit_amount: flatTaxCents, product_data: { name: 'Sales Tax' } },
+      });
+    }
+    if (shippingCents > 0) {
+      items.push({
+        quantity: 1,
+        price_data: {
+          currency: 'usd',
+          unit_amount: shippingCents,
+          product_data: { name: shippingService || 'Shipping', ...(withTaxCodes ? { tax_code: 'txcd_92010001' } : {}) },
+          ...(withTaxCodes ? { tax_behavior: 'exclusive' } : {}),
+        },
+      });
+    }
+    if (tipCents > 0) {
+      items.push({
+        quantity: 1,
+        price_data: {
+          currency: 'usd',
+          unit_amount: tipCents,
+          product_data: { name: 'Tip \u2764\ufe0f', ...(withTaxCodes ? { tax_code: 'txcd_00000000' } : {}) },
+          ...(withTaxCodes ? { tax_behavior: 'exclusive' } : {}),
+        },
+      });
+    }
+    return items;
+  };
+  const lineItems: any[] = buildLineItems(stripeTax, taxCents);
+
+  const sessionParams = (items: any[], withAutoTax: boolean): any => ({
+    mode: 'payment',
+    line_items: items,
+    // Stripe Tax needs an address to pick a jurisdiction; enabling it makes
+    // Stripe's own page require a billing address, which is what the rate is
+    // computed against. On a direct charge the CONNECTED account's tax
+    // registrations and origin address apply — each tenant's own setup.
+    ...(withAutoTax ? { automatic_tax: { enabled: true } } : {}),
+    customer_email: customerEmail,
+    metadata: { type: 'retail_order', retailOrderId: orderId, tenantId },
+    payment_intent_data: {
+      metadata: { type: 'retail_order', retailOrderId: orderId, tenantId },
     },
-  }));
-  if (taxCents > 0) {
-    lineItems.push({
-      quantity: 1,
-      price_data: { currency: 'usd', unit_amount: taxCents, product_data: { name: 'Sales Tax' } },
-    });
-  }
-  if (shippingCents > 0) {
-    lineItems.push({
-      quantity: 1,
-      price_data: { currency: 'usd', unit_amount: shippingCents, product_data: { name: shippingService || 'Shipping' } },
-    });
-  }
-  if (tipCents > 0) {
-    lineItems.push({
-      quantity: 1,
-      price_data: { currency: 'usd', unit_amount: tipCents, product_data: { name: 'Tip \u2764\ufe0f' } },
-    });
-  }
+    // Abandoned carts shouldn't haunt the board for a day. 30 minutes is
+    // Stripe's minimum session lifetime and matches the cart hold, so the
+    // expired-session webhook closes unpaid orders while the shopper is
+    // still in the same session of their life.
+    expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
+    // Shown on Stripe's own checkout page, above the pay button. This is
+    // what makes "the policy is shown at checkout" true rather than a claim.
+    custom_text: { submit: { message: stripeCustomText(policy.text) } },
+    success_url: `${origin}/shop/${tenantId}/order/${orderId}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${origin}/shop/${tenantId}?canceled=1`,
+  });
 
   try {
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: 'payment',
-        line_items: lineItems,
-        customer_email: customerEmail,
-        metadata: { type: 'retail_order', retailOrderId: orderId, tenantId },
-        payment_intent_data: {
-          metadata: { type: 'retail_order', retailOrderId: orderId, tenantId },
-        },
-        // Abandoned carts shouldn't haunt the board for a day. 30 minutes is
-        // Stripe's minimum session lifetime and matches the cart hold, so the
-        // expired-session webhook closes unpaid orders while the shopper is
-        // still in the same session of their life.
-        expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
-        // Shown on Stripe's own checkout page, above the pay button. This is
-        // what makes "the policy is shown at checkout" true rather than a claim.
-        custom_text: { submit: { message: stripeCustomText(policy.text) } },
-        success_url: `${origin}/shop/${tenantId}/order/${orderId}?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/shop/${tenantId}?canceled=1`,
-      },
-      { stripeAccount: stripeAccountId }
-    );
+    let session: any;
+    try {
+      session = await stripe.checkout.sessions.create(
+        sessionParams(lineItems, stripeTax),
+        { stripeAccount: stripeAccountId }
+      );
+    } catch (taxErr: any) {
+      // The classic misconfiguration: a tenant flips the Stripe Tax toggle
+      // before finishing registrations or the origin address in their Stripe
+      // dashboard, and every shipped checkout would die at the pay button. A
+      // customer holding out a card must never be the one who discovers that.
+      // Fall back ONCE to the tenant's flat rate — loudly stamped on the
+      // order as 'flat_fallback' so the gap is visible in the books instead
+      // of silently swallowed — and only then let a second failure surface.
+      if (!stripeTax) throw taxErr;
+      console.error(
+        `[checkout] Stripe Tax session failed for tenant ${tenantId} — falling back to flat rate:`,
+        String(taxErr?.raw?.message || taxErr?.message || taxErr)
+      );
+      const fbTaxCents = Math.round(subtotalCents * ((Number(rs.taxRatePercent) || 0) / 100));
+      await orderRef.set({
+        taxMode: 'flat_fallback',
+        taxCents: fbTaxCents,
+        totalCents: subtotalCents + fbTaxCents + shippingCents + tipCents,
+      }, { merge: true });
+      session = await stripe.checkout.sessions.create(
+        sessionParams(buildLineItems(false, fbTaxCents), false),
+        { stripeAccount: stripeAccountId }
+      );
+    }
 
     await orderRef.set({ stripeCheckoutSessionId: session.id }, { merge: true });
     return NextResponse.json({
