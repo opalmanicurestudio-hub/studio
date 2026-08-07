@@ -19,6 +19,8 @@ import {
   handoffWithoutScan, markPacked, markReady, recordItemScan, resolveShortLine,
 } from '@/lib/retail-fulfill';
 import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/retail-orders';
+import { packPhotoPolicy, packPhotoRequired } from '@/lib/pack-photo';
+import { uploadImage } from '@/lib/upload-image';
 import { cn } from '@/lib/utils';
 
 // ─── Pack bench ───────────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ export default function PackBenchPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
   const [shortTarget, setShortTarget] = useState<{ lineId: string; name: string } | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   const actor = useMemo(
     () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
@@ -70,6 +73,13 @@ export default function PackBenchPage() {
   }, [selectedTenant]);
   const policy = useMemo(
     () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
+    [selectedTenant]
+  );
+  // Every threshold here comes from the tenant. A shop selling $8 polish and a
+  // shop selling $400 kits want completely different answers, and neither
+  // should inherit the other's.
+  const photoPolicy = useMemo(
+    () => packPhotoPolicy((selectedTenant as any)?.retailSettings),
     [selectedTenant]
   );
 
@@ -152,6 +162,15 @@ export default function PackBenchPage() {
     [orders, activeId]
   );
 
+  // Declared AFTER `active`, not before it — reading a const above its own
+  // declaration is the TDZ crash that has taken this page down before.
+  const photoUrls: string[] = Array.isArray((active as any)?.packPhotoUrls)
+    ? (active as any).packPhotoUrls : [];
+  const photoNeeded = useMemo(
+    () => (active ? packPhotoRequired(active, photoPolicy) : false),
+    [active, photoPolicy]
+  );
+
   useEffect(() => {
     // Nothing selected, or the selected order left the bench (someone else
     // packed it, or it was cancelled and closed) — advance rather than stall.
@@ -202,6 +221,31 @@ export default function PackBenchPage() {
       });
     } finally {
       setBusy(null);
+    }
+  };
+
+  const addPackPhoto = async (file: File | null | undefined) => {
+    if (!file || !firestore || !active) return;
+    setPhotoBusy(true);
+    try {
+      const url = await uploadImage(
+        packPhotoPath(tenantId, active.id, photoUrls.length),
+        file,
+        photoPolicy.maxDimension
+      );
+      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders`, active.id), {
+        packPhotoUrls: [...photoUrls, url].slice(0, photoPolicy.maxPhotos),
+        packPhotoAt: new Date().toISOString(),
+        packPhotoBy: actor.name,
+      });
+    } catch (e: any) {
+      toast({
+        variant: 'destructive',
+        title: 'Photo did not upload',
+        description: e?.message || 'Check the connection and try again.',
+      });
+    } finally {
+      setPhotoBusy(false);
     }
   };
 
@@ -380,15 +424,73 @@ export default function PackBenchPage() {
 
                 {!isCancelled && (
                   <div className="space-y-2">
+                    {active.stage === 'picking' && photoPolicy.enabled && (
+                      <div className={cn(
+                        'rounded-2xl border-2 p-3',
+                        photoNeeded && photoUrls.length === 0 ? 'border-amber-300 bg-amber-50/60' : 'border-dashed'
+                      )}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs font-black uppercase tracking-tight">
+                              {photoNeeded ? 'Photo the open box' : 'Photo the open box (optional)'}
+                            </p>
+                            <p className="text-[11px] font-bold text-muted-foreground">
+                              One shot of the contents before you seal it. Ends a &ldquo;something was
+                              missing&rdquo; claim faster than any argument.
+                            </p>
+                          </div>
+                          {photoUrls.length > 0 && (
+                            <span className="shrink-0 rounded-full border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest">
+                              {photoUrls.length}/{photoPolicy.maxPhotos}
+                            </span>
+                          )}
+                        </div>
+
+                        {photoUrls.length < photoPolicy.maxPhotos && (
+                          <label className={cn(
+                            'mt-2 flex h-12 cursor-pointer items-center justify-center rounded-xl border-2 text-[11px] font-black uppercase tracking-widest',
+                            photoBusy ? 'opacity-60' : 'bg-white hover:border-primary/40'
+                          )}>
+                            {photoBusy ? <Loader className="h-4 w-4 animate-spin" /> : 'Take photo'}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              className="sr-only"
+                              disabled={photoBusy}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                void addPackPhoto(e.target.files?.[0]);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        )}
+
+                        {photoUrls.length > 0 && (
+                          <div className="mt-2 flex gap-2 overflow-x-auto">
+                            {photoUrls.map((u, i) => (
+                              <img
+                                key={u}
+                                src={u}
+                                alt={`Packed contents ${i + 1}`}
+                                className="h-16 w-16 shrink-0 rounded-lg border-2 object-cover"
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {active.stage === 'picking' && (
                       <Button
-                        disabled={!allScanned || busy === 'pack'}
+                        disabled={!allScanned || busy === 'pack' || (photoNeeded && photoUrls.length === 0)}
                         onClick={() => firestore && act('pack', () => markPacked(firestore as Firestore, tenantId, active.id, actor))}
                         className="h-14 w-full rounded-2xl text-xs font-black uppercase tracking-widest"
                       >
                         {busy === 'pack' ? <Loader className="h-4 w-4 animate-spin" />
-                          : allScanned ? 'Everything in the box — mark packed'
-                          : `Scan ${remaining} more item${remaining === 1 ? '' : 's'}`}
+                          : !allScanned ? `Scan ${remaining} more item${remaining === 1 ? '' : 's'}`
+                          : (photoNeeded && photoUrls.length === 0) ? 'Photo the box first'
+                          : 'Everything in the box — mark packed'}
                       </Button>
                     )}
 
