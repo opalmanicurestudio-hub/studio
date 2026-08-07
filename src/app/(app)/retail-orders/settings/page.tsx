@@ -2,7 +2,7 @@
 
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
-  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Printer, Store, Truck, X, Zap,
+  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -58,6 +58,12 @@ interface RetailSettings {
   scheduledPickup?: boolean;
   throttlePer15?: number;
   shippoApiKey?: string;
+  signatureConfirmationEnabled?: boolean;
+  signatureOverCents?: number;
+  signatureType?: 'STANDARD' | 'ADULT';
+  shipmentInsuranceEnabled?: boolean;
+  insuranceOverCents?: number;
+  weightToleranceOz?: number;
   shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
   storePaused?: boolean;
   storePausedMessage?: string;
@@ -149,6 +155,12 @@ export default function RetailSettingsPage() {
       scheduledPickup: existing.scheduledPickup === true,
       throttlePer15: Number(existing.throttlePer15) || 0,
       shippoApiKey: existing.shippoApiKey || '',
+      signatureConfirmationEnabled: existing.signatureConfirmationEnabled === true,
+      signatureOverCents: Number(existing.signatureOverCents) || 15000,
+      signatureType: existing.signatureType === 'ADULT' ? 'ADULT' : 'STANDARD',
+      shipmentInsuranceEnabled: existing.shipmentInsuranceEnabled === true,
+      insuranceOverCents: Number(existing.insuranceOverCents) || 10000,
+      weightToleranceOz: Number(existing.weightToleranceOz) || 4,
       shipFrom: existing.shipFrom || {},
       storePaused: existing.storePaused === true,
       storePausedMessage: existing.storePausedMessage || '',
@@ -227,6 +239,12 @@ export default function RetailSettingsPage() {
           scheduledPickup: rs.scheduledPickup === true,
           throttlePer15: Math.max(0, Math.floor(Number(rs.throttlePer15) || 0)),
           shippoApiKey: (rs.shippoApiKey || '').trim(),
+          signatureConfirmationEnabled: rs.signatureConfirmationEnabled === true,
+          signatureOverCents: Math.max(0, Math.floor(Number(rs.signatureOverCents) || 15000)),
+          signatureType: rs.signatureType === 'ADULT' ? 'ADULT' : 'STANDARD',
+          shipmentInsuranceEnabled: rs.shipmentInsuranceEnabled === true,
+          insuranceOverCents: Math.max(0, Math.floor(Number(rs.insuranceOverCents) || 10000)),
+          weightToleranceOz: Math.max(0, Math.floor(Number(rs.weightToleranceOz) || 4)),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
           storePaused: rs.storePaused === true,
           storePausedMessage: (rs.storePausedMessage || '').trim(),
@@ -606,6 +624,117 @@ export default function RetailSettingsPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm font-black uppercase tracking-tight">Shipment protection</p>
+            </div>
+            <p className="text-[11px] font-bold text-muted-foreground">
+              Both cost money per label, so both start off. They defend against different things,
+              which is why the cutoffs are separate: signature answers &ldquo;I never got it&rdquo;,
+              insurance answers &ldquo;it arrived smashed&rdquo;. Only orders at or above a cutoff pay for it.
+            </p>
+
+            <div className="rounded-2xl border-2 border-dashed p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-tight">Require a signature on valuable orders</p>
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    A delivery scan proves a parcel reached an address. A signature proves it reached a
+                    person &mdash; which is what wins a &ldquo;never arrived&rdquo; dispute.
+                  </p>
+                </div>
+                <Switch
+                  checked={rs.signatureConfirmationEnabled === true}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, signatureConfirmationEnabled: v })}
+                />
+              </div>
+              {rs.signatureConfirmationEnabled && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Orders over ($)</Label>
+                    <Input
+                      inputMode="decimal"
+                      value={String((Number(rs.signatureOverCents) || 0) / 100)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setRs({ ...rs, signatureOverCents: Math.round((Number(e.target.value) || 0) * 100) })}
+                      className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Who can sign</Label>
+                    <div className="flex gap-2">
+                      {(['STANDARD', 'ADULT'] as const).map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setRs({ ...rs, signatureType: v })}
+                          className={cn(
+                            'h-11 flex-1 rounded-xl border-2 text-[11px] font-black uppercase tracking-widest',
+                            rs.signatureType === v
+                              ? 'bg-foreground text-background border-foreground'
+                              : 'bg-white hover:border-primary/40'
+                          )}
+                        >
+                          {v === 'ADULT' ? 'Adult 21+' : 'Anyone'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border-2 border-dashed p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-tight">Insure valuable orders</p>
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    Makes damage in transit the carrier&rsquo;s loss instead of yours. Insured for the
+                    merchandise total &mdash; never shipping or tip, and never a line you already refunded.
+                  </p>
+                </div>
+                <Switch
+                  checked={rs.shipmentInsuranceEnabled === true}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, shipmentInsuranceEnabled: v })}
+                />
+              </div>
+              {rs.shipmentInsuranceEnabled && (
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Orders over ($)</Label>
+                  <Input
+                    inputMode="decimal"
+                    value={String((Number(rs.insuranceOverCents) || 0) / 100)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setRs({ ...rs, insuranceOverCents: Math.round((Number(e.target.value) || 0) * 100) })}
+                    className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                Weight tolerance (oz)
+              </Label>
+              <Input
+                inputMode="numeric"
+                value={String(rs.weightToleranceOz ?? 4)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setRs({ ...rs, weightToleranceOz: Number(e.target.value) || 0 })}
+                className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+              />
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Carriers weigh every parcel and report it back. We compare that to what the order should
+                weigh and flag anything lighter than expected by more than this &mdash; the evidence that
+                answers &ldquo;items were missing from my box&rdquo;. Set it too tight and ordinary scale
+                variance starts looking like a problem.
+              </p>
             </div>
           </CardContent>
         </Card>
