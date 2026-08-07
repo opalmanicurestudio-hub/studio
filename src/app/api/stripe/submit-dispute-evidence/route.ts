@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+import { goodsRefundPolicy, retailDisputeEvidence } from '@/lib/retail-dispute-evidence';
+
 // ─── /api/stripe/submit-dispute-evidence/route.ts ─────────────────────────────
 // Assembles and submits evidence to Stripe for a dispute.
 // Called from the EvidenceBuilderDialog in DisputeCenter.
@@ -16,6 +18,25 @@ import Stripe from 'stripe';
 //   billing_address             → client address if on file
 //   uncategorized_text         → extra notes from owner
 //   refund_policy              → studio refund policy from tenant settings
+//
+// RETAIL DISPUTES TAKE A DIFFERENT PATH. Everything above is service-shaped,
+// and a shipped product described as "services rendered" loses a dispute it
+// should win — the issuer is looking for a carrier, a tracking number and a
+// delivery address, and a service narrative answers none of them while
+// contradicting the customer's own description of the purchase.
+//
+// The link was already in the data: the retail webhook stamps retailOrderId on
+// the income transaction it writes. This route now follows it, so it works on
+// disputes ALREADY in the system without touching either Stripe webhook.
+//
+// Retail evidence fields used instead:
+//   product_description        → the actual goods, with SKUs and quantities
+//   shipping_carrier           → carrier from the tracking trail
+//   shipping_tracking_number   → tracking number
+//   shipping_date              → dispatch date
+//   shipping_address           → the address the CUSTOMER entered at checkout
+//   uncategorized_text         → scan verification, weight check, carrier's own
+//                                report, and every customer notification
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -114,6 +135,30 @@ export async function POST(req: NextRequest) {
       appointment = aptDoc.data();
     }
 
+    // ── Is this a RETAIL order dispute? ───────────────────────────────────────
+    // The dispute record itself may not say so — it was written before retail
+    // existed on this path — but the income transaction behind the charge
+    // carries retailOrderId. Follow it rather than requiring a backfill.
+    let retailOrder: any = null;
+    try {
+      let retailOrderId: string = String(dispute.retailOrderId || '').trim();
+      if (!retailOrderId && dispute.stripeChargeId) {
+        const txns = await db.collection(`tenants/${tenantId}/transactions`)
+          .where('stripeChargeId', '==', dispute.stripeChargeId)
+          .where('taxBucket', '==', 'revenue')
+          .limit(1).get();
+        if (!txns.empty) retailOrderId = String(txns.docs[0].data().retailOrderId || '').trim();
+      }
+      if (retailOrderId) {
+        const oDoc = await db.collection(`tenants/${tenantId}/retailOrders`).doc(retailOrderId).get();
+        if (oDoc.exists) retailOrder = { id: oDoc.id, ...(oDoc.data() as any) };
+      }
+    } catch (err) {
+      // A lookup failure must never block submitting SOMETHING before the
+      // deadline. Falls through to the service path below.
+      console.error('[dispute-evidence] retail order lookup failed:', err);
+    }
+
     // Fetch checkout transactions for service description
     let serviceDescription = 'Professional nail services rendered in full.';
     if (dispute.checkoutSessionId) {
@@ -130,25 +175,47 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Build evidence object ─────────────────────────────────────────────────
+    const goods = retailOrder ? retailDisputeEvidence(retailOrder, tenant) : null;
+
     const evidence: Stripe.DisputeUpdateParams.Evidence = {
-      customer_name:         client?.name || dispute.clientName || 'Client on file',
-      customer_email_address: client?.email || undefined,
-      product_description:   serviceDescription,
-      service_date:          dispute.createdAt
+      customer_name:         retailOrder?.customerName || client?.name || dispute.clientName || 'Client on file',
+      customer_email_address: retailOrder?.customerEmail || client?.email || undefined,
+      product_description:   goods ? goods.productDescription : serviceDescription,
+      // A goods sale has no service date. Sending one invites the issuer to
+      // treat the whole submission as boilerplate.
+      service_date: goods ? undefined : (dispute.createdAt
         ? new Date(dispute.createdAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-        : undefined,
-      service_documentation: evidenceText,
+        : undefined),
+      service_documentation: goods ? undefined : evidenceText,
+
+      // The fields an issuer actually weighs on a "product not received"
+      // dispute. Only ever set when there is a real value — an empty carrier
+      // or tracking string is worse than the field being absent.
+      shipping_carrier:         goods?.shippingCarrier || undefined,
+      shipping_tracking_number: goods?.shippingTrackingNumber || undefined,
+      shipping_date:            goods?.shippingDate || undefined,
+      shipping_address:         goods?.shippingAddress || undefined,
+
       uncategorized_text:    [
         extraNotes,
-        tenant.refundPolicy ? `STUDIO REFUND POLICY:\n${tenant.refundPolicy}` : '',
-        client?.address
+        goods ? goods.narrative : '',
+        // Staff notes typed into the builder still count, even on a goods
+        // dispute — they are the only part a human wrote for this case.
+        goods && evidenceText ? `MERCHANT STATEMENT:\n${evidenceText}` : '',
+        goods
+          ? `RETURN AND DELIVERY POLICY:\n${goodsRefundPolicy(tenant)}`
+          : (tenant.refundPolicy ? `STUDIO REFUND POLICY:\n${tenant.refundPolicy}` : ''),
+        !goods && client?.address
           ? `CLIENT ADDRESS: ${client.address.street}, ${client.address.city}, ${client.address.state} ${client.address.zip}`
           : '',
-        appointment
+        !goods && appointment
           ? `SERVICE DETAILS: ${appointment.serviceName || 'Nail Service'}, ${appointment.duration || 60} minutes, performed by ${appointment.staffName || 'Studio technician'}`
           : '',
       ].filter(Boolean).join('\n\n') || undefined,
-      refund_policy: tenant.refundPolicy || 'All sales are final. Services are non-refundable once rendered.',
+
+      refund_policy: goods
+        ? goodsRefundPolicy(tenant)
+        : (tenant.refundPolicy || 'All sales are final. Services are non-refundable once rendered.'),
     };
 
     // ── Upload files to Stripe ────────────────────────────────────────────────
