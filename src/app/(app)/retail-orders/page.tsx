@@ -69,6 +69,7 @@ export default function RetailFulfillmentBoard() {
   }, []);
 
   const [batchView, setBatchView] = useState<'orders' | 'shelf'>('shelf');
+  const [stationMode, setStationMode] = useState(false);
 
   /*
    * Where a product physically sits. The allocation system already records
@@ -552,7 +553,7 @@ export default function RetailFulfillmentBoard() {
   }
 
   return (
-    <div className="min-h-dvh bg-muted/5 pb-28">
+    <div className={`min-h-dvh bg-muted/5 pb-28${stationMode ? ' station-mode' : ''}`}>
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4 flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="w-full sm:w-auto sm:flex-1 min-w-0 flex items-center justify-between gap-2">
