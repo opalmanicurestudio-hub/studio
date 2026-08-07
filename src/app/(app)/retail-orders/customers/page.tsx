@@ -4,7 +4,7 @@ import {
   collection, getDocs, limit, orderBy, query, type Firestore,
 } from 'firebase/firestore';
 import {
-  ArrowLeft, Crown, Loader, Mail, Search, Sparkles, Clock, Trophy, Users, UserPlus,
+  ArrowLeft, Crown, Loader, Mail, Search, ShieldAlert, Sparkles, Clock, Trophy, Users, UserPlus,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -65,6 +65,10 @@ export default function ShoppersPage() {
   const [loading, setLoading] = useState(true);
   const [shoppers, setShoppers] = useState<Shopper[]>([]);
   const [rawOrders, setRawOrders] = useState<any[]>([]);
+  // Chargebacks and refunds, keyed by lowercased email. The cost of claims is
+  // not the honest customer with a crushed box — it is the small number of
+  // people who claim repeatedly, and you can only see them if you count.
+  const [claimsByEmail, setClaimsByEmail] = useState<Record<string, { disputes: number; disputedCents: number; refundedCents: number; lost: number }>>({});
   const [term, setTerm] = useState('');
   const [segment, setSegment] = useState<'all' | 'repeat' | 'top' | 'lapsed' | 'new'>('all');
   const [detail, setDetail] = useState<Shopper | null>(null);
@@ -121,9 +125,53 @@ export default function ShoppersPage() {
 
         if (!alive) return;
         setShoppers([...byEmail.values()].sort((a, b) => b.spendCents - a.spendCents));
-        setRawOrders(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })));
+        const orders = snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
+        setRawOrders(orders);
+
+        // Refunds come straight off the orders already loaded. Disputes are a
+        // separate collection and are few, so one unfiltered read is cheaper
+        // than a query per shopper.
+        const claims: Record<string, { disputes: number; disputedCents: number; refundedCents: number; lost: number }> = {};
+        const bump = (email: string) => {
+          const k = String(email || '').trim().toLowerCase();
+          if (!k) return null;
+          if (!claims[k]) claims[k] = { disputes: 0, disputedCents: 0, refundedCents: 0, lost: 0 };
+          return claims[k];
+        };
+        for (const o of orders) {
+          const refunded = Number(o.refundedCents) || 0;
+          if (refunded > 0) {
+            const row = bump(o.customerEmail);
+            if (row) row.refundedCents += refunded;
+          }
+        }
+        try {
+          const dSnap = await getDocs(query(
+            collection(firestore as Firestore, `tenants/${tenantId}/disputes`),
+            limit(200),
+          ));
+          const byOrder = new Map(orders.map((o) => [String(o.id), o]));
+          for (const d of dSnap.docs) {
+            const dd = d.data() as any;
+            // Match a dispute to a shopper through its retail order when we can,
+            // and fall back to the name Stripe gave us only as a last resort.
+            const linked = dd.retailOrderId ? byOrder.get(String(dd.retailOrderId)) : null;
+            const email = linked?.customerEmail
+              || orders.find((o) => o.stripeChargeId && o.stripeChargeId === dd.stripeChargeId)?.customerEmail
+              || '';
+            const row = bump(email);
+            if (!row) continue;
+            row.disputes += 1;
+            row.disputedCents += Math.round((Number(dd.amount) || 0) * 100);
+            if (dd.status === 'lost') row.lost += 1;
+          }
+        } catch {
+          // No disputes collection yet, or no permission — refund counts still
+          // stand on their own.
+        }
+        if (alive) setClaimsByEmail(claims);
       } catch {
-        if (alive) { setShoppers([]); setRawOrders([]); }
+        if (alive) { setShoppers([]); setRawOrders([]); setClaimsByEmail({}); }
       } finally {
         if (alive) setLoading(false);
       }
@@ -390,6 +438,32 @@ export default function ShoppersPage() {
               <div>
                 <h2 className="text-xl font-black uppercase leading-none tracking-tighter">{detail.name}</h2>
                 <p className="mt-1 text-[11px] font-bold text-muted-foreground">{detail.email}{detail.phone ? ` · ${detail.phone}` : ''}</p>
+
+                {(() => {
+                  const c = claimsByEmail[detail.email.toLowerCase()];
+                  if (!c || (c.disputes === 0 && c.refundedCents === 0)) return null;
+                  // Stated, never judged. The page reports what happened and
+                  // leaves the conclusion to the person who knows the customer.
+                  return (
+                    <div className={cn(
+                      'mt-3 rounded-2xl border-2 p-3',
+                      c.disputes > 0 ? 'border-amber-300 bg-amber-50/60' : 'border-border'
+                    )}>
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <p className="text-[11px] font-black uppercase tracking-widest">Claims history</p>
+                      </div>
+                      <p className="mt-1.5 text-xs font-bold text-muted-foreground">
+                        {c.disputes > 0
+                          ? `${c.disputes} chargeback${c.disputes === 1 ? '' : 's'} totalling ${money(c.disputedCents)}${c.lost > 0 ? ` · ${c.lost} lost` : ''}`
+                          : 'No chargebacks'}
+                        {c.refundedCents > 0
+                          ? ` · ${money(c.refundedCents)} refunded across ${detail.orders} order${detail.orders === 1 ? '' : 's'}`
+                          : ''}
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="grid grid-cols-3 gap-2">
