@@ -194,6 +194,47 @@ export default function RetailFulfillmentBoard() {
   }, [orders, policy, tick]);
 
 
+  /*
+   * The exception lane. Shorts, orders cancelled mid-pick, backorders and
+   * abandoned claims each used to live in a different corner of the board, so
+   * the one thing they have in common — a human has to decide something — was
+   * invisible. Anything here is work that will not resolve itself.
+   */
+  const exceptions = useMemo(() => {
+    const out: { id: string; kind: string; title: string; detail: string; tone: 'warn' | 'bad' }[] = [];
+    orders.forEach((o) => {
+      const num = `#${String(o.orderNumber).padStart(4, '0')}`;
+
+      if (['cancelled', 'refunded'].includes(String(o.stage)) && (o.batchId || o.waveId)) {
+        out.push({
+          id: `${o.id}-dead`, kind: 'cancelled', tone: 'bad',
+          title: `${num} cancelled while being picked`,
+          detail: o.waveTote ? `Return the items and free tote ${o.waveTote}` : 'Return the items to stock',
+        });
+      }
+
+      (o.lines || []).forEach((l: any) => {
+        if ((l.qtyShorted || 0) > 0 && l.status === 'backordered') {
+          out.push({
+            id: `${o.id}-${l.lineId}-bo`, kind: 'backorder', tone: 'warn',
+            title: `${num} · ${l.name} on backorder`,
+            detail: `${l.qtyShorted} owed — release when stock lands`,
+          });
+        }
+      });
+
+      if ((o.pendingRefundCents || 0) > 0) {
+        out.push({
+          id: `${o.id}-refund`, kind: 'refund', tone: 'warn',
+          title: `${num} refund queued`,
+          detail: `$${((o.pendingRefundCents || 0) / 100).toFixed(2)} to process in Stripe, then mark refunded`,
+        });
+      }
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, tick]);
+
   const staleReady = useMemo(
     () => ready.filter((o) => {
       const t = Date.parse(String((o as any).readyAt || o.placedAt || ''));
@@ -823,6 +864,36 @@ export default function RetailFulfillmentBoard() {
           </p>
         )}
       </div>
+
+      {exceptions.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="rounded-[1.5rem] border-2 border-amber-300 bg-amber-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+              {exceptions.length} thing{exceptions.length === 1 ? '' : 's'} need a decision
+            </p>
+            <div className="mt-3 space-y-2">
+              {exceptions.slice(0, 6).map((x) => (
+                <div
+                  key={x.id}
+                  className={cn('rounded-xl border-2 bg-white p-3',
+                    x.tone === 'bad' ? 'border-destructive/40' : 'border-amber-200')}
+                >
+                  <p className={cn('text-xs font-black uppercase tracking-tight',
+                    x.tone === 'bad' && 'text-destructive')}>
+                    {x.title}
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">{x.detail}</p>
+                </div>
+              ))}
+              {exceptions.length > 6 && (
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                  +{exceptions.length - 6} more in Order History
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 py-5 grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
