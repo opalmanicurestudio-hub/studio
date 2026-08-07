@@ -39,6 +39,12 @@ import { cn } from '@/lib/utils';
 type CurbsideMode = 'spots' | 'drive_thru' | 'freeform';
 
 interface RetailSettings {
+  shipProcessingHours?: number;
+  slaWarnMinutes?: number;
+  readyStaleHours?: number;
+  autoWaveEnabled?: boolean;
+  autoWaveHour?: number;
+  autoWaveTotes?: number;
   pdpShowTrust?: boolean;
   pdpShowFaq?: boolean;
   pdpShowRelated?: boolean;
@@ -124,6 +130,12 @@ export default function RetailSettingsPage() {
     if (loaded) return;
     const existing = (tenant?.retailSettings || {}) as RetailSettings;
     setRs({
+      shipProcessingHours: Number(existing.shipProcessingHours) || 24,
+      slaWarnMinutes: Number(existing.slaWarnMinutes) || 15,
+      readyStaleHours: Number(existing.readyStaleHours) || 24,
+      autoWaveEnabled: existing.autoWaveEnabled === true,
+      autoWaveHour: Number(existing.autoWaveHour) || 9,
+      autoWaveTotes: Number(existing.autoWaveTotes) || 12,
       pdpShowTrust: existing.pdpShowTrust !== false,
       pdpShowFaq: existing.pdpShowFaq !== false,
       pdpShowRelated: existing.pdpShowRelated !== false,
@@ -196,6 +208,12 @@ export default function RetailSettingsPage() {
           taxRatePercent: Number(rs.taxRatePercent) || 0,
           flatShippingDollars: Number(rs.flatShippingDollars) || 0,
           freeShippingOverDollars: Number(rs.freeShippingOverDollars) || 0,
+          shipProcessingHours: Math.max(1, Math.floor(Number(rs.shipProcessingHours) || 24)),
+          slaWarnMinutes: Math.max(1, Math.floor(Number(rs.slaWarnMinutes) || 15)),
+          readyStaleHours: Math.max(1, Math.floor(Number(rs.readyStaleHours) || 24)),
+          autoWaveEnabled: rs.autoWaveEnabled === true,
+          autoWaveHour: Math.min(23, Math.max(0, Math.floor(Number(rs.autoWaveHour) || 9))),
+          autoWaveTotes: Math.max(1, Math.floor(Number(rs.autoWaveTotes) || 12)),
           pdpShowTrust: rs.pdpShowTrust !== false,
           pdpShowFaq: rs.pdpShowFaq !== false,
           pdpShowRelated: rs.pdpShowRelated !== false,
@@ -522,6 +540,72 @@ export default function RetailSettingsPage() {
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary shrink-0" />
+              <p className="text-[11px] font-black uppercase tracking-widest">Fulfilment promises &amp; waves</p>
+            </div>
+            <p className="text-[11px] font-bold text-muted-foreground">
+              These set the clock every order is measured against, and when the morning wave builds itself.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                ['prepMinutes', 'Pickup ready in (min)'],
+                ['shipProcessingHours', 'Ship within (hours)'],
+                ['slaWarnMinutes', 'Warn me (min before due)'],
+                ['readyStaleHours', 'Chase uncollected after (h)'],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="space-y-1.5">
+                  <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
+                  <Input
+                    inputMode="numeric"
+                    value={String((rs as any)[key] ?? '')}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, [key]: Number(e.target.value) || 0 })}
+                    className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl border-2 border-dashed p-3 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-tight">Build the morning wave for me</p>
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    Waiting when you open the wave page — never before your set hour, never twice a day.
+                  </p>
+                </div>
+                <Switch
+                  checked={rs.autoWaveEnabled === true}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, autoWaveEnabled: v })}
+                />
+              </div>
+              {rs.autoWaveEnabled && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">From hour (0-23)</Label>
+                    <Input
+                      inputMode="numeric" value={String(rs.autoWaveHour ?? 9)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, autoWaveHour: Number(e.target.value) || 0 })}
+                      className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Totes to use</Label>
+                    <Input
+                      inputMode="numeric" value={String(rs.autoWaveTotes ?? 12)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, autoWaveTotes: Number(e.target.value) || 1 })}
+                      className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
