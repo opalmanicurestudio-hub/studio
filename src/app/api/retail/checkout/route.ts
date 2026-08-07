@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+import {
+  addressMessage, addressPolicy, policySnapshot, shouldBlock,
+  stripeCustomText, validateAddress,
+} from '@/lib/address-validation';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { verifyQuote } from '@/lib/shipping-quote';
@@ -269,6 +274,33 @@ async function handleCheckout(req: NextRequest) {
   const totalCents = subtotalCents + taxCents + shippingCents + tipCents;
   if (totalCents <= 0) return NextResponse.json({ error: 'Order total must be positive' }, { status: 400 });
 
+  // ── Check the address, and snapshot the policy ────────────────────────────
+  // Both happen before the draft is written so the order carries them from the
+  // moment it exists. Validation is soft by default: only an address the
+  // carriers say does not exist can stop a sale, and only when the shop has
+  // asked for that. A validator wrong about a new build costs a whole order,
+  // which is worse than a rare redelivery.
+  const addrPolicy = addressPolicy(rs);
+  const addressCheck = method === 'ship'
+    ? await validateAddress({
+        address: body.shippingAddress,
+        apiKey: String(rs.shippoApiKey || process.env.SHIPPO_API_KEY || '').trim(),
+        policy: addrPolicy,
+      })
+    : null;
+
+  if (addressCheck && shouldBlock(addressCheck, addrPolicy)) {
+    return NextResponse.json({
+      error: addressMessage(addressCheck),
+      addressCheck,
+    }, { status: 422 });
+  }
+
+  // The dispute narrative asserts this policy was shown at checkout. Snapshot
+  // the exact wording so that claim is provable, and so editing the policy
+  // later cannot rewrite what a past customer agreed to.
+  const policy = policySnapshot(rs);
+
   // ── Create the order as a DRAFT ───────────────────────────────────────────
   // No order number is issued here. A cart that never pays is not a sale, and
   // burning #0042 on an abandoned cart leaves a permanent hole in the sequence
@@ -287,6 +319,8 @@ async function handleCheckout(req: NextRequest) {
     orderNumber: null,
     isDraft: true,
     stage: 'placed',
+    policySnapshot: policy,
+    ...(addressCheck ? { addressCheck } : {}),
     method,
     priceTier,
     wholesaleAccountId: wsAccount?.id || null,
@@ -376,6 +410,9 @@ async function handleCheckout(req: NextRequest) {
         // expired-session webhook closes unpaid orders while the shopper is
         // still in the same session of their life.
         expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
+        // Shown on Stripe's own checkout page, above the pay button. This is
+        // what makes "the policy is shown at checkout" true rather than a claim.
+        custom_text: { submit: { message: stripeCustomText(policy.text) } },
         success_url: `${origin}/shop/${tenantId}/order/${orderId}?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${origin}/shop/${tenantId}?canceled=1`,
       },
@@ -383,7 +420,12 @@ async function handleCheckout(req: NextRequest) {
     );
 
     await orderRef.set({ stripeCheckoutSessionId: session.id }, { merge: true });
-    return NextResponse.json({ url: session.url, orderId, orderNumber: null, isDraft: true });
+    return NextResponse.json({
+      url: session.url, orderId, orderNumber: null, isDraft: true,
+      // Soft verdicts travel back so the storefront can mention a correction
+      // without ever having stood between the customer and paying.
+      ...(addressCheck && addressCheck.verdict !== 'skipped' ? { addressCheck } : {}),
+    });
   } catch (err: any) {
     const detail = String(err?.raw?.message || err?.message || 'Unknown Stripe error').slice(0, 220);
     console.error('[retail-checkout] Stripe session creation failed:', detail, err?.raw?.param || '');
