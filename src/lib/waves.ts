@@ -5,6 +5,8 @@ import {
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
 
+import { buildEvent } from '@/lib/retail-orders';
+
 // ─── src/lib/waves.ts ─────────────────────────────────────────────────────────
 // Wave picking: pick everything at once by product, then sort into orders at a
 // bench. Picking time scales with SHELF VISITS, packing time scales with
@@ -112,10 +114,13 @@ export async function buildWave(
         }
       });
 
+      const waveName = opts.name
+        || `Wave ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+
       txn.set(doc(waveCol(fs, tenantId), waveId), JSON.parse(JSON.stringify({
         id: waveId,
         tenantId,
-        name: opts.name || `Wave ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`,
+        name: waveName,
         status: 'picking',
         createdAt: now,
         createdBy: actor.name,
@@ -125,9 +130,23 @@ export async function buildWave(
       })));
 
       orders.forEach((w) => {
-        txn.update(doc(fs, `tenants/${tenantId}/retailOrders`, w.orderId), {
-          waveId, waveTote: w.tote,
-        });
+        const oRef = doc(fs, `tenants/${tenantId}/retailOrders`, w.orderId);
+        txn.update(oRef, { waveId, waveTote: w.tote });
+        // AUDIT LINK. Without this an order's timeline jumps from
+        // payment_confirmed straight to packed, and nothing on the ORDER says
+        // how it reached a bench. The wave doc knew; the order did not. Same
+        // buildEvent shape as every engine event, so the timeline renders it
+        // with no special case, and meta carries enough to reconstruct the
+        // wave from the order alone.
+        txn.set(doc(collection(oRef, 'events')), JSON.parse(JSON.stringify({
+          id: `ev-${nanoid(10)}`,
+          ...buildEvent('note', actor.id, actor.name, {
+            kind: 'wave_assigned',
+            waveId,
+            waveTote: w.tote,
+            text: `Added to ${waveName} · tote ${w.tote}`,
+          }),
+        })));
       });
     });
 
