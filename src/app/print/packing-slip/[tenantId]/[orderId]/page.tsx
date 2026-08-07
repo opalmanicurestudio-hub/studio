@@ -84,14 +84,21 @@ export default async function PackingSlipPage({
           .qr-note { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #64748b; margin-top: 6px; text-align: center; max-width: 160px; }
           .totals { text-align: right; font-size: 12px; font-weight: 800; }
           .totals .grand { font-size: 17px; font-weight: 900; margin-top: 6px; }
+          .slot { display: inline-block; margin-top: 6px; padding: 4px 12px; border: 2px solid #16171a; border-radius: 8px; font-size: 18px; font-weight: 800; letter-spacing: .04em; }
+          .slot.tote { margin-left: 6px; border-style: dashed; }
           @media print { .noprint { display: none; } }
-        `}</style>
+        `}
+        </style>
       </head>
       <body>
         <div className="head">
           <div>
             <p className="shop">{shopName}</p>
             <p className="tag">Packing slip · {methodLabel}{order.priceTier === 'wholesale' ? ' · WHOLESALE' : ''}</p>
+            {order.shelfSlot && order.method !== 'ship' ? (
+              <p className="slot">Shelf {String(order.shelfSlot)}</p>
+            ) : null}
+            {order.waveTote ? <p className="slot tote">Tote {String(order.waveTote)}</p> : null}
           </div>
           <p className="num">{num}</p>
         </div>
