@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   deliveryEvidence, readShippoStatus, sendCarrierUpdate, shouldNotify,
 } from '@/lib/shipping-notify';
+import { protectionPolicy, weightVerdict } from '@/lib/shipment-protection';
 
 // ─── /api/retail/shippo-webhook/route.ts ──────────────────────────────────────
 // Auto-delivered: Shippo POSTs tracking updates here; when the carrier says
@@ -78,6 +79,19 @@ export async function POST(req: NextRequest) {
     detail: String(data.tracking_status?.status_details || '').slice(0, 200),
   };
 
+  // The carrier weighs every parcel on its own scale and reports the number
+  // back. Shippo puts it in different places depending on the carrier, so try
+  // each. Ounces where the carrier gives pounds.
+  const rawWeight = Number(
+    data.tracking_status?.weight ?? data.weight ?? data.parcel?.weight ?? NaN
+  );
+  const weightUnit = String(
+    data.tracking_status?.mass_unit || data.mass_unit || data.parcel?.mass_unit || 'oz'
+  ).toLowerCase();
+  const carrierWeightOz = Number.isFinite(rawWeight) && rawWeight > 0
+    ? (weightUnit === 'lb' || weightUnit === 'lbs' ? rawWeight * 16 : rawWeight)
+    : 0;
+
   const envOrigin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
   const origin = envOrigin || (host ? `https://${host}` : '');
@@ -106,10 +120,22 @@ export async function POST(req: NextRequest) {
       // and ones on an order that has already completed. A claim six weeks from
       // now needs the whole trail, not just the parts that were newsworthy.
       try {
-        await d.ref.set(
-          { carrierTrail: deliveryEvidence(update, String(order.customerEmail || '')) },
-          { merge: true }
-        );
+        const trail: any = deliveryEvidence(update, String(order.customerEmail || ''));
+
+        // WEIGHT AS EVIDENCE. Two independent numbers — what the order should
+        // weigh (recorded when the label was bought, from per-item weights)
+        // and what the carrier actually weighed. Two parties agreeing is very
+        // hard to argue with, and almost nobody collects it. Recorded whether
+        // or not anyone ever disputes anything, because it costs nothing now
+        // and cannot be reconstructed later.
+        const expectedOz = Number(order.shipmentProtection?.expectedWeightOz) || 0;
+        if (carrierWeightOz > 0 && expectedOz > 0) {
+          trail.weightCheck = weightVerdict(
+            expectedOz, carrierWeightOz, protectionPolicy(tenant.retailSettings).weightToleranceOz
+          );
+        }
+
+        await d.ref.set({ carrierTrail: trail }, { merge: true });
       } catch {
         // never let bookkeeping fail the webhook
       }
