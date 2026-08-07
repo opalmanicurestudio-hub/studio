@@ -2,7 +2,7 @@
 
 import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
-  ArrowLeft, Car, DollarSign, Globe, Loader, Lock, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
+  ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -64,6 +64,15 @@ interface RetailSettings {
   shipmentInsuranceEnabled?: boolean;
   insuranceOverCents?: number;
   weightToleranceOz?: number;
+  packPhotoEnabled?: boolean;
+  packPhotoOverCents?: number;
+  packPhotoOverUnits?: number;
+  packPhotoMaxPhotos?: number;
+  addressValidationEnabled?: boolean;
+  blockUndeliverableAddresses?: boolean;
+  returnWindowDays?: number;
+  deliveryIssueWindowDays?: number;
+  returnPolicyText?: string;
   shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
   storePaused?: boolean;
   storePausedMessage?: string;
@@ -161,6 +170,15 @@ export default function RetailSettingsPage() {
       shipmentInsuranceEnabled: existing.shipmentInsuranceEnabled === true,
       insuranceOverCents: Number(existing.insuranceOverCents) || 10000,
       weightToleranceOz: Number(existing.weightToleranceOz) || 4,
+      packPhotoEnabled: existing.packPhotoEnabled === true,
+      packPhotoOverCents: Number(existing.packPhotoOverCents) || 0,
+      packPhotoOverUnits: Number(existing.packPhotoOverUnits) || 0,
+      packPhotoMaxPhotos: Number(existing.packPhotoMaxPhotos) || 3,
+      addressValidationEnabled: existing.addressValidationEnabled === true,
+      blockUndeliverableAddresses: existing.blockUndeliverableAddresses === true,
+      returnWindowDays: Number(existing.returnWindowDays) || 30,
+      deliveryIssueWindowDays: Number(existing.deliveryIssueWindowDays) || 7,
+      returnPolicyText: existing.returnPolicyText || '',
       shipFrom: existing.shipFrom || {},
       storePaused: existing.storePaused === true,
       storePausedMessage: existing.storePausedMessage || '',
@@ -245,6 +263,15 @@ export default function RetailSettingsPage() {
           shipmentInsuranceEnabled: rs.shipmentInsuranceEnabled === true,
           insuranceOverCents: Math.max(0, Math.floor(Number(rs.insuranceOverCents) || 10000)),
           weightToleranceOz: Math.max(0, Math.floor(Number(rs.weightToleranceOz) || 4)),
+          packPhotoEnabled: rs.packPhotoEnabled === true,
+          packPhotoOverCents: Math.max(0, Math.floor(Number(rs.packPhotoOverCents) || 0)),
+          packPhotoOverUnits: Math.max(0, Math.floor(Number(rs.packPhotoOverUnits) || 0)),
+          packPhotoMaxPhotos: Math.min(10, Math.max(1, Math.floor(Number(rs.packPhotoMaxPhotos) || 3))),
+          addressValidationEnabled: rs.addressValidationEnabled === true,
+          blockUndeliverableAddresses: rs.blockUndeliverableAddresses === true,
+          returnWindowDays: Math.max(1, Math.floor(Number(rs.returnWindowDays) || 30)),
+          deliveryIssueWindowDays: Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7)),
+          returnPolicyText: String(rs.returnPolicyText || '').trim().slice(0, 1200),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
           storePaused: rs.storePaused === true,
           storePausedMessage: (rs.storePausedMessage || '').trim(),
@@ -734,6 +761,154 @@ export default function RetailSettingsPage() {
                 weigh and flag anything lighter than expected by more than this &mdash; the evidence that
                 answers &ldquo;items were missing from my box&rdquo;. Set it too tight and ordinary scale
                 variance starts looking like a problem.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Camera className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm font-black uppercase tracking-tight">Photo the packed box</p>
+            </div>
+            <p className="text-[11px] font-bold text-muted-foreground">
+              One shot of the open box at the bench, before it is sealed. It ends a
+              &ldquo;something was missing&rdquo; claim faster than any argument, and takes about four
+              seconds. Off until you switch it on &mdash; nobody should start storing photographs of
+              customers&rsquo; orders without deciding to.
+            </p>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
+              <p className="text-xs font-black uppercase tracking-tight">Ask packers for a photo</p>
+              <Switch
+                checked={rs.packPhotoEnabled === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, packPhotoEnabled: v })}
+              />
+            </div>
+
+            {rs.packPhotoEnabled && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Required over ($)</Label>
+                    <Input
+                      inputMode="decimal"
+                      value={String((Number(rs.packPhotoOverCents) || 0) / 100)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setRs({ ...rs, packPhotoOverCents: Math.round((Number(e.target.value) || 0) * 100) })}
+                      className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Or items over</Label>
+                    <Input
+                      inputMode="numeric"
+                      value={String(rs.packPhotoOverUnits ?? 0)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setRs({ ...rs, packPhotoOverUnits: Number(e.target.value) || 0 })}
+                      className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                    />
+                  </div>
+                </div>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  {(Number(rs.packPhotoOverCents) || 0) === 0 && (Number(rs.packPhotoOverUnits) || 0) === 0
+                    ? 'Both at zero means every parcel gets photographed.'
+                    : 'Either one triggers it on its own. Value catches the expensive single item; item count catches the crowded box, where a missing piece is easiest to miss and hardest to disprove.'}
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Photos per order (max 10)</Label>
+                  <Input
+                    inputMode="numeric"
+                    value={String(rs.packPhotoMaxPhotos ?? 3)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setRs({ ...rs, packPhotoMaxPhotos: Number(e.target.value) || 1 })}
+                    className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <p className="text-sm font-black uppercase tracking-tight">Address check &amp; policy</p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
+              <div className="min-w-0">
+                <p className="text-xs font-black uppercase tracking-tight">Check addresses at checkout</p>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Asks the carriers whether the address exists while the customer can still fix it in ten
+                  seconds &mdash; rather than at the label, or a week later when the parcel comes back.
+                </p>
+              </div>
+              <Switch
+                checked={rs.addressValidationEnabled === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, addressValidationEnabled: v })}
+              />
+            </div>
+
+            {rs.addressValidationEnabled && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-black uppercase tracking-tight">Refuse addresses the carriers cannot find</p>
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    Leave this off if you would rather take the order and sort it out by phone. Validators
+                    are wrong about new builds and rural routes, and a refused real address costs the whole
+                    sale &mdash; worse than an occasional redelivery. Either way the result is recorded on
+                    the order as evidence.
+                  </p>
+                </div>
+                <Switch
+                  checked={rs.blockUndeliverableAddresses === true}
+                  onCheckedChange={(v: boolean) => setRs({ ...rs, blockUndeliverableAddresses: v })}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Return window (days)</Label>
+                <Input
+                  inputMode="numeric"
+                  value={String(rs.returnWindowDays ?? 30)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setRs({ ...rs, returnWindowDays: Number(e.target.value) || 1 })}
+                  className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Report a problem within</Label>
+                <Input
+                  inputMode="numeric"
+                  value={String(rs.deliveryIssueWindowDays ?? 7)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setRs({ ...rs, deliveryIssueWindowDays: Number(e.target.value) || 1 })}
+                  className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                Policy wording (optional)
+              </Label>
+              <Textarea
+                placeholder="Leave blank and we write it from the two numbers above."
+                value={rs.returnPolicyText || ''}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  setRs({ ...rs, returnPolicyText: e.target.value })}
+                className="min-h-24 rounded-xl border-2 text-sm font-bold"
+              />
+              <p className="text-[11px] font-bold text-muted-foreground">
+                This appears on the Stripe checkout page above the pay button, on the tear-off card inside
+                every parcel, and in the evidence pack if a payment is ever disputed. The exact wording is
+                saved onto each order as it is placed, so editing it later never changes what a past
+                customer agreed to.
               </p>
             </div>
           </CardContent>
