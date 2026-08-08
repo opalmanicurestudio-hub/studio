@@ -100,6 +100,10 @@ const CorrectionIcon = ({ reason }: { reason: string }) => {
     return <RefreshCw className="h-4 w-4 text-slate-400" />;
 }
 
+// Gathers every image the product carries, primary first, junk-safe.
+const collectImages = (p: any): string[] =>
+  [p?.imageUrl, ...(Array.isArray(p?.imageUrls) ? p.imageUrls : [])].filter(Boolean);
+
 export default function ProductDetailPage() {
     const { id } = useParams<{ id: string }>();
     const { inventory, stockCorrections, locations, services, transactions, appointments, clients, staff, isLoading: isInventoryLoading } = useInventory();
