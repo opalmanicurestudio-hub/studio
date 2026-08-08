@@ -125,6 +125,22 @@ export default function ShopPage() {
     if (Object.values(cart).some((q) => q > 0)) touchCartExpiry(tenantId, holdMinutes);
   }, [tenantId, cart, cartHydrated, holdMinutes]);
 
+  // iOS Safari restores this page from the back-forward cache when the
+  // customer returns from Stripe's checkout page. That restore brings state
+  // back FROZEN mid-checkout: the Pay button still disabled with a spinner,
+  // the cart sheet still marked open — and the restored overlay can repaint
+  // without its panel, leaving a dimmed, untappable page. pageshow with
+  // persisted=true is the one signal that path emits, so it resets the page
+  // to a clean, tappable shop. Cart contents live in their own state and
+  // survive untouched.
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) { setPlacing(false); setCartOpen(false); }
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
   useEffect(() => {
     if (!tenantId || holdMinutes <= 0) { setHoldLeft(null); return; }
     const tick = () => {
@@ -316,6 +332,7 @@ export default function ShopPage() {
       let data: any = {};
       try { data = JSON.parse(raw); } catch { /* non-JSON reply handled below */ }
       if (!res.ok) throw new Error(data.error || `Checkout failed (HTTP ${res.status})`);
+      setCartOpen(false);
       window.location.href = data.url;
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Checkout problem', description: e?.message || 'Please try again.' });
