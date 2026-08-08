@@ -347,10 +347,6 @@ export default function ShopPage() {
       <div className="flex min-h-dvh flex-col">
         <header className="bg-white border-b">
           <div className="mx-auto flex h-16 max-w-5xl items-center gap-2.5 px-4">
-            {/* Same treatment as the live header — a transparent logo must not
-                get a cropped box here either. This is the view a shopper sees
-                when the shop is closed, so it is the first impression more
-                often than anyone expects. */}
             {shop.logoUrl ? (
               <Image src={shop.logoUrl} alt={shop.name} width={80} height={80} className="h-9 w-9 shrink-0 object-contain sm:h-10 sm:w-10" />
             ) : (
@@ -384,20 +380,6 @@ export default function ShopPage() {
 
   return (
     <div className="min-h-dvh pb-32">
-      {/* HEADER — deliberately three things, not six.
-          The old row put the menu, the logo, the name, an All-products button,
-          an account icon, a wholesale button and the cart in ONE non-wrapping
-          flex line. A long business name had nowhere to go, so it pushed the
-          row wider than the screen and the whole page could be dragged
-          sideways. Now: identity on the left, cart on the right, everything
-          else inside the menu. `min-w-0` on the identity block plus `shrink-0`
-          on the actions is what actually contains a long name — truncate alone
-          does nothing if a sibling can still grow.
-
-          Colours come from the tenant's theme, not the app's greys. The
-          storefront theme layer maps `.bg-white` to the shop's card colour but
-          NOT `.bg-white/90`, which is why this header used to sit there stubbornly
-          grey inside an otherwise branded page. */}
       <header className="sticky top-0 z-30 bg-white backdrop-blur border-b">
         <div className="max-w-5xl mx-auto px-4 h-16 flex items-center gap-2 sm:gap-3">
           <ShopMenu
@@ -463,17 +445,6 @@ export default function ShopPage() {
               </Button>
             </SheetTrigger>
 
-            {/* WHY THE CART WAS UNREACHABLE ON A PHONE.
-                Three faults stacked. First, `flex-1 overflow-y-auto` inside a
-                `flex flex-col` has an implicit `min-height: auto`, so the
-                scroll pane grew to fit its contents instead of scrolling —
-                which pushed the footer, and the Checkout button with it, clean
-                off the bottom of the screen. `min-h-0` is the fix and it is
-                the whole reason this was unusable rather than merely awkward.
-                Second, `sm:side-right` is not a class — side is a prop — so it
-                did nothing on any screen. Third, the footer had no safe-area
-                padding, so on any iPhone the last inch sat under the home
-                indicator. */}
             <SheetContent
               side="bottom"
               className="flex h-[90dvh] max-h-[90dvh] w-full flex-col rounded-t-[2rem] p-0"
@@ -518,16 +489,16 @@ export default function ShopPage() {
                               ) : null}
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty - 1, id)}>
-                                <Minus className="h-3 w-3" />
+                              <Button variant="outline" size="icon" aria-label={`Decrease quantity of ${p.name}`} className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty - 1, id)}>
+                                <Minus className="h-3 w-3" aria-hidden="true" />
                               </Button>
                               <span className="w-8 text-center font-black font-mono text-sm">{qty}</span>
-                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty + 1, id)}>
-                                <Plus className="h-3 w-3" />
+                              <Button variant="outline" size="icon" aria-label={`Increase quantity of ${p.name}`} className="h-8 w-8 rounded-lg border-2" onClick={() => setQty(p, qty + 1, id)}>
+                                <Plus className="h-3 w-3" aria-hidden="true" />
                               </Button>
                             </div>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setQty(p, 0, id)}>
-                              <X className="h-3.5 w-3.5 opacity-40" />
+                            <Button variant="ghost" size="icon" aria-label={`Remove ${p.name} from cart`} className="h-8 w-8" onClick={() => setQty(p, 0, id)}>
+                              <X className="h-3.5 w-3.5 opacity-40" aria-hidden="true" />
                             </Button>
                           </div>
                         );
@@ -554,6 +525,7 @@ export default function ShopPage() {
                           <button
                             key={m.id}
                             type="button"
+                            aria-pressed={method === m.id}
                             onClick={() => setMethod(m.id)}
                             className={cn(
                               'rounded-2xl border-2 p-3 flex flex-col items-center gap-1.5 transition-all',
@@ -569,29 +541,29 @@ export default function ShopPage() {
 
                     <div className="space-y-3">
                       <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your details</Label>
-                      <Input placeholder="Full name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                      <Input placeholder="Email" type="email" value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                      <Input placeholder="Phone (optional)" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                      <Input placeholder="Full name" aria-label="Full name" autoComplete="name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                      <Input placeholder="Email" aria-label="Email" autoComplete="email" type="email" value={email} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                      <Input placeholder="Phone (optional)" aria-label="Phone, optional" autoComplete="tel" type="tel" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
                     </div>
 
                     {wholesale && (
                       <div className="space-y-3">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-primary">Business</Label>
-                        <Input placeholder="Business name" value={businessName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBusinessName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                        <Input placeholder="PO number (optional)" value={poNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPoNumber(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                        <Input placeholder="Business name" aria-label="Business name" autoComplete="organization" value={businessName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBusinessName(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                        <Input placeholder="PO number (optional)" aria-label="PO number, optional" autoComplete="off" value={poNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPoNumber(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
                       </div>
                     )}
 
                     {method === 'ship' && (
                       <div className="space-y-3">
                         <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ship to</Label>
-                        <Input placeholder="Recipient name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                        <Input placeholder="Street address" value={addr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line1: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                        <Input placeholder="Apt / suite (optional)" value={addr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line2: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                        <Input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                        <Input placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={addr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line1: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                        <Input placeholder="Apt / suite (optional)" aria-label="Apartment or suite, optional" autoComplete="address-line2" value={addr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, line2: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
                         <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
-                          <Input placeholder="City" value={addr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, city: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm col-span-1" />
-                          <Input placeholder="State" value={addr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, state: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
-                          <Input placeholder="ZIP" value={addr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, postalCode: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                          <Input placeholder="City" aria-label="City" autoComplete="address-level2" value={addr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, city: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm col-span-1" />
+                          <Input placeholder="State" aria-label="State" autoComplete="address-level1" value={addr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, state: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
+                          <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={addr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, postalCode: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
                         </div>
                       </div>
                     )}
@@ -621,7 +593,7 @@ export default function ShopPage() {
                   {method !== 'ship' && shop.scheduledPickup && (
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pickup time</span>
-                      <select value={pickupChoice}
+                      <select aria-label="Pickup time" value={pickupChoice}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setPickupChoice(e.target.value)}
                         className="h-9 rounded-xl border-2 bg-white px-2 text-[10px] font-black uppercase tracking-widest">
                         {['ASAP', 'In ~15 min', 'In ~30 min', 'In ~45 min', 'In ~1 hour'].map((c) => (
@@ -635,7 +607,9 @@ export default function ShopPage() {
                       <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
                       <div className="flex gap-1">
                         {[0, 10, 15, 20].map((pct) => (
-                          <button key={pct} type="button" onClick={() => setTipPct(pct)}
+                          <button key={pct} type="button" aria-pressed={tipPct === pct}
+                            aria-label={pct === 0 ? 'No tip' : `Tip ${pct} percent`}
+                            onClick={() => setTipPct(pct)}
                             className={cn('h-8 px-2.5 rounded-lg border-2 text-[9px] font-black uppercase tracking-widest transition-all',
                               tipPct === pct ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
                             {pct === 0 ? 'None' : `${pct}%`}
@@ -701,6 +675,7 @@ export default function ShopPage() {
           <button
             key={c}
             type="button"
+            aria-pressed={category === c}
             onClick={() => setCategory(c)}
             className={cn(
               'shrink-0 h-9 px-4 rounded-full border-2 text-[10px] font-black uppercase tracking-widest transition-all',
@@ -759,9 +734,9 @@ export default function ShopPage() {
                       </Button>
                     ) : (
                       <div className="flex items-center gap-1 rounded-xl border-2 p-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}><Minus className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" aria-label={`Decrease quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}><Minus className="h-3 w-3" aria-hidden="true" /></Button>
                         <span className="w-6 text-center font-black font-mono text-sm">{inCart}</span>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}><Plus className="h-3 w-3" /></Button>
+                        <Button variant="ghost" size="icon" aria-label={`Increase quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}><Plus className="h-3 w-3" aria-hidden="true" /></Button>
                       </div>
                     )}
                   </div>
@@ -814,12 +789,12 @@ export default function ShopPage() {
                   </Button>
                 ) : (
                   <div className="flex items-center justify-between rounded-xl border-2 p-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}>
-                      <Minus className="h-3 w-3" />
+                    <Button variant="ghost" size="icon" aria-label={`Decrease quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart - 1)}>
+                      <Minus className="h-3 w-3" aria-hidden="true" />
                     </Button>
                     <span className="font-black font-mono text-sm">{inCart}</span>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}>
-                      <Plus className="h-3 w-3" />
+                    <Button variant="ghost" size="icon" aria-label={`Increase quantity of ${p.name}`} className="h-8 w-8 rounded-lg" onClick={() => setQty(p, inCart + 1)}>
+                      <Plus className="h-3 w-3" aria-hidden="true" />
                     </Button>
                   </div>
                 )}
@@ -839,6 +814,8 @@ export default function ShopPage() {
           </DialogHeader>
           <div className="space-y-3 pt-2">
             <Input
+              aria-label="Wholesale access code"
+              autoComplete="off"
               placeholder="Access code"
               value={codeInput}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCodeInput(e.target.value)}
