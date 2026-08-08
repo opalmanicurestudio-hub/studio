@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckCircle2, ChevronRight, FileDown, ListChecks, Loader, Minus, Package, Plus, RotateCcw, ShieldCheck, ShoppingBag, Star, Truck } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -58,6 +58,26 @@ export default function ProductPage() {
   });
   const [fulfil, setFulfil] = useState({ offersPickup: true, offersShipping: true });
   const [loadError, setLoadError] = useState('');
+
+  // Reviews: the API only ever returns published ones and fails soft to an
+  // empty list, so a review outage can never take the product page down.
+  const [reviews, setReviews] = useState<{ id: string; rating: number; title: string; body: string; author: string; at: string }[]>([]);
+  const [reviewAvg, setReviewAvg] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
+
+  useEffect(() => {
+    const tid = String(params?.tenantId || '');
+    const pid = String(params?.productId || '');
+    if (!tid || !pid) return;
+    fetch(`/api/retail/reviews?tenantId=${encodeURIComponent(tid)}&productId=${encodeURIComponent(pid)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setReviews(Array.isArray(d.reviews) ? d.reviews : []);
+        setReviewAvg(Number(d.average) || 0);
+        setReviewCount(Number(d.count) || 0);
+      })
+      .catch(() => {});
+  }, [params]);
   const [imgIdx, setImgIdx] = useState(0);
   const [qty, setQty] = useState(1);
   const [cartCount, setCartCount] = useState(0);
@@ -437,6 +457,39 @@ export default function ProductPage() {
                       <p className="mt-1 font-mono text-sm font-bold">{fmt(r.priceCents)}</p>
                     </div>
                   </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {reviewCount > 0 && (
+            <section aria-labelledby="reviews-heading" className="space-y-3 pt-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 id="reviews-heading" className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
+                  Reviews
+                </h2>
+                <p className="flex items-center gap-1.5 text-xs font-black">
+                  <Star className="h-3.5 w-3.5 fill-current text-primary" aria-hidden="true" />
+                  <span>{reviewAvg.toFixed(1)}</span>
+                  <span className="font-bold text-muted-foreground">({reviewCount})</span>
+                </p>
+              </div>
+              <div className="space-y-3">
+                {reviews.slice(0, 6).map((r) => (
+                  <div key={r.id} className="rounded-2xl border-2 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-0.5" role="img" aria-label={`${r.rating} out of 5 stars`}>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <Star key={n} className={cn('h-3 w-3', n <= r.rating ? 'fill-current text-primary' : 'text-muted-foreground/25')} aria-hidden="true" />
+                        ))}
+                      </div>
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                        {r.author}{r.at ? ` · ${new Date(r.at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}` : ''}
+                      </p>
+                    </div>
+                    {r.title && <p className="mt-2 text-xs font-black uppercase tracking-tight">{r.title}</p>}
+                    {r.body && <p className="mt-1 text-sm font-bold leading-relaxed text-muted-foreground">{r.body}</p>}
+                  </div>
                 ))}
               </div>
             </section>
