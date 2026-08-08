@@ -87,7 +87,17 @@ export async function GET(req: NextRequest) {
       ? buildOrderQrValue(order.qrToken)
       : null;
 
+  // The pickup QR image is stage-gated above — but the customer's RIGHT to
+  // help with their own order never expires. selfServeToken is the same
+  // credential, handed out whenever the order has one, for any method and
+  // any stage: it is what lets a completed pickup start a return, a shipped
+  // order report a problem, and the packing slip's plain https QR reach a
+  // working help card. Same trust model as the account-exchange route —
+  // holding the order link is holding the order.
+  const selfServeToken = order.qrToken ? String(order.qrToken) : null;
+
   return NextResponse.json({
+    selfServeToken,
     order: {
       id: orderId,
       orderNumber: order.orderNumber,
