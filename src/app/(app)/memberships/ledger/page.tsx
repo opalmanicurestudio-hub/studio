@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -40,8 +39,7 @@ import {
     Wallet,
     Calendar,
     Sparkles,
-    Landmark
-} from 'lucide-react';
+    Landmark, Info} from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format, parseISO, isPast, isToday, addDays, startOfDay, endOfDay } from 'date-fns';
