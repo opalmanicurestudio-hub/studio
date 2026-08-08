@@ -86,6 +86,7 @@ export default function OrderStatusPage() {
   const [lanePosition, setLanePosition] = useState<number | null>(null);
   const [curbside, setCurbside] = useState<{ mode: string; spots: string[] }>({ mode: 'freeform', spots: [] });
   const [qrValue, setQrValue] = useState<string | null>(null);
+  const [selfToken, setSelfToken] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
   const [vehicle, setVehicle] = useState('');
@@ -120,6 +121,7 @@ export default function OrderStatusPage() {
       setLanePosition(data.lanePosition ?? null);
       if (data.curbsideExperience) setCurbside(data.curbsideExperience);
       setQrValue(data.qrValue);
+      setSelfToken(data.selfServeToken || (data.qrValue ? String(data.qrValue).split('order/')[1] : null));
       activeRef.current = data.active;
       setLoadError('');
     } catch (e: any) {
@@ -147,10 +149,10 @@ export default function OrderStatusPage() {
   }, [qrValue]);
 
   const checkIn = async () => {
-    if (!order || !qrValue || checkingIn) return;
+    if (!order || !selfToken || checkingIn) return;
     setCheckingIn(true);
     try {
-      const qrToken = qrValue.split('order/')[1];
+      const qrToken = selfToken;
       const res = await fetch('/api/retail/arrive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -173,9 +175,9 @@ export default function OrderStatusPage() {
   };
 
   const openAccount = async () => {
-    if (!qrValue) return;
+    if (!selfToken) return;
     try {
-      const qrToken = qrValue.split('order/')[1];
+      const qrToken = selfToken;
       const res = await fetch('/api/retail/account/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -194,7 +196,7 @@ export default function OrderStatusPage() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        tenantId, orderId, qrToken: qrValue ? qrValue.split('order/')[1] : '', ...payload,
+        tenantId, orderId, qrToken: selfToken || '', ...payload,
       }),
     });
     const data = await res.json();
@@ -203,7 +205,7 @@ export default function OrderStatusPage() {
   };
 
   const cancelSelf = async () => {
-    if (!qrValue || cancelBusy) return;
+    if (!selfToken || cancelBusy) return;
     const why = window.prompt('Cancel this order? Tell us why (optional):');
     if (why === null) return;
     setCancelBusy(true);
@@ -219,7 +221,7 @@ export default function OrderStatusPage() {
   };
 
   const submitReview = async (productId: string) => {
-    if (!qrValue || revSending) return;
+    if (!selfToken || revSending) return;
     setRevSending(true);
     try {
       const res = await fetch('/api/retail/reviews', {
@@ -227,7 +229,7 @@ export default function OrderStatusPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenantId, orderId, productId,
-          qrToken: qrValue ? qrValue.split('order/')[1] : '',
+          qrToken: selfToken || '',
           rating: revRating, title: revTitle.trim(), body: revBody.trim(),
           name: order?.customerName || '',
         }),
@@ -245,7 +247,7 @@ export default function OrderStatusPage() {
   };
 
   const submitReturn = async () => {
-    if (!qrValue || retSending) return;
+    if (!selfToken || retSending) return;
     const selections = Object.entries(retQty)
       .filter(([, q]) => q > 0)
       .map(([lineId, qty]) => ({ lineId, qty, reason: retReason[lineId] || 'other' }));
@@ -266,10 +268,10 @@ export default function OrderStatusPage() {
   };
 
   const sendHelp = async () => {
-    if (!order || !qrValue || helpSending || !helpMsg.trim()) return;
+    if (!order || !selfToken || helpSending || !helpMsg.trim()) return;
     setHelpSending(true);
     try {
-      const qrToken = qrValue.split('order/')[1];
+      const qrToken = selfToken;
       const res = await fetch('/api/retail/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -601,7 +603,7 @@ export default function OrderStatusPage() {
           </CardContent>
         </Card>
 
-        {qrValue && (
+        {selfToken && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
               <div className="flex items-center gap-2">
@@ -682,7 +684,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {qrValue && order && ['placed', 'paid'].includes(order.stage) && (
+        {selfToken && order && ['placed', 'paid'].includes(order.stage) && (
           <Button
             variant="outline"
             disabled={cancelBusy}
@@ -693,7 +695,7 @@ export default function OrderStatusPage() {
           </Button>
         )}
 
-        {qrValue && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+        {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
               <p className="text-[11px] font-black uppercase tracking-widest">How did it go?</p>
@@ -783,7 +785,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {qrValue && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+        {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
           <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-5 space-y-3">
               {retDone ? (
@@ -869,7 +871,7 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {qrValue && (
+        {selfToken && (
           <Button variant="outline" onClick={openAccount}
             className="w-full h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest">
             View all my orders
