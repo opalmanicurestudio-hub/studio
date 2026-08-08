@@ -54,16 +54,21 @@ export default async function OrderLabelPage({
   return (
     <html>
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
         <title>{`Label ${num}`}</title>
         <style>{`
           @page { size: 4in 6in; margin: 0.15in; }
           * { box-sizing: border-box; }
-          body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; width: 3.7in; }
+          body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; width: 3.7in; }
           .band { border: 3px solid #0f172a; border-radius: 14px; padding: 12px; }
-          .from { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 2px solid #0f172a; padding-bottom: 8px; }
+          .from { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; border-bottom: 2px solid #0f172a; padding-bottom: 8px; }
           .kind { font-size: 8px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #64748b; margin: 8px 0 2px; }
-          .to { font-size: 15px; font-weight: 900; line-height: 1.35; }
-          .num { font-size: 24px; font-weight: 900; margin-top: 8px; }
+          .to { font-size: 15px; font-weight: 800; line-height: 1.35; }
+          .num { font-size: 24px; font-weight: 800; margin-top: 8px; }
           .qr { width: 1.9in; height: 1.9in; display: block; margin: 10px auto 0; }
           .note { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #64748b; text-align: center; margin-top: 4px; }
         `}</style>
