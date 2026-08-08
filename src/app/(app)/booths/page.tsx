@@ -2429,7 +2429,7 @@ export default function BoothsPage() {
   const { selectedLocationId, locations, isLoading: locationsLoading } =
     useLocation();
 
-  const storage = useMemo(() => getStorage(firebaseApp), [firebaseApp]);
+  const storage = useMemo(() => (firebaseApp ? getStorage(firebaseApp) : null), [firebaseApp]);
 
   // ── SELF-HEALING STORAGE CONFIG ──────────────────────────────────────
   // The browser has always known the storage bucket's REAL name — it's in
