@@ -55,6 +55,7 @@
 // studio name brings it back, giant touch targets everywhere, and the screen
 // resets itself between guests.
 
+import { useToast } from '@/hooks/use-toast';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { getApp } from 'firebase/app';
@@ -226,6 +227,7 @@ const isBlank = (v: any): boolean => {
 };
 
 export default function WalkInKioskPage() {
+  const { toast } = useToast();
   const params = useParams();
   const tenantId = params?.tenantId as string;
 
