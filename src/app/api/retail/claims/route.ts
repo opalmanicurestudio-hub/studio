@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requestForensics } from '@/lib/request-forensics';
 
 // ─── /api/retail/claims/route.ts ──────────────────────────────────────────────
 // A claim is a customer's report that what arrived doesn't match what was
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
   const orderId = String(body.orderId || '').trim();
   const qrToken = String(body.qrToken || '').trim();
   if (!tenantId || !orderId || !qrToken) return NextResponse.json({ error: 'Missing claim details' }, { status: 400 });
+  const client = requestForensics(req);
 
   const db = getAdminDb();
   const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
@@ -111,6 +113,7 @@ export async function POST(req: NextRequest) {
       batch.update(claimRef, {
         status: 'in_review',
         appealNote: note,
+        appealClient: client || null,
         appealedAt: now,
         decidedAt: null, decidedBy: null, resolution: null,
         riskFactors: [...(Array.isArray(claim.riskFactors) ? claim.riskFactors : []), 'Appealed after decline'],
@@ -119,7 +122,7 @@ export async function POST(req: NextRequest) {
       batch.set(evRef, {
         id: evRef.id, type: 'note', at: now,
         actorId: 'customer', actorName: order.customerName || 'Customer',
-        meta: { text: `Claim appealed: ${claim.type}${claim.lineName ? ` — ${claim.lineName}` : ''}` },
+        meta: { text: `Claim appealed: ${claim.type}${claim.lineName ? ` — ${claim.lineName}` : ''}`, ...(client ? { client } : {}) },
       });
       await batch.commit();
       return NextResponse.json({ ok: true, message: 'Appeal received — a person will look at it again with your note and the packing record.' });
@@ -229,6 +232,7 @@ export async function POST(req: NextRequest) {
       resolution: autoApprove ? 'refund' : null,
       resolutionCents: autoApprove ? claimValueCents : null,
       openedBy: 'customer',
+      openedClient: client || null,
       openedAt: now,
       decidedAt: autoApprove ? now : null,
       decidedBy: autoApprove ? 'auto (evidence + shop rules)' : null,
@@ -240,7 +244,7 @@ export async function POST(req: NextRequest) {
     batch.set(evRef, {
       id: evRef.id, type: 'note', at: now,
       actorId: 'customer', actorName: claim.customerName || 'Customer',
-      meta: { text: `Claim opened: ${type}${line ? ` — ${line.name} ×${qty}` : ''}${autoApprove ? ' (auto-approved, refund queued)' : ' (in review)'}` },
+      meta: { text: `Claim opened: ${type}${line ? ` — ${line.name} ×${qty}` : ''}${autoApprove ? ' (auto-approved, refund queued)' : ' (in review)'}`, ...(client ? { client } : {}) },
     });
     if (autoApprove) {
       batch.update(orderRef, {
