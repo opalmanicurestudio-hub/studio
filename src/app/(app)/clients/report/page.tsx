@@ -8,7 +8,7 @@ import { notFound, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Printer, Sparkles, Loader, User, Calendar, DollarSign, AlertTriangle, FileText, FlaskConical, Gift } from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
-import { format, formatDistanceToNow } from 'date-fns';
+import { format, formatDistanceToNow, parseISO} from 'date-fns';
 import { Separator } from '@/components/ui/separator';
 import { generateClientReport } from '@/ai/flows/generate-client-report';
 import { Skeleton } from '@/components/ui/skeleton';
