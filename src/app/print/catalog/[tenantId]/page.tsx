@@ -106,7 +106,7 @@ export default async function PrintCatalogPage({
         <title>{`${shopName} — ${wholesale ? 'Line sheet' : 'Catalog'}`}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
         <style>{`
@@ -122,10 +122,10 @@ export default async function PrintCatalogPage({
           .cover { display: flex; align-items: center; gap: 14px; padding: 4px 0 16px; border-bottom: 1.5px solid #16171a; }
           .cover img { width: 54px; height: 54px; object-fit: cover; border-radius: 12px; border: 1px solid #e6e6e8; }
           .cover h1 { margin: 0; font-size: 25px; font-weight: 400; letter-spacing: -.03em; }
-          .cover .kind { margin: 3px 0 0; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .12em; text-transform: lowercase; color: #6d7075; }
-          .cover .meta { margin-left: auto; text-align: right; font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: .08em; color: #6d7075; }
+          .cover .kind { margin: 3px 0 0; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 10px; letter-spacing: .12em; text-transform: lowercase; color: #6d7075; }
+          .cover .meta { margin-left: auto; text-align: right; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 10px; letter-spacing: .08em; color: #6d7075; }
 
-          .cat { margin: 22px 0 10px; font-family: "JetBrains Mono", monospace; font-size: 11px; letter-spacing: .14em; text-transform: lowercase; color: #16171a; border-bottom: 1px solid #e6e6e8; padding-bottom: 6px; }
+          .cat { margin: 22px 0 10px; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 11px; letter-spacing: .14em; text-transform: lowercase; color: #16171a; border-bottom: 1px solid #e6e6e8; padding-bottom: 6px; }
 
           .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
           .item { border: 1px solid #e6e6e8; border-radius: 14px; padding: 10px; break-inside: avoid; page-break-inside: avoid; }
@@ -134,12 +134,12 @@ export default async function PrintCatalogPage({
           .nm { margin: 8px 0 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
           .ds { margin: 4px 0 0; font-size: 10px; color: #6d7075; line-height: 1.45; }
           .row { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 8px; }
-          .pr { font-family: "JetBrains Mono", monospace; font-size: 15px; font-weight: 700; }
-          .sk { font-family: "JetBrains Mono", monospace; font-size: 9px; letter-spacing: .06em; color: #6d7075; }
-          .moq { display: inline-block; margin-top: 4px; padding: 2px 7px; border: 1px solid #e6e6e8; border-radius: 999px; font-family: "JetBrains Mono", monospace; font-size: 9px; color: #16171a; }
+          .pr { font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 700; }
+          .sk { font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 9px; letter-spacing: .06em; color: #6d7075; }
+          .moq { display: inline-block; margin-top: 4px; padding: 2px 7px; border: 1px solid #e6e6e8; border-radius: 999px; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 9px; color: #16171a; }
           .qr { width: 46px; height: 46px; }
 
-          .foot { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e6e6e8; font-family: "JetBrains Mono", monospace; font-size: 9px; letter-spacing: .06em; color: #6d7075; display: flex; justify-content: space-between; }
+          .foot { margin-top: 24px; padding-top: 10px; border-top: 1px solid #e6e6e8; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; font-size: 9px; letter-spacing: .06em; color: #6d7075; display: flex; justify-content: space-between; }
 
           .bar { position: sticky; top: 0; background: #fff; padding: 10px 0 14px; display: flex; gap: 8px; }
           .bar button, .bar a { font-family: inherit; font-size: 12px; font-weight: 600; padding: 9px 14px; border-radius: 10px; border: 1px solid #16171a; background: #16171a; color: #fff; cursor: pointer; text-decoration: none; }
