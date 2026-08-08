@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { useStoreCredit, formatCreditExpiry, type StoreCredit } from '@/hooks/useStoreCredit';
+import { useStoreCredit, formatCreditExpiry, type StoreCredit, isCreditExpiringSoon} from '@/hooks/useStoreCredit';
 import { format, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
