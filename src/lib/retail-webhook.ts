@@ -328,7 +328,7 @@ export async function handleRetailOrderPaid(
  * order-page link that carries their QR; shipping orders get the same link,
  * which fills with tracking the moment a label is bought.
  */
-async function sendOrderConfirmation(
+export async function sendOrderConfirmation(
   db: any,
   tenantId: string,
   orderId: string,
