@@ -54,18 +54,23 @@ export default async function ProductLabelsPage({
   return (
     <html>
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
         <title>Product labels</title>
         <style>{`
           @page { size: letter; margin: 0.4in; }
           * { box-sizing: border-box; }
-          body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; }
+          body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; }
           .grid { display: flex; flex-wrap: wrap; gap: 0.12in; }
           .lab { width: 2.6in; height: 1.5in; border: 2px solid #0f172a; border-radius: 12px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; page-break-inside: avoid; }
           .lab img { width: 1.05in; height: 1.05in; }
-          .lab .nm { font-size: 10px; font-weight: 900; text-transform: uppercase; line-height: 1.25; }
+          .lab .nm { font-size: 10px; font-weight: 800; text-transform: uppercase; line-height: 1.25; }
           .lab .sk { font-size: 8px; font-weight: 800; letter-spacing: 1px; color: #64748b; margin-top: 3px; }
-          .lab .tp { font-size: 8px; font-weight: 900; font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.5px; margin-top: 3px; border: 1.5px solid #0f172a; border-radius: 5px; padding: 1px 5px; display: inline-block; }
-          .lab .pr { font-size: 14px; font-weight: 900; margin-top: 4px; }
+          .lab .tp { font-size: 8px; font-weight: 800; font-family: "Plus Jakarta Sans", system-ui, sans-serif; font-variant-numeric: tabular-nums; letter-spacing: 0.5px; margin-top: 3px; border: 1.5px solid #0f172a; border-radius: 5px; padding: 1px 5px; display: inline-block; }
+          .lab .pr { font-size: 14px; font-weight: 800; margin-top: 4px; }
         `}</style>
       </head>
       <body>
