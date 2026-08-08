@@ -165,10 +165,10 @@ export default function RetailReturnsPage() {
     }
     scanFeedback(true);
     setVerifiedLineId(match.lineId);
-    toast({ title: `${match.name} verified`, description: 'Choose: restock or write off.' });
+    toast({ title: `${match.name} verified`, description: 'Grade its condition to decide where it goes.' });
   }, [activeReturn, parentOrder, toast]);
 
-  const disposition = async (lineId: string, d: 'restock' | 'write_off') => {
+  const disposition = async (lineId: string, d: 'restock' | 'open_box' | 'quarantine' | 'damaged' | 'dispose') => {
     if (!firestore || !tenantId || !activeReturn || busy) return;
     setBusy(lineId);
     const res = await receiveReturnLine(firestore as Firestore, tenantId, activeReturn, lineId, d, actor);
@@ -360,8 +360,16 @@ export default function RetailReturnsPage() {
                               </div>
                               {l.disposition ? (
                                 <Badge className={cn('h-6 px-2 font-black text-[8px] uppercase tracking-widest border-2',
-                                  l.disposition === 'restock' ? 'bg-green-50 border-green-100 text-green-700' : 'bg-destructive/5 border-destructive/10 text-destructive')}>
-                                  {l.disposition === 'restock' ? 'Restocked' : 'Written off'}
+                                  l.disposition === 'restock' ? 'bg-green-50 border-green-100 text-green-700'
+                                    : l.disposition === 'open_box' ? 'bg-sky-50 border-sky-100 text-sky-700'
+                                    : l.disposition === 'quarantine' ? 'bg-amber-50 border-amber-100 text-amber-800'
+                                    : 'bg-destructive/5 border-destructive/10 text-destructive')}>
+                                  {l.disposition === 'restock' ? 'Restocked'
+                                    : l.disposition === 'open_box' ? 'Open box'
+                                    : l.disposition === 'quarantine' ? 'Quarantined'
+                                    : l.disposition === 'damaged' ? 'Damaged'
+                                    : l.disposition === 'dispose' ? 'Disposed'
+                                    : 'Written off'}
                                 </Badge>
                               ) : verifiedLineId === l.lineId ? (
                                 <Check className="w-4 h-4 text-primary shrink-0" />
@@ -373,15 +381,32 @@ export default function RetailReturnsPage() {
                               )}
                             </div>
                             {!l.disposition && verifiedLineId === l.lineId && (
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-2">
                                 <Button disabled={busy === l.lineId} onClick={() => disposition(l.lineId, 'restock')}
-                                  className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                                  <Undo2 className="mr-1 h-3 w-3" /> Restock
+                                  className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                                  <Undo2 className="mr-1 h-3 w-3" /> Restock — back on the shelf
                                 </Button>
-                                <Button disabled={busy === l.lineId} variant="destructive" onClick={() => disposition(l.lineId, 'write_off')}
-                                  className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
-                                  Write off
-                                </Button>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Button disabled={busy === l.lineId} variant="outline" onClick={() => disposition(l.lineId, 'open_box')}
+                                    className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                                    Open box
+                                  </Button>
+                                  <Button disabled={busy === l.lineId} variant="outline" onClick={() => disposition(l.lineId, 'quarantine')}
+                                    className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                                    Quarantine
+                                  </Button>
+                                  <Button disabled={busy === l.lineId} variant="destructive" onClick={() => disposition(l.lineId, 'damaged')}
+                                    className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                                    Damaged
+                                  </Button>
+                                  <Button disabled={busy === l.lineId} variant="destructive" onClick={() => disposition(l.lineId, 'dispose')}
+                                    className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest">
+                                    Dispose
+                                  </Button>
+                                </div>
+                                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">
+                                  Only restock touches sellable stock · damaged &amp; dispose book the loss · open box &amp; quarantine wait on you
+                                </p>
                               </div>
                             )}
                           </div>
