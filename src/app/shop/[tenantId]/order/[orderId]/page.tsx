@@ -113,6 +113,13 @@ export default function OrderStatusPage() {
   const [fixAddr, setFixAddr] = useState({ name: '', line1: '', line2: '', city: '', state: '', postalCode: '' });
   const [fixSending, setFixSending] = useState(false);
   const [rcptSending, setRcptSending] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimType, setClaimType] = useState('missing');
+  const [claimLine, setClaimLine] = useState('');
+  const [claimQty, setClaimQty] = useState(1);
+  const [claimNote, setClaimNote] = useState('');
+  const [claimSending, setClaimSending] = useState(false);
+  const [claimDone, setClaimDone] = useState('');
   const activeRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -220,6 +227,36 @@ export default function OrderStatusPage() {
       toast({ variant: 'destructive', title: 'Could not update the address', description: e?.message || 'Try again.' });
     } finally {
       setFixSending(false);
+    }
+  };
+
+  const submitClaim = async () => {
+    if (!selfToken || claimSending) return;
+    if (claimType !== 'not_received' && !claimLine) {
+      toast({ variant: 'destructive', title: 'Pick the affected item' });
+      return;
+    }
+    setClaimSending(true);
+    try {
+      const res = await fetch('/api/retail/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId, orderId, qrToken: selfToken,
+          type: claimType,
+          lineId: claimType === 'not_received' ? '' : claimLine,
+          qty: claimQty,
+          description: claimNote.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not send the report');
+      setClaimDone(data.message || 'Reported — the shop will follow up.');
+      setClaimOpen(false);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not send the report', description: e?.message || 'Try again.' });
+    } finally {
+      setClaimSending(false);
     }
   };
 
@@ -775,6 +812,92 @@ export default function OrderStatusPage() {
           >
             {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : 'Cancel this order'}
           </Button>
+        )}
+
+        {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-black uppercase tracking-widest">Something wrong with your order?</p>
+                {!claimDone && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setClaimOpen((v) => !v)}
+                    className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {claimOpen ? 'Never mind' : 'Report a problem'}
+                  </Button>
+                )}
+              </div>
+              {claimDone ? (
+                <p className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-3 text-xs font-bold text-primary">{claimDone}</p>
+              ) : claimOpen ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {([['missing', 'Item missing'], ['damaged', 'Arrived damaged'], ['wrong_item', 'Wrong item'], ['not_received', 'Never arrived']] as const).map(([v, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        aria-pressed={claimType === v}
+                        onClick={() => setClaimType(v)}
+                        className={cn(
+                          'h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all',
+                          claimType === v ? 'border-primary bg-primary/5 text-primary' : 'bg-white'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {claimType !== 'not_received' && (
+                    <div className="flex gap-2">
+                      <select
+                        aria-label="Which item"
+                        value={claimLine}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setClaimLine(e.target.value)}
+                        className="h-11 flex-1 rounded-xl border-2 bg-white px-2 text-xs font-black uppercase tracking-widest"
+                      >
+                        <option value="">Which item?</option>
+                        {order.lines.filter((l) => l.lineId).map((l) => (
+                          <option key={l.lineId} value={l.lineId}>{l.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        aria-label="How many"
+                        value={claimQty}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setClaimQty(Number(e.target.value))}
+                        className="h-11 w-20 rounded-xl border-2 bg-white px-2 text-xs font-black uppercase tracking-widest"
+                      >
+                        {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  <Textarea
+                    aria-label="Tell us what happened"
+                    placeholder="Anything that helps — what you found when you opened it"
+                    value={claimNote}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setClaimNote(e.target.value)}
+                    className="min-h-20 rounded-xl border-2 font-bold text-sm"
+                  />
+                  <Button
+                    disabled={claimSending}
+                    onClick={submitClaim}
+                    className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {claimSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Send report'}
+                  </Button>
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70">
+                    Checked against the packing record — clear cases resolve automatically.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Missing, damaged, wrong, or never arrived — report it here and it goes straight to the shop with your order&apos;s packing record attached.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {selfToken && order && ['shipped', 'handed_off', 'completed'].includes(order.stage) && (
