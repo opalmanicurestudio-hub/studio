@@ -205,6 +205,7 @@ export default async function PrintWavePage({
         <div className="sheet">
           <div className="bar">
             <button type="button" id="printBtn">Print / save as PDF</button>
+            <a href={`/print/slips/${tenantId}/${waveId}`} style={{ fontFamily: 'inherit', fontSize: 12, fontWeight: 600, padding: '9px 14px', borderRadius: 10, border: '1px solid #16171a', color: '#16171a', textDecoration: 'none' }}>Packing slips for this wave →</a>
           </div>
 
           <div className="head">
