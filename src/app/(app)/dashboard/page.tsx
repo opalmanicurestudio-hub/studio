@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -313,7 +312,7 @@ export default function DashboardPage() {
                   currentStock -= 1;
                   currentSize += sizePerContainer;
               }
-              if (currentStock <= 0 && currentUses < 0) {
+              if (currentStock <= 0 && currentSize < 0) {
                   currentStock = 0;
                   currentSize = 0;
               }
