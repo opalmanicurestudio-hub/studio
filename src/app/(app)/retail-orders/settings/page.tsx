@@ -71,6 +71,10 @@ interface RetailSettings {
   addressValidationEnabled?: boolean;
   blockUndeliverableAddresses?: boolean;
   returnWindowDays?: number;
+  returnsEnabled?: boolean;
+  returnLabelPayer?: 'shop' | 'customer' | 'fault';
+  claimAutoResolveMaxCents?: number;
+  cartRecoveryEnabled?: boolean;
   deliveryIssueWindowDays?: number;
   returnPolicyText?: string;
   shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
@@ -178,6 +182,10 @@ export default function RetailSettingsPage() {
       addressValidationEnabled: existing.addressValidationEnabled === true,
       blockUndeliverableAddresses: existing.blockUndeliverableAddresses === true,
       returnWindowDays: Number(existing.returnWindowDays) || 30,
+      returnsEnabled: existing.returnsEnabled !== false,
+      returnLabelPayer: existing.returnLabelPayer === 'shop' || existing.returnLabelPayer === 'customer' ? existing.returnLabelPayer : 'fault',
+      claimAutoResolveMaxCents: Number(existing.claimAutoResolveMaxCents) || 0,
+      cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
       deliveryIssueWindowDays: Number(existing.deliveryIssueWindowDays) || 7,
       returnPolicyText: existing.returnPolicyText || '',
       shipFrom: existing.shipFrom || {},
@@ -273,6 +281,10 @@ export default function RetailSettingsPage() {
           addressValidationEnabled: rs.addressValidationEnabled === true,
           blockUndeliverableAddresses: rs.blockUndeliverableAddresses === true,
           returnWindowDays: Math.max(1, Math.floor(Number(rs.returnWindowDays) || 30)),
+          returnsEnabled: rs.returnsEnabled !== false,
+          returnLabelPayer: rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault',
+          claimAutoResolveMaxCents: Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0)),
+          cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
           deliveryIssueWindowDays: Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7)),
           returnPolicyText: String(rs.returnPolicyText || '').trim().slice(0, 1200),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
@@ -886,6 +898,74 @@ export default function RetailSettingsPage() {
                 />
               </div>
             )}
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Accept returns</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Off closes self-serve returns storefront-wide and on every order page. &ldquo;Report a
+                  problem&rdquo; stays open regardless &mdash; a shop can decline changed minds, never defects.
+                </p>
+              </div>
+              <Switch
+                checked={rs.returnsEnabled !== false}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, returnsEnabled: v })}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Who pays return shipping</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {([['fault', 'By fault'], ['shop', 'Shop always'], ['customer', 'Customer']] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={(rs.returnLabelPayer || 'fault') === v}
+                    onClick={() => setRs({ ...rs, returnLabelPayer: v })}
+                    className={cn(
+                      'h-9 rounded-xl border-2 px-3 text-[10px] font-black uppercase tracking-widest transition-all',
+                      (rs.returnLabelPayer || 'fault') === v ? 'border-primary bg-primary/5 text-primary' : 'bg-white'
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] font-bold text-muted-foreground">
+                By fault: the shop covers defective or wrong-item returns, the customer covers changed
+                minds. Takes effect when return labels ship.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Auto-approve claims up to ($)</Label>
+              <Input
+                inputMode="decimal"
+                value={String(((rs.claimAutoResolveMaxCents || 0) / 100) || '')}
+                placeholder="0 = every claim gets a human"
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setRs({ ...rs, claimAutoResolveMaxCents: Math.max(0, Math.round((Number(e.target.value) || 0) * 100)) })}
+                className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
+              />
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Only fires when your own packing record agrees with the customer (the item was never
+                scanned complete) and the account is low-risk &mdash; and it queues the refund in the
+                banner, so money still moves through you. Zero keeps every claim on a person.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Cart recovery email</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  One email when a checkout times out unpaid &mdash; their cart link, nothing else, never twice.
+                </p>
+              </div>
+              <Switch
+                checked={rs.cartRecoveryEnabled !== false}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, cartRecoveryEnabled: v })}
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
