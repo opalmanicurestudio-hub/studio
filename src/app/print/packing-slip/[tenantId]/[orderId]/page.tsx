@@ -92,46 +92,51 @@ export default async function PackingSlipPage({
   return (
     <html>
       <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
         <title>{`Packing slip ${num}`}</title>
         <style>{`
           @page { size: letter; margin: 0.5in; }
           * { box-sizing: border-box; }
-          body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #0f172a; margin: 0; }
+          body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; color: #0f172a; margin: 0; }
           .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #0f172a; padding-bottom: 14px; }
-          .shop { font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: -0.5px; }
+          .shop { font-size: 20px; font-weight: 800; text-transform: uppercase; letter-spacing: -0.5px; }
           .tag { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #64748b; margin-top: 2px; }
-          .num { font-size: 26px; font-weight: 900; text-align: right; }
+          .num { font-size: 26px; font-weight: 800; text-align: right; }
           .meta { display: flex; gap: 28px; padding: 14px 0; border-bottom: 1px dashed #cbd5e1; }
           .meta div p:first-child { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; margin: 0 0 3px; }
           .meta div p:last-child { font-size: 12px; font-weight: 800; margin: 0; }
           table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-          th { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; text-align: left; padding: 8px 6px; border-bottom: 2px solid #0f172a; }
+          th { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; text-align: left; padding: 8px 6px; border-bottom: 2px solid #0f172a; }
           td { font-size: 12px; font-weight: 700; padding: 9px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
           .box { display: inline-block; width: 14px; height: 14px; border: 2px solid #0f172a; border-radius: 4px; margin-right: 4px; vertical-align: middle; }
           .box.done { background: #0f172a; }
-          .flag { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px; color: #b45309; }
+          .flag { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; color: #b45309; }
           .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
           .qr { width: 150px; height: 150px; border: 3px solid #0f172a; border-radius: 16px; }
           .qr-note { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #64748b; margin-top: 6px; text-align: center; max-width: 160px; }
           .totals { text-align: right; font-size: 12px; font-weight: 800; }
-          .totals .grand { font-size: 17px; font-weight: 900; margin-top: 6px; }
+          .totals .grand { font-size: 17px; font-weight: 800; margin-top: 6px; }
           .slot { display: inline-block; margin-top: 6px; padding: 4px 12px; border: 2px solid #16171a; border-radius: 8px; font-size: 18px; font-weight: 800; letter-spacing: .04em; }
           .slot.tote { margin-left: 6px; border-style: dashed; }
           .opt { color: #64748b; font-weight: 700; }
           .cut { margin: 26px 0 0; border-top: 2px dashed #94a3b8; position: relative; }
-          .cut span { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 0 10px; font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; }
+          .cut span { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); background: #ffffff; padding: 0 10px; font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; }
           .card { border: 2px solid #0f172a; border-radius: 14px; padding: 16px 18px; margin-top: 18px; display: flex; gap: 18px; align-items: flex-start; }
           .card .body { flex: 1; min-width: 0; }
-          .card h2 { font-size: 15px; font-weight: 900; margin: 0 0 2px; letter-spacing: -0.3px; }
+          .card h2 { font-size: 15px; font-weight: 800; margin: 0 0 2px; letter-spacing: -0.3px; }
           .card .lede { font-size: 11px; font-weight: 700; color: #334155; margin: 0 0 10px; line-height: 1.5; }
-          .card .why { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; margin: 12px 0 4px; }
+          .card .why { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #94a3b8; margin: 12px 0 4px; }
           .card ul { margin: 0; padding-left: 15px; }
           .card li { font-size: 10.5px; font-weight: 700; color: #0f172a; line-height: 1.6; }
           .card .contact { font-size: 10.5px; font-weight: 800; color: #0f172a; margin: 11px 0 0; }
           .cqr { width: 128px; height: 128px; border: 2px solid #0f172a; border-radius: 12px; display: block; }
-          .cqr-note { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.4px; color: #64748b; margin: 5px 0 0; text-align: center; width: 128px; line-height: 1.5; }
+          .cqr-note { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.4px; color: #64748b; margin: 5px 0 0; text-align: center; width: 128px; line-height: 1.5; }
           .short-box { border: 2px solid #b45309; border-radius: 10px; padding: 9px 12px; margin: 10px 0 0; }
-          .short-box p:first-child { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #b45309; margin: 0 0 4px; }
+          .short-box p:first-child { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; color: #b45309; margin: 0 0 4px; }
           .short-box p { font-size: 10.5px; font-weight: 700; color: #0f172a; margin: 0; line-height: 1.55; }
           @media print { .noprint { display: none; } .card, .short-box { break-inside: avoid; } }
         `}
