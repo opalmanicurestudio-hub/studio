@@ -565,13 +565,13 @@ export default function RetailFulfillmentBoard() {
             </div>
             <div className="flex items-center gap-0.5 sm:hidden shrink-0">
               <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-                <Link href="/retail-orders/history"><History className="h-4 w-4" /></Link>
+                <Link href="/retail-orders/history" aria-label="Order history"><History className="h-4 w-4" aria-hidden="true" /></Link>
               </Button>
               <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-                <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
+                <Link href="/retail-orders/settings" aria-label="Shop settings"><Settings className="h-4 w-4" aria-hidden="true" /></Link>
               </Button>
               <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary">
-                <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer"><Store className="h-4 w-4" /></a>
+                <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer" aria-label="Open your storefront in a new tab"><Store className="h-4 w-4" aria-hidden="true" /></a>
               </Button>
             </div>
           </div>
@@ -603,13 +603,13 @@ export default function RetailFulfillmentBoard() {
           </Button>
           <div className="hidden sm:flex items-center gap-1">
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
-              <Link href="/retail-orders/history"><History className="h-4 w-4" /></Link>
+              <Link href="/retail-orders/history" aria-label="Order history"><History className="h-4 w-4" aria-hidden="true" /></Link>
             </Button>
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
-              <Link href="/retail-orders/settings"><Settings className="h-4 w-4" /></Link>
+              <Link href="/retail-orders/settings" aria-label="Shop settings"><Settings className="h-4 w-4" aria-hidden="true" /></Link>
             </Button>
             <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-primary">
-              <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer"><Store className="h-4 w-4" /></a>
+              <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer" aria-label="Open your storefront in a new tab"><Store className="h-4 w-4" aria-hidden="true" /></a>
             </Button>
           </div>
         </div>
@@ -1033,6 +1033,7 @@ export default function RetailFulfillmentBoard() {
           <div className="space-y-3 pt-1">
             <Input
               placeholder="What happened? (e.g. shelf empty, damaged)"
+              aria-label="What happened"
               value={shortReason}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShortReason(e.target.value)}
               className="h-12 rounded-xl border-2 font-bold text-sm"
@@ -1074,10 +1075,10 @@ export default function RetailFulfillmentBoard() {
                   </div>
                 </div>
                 <div className="grid grid-cols-5 gap-2">
-                  {([['weightLb', boxes > 1 ? 'lb / box' : 'lb'], ['weightOz', 'oz'], ['lengthIn', 'L in'], ['widthIn', 'W in'], ['heightIn', 'H in']] as const).map(([k, lbl]) => (
+                  {([['weightLb', boxes > 1 ? 'lb / box' : 'lb', 'Weight in pounds'], ['weightOz', 'oz', 'Weight in ounces'], ['lengthIn', 'L in', 'Length in inches'], ['widthIn', 'W in', 'Width in inches'], ['heightIn', 'H in', 'Height in inches']] as const).map(([k, lbl, a11y]) => (
                     <div key={k} className="space-y-1">
                       <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground text-center">{lbl}</p>
-                      <Input inputMode="decimal" value={(parcel as any)[k]}
+                      <Input inputMode="decimal" aria-label={a11y} value={(parcel as any)[k]}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setParcel({ ...parcel, [k]: e.target.value }); setRates([]); }}
                         className="h-10 rounded-xl border-2 font-black font-mono text-xs text-center" />
                     </div>
@@ -1153,9 +1154,9 @@ export default function RetailFulfillmentBoard() {
                 </Button>
               </div>
             )}
-            <Input placeholder="Carrier (USPS, UPS…)" value={shipCarrier} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipCarrier(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
-            <Input placeholder="Tracking number" value={shipNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipNumber(e.target.value)} className="h-12 rounded-xl border-2 font-mono font-black text-xs" />
-            <Input placeholder="Tracking URL (optional)" value={shipUrl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipUrl(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-xs" />
+            <Input placeholder="Carrier (USPS, UPS…)" aria-label="Carrier" value={shipCarrier} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipCarrier(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+            <Input placeholder="Tracking number" aria-label="Tracking number" value={shipNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipNumber(e.target.value)} className="h-12 rounded-xl border-2 font-mono font-black text-xs" />
+            <Input placeholder="Tracking URL (optional)" aria-label="Tracking URL, optional" value={shipUrl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipUrl(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-xs" />
           </div>
           <DialogFooter className="pt-3">
             <Button
@@ -1184,7 +1185,7 @@ export default function RetailFulfillmentBoard() {
           </DialogHeader>
           <div className="space-y-3 pt-1">
             <Input
-              placeholder="How was identity verified? (name + order #, ID…)"
+              placeholder="How was identity verified? (name + order #, ID…)" aria-label="How was identity verified"
               value={verifiedBy}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVerifiedBy(e.target.value)}
               className="h-12 rounded-xl border-2 font-bold text-sm"
