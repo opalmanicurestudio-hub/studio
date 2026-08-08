@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
+import { requestForensics } from '@/lib/request-forensics';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -60,6 +61,8 @@ export async function POST(req: NextRequest) {
   const orderId = String(body.orderId || '').trim();
   const qrToken = String(body.qrToken || '').trim();
   const action = String(body.action || '').trim();
+
+  const client = requestForensics(req);
 
   if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'resend_receipt'].includes(action)) {
     return NextResponse.json({ error: 'Missing order details' }, { status: 400 });
@@ -122,7 +125,7 @@ export async function POST(req: NextRequest) {
         txn.set(evRef, {
           id: evRef.id, type: 'order_cancelled', at: new Date().toISOString(),
           actorId: 'customer', actorName: order.customerName || 'Customer',
-          meta: { reason: reason || 'self-serve', pendingRefundCents: pending },
+          meta: { reason: reason || 'self-serve', pendingRefundCents: pending, ...(client ? { client } : {}) },
         });
         return { status: 200, pending };
       });
@@ -171,7 +174,7 @@ export async function POST(req: NextRequest) {
         txn.set(evRef, {
           id: evRef.id, type: 'address_updated', at: new Date().toISOString(),
           actorId: 'customer', actorName: order.customerName || 'Customer',
-          meta: { from: order.shippingAddress || null, to: clean, selfServe: true },
+          meta: { from: order.shippingAddress || null, to: clean, selfServe: true, ...(client ? { client } : {}) },
         });
         return { status: 200 };
       });
@@ -277,7 +280,7 @@ export async function POST(req: NextRequest) {
     batch.set(evRef, {
       id: evRef.id, type: 'return_opened', at: now,
       actorId: 'customer', actorName: order.customerName || 'Customer',
-      meta: { returnId: retRef.id, units: lines.reduce((a, l) => a + l.qty, 0), selfServe: true },
+      meta: { returnId: retRef.id, units: lines.reduce((a, l) => a + l.qty, 0), selfServe: true, ...(client ? { client } : {}) },
     });
     await batch.commit();
 
