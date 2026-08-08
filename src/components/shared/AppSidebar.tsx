@@ -80,6 +80,7 @@ const COMMERCE = [
   { href: '/retail-orders/bench',     icon: PackageOpen,  label: 'Pack bench'    },
   { href: '/retail-orders/kpis',      icon: Gauge,        label: 'Fulfilment'    },
   { href: '/retail-orders/returns',  icon: RotateCcw,    label: 'Returns'       },
+  { href: '/retail-orders/reviews',  icon: Star,         label: 'Reviews'       },
   { href: '/retail-orders/support',  icon: LifeBuoy,     label: 'Shop Support'  },
   { href: '/retail-orders/wholesale', icon: Building2,   label: 'Wholesale'     },
   { href: '/retail-orders/designer', icon: Paintbrush,   label: 'Shop Designer' },
