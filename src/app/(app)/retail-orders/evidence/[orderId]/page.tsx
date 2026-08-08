@@ -308,7 +308,11 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
                   </p>
                   <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
                     {fmtTime(e.at)} · {e.actorName || e.actorId}
+                    {e.meta?.client?.ip ? ` · from ${e.meta.client.ip}` : ''}
                   </p>
+                  {e.meta?.client?.ua && (
+                    <p className="text-[8px] font-bold text-muted-foreground/60 break-all">{e.meta.client.ua}</p>
+                  )}
                   {detail && <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">{detail}</p>}
                 </li>
               );
