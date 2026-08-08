@@ -109,6 +109,10 @@ export default function OrderStatusPage() {
   const [revBody, setRevBody] = useState('');
   const [revSending, setRevSending] = useState(false);
   const [revDone, setRevDone] = useState<Record<string, boolean>>({});
+  const [fixOpen, setFixOpen] = useState(false);
+  const [fixAddr, setFixAddr] = useState({ name: '', line1: '', line2: '', city: '', state: '', postalCode: '' });
+  const [fixSending, setFixSending] = useState(false);
+  const [rcptSending, setRcptSending] = useState(false);
   const activeRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -202,6 +206,34 @@ export default function OrderStatusPage() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed');
     return data;
+  };
+
+  const submitAddressFix = async () => {
+    if (!selfToken || fixSending) return;
+    setFixSending(true);
+    try {
+      const data = await selfServe({ action: 'update_address', address: fixAddr });
+      toast({ title: 'Address updated', description: data.message });
+      setFixOpen(false);
+      load();
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not update the address', description: e?.message || 'Try again.' });
+    } finally {
+      setFixSending(false);
+    }
+  };
+
+  const resendReceipt = async () => {
+    if (!selfToken || rcptSending) return;
+    setRcptSending(true);
+    try {
+      const data = await selfServe({ action: 'resend_receipt' });
+      toast({ title: 'Receipt re-sent', description: data.message });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not re-send the receipt', description: e?.message || 'Try again.' });
+    } finally {
+      setRcptSending(false);
+    }
   };
 
   const cancelSelf = async () => {
@@ -610,6 +642,16 @@ export default function OrderStatusPage() {
                 <LifeBuoy className="w-4 h-4 text-primary" />
                 <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Need help with this order?</p>
               </div>
+              {order && order.stage !== 'placed' && order.stage !== 'cancelled' && (
+                <Button
+                  variant="outline"
+                  disabled={rcptSending}
+                  onClick={resendReceipt}
+                  className="w-full h-10 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                >
+                  {rcptSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Email my receipt again'}
+                </Button>
+              )}
               {helpSent ? (
                 <p className="text-sm font-bold text-muted-foreground">
                   Got it — your message is with the shop and tied to this order. They&apos;ll reach out.
@@ -679,6 +721,46 @@ export default function OrderStatusPage() {
                     {helpSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Send to the shop'}
                   </Button>
                 </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {selfToken && order && order.method === 'ship' && ['placed', 'paid'].includes(order.stage) && (
+          <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+            <CardContent className="p-5 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-black uppercase tracking-widest">Shipping to the right place?</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFixOpen((v) => !v)}
+                  className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                >
+                  {fixOpen ? 'Never mind' : 'Correct address'}
+                </Button>
+              </div>
+              <p className="text-[11px] font-bold text-muted-foreground">
+                {order.shipCity ? `Currently headed to ${order.shipCity}. ` : ''}Typos happen — you can fix the address any time before packing starts.
+              </p>
+              {fixOpen && (
+                <div className="space-y-2">
+                  <Input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={fixAddr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, name: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Input placeholder="Street address" aria-label="Street address" autoComplete="address-line1" value={fixAddr.line1} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, line1: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <Input placeholder="Apt / suite (optional)" aria-label="Apartment or suite, optional" autoComplete="address-line2" value={fixAddr.line2} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, line2: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input placeholder="City" aria-label="City" autoComplete="address-level2" value={fixAddr.city} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, city: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                    <Input placeholder="State" aria-label="State" autoComplete="address-level1" value={fixAddr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, state: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                    <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={fixAddr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFixAddr({ ...fixAddr, postalCode: e.target.value })} className="h-11 rounded-xl border-2 font-bold text-sm" />
+                  </div>
+                  <Button
+                    disabled={fixSending}
+                    onClick={submitAddressFix}
+                    className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {fixSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Save corrected address'}
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
