@@ -173,12 +173,12 @@ export async function receiveReturnLine(
         });
       }
 
-      if (disposition === 'write_off' && origLine) {
+      if (['write_off', 'damaged', 'dispose'].includes(disposition) && origLine) {
         const costCents = Math.round(((iSnap?.exists() ? (iSnap.data() as any).costPerUnit : 0) || 0) * 100) * line.qty;
         const txnRef = doc(collection(fs, `tenants/${tenantId}/transactions`));
         txn.set(txnRef, {
           id: txnRef.id, date: now,
-          description: `Return write-off: ${line.qty} x ${line.name} (Order #${fresh.orderNumber})`,
+          description: `Return ${disposition === 'dispose' ? 'disposal' : disposition === 'damaged' ? 'damage write-off' : 'write-off'}: ${line.qty} x ${line.name} (Order #${fresh.orderNumber})`,
           clientOrVendor: 'Internal', type: 'expense', context: 'Business',
           category: 'Spoilage', taxBucket: 'expense',
           amount: costCents / 100, paymentMethod: 'Internal', hasReceipt: false,
