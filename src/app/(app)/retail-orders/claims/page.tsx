@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { scoreClaimSnapshot } from '@/lib/integrity-score';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -183,6 +184,7 @@ export default function RetailClaimsPage() {
           {shown.map((c) => {
             const meta = STATUS_META[c.status] || STATUS_META.in_review;
             const ev = c.evidence || {};
+            const integ = scoreClaimSnapshot(ev);
             return (
               <Card key={c.id} className="rounded-2xl border-2">
                 <CardContent className="space-y-3 p-4">
@@ -197,6 +199,15 @@ export default function RetailClaimsPage() {
                     {c.risk && c.status === 'in_review' && (
                       <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest">{c.risk} risk</Badge>
                     )}
+                    <span
+                      className={cn('rounded-lg border-2 px-2 py-0.5 font-mono text-[10px] font-black',
+                        integ.grade === 'strong' ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : integ.grade === 'fair' ? 'border-amber-200 bg-amber-50 text-amber-900'
+                          : 'border-red-200 bg-red-50 text-red-900')}
+                      title="Evidence strength AT CLAIM TIME — a weak score means the record was thin, not that anyone is right or wrong"
+                    >
+                      {integ.score}
+                    </span>
                     <span className="ml-auto font-mono text-sm font-black">{money(c.claimValueCents)}</span>
                   </div>
 
