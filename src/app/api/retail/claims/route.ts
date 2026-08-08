@@ -146,6 +146,20 @@ export async function POST(req: NextRequest) {
     }
 
     const rs = (tenantSnap.exists ? (tenantSnap.data() as any).retailSettings : {}) || {};
+
+    // The shop's "report a problem within N days" promise, enforced where it
+    // counts. Counts from delivery; fails OPEN when the completion date is
+    // missing, because ambiguity reads in the customer's favor.
+    const issueDays = Math.max(0, Math.floor(Number(rs.deliveryIssueWindowDays) || 0));
+    if (issueDays > 0 && order.completedAt) {
+      const ageDays = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
+      if (Number.isFinite(ageDays) && ageDays > issueDays) {
+        return NextResponse.json({
+          error: `Problems can be reported within ${issueDays} days of delivery, and this order completed ${Math.floor(ageDays)} days ago \u2014 message the shop below if something exceptional happened.`,
+        }, { status: 409 });
+      }
+    }
+
     const autoMaxCents = Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0));
 
     // One open claim per order per line+type — a double tap must not file
