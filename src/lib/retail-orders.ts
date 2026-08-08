@@ -1044,7 +1044,7 @@ export const RETURN_RESOLUTIONS = ['refund', 'replacement', 'store_credit'] as c
 export type ReturnResolution = (typeof RETURN_RESOLUTIONS)[number];
 
 /** Where each returned unit physically goes — nothing damaged re-enters stock. */
-export type ReturnDisposition = 'restock' | 'write_off';
+export type ReturnDisposition = 'restock' | 'open_box' | 'quarantine' | 'damaged' | 'dispose' | 'write_off';
 
 export interface ReturnLine {
   lineId: string;              // references the original OrderLine
