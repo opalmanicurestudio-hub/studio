@@ -60,8 +60,7 @@ import {
   WifiOff,
   Smartphone,
   Monitor,
-  Receipt,
-} from 'lucide-react';
+  Receipt, Clock} from 'lucide-react';
 import { type Client, type Service, type Staff, type Membership, type Package, getServicePrice, type RecoveryPreset } from '@/lib/data';
 import { ScrollArea } from '../ui/scroll-area';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
@@ -620,7 +619,7 @@ export const CheckoutHub = ({
         });
       }
     });
-    return staff.filter((s: Staff) => staffIds.has(s.id));
+    return (staff || []).filter((s: Staff) => staffIds.has(s.id));
   }, [appointmentsData, staff]);
 
   const handleTotalTipChange = useCallback((value: number) => {
