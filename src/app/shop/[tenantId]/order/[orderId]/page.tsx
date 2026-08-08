@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { customerOutcomeHeadline, fulfilmentSummary } from '@/lib/fulfilment-state';
+import { clearCart } from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
@@ -66,6 +67,17 @@ export default function OrderStatusPage() {
   const params = useParams<{ tenantId: string; orderId: string }>();
   const tenantId = String(params?.tenantId || '');
   const orderId = String(params?.orderId || '');
+
+  // Arriving here with a session_id means Stripe just took payment — the cart
+  // those items came from is spent. Clearing it here (not before payment)
+  // means a cancelled checkout keeps the cart, a paid one retires it, and the
+  // customer never returns to a shop still "holding" what they already bought.
+  useEffect(() => {
+    if (!tenantId) return;
+    if (new URLSearchParams(window.location.search).has('session_id')) {
+      clearCart(tenantId);
+    }
+  }, [tenantId]);
   const { toast } = useToast();
   const router = useRouter();
 
