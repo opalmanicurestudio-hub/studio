@@ -19,7 +19,7 @@ import {
   handoffWithoutScan, markPacked, markReady, recordItemScan, resolveShortLine,
 } from '@/lib/retail-fulfill';
 import { codesMatch, parseProductQr, slaFor, fulfilmentPolicy } from '@/lib/retail-orders';
-import { packPhotoPolicy, packPhotoRequired } from '@/lib/pack-photo';
+import { packPhotoPolicy, packPhotoRequired, packPhotoPath} from '@/lib/pack-photo';
 import { uploadImage } from '@/lib/upload-image';
 import { cn } from '@/lib/utils';
 
