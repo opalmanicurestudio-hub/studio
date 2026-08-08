@@ -442,6 +442,92 @@ export async function handleRetailCheckoutExpired(
   });
   await batch.commit();
   console.log(`[connect-webhook] Retail order ${orderId} expired unpaid — auto-cancelled`);
+
+  // Recovery email — AFTER the commit, never inside it (transactions retry;
+  // an email inside the body would apologise three times). Double-send is
+  // impossible by construction: a webhook retry finds stage !== 'placed' and
+  // exits above before reaching here. The failure direction is deliberate —
+  // if the send dies, the customer just isn't emailed; the order is still
+  // cleanly cancelled.
+  await sendCartRecovery(db, tenantId, snap.data(), session);
+}
+
+/**
+ * "Your cart is waiting" — the customer typed their details, saw the total,
+ * and walked at the payment screen. Their cart still lives in their browser,
+ * so one link puts them back exactly where they stood. One email, sent once,
+ * only to an address the customer themselves entered minutes earlier; a shop
+ * can switch it off with retailSettings.cartRecoveryEnabled = false.
+ */
+async function sendCartRecovery(
+  db: any,
+  tenantId: string,
+  order: any,
+  session: any
+): Promise<void> {
+  try {
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    const RESEND_FROM = process.env.RESEND_FROM;
+    const to = String(order?.customerEmail || '').trim();
+    if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
+
+    let origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim();
+    try {
+      if (session?.success_url) origin = new URL(String(session.success_url)).origin;
+    } catch {
+      // keep the env fallback
+    }
+    if (!origin) return;
+
+    let shopName = 'the shop';
+    let enabled = true;
+    try {
+      const tSnap = await db.collection('tenants').doc(tenantId).get();
+      if (tSnap.exists) {
+        const t = tSnap.data() || {};
+        shopName = String(t.businessName || t.name || shopName);
+        enabled = (t.retailSettings || {}).cartRecoveryEnabled !== false;
+      }
+    } catch {
+      // name is cosmetic; default stays enabled
+    }
+    if (!enabled) return;
+
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    const firstName = String(order?.customerName || '').trim().split(/\s+/)[0] || 'there';
+    const money = (c: any) => ((Math.max(0, Math.round(Number(c) || 0))) / 100)
+      .toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+    const rows = lines.slice(0, 8).map((l: any) =>
+      `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${String(l.name || 'Item')}${Number(l.qtyOrdered) > 1 ? ` \u00d7 ${Number(l.qtyOrdered)}` : ''}</td></tr>`
+    ).join('');
+
+    const html = `
+    <div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:28px 20px">
+      <p style="font-size:14px;color:#0f172a;font-weight:700">Hi ${firstName},</p>
+      <p style="font-size:14px;color:#334155;line-height:1.6">Your cart at <strong>${shopName}</strong> is still saved — checkout timed out before payment went through, and nothing was charged.</p>
+      <table style="border-collapse:collapse;margin:14px 0">${rows}</table>
+      ${order?.subtotalCents ? `<p style="font-size:13px;color:#64748b">Subtotal ${money(order.subtotalCents)}</p>` : ''}
+      <p style="margin:22px 0">
+        <a href="${origin}/shop/${tenantId}/checkout" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">Finish my order</a>
+      </p>
+      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Stock isn't held forever, so popular items can sell out. If you already placed this order or changed your mind, just ignore this — you won't hear from us about it again.</p>
+    </div>`;
+
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [to],
+        subject: `Your cart at ${shopName} is still saved`,
+        html,
+      }),
+    });
+    console.log(`[connect-webhook] Cart recovery email sent for expired order to ${to}`);
+  } catch (e: any) {
+    console.warn('[connect-webhook] Cart recovery email failed (non-fatal):', e?.message || e);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
