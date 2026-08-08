@@ -179,8 +179,8 @@ export default function ProductPage() {
     <div className="min-h-dvh bg-muted/5 pb-32">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" /></Link>
+          <Button asChild variant="ghost" size="icon" aria-label="Back to shop" className="h-10 w-10 rounded-xl">
+            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Link>
           </Button>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">{shopName}</p>
@@ -244,6 +244,8 @@ export default function ProductPage() {
             <div className="flex gap-2 overflow-x-auto">
               {product.imageUrls.map((url, i) => (
                 <button key={url + i} type="button" onClick={() => setImgIdx(i)}
+                  aria-label={`Photo ${i + 1} of ${product.imageUrls.length}`}
+                  aria-pressed={imgIdx === i}
                   className={cn('w-16 h-16 rounded-xl border-2 relative overflow-hidden shrink-0 transition-all',
                     imgIdx === i ? 'border-primary' : 'opacity-60 hover:opacity-100')}>
                   <Image src={url} alt="" fill className="object-cover" />
@@ -295,6 +297,7 @@ export default function ProductPage() {
                         <button
                           key={c.id}
                           type="button"
+                          aria-pressed={active}
                           onClick={() => setSelections({ ...selections, [g.id]: c.id })}
                           className={cn('h-10 px-3.5 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
                             active ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}
@@ -311,12 +314,12 @@ export default function ProductPage() {
 
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5 rounded-2xl border-2 p-1.5 bg-white">
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => stepQty(-1)}>
-                <Minus className="h-3.5 w-3.5" />
+              <Button variant="ghost" size="icon" aria-label="Decrease quantity" className="h-9 w-9 rounded-xl" onClick={() => stepQty(-1)}>
+                <Minus className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
               <span className="w-8 text-center font-black font-mono">{qty}</span>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => stepQty(1)}>
-                <Plus className="h-3.5 w-3.5" />
+              <Button variant="ghost" size="icon" aria-label="Increase quantity" className="h-9 w-9 rounded-xl" onClick={() => stepQty(1)}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
               </Button>
             </div>
             <Button disabled={!product.inStock || paused} onClick={add}
