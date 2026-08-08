@@ -219,6 +219,26 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Returns open once your order has been picked up or delivered.' }, { status: 409 });
     }
 
+    // The settings toggle is only honest if the SERVER refuses too — a hidden
+    // button is not a policy. Claims stay open regardless: a shop can decline
+    // changed minds, never defects.
+    const tenantSnapR = await db.collection('tenants').doc(tenantId).get();
+    const rsR = (tenantSnapR.exists ? (tenantSnapR.data() as any).retailSettings : {}) || {};
+    if (rsR.returnsEnabled === false) {
+      return NextResponse.json({
+        error: 'This shop doesn\u2019t take returns \u2014 but if something\u2019s wrong with what arrived, use \u201cReport a problem\u201d and it goes straight to the shop with your order\u2019s packing record.',
+      }, { status: 409 });
+    }
+    const windowDays = Math.max(0, Math.floor(Number(rsR.returnWindowDays) || 0));
+    if (windowDays > 0 && order.completedAt) {
+      const ageDays = (Date.now() - new Date(order.completedAt).getTime()) / 86400000;
+      if (Number.isFinite(ageDays) && ageDays > windowDays) {
+        return NextResponse.json({
+          error: `The ${windowDays}-day return window for this order has closed \u2014 message the shop below if something exceptional happened.`,
+        }, { status: 409 });
+      }
+    }
+
     const lines: any[] = [];
     for (const sel of selections) {
       const qty = Math.floor(Number(sel.qty) || 0);
