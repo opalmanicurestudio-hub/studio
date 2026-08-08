@@ -67,6 +67,29 @@ export default function RetailReturnsPage() {
 
   const [returns, setReturns] = useState<ReturnDoc[]>([]);
   const [activeReturn, setActiveReturn] = useState<ReturnDoc | null>(null);
+  const [labelBusy, setLabelBusy] = useState<string | null>(null);
+
+  const emailReturnLabel = async (r: ReturnDoc) => {
+    if (!firestore || !tenantId || labelBusy) return;
+    setLabelBusy(r.id);
+    try {
+      const orderSnap = await getDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailOrders`, r.orderId));
+      const qrToken = orderSnap.exists() ? String((orderSnap.data() as any).qrToken || '') : '';
+      if (!qrToken) throw new Error('Order record not found');
+      const res = await fetch('/api/retail/return-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId: r.orderId, returnId: r.id, qrToken }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not buy the label');
+      toast({ title: data.alreadySent ? 'Label already sent' : 'Return label emailed', description: data.message });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Return label', description: e?.message || 'Try again.' });
+    } finally {
+      setLabelBusy(null);
+    }
+  };
   const [parentOrder, setParentOrder] = useState<(RetailOrder & { id: string }) | null>(null);
   const [verifiedLineId, setVerifiedLineId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -304,6 +327,23 @@ export default function RetailReturnsPage() {
                     </Badge>
                   </div>
                 </button>
+
+                {(r as any).labelUrl ? (
+                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">
+                    Label sent · {(r as any).labelCarrier} {(r as any).labelTrackingNumber}
+                    {(r as any).labelDeductCents ? ` · $${(((r as any).labelDeductCents || 0) / 100).toFixed(2)} off refund` : ' · shop pays'}
+                  </p>
+                ) : r.status === 'open' ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={labelBusy === r.id}
+                    onClick={() => emailReturnLabel(r)}
+                    className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                  >
+                    {labelBusy === r.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Email return label'}
+                  </Button>
+                ) : null}
 
                 {activeReturn?.id === r.id && (
                   <div className="pt-2 border-t-2 border-dashed space-y-4">
