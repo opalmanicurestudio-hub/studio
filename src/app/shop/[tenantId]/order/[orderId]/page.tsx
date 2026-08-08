@@ -120,6 +120,10 @@ export default function OrderStatusPage() {
   const [claimNote, setClaimNote] = useState('');
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
+  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null }[]>([]);
+  const [appealFor, setAppealFor] = useState<string | null>(null);
+  const [appealNote, setAppealNote] = useState('');
+  const [appealSending, setAppealSending] = useState(false);
   const activeRef = useRef(true);
 
   const load = useCallback(async () => {
@@ -230,6 +234,20 @@ export default function OrderStatusPage() {
     }
   };
 
+  const loadClaims = React.useCallback(async () => {
+    if (!selfToken || !order || !['shipped', 'handed_off', 'completed'].includes(order.stage)) return;
+    try {
+      const res = await fetch(`/api/retail/claims?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&t=${encodeURIComponent(selfToken)}`);
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.claims)) setMyClaims(data.claims);
+    } catch {
+      setMyClaims((c) => c);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfToken, order?.stage, tenantId, orderId]);
+
+  useEffect(() => { loadClaims(); }, [loadClaims]);
+
   const submitClaim = async () => {
     if (!selfToken || claimSending) return;
     if (claimType !== 'not_received' && !claimLine) {
@@ -253,10 +271,36 @@ export default function OrderStatusPage() {
       if (!res.ok) throw new Error(data.error || 'Could not send the report');
       setClaimDone(data.message || 'Reported — the shop will follow up.');
       setClaimOpen(false);
+      loadClaims();
     } catch (e: any) {
       toast({ variant: 'destructive', title: 'Could not send the report', description: e?.message || 'Try again.' });
     } finally {
       setClaimSending(false);
+    }
+  };
+
+  const submitAppeal = async (claimId: string) => {
+    if (!selfToken || appealSending || !appealNote.trim()) {
+      if (!appealNote.trim()) toast({ variant: 'destructive', title: 'Tell the shop why', description: 'Your note is what a person reads first.' });
+      return;
+    }
+    setAppealSending(true);
+    try {
+      const res = await fetch('/api/retail/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, action: 'appeal', claimId, note: appealNote.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not send the appeal');
+      toast({ title: 'Appeal received', description: data.message });
+      setAppealFor(null);
+      setAppealNote('');
+      loadClaims();
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not send the appeal', description: e?.message || 'Try again.' });
+    } finally {
+      setAppealSending(false);
     }
   };
 
@@ -830,6 +874,80 @@ export default function OrderStatusPage() {
                   </Button>
                 )}
               </div>
+
+              {myClaims.length > 0 && (
+                <div className="space-y-2">
+                  {myClaims.map((mc) => {
+                    const label =
+                      mc.type === 'missing' ? 'Missing item' :
+                      mc.type === 'damaged' ? 'Damaged' :
+                      mc.type === 'wrong_item' ? 'Wrong item' : 'Never arrived';
+                    const statusLine =
+                      mc.status === 'in_review' ? (mc.appealedAt ? 'Appeal in review — a person is on it' : 'In review with the packing record') :
+                      mc.status === 'auto_resolved' || mc.status === 'resolved'
+                        ? `Approved${mc.resolutionCents ? ` — $${(mc.resolutionCents / 100).toFixed(2)} refund queued` : ''}`
+                        : 'Declined';
+                    const good = mc.status === 'auto_resolved' || mc.status === 'resolved';
+                    return (
+                      <div key={mc.id} className={cn('rounded-2xl border-2 p-3 space-y-1.5', good ? 'border-primary/30 bg-primary/[0.03]' : mc.status === 'declined' ? 'border-slate-200' : 'border-amber-200 bg-amber-50/40')}>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-black uppercase tracking-tight">
+                            {label}{mc.lineName ? ` · ${mc.lineName}` : ''}{mc.qty > 1 ? ` ×${mc.qty}` : ''}
+                          </p>
+                          <p className={cn('text-[9px] font-black uppercase tracking-widest', good ? 'text-primary' : 'text-muted-foreground')}>{statusLine}</p>
+                        </div>
+                        {mc.status === 'declined' && mc.declineReason && (
+                          <p className="text-[11px] font-bold text-muted-foreground">{mc.declineReason}</p>
+                        )}
+                        {mc.status === 'declined' && !mc.appealedAt && (
+                          appealFor === mc.id ? (
+                            <div className="space-y-2 pt-1">
+                              <Textarea
+                                aria-label="Why should this be looked at again"
+                                placeholder="Anything the shop should know — a person reads this"
+                                value={appealNote}
+                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setAppealNote(e.target.value)}
+                                className="min-h-20 rounded-xl border-2 font-bold text-sm"
+                              />
+                              <div className="flex gap-2">
+                                <Button
+                                  size="sm"
+                                  disabled={appealSending}
+                                  onClick={() => submitAppeal(mc.id)}
+                                  className="h-9 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                                >
+                                  {appealSending ? <Loader className="h-3.5 w-3.5 animate-spin" /> : 'Send appeal'}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => { setAppealFor(null); setAppealNote(''); }}
+                                  className="h-9 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setAppealFor(mc.id)}
+                              className="h-9 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                            >
+                              Think we got it wrong? Appeal
+                            </Button>
+                          )
+                        )}
+                        {mc.status === 'declined' && mc.appealedAt && (
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Appealed — awaiting a second look</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {claimDone ? (
                 <p className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-3 text-xs font-bold text-primary">{claimDone}</p>
               ) : claimOpen ? (
@@ -891,11 +1009,11 @@ export default function OrderStatusPage() {
                     Checked against the packing record — clear cases resolve automatically.
                   </p>
                 </div>
-              ) : (
+              ) : myClaims.length === 0 ? (
                 <p className="text-[11px] font-bold text-muted-foreground">
                   Missing, damaged, wrong, or never arrived — report it here and it goes straight to the shop with your order&apos;s packing record attached.
                 </p>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         )}
