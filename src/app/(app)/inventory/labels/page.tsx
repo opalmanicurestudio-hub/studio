@@ -1,6 +1,6 @@
-
 'use client';
 
+import { AnimatePresence, motion } from 'framer-motion';
 import React, { useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { AppHeader } from '@/components/shared/AppHeader';
@@ -15,7 +15,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowLeft, Printer, Download, Search, Sheet, ChevronsUpDown, ImageIcon, Sparkles } from 'lucide-react';
+import { ArrowLeft, Printer, Download, Search, Sheet, ChevronsUpDown, ImageIcon, Sparkles, Loader} from 'lucide-react';
 import Link from 'next/link';
 import { useInventory } from '@/context/InventoryContext';
 import { type InventoryItem } from '@/lib/data';
