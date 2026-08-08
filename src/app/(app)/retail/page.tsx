@@ -1,5 +1,6 @@
 'use client';
 
+import { type InventoryItem } from '@/lib/data';
 import React, { useState, useMemo, useEffect, KeyboardEvent, useCallback, Suspense } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
