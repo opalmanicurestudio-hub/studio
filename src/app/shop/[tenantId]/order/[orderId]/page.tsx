@@ -464,6 +464,7 @@ export default function OrderStatusPage() {
                         <button
                           key={s}
                           type="button"
+                          aria-pressed={vehicle === s}
                           onClick={() => setVehicle(s)}
                           className={cn(
                             'rounded-2xl border-2 p-3 text-[10px] font-black uppercase tracking-widest transition-all',
@@ -481,6 +482,7 @@ export default function OrderStatusPage() {
                   ) : (
                     <Input
                       placeholder="Spot number or car description"
+                      aria-label="Spot number or car description"
                       value={vehicle}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
                       className="h-12 rounded-xl border-2 font-bold text-sm"
@@ -609,7 +611,8 @@ export default function OrderStatusPage() {
                         ['change', 'Cancel or change'],
                         ['return', 'Returns'],
                       ].map(([k, label]) => (
-                        <button key={k} type="button" onClick={() => setInstantQ(instantQ === k ? null : k)}
+                        <button key={k} type="button" aria-expanded={instantQ === k}
+                          onClick={() => setInstantQ(instantQ === k ? null : k)}
                           className={cn('h-8 px-3 rounded-full border-2 text-[8px] font-black uppercase tracking-widest transition-all',
                             instantQ === k ? 'bg-foreground text-background border-foreground' : 'bg-white hover:border-primary/40')}>
                           {label}
@@ -648,6 +651,7 @@ export default function OrderStatusPage() {
                   </div>
                   <Textarea
                     placeholder="Still need us? Tell us what's going on\u2026"
+                    aria-label="Message to the shop"
                     value={helpMsg}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHelpMsg(e.target.value)}
                     className="rounded-2xl border-2 min-h-[80px] font-bold text-sm"
@@ -730,12 +734,14 @@ export default function OrderStatusPage() {
                         </div>
                         <Input
                           placeholder="Sum it up (optional)"
+                          aria-label="Review title, optional"
                           value={revTitle}
                           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRevTitle(e.target.value)}
                           className="h-11 rounded-2xl border-2 font-bold text-sm"
                         />
                         <Textarea
                           placeholder="What did you think?"
+                          aria-label="Your review"
                           value={revBody}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRevBody(e.target.value)}
                           className="min-h-[70px] rounded-2xl border-2 font-bold text-sm"
@@ -794,17 +800,18 @@ export default function OrderStatusPage() {
                           <div className="flex items-center justify-between gap-2">
                             <p className="font-black uppercase tracking-tight text-xs min-w-0 truncate">{l.name}</p>
                             <div className="flex items-center gap-2 shrink-0">
-                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2"
+                              <Button variant="outline" size="icon" aria-label={`Return fewer of ${l.name}`} className="h-8 w-8 rounded-lg border-2"
                                 disabled={q <= 0}
                                 onClick={() => setRetQty({ ...retQty, [l.lineId as string]: q - 1 })}>−</Button>
                               <span className="font-black font-mono text-sm w-6 text-center">{q}<span className="text-muted-foreground text-[9px]">/{max}</span></span>
-                              <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2"
+                              <Button variant="outline" size="icon" aria-label={`Return more of ${l.name}`} className="h-8 w-8 rounded-lg border-2"
                                 disabled={q >= max}
                                 onClick={() => setRetQty({ ...retQty, [l.lineId as string]: q + 1 })}>+</Button>
                             </div>
                           </div>
                           {q > 0 && (
                             <select
+                              aria-label={`Reason for returning ${l.name}`}
                               value={retReason[l.lineId as string] || 'changed_mind'}
                               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRetReason({ ...retReason, [l.lineId as string]: e.target.value })}
                               className="w-full h-10 rounded-xl border-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest"
@@ -822,7 +829,8 @@ export default function OrderStatusPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {(['refund', 'store_credit'] as const).map((r) => (
-                      <button key={r} type="button" onClick={() => setRetResolution(r)}
+                      <button key={r} type="button" aria-pressed={retResolution === r}
+                        onClick={() => setRetResolution(r)}
                         className={cn('h-10 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest transition-all',
                           retResolution === r ? 'bg-foreground text-background border-foreground' : 'bg-white')}>
                         {r === 'refund' ? 'Refund' : 'Store credit'}
@@ -831,6 +839,7 @@ export default function OrderStatusPage() {
                   </div>
                   <Textarea
                     placeholder="Anything we should know? (optional)"
+                    aria-label="Notes for the shop, optional"
                     value={retNotes}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRetNotes(e.target.value)}
                     className="rounded-2xl border-2 min-h-[60px] font-bold text-sm"
