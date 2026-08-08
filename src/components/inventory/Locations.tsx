@@ -18,8 +18,7 @@ import {
     Sparkles, 
     Warehouse, 
     MapPin,
-    Users
-} from 'lucide-react';
+    Users, Trash2} from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { type InventoryItem } from '@/lib/data';
 import { type Location, type LocationType } from '@/lib/data';
