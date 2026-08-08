@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo } from 'react';
@@ -246,7 +245,7 @@ export default function CampaignsPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {sortedQuotes.map(campaign => (
+                            {sortedCampaigns.map(campaign => (
                                 <TableRow key={campaign.id} className="group hover:bg-primary/[0.02] transition-colors border-b">
                                     <TableCell className="p-6">
                                         <div className="flex items-center gap-2">
@@ -299,7 +298,7 @@ export default function CampaignsPage() {
                     </Table>
                 </div>
                 <div className="md:hidden space-y-4 p-5">
-                    {sortedQuotes.map(campaign => (
+                    {sortedCampaigns.map(campaign => (
                         <CampaignCard key={campaign.id} campaign={campaign} onSend={handleSendCampaign} onDelete={handleDeleteClick} />
                     ))}
                 </div>
