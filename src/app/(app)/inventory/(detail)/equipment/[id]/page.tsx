@@ -1,5 +1,7 @@
 'use client';
 
+import { nanoid } from 'nanoid';
+import { Separator } from '@/components/ui/separator';
 import React, { useState, useMemo } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
 import {
@@ -11,7 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp, Hammer, Tag, Truck, QrCode } from 'lucide-react';
+import { ArrowLeft, Edit, PlusCircle, Trash2, User, Wrench, DollarSign, FlaskConical, Calendar as CalendarIcon, Rocket, CheckCircle, Percent, TrendingUp, Hammer, Tag, Truck, QrCode, Printer} from 'lucide-react';
 import { useInventory } from '@/context/InventoryContext';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
