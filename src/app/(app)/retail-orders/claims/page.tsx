@@ -21,9 +21,10 @@ import { cn } from '@/lib/utils';
 // scans, photos, carrier state, prior-claim count — so review is a judgment,
 // not an investigation. Approving queues the money in the order's
 // pendingRefundCents (the same staff banner every refund uses); declining
-// requires a written reason that the customer-facing follow-up can quote.
-// Auto-approved claims appear here too, labeled, so nothing money-shaped
-// happens invisibly.
+// requires a written reason because the customer's email quotes it verbatim.
+// After either decision the desk pings claim-notify, which emails the
+// customer exactly once per decision — appealed claims come back here with
+// the customer's note attached and "Appealed after decline" on the record.
 
 type Claim = {
   id: string; orderId: string; orderNumber?: number | null;
@@ -33,6 +34,7 @@ type Claim = {
   evidence?: any; risk?: string; riskFactors?: string[];
   status: string; resolution?: string | null; resolutionCents?: number | null;
   openedAt?: string; decidedAt?: string | null; decidedBy?: string | null; declineReason?: string | null;
+  appealNote?: string | null; appealedAt?: string | null;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -77,7 +79,7 @@ export default function RetailClaimsPage() {
   const decide = async (c: Claim, approve: boolean) => {
     if (!firestore || !tenantId || busy) return;
     if (!approve && !declineWhy.trim()) {
-      toast({ variant: 'destructive', title: 'A decline needs a reason', description: 'The customer follow-up quotes it.' });
+      toast({ variant: 'destructive', title: 'A decline needs a reason', description: 'The customer email quotes it word for word.' });
       return;
     }
     setBusy(c.id);
@@ -101,7 +103,17 @@ export default function RetailClaimsPage() {
           txn.update(claimRef, { status: 'declined', resolution: 'declined', decidedAt: now, decidedBy: 'staff', declineReason: declineWhy.trim().slice(0, 400) });
         }
       });
-      toast({ title: approve ? 'Approved — refund queued' : 'Declined', description: approve ? `${money(c.claimValueCents)} added to the refund banner.` : 'Reason saved on the claim.' });
+      fetch('/api/retail/claim-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, claimId: c.id }),
+      }).catch(() => {});
+      toast({
+        title: approve ? 'Approved — refund queued' : 'Declined',
+        description: approve
+          ? `${money(c.claimValueCents)} added to the refund banner. The customer has been emailed.`
+          : 'Reason saved and emailed to the customer — they can appeal once.',
+      });
       setDeclineFor(null);
       setDeclineWhy('');
     } catch (e: any) {
@@ -179,6 +191,9 @@ export default function RetailClaimsPage() {
                       #{String(c.orderNumber ?? '').padStart(4, '0')} · {TYPE_LABELS[c.type] || c.type}
                     </p>
                     <Badge className={cn('border-2 font-black text-[9px] uppercase tracking-widest', meta.cls)}>{meta.label}</Badge>
+                    {c.appealedAt && c.status === 'in_review' && (
+                      <Badge variant="outline" className="border-2 border-amber-200 font-black text-[9px] uppercase tracking-widest text-amber-900">Appeal</Badge>
+                    )}
                     {c.risk && c.status === 'in_review' && (
                       <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest">{c.risk} risk</Badge>
                     )}
@@ -190,6 +205,11 @@ export default function RetailClaimsPage() {
                     {c.lineName ? ` · ${c.lineName}${(c.qty || 1) > 1 ? ` ×${c.qty}` : ''}` : ''}
                   </p>
                   {c.description && <p className="text-sm font-bold leading-relaxed text-muted-foreground">&ldquo;{c.description}&rdquo;</p>}
+                  {c.appealNote && (
+                    <p className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-relaxed text-amber-900">
+                      Appeal: &ldquo;{c.appealNote}&rdquo;
+                    </p>
+                  )}
 
                   <div className="flex flex-wrap gap-1.5">
                     {ev.lineScanned != null && (
@@ -242,7 +262,7 @@ export default function RetailClaimsPage() {
                     <div className="space-y-2">
                       <Textarea
                         aria-label="Reason for declining this claim"
-                        placeholder="Why — the customer follow-up will quote this"
+                        placeholder="Why — the customer's email quotes this word for word"
                         value={declineWhy}
                         onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDeclineWhy(e.target.value)}
                         className="min-h-20 rounded-xl border-2 font-bold text-sm"
