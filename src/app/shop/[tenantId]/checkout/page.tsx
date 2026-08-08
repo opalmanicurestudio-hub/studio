@@ -105,6 +105,22 @@ export default function CheckoutPage() {
   const [tipPct, setTipPct] = useState<number>(0);
   const [pickupChoice, setPickupChoice] = useState('ASAP');
 
+  // Live carrier rates. The server signs every option (amount + service +
+  // expiry); the browser only ever sends the chosen option's token back, so
+  // a customer picks the SERVICE but can never set the PRICE. Quotes are
+  // keyed to the address they were fetched for — edit the address and the
+  // stale options disappear instead of quietly mispricing the parcel.
+  type ShipQuote = { id: string; carrier: string; service: string; amountCents: number; days: number | null; exp: number; token: string };
+  const [quotes, setQuotes] = useState<ShipQuote[]>([]);
+  const [quoting, setQuoting] = useState(false);
+  const [selectedQuoteId, setSelectedQuoteId] = useState('');
+  const [quotedFor, setQuotedFor] = useState('');
+
+  const addrKey = `${addr.line1}|${addr.city}|${addr.state}|${addr.postalCode}`.toLowerCase();
+  const addrComplete = Boolean(addr.line1 && addr.city && addr.state && addr.postalCode);
+  const quotesFresh = quotes.length > 0 && quotedFor === addrKey;
+  const selectedQuote = quotesFresh ? quotes.find((q) => q.id === selectedQuoteId) || null : null;
+
   // Returning from Stripe restores this page from the back-forward cache
   // with state frozen mid-checkout. On a plain page the only frozen thing
   // is the Pay spinner — reset it so the button is immediately usable.
@@ -190,12 +206,46 @@ export default function CheckoutPage() {
   );
   const tipCents = shop?.tipsEnabled && tipPct > 0 ? Math.round((subtotalCents * tipPct) / 100) : 0;
 
+  const fetchQuotes = async () => {
+    if (!addrComplete || quoting) return;
+    setQuoting(true);
+    try {
+      const res = await fetch('/api/retail/shipping-quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId,
+          items: cartEntries.map(([key, qty]) => ({ productId: parseCartKey(key).productId, qty })),
+          address: { line1: addr.line1, line2: addr.line2, city: addr.city, state: addr.state, postalCode: addr.postalCode },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not fetch shipping options');
+      const opts: ShipQuote[] = Array.isArray(data.options) ? data.options : [];
+      if (opts.length === 0) throw new Error('No shipping options came back — the flat rate applies.');
+      setQuotes(opts);
+      setQuotedFor(addrKey);
+      const cheapest = [...opts].sort((a, b) => a.amountCents - b.amountCents)[0];
+      setSelectedQuoteId(cheapest.id);
+    } catch (e: any) {
+      setQuotes([]);
+      setQuotedFor('');
+      toast({ title: 'Shipping options', description: e?.message || 'Live rates unavailable — the flat rate applies.' });
+    } finally {
+      setQuoting(false);
+    }
+  };
+
+  const freeOverCents = Math.round((shop?.freeShippingOverDollars || 0) * 100);
+  const freeQualified = freeOverCents > 0 && subtotalCents >= freeOverCents;
+
   const shippingCents = useMemo(() => {
     if (method !== 'ship' || !shop) return 0;
-    const freeOver = Math.round((shop.freeShippingOverDollars || 0) * 100);
-    if (freeOver > 0 && subtotalCents >= freeOver) return 0;
+    if (freeQualified) return 0;
+    if (selectedQuote) return selectedQuote.amountCents;
     return Math.round((shop.flatShippingDollars || 0) * 100);
-  }, [method, shop, subtotalCents]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [method, shop, subtotalCents, selectedQuote, freeQualified]);
 
   const setQty = (p: any, qty: number, cartKey?: string) => {
     const clamped = Math.max(0, Math.min(qty, p.qtyAvailable));
@@ -237,6 +287,9 @@ export default function CheckoutPage() {
           method,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' ? { ...addr, country: 'US' } : undefined,
+          shippingQuote: method === 'ship' && selectedQuote
+            ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, exp: selectedQuote.exp, token: selectedQuote.token }
+            : undefined,
           priceTier: wholesale ? 'wholesale' : 'retail',
           wholesaleCode: wholesale ? wholesaleCode : undefined,
           business: wholesale ? { name: businessName.trim(), poNumber: poNumber.trim() } : undefined,
@@ -396,6 +449,55 @@ export default function CheckoutPage() {
                 <Input placeholder="State" aria-label="State" autoComplete="address-level1" value={addr.state} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, state: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
                 <Input placeholder="ZIP" aria-label="ZIP code" autoComplete="postal-code" inputMode="numeric" value={addr.postalCode} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, postalCode: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
               </div>
+
+              {freeQualified ? (
+                <p className="text-[10px] font-black uppercase tracking-widest text-primary">
+                  Free shipping — this order qualifies
+                </p>
+              ) : !quotesFresh ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={!addrComplete || quoting}
+                  onClick={fetchQuotes}
+                  className="h-11 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest"
+                >
+                  {quoting ? <Loader className="h-4 w-4 animate-spin" aria-hidden="true" /> : 'Get shipping options'}
+                </Button>
+              ) : (
+                <div className="space-y-2" role="radiogroup" aria-label="Shipping options">
+                  {quotes.map((q) => (
+                    <button
+                      key={q.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selectedQuoteId === q.id}
+                      onClick={() => setSelectedQuoteId(q.id)}
+                      className={cn(
+                        'flex w-full items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 text-left transition-all',
+                        selectedQuoteId === q.id ? 'border-primary bg-primary/5' : 'hover:border-primary/30'
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-[10px] font-black uppercase tracking-widest">{q.carrier} · {q.service}</span>
+                        {q.days != null && (
+                          <span className="block text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                            ~{q.days} day{q.days === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 font-black font-mono text-sm">{q.amountCents === 0 ? 'Free' : fmt(q.amountCents)}</span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => { setQuotes([]); setQuotedFor(''); setSelectedQuoteId(''); }}
+                    className="text-[9px] font-black uppercase tracking-widest text-muted-foreground underline underline-offset-2"
+                  >
+                    Refresh options
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
