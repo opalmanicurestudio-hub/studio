@@ -609,6 +609,7 @@ function EvidencePill({ label, has }: { label: string; has: boolean }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 function DisputeCenterContent() {
+  const { toast }                                 = useToast();
   const { firestore }                             = useFirebase();
   const { selectedTenant }                        = useTenant();
   const tenantId                                  = selectedTenant?.id;
