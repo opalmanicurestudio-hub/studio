@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { sendOrderConfirmation } from '@/lib/retail-webhook';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -19,6 +20,16 @@ import { NextRequest, NextResponse } from 'next/server';
 //     lands in the Returns inbox BEFORE the customer walks in. Quantities
 //     validated against what's still returnable per line; resolution limited
 //     to refund | store_credit (replacements stay a staff judgment call).
+//
+//   { action: 'update_address', tenantId, orderId, qrToken, address }
+//     Allowed ONLY while unpicked (placed | paid) on ship orders — the same
+//     window as cancel, because once a picker claims the order the label is
+//     minutes away. The old address is preserved in the event record, so a
+//     correction is an EVENT in the order's history, never an overwrite of it.
+//
+//   { action: 'resend_receipt', tenantId, orderId, qrToken }
+//     Re-sends the original confirmation email. Capped at 5 per order inside
+//     the transaction, so a stuck retry button can't become a mail cannon.
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -50,7 +61,7 @@ export async function POST(req: NextRequest) {
   const qrToken = String(body.qrToken || '').trim();
   const action = String(body.action || '').trim();
 
-  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return'].includes(action)) {
+  if (!tenantId || !orderId || !qrToken || !['cancel', 'start_return', 'update_address', 'resend_receipt'].includes(action)) {
     return NextResponse.json({ error: 'Missing order details' }, { status: 400 });
   }
 
@@ -123,6 +134,75 @@ export async function POST(req: NextRequest) {
           ? 'Order cancelled. Your refund has been queued and the shop will process it shortly.'
           : 'Order cancelled.',
       });
+    }
+
+    if (action === 'update_address') {
+      const a = body.address || {};
+      const clean = {
+        name: String(a.name || '').trim().slice(0, 80),
+        line1: String(a.line1 || '').trim().slice(0, 120),
+        line2: String(a.line2 || '').trim().slice(0, 120),
+        city: String(a.city || '').trim().slice(0, 60),
+        state: String(a.state || '').trim().slice(0, 30),
+        postalCode: String(a.postalCode || '').trim().slice(0, 15),
+        country: 'US',
+      };
+      if (!clean.name || !clean.line1 || !clean.city || !clean.state || !clean.postalCode) {
+        return NextResponse.json({ error: 'Please fill in the full corrected address.' }, { status: 400 });
+      }
+
+      const result = await db.runTransaction(async (txn: any) => {
+        const snap = await txn.get(orderRef);
+        if (!snap.exists) return { status: 404, error: 'Order not found.' };
+        const order = snap.data() as any;
+        if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
+        if (order.method !== 'ship') {
+          return { status: 409, error: 'This order isn\u2019t being shipped, so there\u2019s no address to change.' };
+        }
+        if (!CANCEL_STAGES.includes(order.stage)) {
+          return {
+            status: 409,
+            error: 'Packing has already started, so the address can\u2019t change online \u2014 send us a note below right away and we\u2019ll try to catch it.',
+          };
+        }
+
+        txn.update(orderRef, { shippingAddress: clean });
+        const evRef = orderRef.collection('events').doc();
+        txn.set(evRef, {
+          id: evRef.id, type: 'address_updated', at: new Date().toISOString(),
+          actorId: 'customer', actorName: order.customerName || 'Customer',
+          meta: { from: order.shippingAddress || null, to: clean, selfServe: true },
+        });
+        return { status: 200 };
+      });
+
+      if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: true, message: 'Address updated \u2014 your package will ship to the corrected address.' });
+    }
+
+    if (action === 'resend_receipt') {
+      const result = await db.runTransaction(async (txn: any) => {
+        const snap = await txn.get(orderRef);
+        if (!snap.exists) return { status: 404, error: 'Order not found.' };
+        const order = snap.data() as any;
+        if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
+        if (order.stage === 'placed') {
+          return { status: 409, error: 'The receipt is sent once payment confirms \u2014 this order hasn\u2019t been paid yet.' };
+        }
+        if (!String(order.customerEmail || '').trim()) {
+          return { status: 409, error: 'There\u2019s no email address on this order.' };
+        }
+        const sends = Number(order.receiptResends) || 0;
+        if (sends >= 5) {
+          return { status: 429, error: 'That receipt has been re-sent several times already \u2014 check your spam folder, or message us below.' };
+        }
+        txn.update(orderRef, { receiptResends: sends + 1 });
+        return { status: 200, order };
+      });
+
+      if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
+      await sendOrderConfirmation(db, tenantId, orderId, result.order, null);
+      return NextResponse.json({ ok: true, message: 'Receipt re-sent \u2014 it should be in your inbox in a minute.' });
     }
 
     // ── start_return ──
