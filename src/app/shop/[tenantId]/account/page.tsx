@@ -142,8 +142,8 @@ function AccountInner() {
     <div className="min-h-dvh bg-muted/5 pb-24">
       <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
-            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" /></Link>
+          <Button asChild variant="ghost" size="icon" aria-label="Back to shop" className="h-10 w-10 rounded-xl">
+            <Link href={`/shop/${tenantId}`}><ArrowLeft className="h-4 w-4" aria-hidden="true" /></Link>
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="font-black uppercase tracking-tighter text-xl leading-none">My Orders</h1>
@@ -153,11 +153,11 @@ function AccountInner() {
           </div>
           {session && (
             <>
-              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl" disabled={loading} onClick={() => load(session)}>
-                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+              <Button variant="ghost" size="icon" aria-label="Refresh orders" className="h-10 w-10 rounded-xl" disabled={loading} onClick={() => load(session)}>
+                <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} aria-hidden="true" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-muted-foreground" onClick={signOut}>
-                <LogOut className="h-4 w-4" />
+              <Button variant="ghost" size="icon" aria-label="Sign out" className="h-10 w-10 rounded-xl text-muted-foreground" onClick={signOut}>
+                <LogOut className="h-4 w-4" aria-hidden="true" />
               </Button>
             </>
           )}
@@ -187,7 +187,7 @@ function AccountInner() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <Input type="email" placeholder="you@example.com" value={emailInput}
+                  <Input type="email" placeholder="you@example.com" aria-label="Email address" autoComplete="email" value={emailInput}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmailInput(e.target.value)}
                     className="h-12 rounded-xl border-2 font-bold text-sm text-center" />
                   <Button disabled={!emailInput.trim() || requesting} onClick={requestLink}
