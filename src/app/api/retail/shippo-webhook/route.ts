@@ -101,6 +101,42 @@ export async function POST(req: NextRequest) {
     const snap = await db.collection(`tenants/${tenantId}/retailOrders`)
       .where('trackingNumber', '==', trackingNumber).limit(3).get();
 
+    // Return labels carry their own tracking numbers that never match an
+    // order's outbound leg. When the order lookup comes up empty, check the
+    // returns — the same carrier scans then drive the RETURN's journey, so
+    // the desk sees "on its way back" without anyone asking the customer.
+    if (snap.empty) {
+      const retSnap = await db.collection(`tenants/${tenantId}/retailReturns`)
+        .where('labelTrackingNumber', '==', trackingNumber).limit(3).get();
+      let stamped = 0;
+      for (const rd of retSnap.docs) {
+        const ret = rd.data() as any;
+        await rd.ref.set({
+          labelTrackingStatus: update.status,
+          labelTrackingStatusAt: update.statusAt,
+          labelTrackingDetail: update.detail,
+        }, { merge: true });
+        stamped++;
+        if (['DELIVERED', 'TRANSIT', 'RETURNED'].includes(update.status) && ret.orderId) {
+          try {
+            const evRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(String(ret.orderId)).collection('events').doc(`ret-track-${trackingNumber}-${update.status}`);
+            await evRef.set({
+              id: evRef.id, type: 'note', at: update.statusAt || new Date().toISOString(),
+              actorId: 'carrier', actorName: update.carrier || 'Carrier',
+              meta: { text: update.status === 'DELIVERED'
+                ? `Return parcel arrived back at the shop (${trackingNumber})`
+                : `Return parcel ${update.status === 'TRANSIT' ? 'in transit back to the shop' : 'returned to sender'} (${trackingNumber})` },
+            }, { merge: true });
+          } catch {
+            // ledger note is best-effort; the status stamp already landed
+          }
+        }
+      }
+      if (stamped > 0) {
+        return NextResponse.json({ ok: true, returnLegs: stamped, status: update.status });
+      }
+    }
+
     let advanced = 0;
     let notified = 0;
 
