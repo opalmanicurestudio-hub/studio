@@ -11,6 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { computeIntegrityScore } from '@/lib/integrity-score';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { cn } from '@/lib/utils';
@@ -140,6 +141,19 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
   const allScanned = scanChecks.length > 0 && scanChecks.every((c) => c.ok);
 
   const photos: string[] = Array.isArray(order?.packPhotoUrls) ? order.packPhotoUrls : [];
+  const integrity = useMemo(() => {
+    if (!order) return null;
+    return computeIntegrityScore({
+      method: order.method,
+      stage: order.stage,
+      lines: order.lines || [],
+      packPhotoUrls: photos,
+      trackingNumber: order.trackingNumber || '',
+      hasHandoffOrLabelScan: events.some((e) => e.type === (order.method === 'ship' ? 'label_scan_verified' : 'handoff_scanned')),
+      hasMismatchOrOverride: events.some((e) => e.type === 'scan_mismatch' || e.type === 'override'),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order, events]);
   const labelEv = [...events].reverse().find((e) => e.type === 'label_generated');
   const verifications = order ? [
     { label: 'Every unit scanned', ok: allScanned, icon: ScanLine },
@@ -191,6 +205,20 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         <CardContent className="p-5 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-lg font-black uppercase tracking-tight">Order {num}</p>
+            {integrity && (
+              <span
+                className={cn(
+                  'inline-flex items-baseline gap-1 rounded-xl border-2 px-2.5 py-1',
+                  integrity.grade === 'strong' ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : integrity.grade === 'fair' ? 'border-amber-200 bg-amber-50 text-amber-900'
+                    : 'border-red-200 bg-red-50 text-red-900'
+                )}
+                title="Order Integrity Score — strength of the fulfilment evidence, normalized to what this order could have"
+              >
+                <span className="font-mono text-sm font-black">{integrity.score}</span>
+                <span className="text-[8px] font-black uppercase tracking-widest">/100 {integrity.grade}</span>
+              </span>
+            )}
             <Badge className="border-2 font-black text-[9px] uppercase tracking-widest">{String(order.stage || '')}</Badge>
             <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest">
               {order.method === 'ship' ? 'Shipping' : order.method === 'curbside' ? 'Curbside' : 'Pickup'}
