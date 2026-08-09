@@ -805,7 +805,7 @@ export async function releaseCoverableBackorders(
 
     const heldSnap = await getDocs(query(orderCol(fs, tenantId), where('holdUntilRestock', '==', true)));
     const held = heldSnap.docs
-      .map((d) => ({ id: d.id, ...(d.data() as RetailOrder) }))
+      .map((d) => ({ ...(d.data() as RetailOrder), id: d.id }))
       .filter((o) => o.stage === 'paid')
       .sort((a, b) => String(a.placedAt || '').localeCompare(String(b.placedAt || '')));
 
