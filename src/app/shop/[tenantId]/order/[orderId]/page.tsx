@@ -121,6 +121,10 @@ export default function OrderStatusPage() {
   const [claimNote, setClaimNote] = useState('');
   const [photoBusyFor, setPhotoBusyFor] = useState<string | null>(null);
   const [infoAnswer, setInfoAnswer] = useState<Record<string, string>>({});
+  const [aiThread, setAiThread] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiDown, setAiDown] = useState(false);
   const [infoBusy, setInfoBusy] = useState<string | null>(null);
   const [claimComponent, setClaimComponent] = useState('');
   const [kitPieces, setKitPieces] = useState<string[]>([]);
@@ -268,6 +272,35 @@ export default function OrderStatusPage() {
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimLine, claimType, selfToken, tenantId, orderId]);
+
+  const askAi = async () => {
+    const q = aiInput.trim();
+    if (!q || aiBusy || !selfToken) return;
+    const nextThread: { role: 'user' | 'assistant'; content: string }[] = [...aiThread, { role: 'user', content: q }];
+    setAiThread(nextThread);
+    setAiInput('');
+    setAiBusy(true);
+    try {
+      const res = await fetch('/api/retail/ai-support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, messages: nextThread }),
+      });
+      const data = await res.json();
+      if (res.status === 503) {
+        setAiDown(true);
+        setAiThread(aiThread);
+      } else if (!res.ok) {
+        setAiThread([...nextThread, { role: 'assistant', content: data.error || 'That didn\u2019t go through \u2014 try again, or use Report a problem below.' }]);
+      } else {
+        setAiThread([...nextThread, { role: 'assistant', content: String(data.reply || '') }]);
+      }
+    } catch {
+      setAiThread([...nextThread, { role: 'assistant', content: 'Connection hiccup \u2014 try again, or use Report a problem below.' }]);
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const answerInfoRequest = async (claimId: string) => {
     const note = (infoAnswer[claimId] || '').trim();
@@ -829,6 +862,39 @@ export default function OrderStatusPage() {
                 </p>
               ) : (
                 <>
+                  {selfToken && !aiDown && (
+                    <div className="space-y-2 rounded-2xl border-2 p-3">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">Ask about this order</p>
+                      {aiThread.length > 0 && (
+                        <div className="max-h-56 space-y-2 overflow-y-auto">
+                          {aiThread.map((m, i) => (
+                            <p key={i} className={cn('rounded-xl px-3 py-2 text-sm font-bold whitespace-pre-wrap',
+                              m.role === 'user' ? 'bg-primary text-primary-foreground ml-6' : 'bg-muted mr-6')}>
+                              {m.content}
+                            </p>
+                          ))}
+                          {aiBusy && <p className="mr-6 rounded-xl bg-muted px-3 py-2 text-sm font-bold text-muted-foreground">Reading your order\u2026</p>}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <Input
+                          aria-label="Ask a question about this order"
+                          placeholder="e.g. When will it arrive? Can I still change the address?"
+                          value={aiInput}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAiInput(e.target.value)}
+                          onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') askAi(); }}
+                          className="h-11 rounded-xl border-2 font-bold text-sm"
+                        />
+                        <Button disabled={aiBusy || !aiInput.trim()} onClick={askAi}
+                          className="h-11 rounded-xl px-4 font-black uppercase text-[10px] tracking-widest">
+                          Ask
+                        </Button>
+                      </div>
+                      <p className="text-[9px] font-bold text-muted-foreground/70">
+                        Answers come straight from this order\u2019s record. It can\u2019t change your order or promise refunds \u2014 the buttons below do the real work, and a person reviews anything important.
+                      </p>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/60">Instant answers</p>
                     <div className="flex flex-wrap gap-1.5">
