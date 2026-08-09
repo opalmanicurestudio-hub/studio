@@ -119,6 +119,8 @@ export default function OrderStatusPage() {
   const [claimQty, setClaimQty] = useState(1);
   const [claimNote, setClaimNote] = useState('');
   const [claimComponent, setClaimComponent] = useState('');
+  const [kitPieces, setKitPieces] = useState<string[]>([]);
+  const [pieceOther, setPieceOther] = useState(false);
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
   const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null }[]>([]);
@@ -248,6 +250,20 @@ export default function OrderStatusPage() {
   }, [selfToken, order?.stage, tenantId, orderId]);
 
   useEffect(() => { loadClaims(); }, [loadClaims]);
+
+  useEffect(() => {
+    setKitPieces([]);
+    setPieceOther(false);
+    setClaimComponent('');
+    if (!selfToken || !claimLine || claimType === 'not_received') return;
+    let live = true;
+    fetch(`/api/retail/claims?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&t=${encodeURIComponent(selfToken)}&contents=${encodeURIComponent(claimLine)}`)
+      .then((r) => r.json())
+      .then((data) => { if (live && Array.isArray(data.pieces)) setKitPieces(data.pieces); })
+      .catch(() => {});
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claimLine, claimType, selfToken, tenantId, orderId]);
 
   const submitClaim = async () => {
     if (!selfToken || claimSending) return;
@@ -993,7 +1009,22 @@ export default function OrderStatusPage() {
                       </select>
                     </div>
                   )}
-                  {claimType !== 'not_received' && (
+                  {claimType !== 'not_received' && kitPieces.length > 0 && (
+                    <select
+                      aria-label="Which piece of the set"
+                      value={pieceOther ? '__other' : claimComponent}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                        if (e.target.value === '__other') { setPieceOther(true); setClaimComponent(''); }
+                        else { setPieceOther(false); setClaimComponent(e.target.value); }
+                      }}
+                      className="h-11 w-full rounded-xl border-2 bg-white px-2 text-xs font-black uppercase tracking-widest"
+                    >
+                      <option value="">Which piece of the set?</option>
+                      {kitPieces.map((p) => <option key={p} value={p}>{p}</option>)}
+                      <option value="__other">Something else / not listed</option>
+                    </select>
+                  )}
+                  {claimType !== 'not_received' && (kitPieces.length === 0 || pieceOther) && (
                     <Input
                       aria-label="Which piece of the item, if it's a set"
                       placeholder="A set or collection? Name the exact piece"
