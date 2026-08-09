@@ -69,6 +69,22 @@ export async function GET(req: NextRequest) {
     if (!orderSnap.exists) return NextResponse.json({ error: 'Order not found.' }, { status: 404 });
     if ((orderSnap.data() as any).qrToken !== t) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
 
+    const contentsFor = String(req.nextUrl.searchParams.get('contents') || '').trim();
+    if (contentsFor) {
+      const line = ((orderSnap.data() as any).lines || []).find((l: any) => l.lineId === contentsFor);
+      let pieces: string[] = [];
+      if (line?.productId) {
+        try {
+          const item = await db.collection(`tenants/${tenantId}/inventory`).doc(String(line.productId)).get();
+          const kc = item.exists ? (item.data() as any).kitContents : null;
+          pieces = Array.isArray(kc) ? kc.map((p: any) => String(p).trim()).filter(Boolean).slice(0, 40) : [];
+        } catch {
+          pieces = [];
+        }
+      }
+      return NextResponse.json({ pieces });
+    }
+
     const snap = await db.collection(`tenants/${tenantId}/retailClaims`)
       .where('orderId', '==', orderId).limit(20).get();
     const claims = snap.docs
