@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import React, { useMemo, useState } from 'react';
 
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
+import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -134,6 +135,21 @@ export function QuickReceiveDialog({
       toast({ variant: 'destructive', title: 'Some lines failed', description: failures.join(', ') });
     } else {
       toast({ title: 'Stock received', description: `${units} unit(s) across ${lines.length} item(s) \u2014 costed batches created.` });
+      try {
+        const { released } = await releaseCoverableBackorders(
+          firestore as Firestore, tenantId,
+          lines.map((l) => ({ productId: l.productId, qty: l.qty })),
+          { id: user?.uid || 'staff', name: actorName }
+        );
+        if (released.length > 0) {
+          toast({
+            title: `Restock releases ${released.length} backorder${released.length > 1 ? 's' : ''}`,
+            description: released.map((r) => `#${String(r.orderNumber ?? '').padStart(4, '0')} (${r.units}u)`).join(', ') + ' \u2014 back in the pick queue.',
+          });
+        }
+      } catch {
+        // the receive already committed; the board's Release button still covers this
+      }
       setLines([]);
       setTerm('');
       close(false);
