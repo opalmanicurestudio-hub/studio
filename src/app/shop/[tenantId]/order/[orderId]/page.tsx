@@ -120,12 +120,14 @@ export default function OrderStatusPage() {
   const [claimQty, setClaimQty] = useState(1);
   const [claimNote, setClaimNote] = useState('');
   const [photoBusyFor, setPhotoBusyFor] = useState<string | null>(null);
+  const [infoAnswer, setInfoAnswer] = useState<Record<string, string>>({});
+  const [infoBusy, setInfoBusy] = useState<string | null>(null);
   const [claimComponent, setClaimComponent] = useState('');
   const [kitPieces, setKitPieces] = useState<string[]>([]);
   const [pieceOther, setPieceOther] = useState(false);
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
-  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[] }[]>([]);
+  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[]; infoRequestText?: string | null; infoResponseText?: string | null }[]>([]);
   const [appealFor, setAppealFor] = useState<string | null>(null);
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
@@ -266,6 +268,31 @@ export default function OrderStatusPage() {
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimLine, claimType, selfToken, tenantId, orderId]);
+
+  const answerInfoRequest = async (claimId: string) => {
+    const note = (infoAnswer[claimId] || '').trim();
+    if (!selfToken || !note || infoBusy) return;
+    setInfoBusy(claimId);
+    try {
+      const res = await fetch('/api/retail/claims', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, action: 'respond_info', claimId, note }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ variant: 'destructive', title: 'Not sent', description: data.error || 'Try again.' });
+      } else {
+        toast({ title: 'Answer sent', description: 'The shop has it \u2014 review continues.' });
+        setInfoAnswer({ ...infoAnswer, [claimId]: '' });
+        await loadClaims();
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Not sent', description: 'Check your connection and try again.' });
+    } finally {
+      setInfoBusy(null);
+    }
+  };
 
   const addClaimPhoto = async (claimId: string, file: File) => {
     if (!selfToken || photoBusyFor) return;
@@ -959,6 +986,30 @@ export default function OrderStatusPage() {
                           </p>
                           <p className={cn('text-[9px] font-black uppercase tracking-widest', good ? 'text-primary' : 'text-muted-foreground')}>{statusLine}</p>
                         </div>
+                        {(mc as any).infoRequestText && (
+                          <div className="rounded-xl border-2 border-amber-200 bg-amber-50/60 p-2.5 space-y-1.5">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-800">The shop asked</p>
+                            <p className="text-[11px] font-bold text-amber-900">{(mc as any).infoRequestText}</p>
+                            {(mc as any).infoResponseText ? (
+                              <p className="text-[11px] font-bold text-foreground border-t-2 border-amber-100 pt-1.5">You answered: {(mc as any).infoResponseText}</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                <Textarea
+                                  aria-label="Answer the shop's request"
+                                  placeholder="Type your answer — add photos below if they asked for pictures"
+                                  value={infoAnswer[mc.id] ?? ''}
+                                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInfoAnswer({ ...infoAnswer, [mc.id]: e.target.value })}
+                                  className="min-h-[54px] rounded-xl border-2 bg-white font-bold text-sm"
+                                />
+                                <Button size="sm" disabled={infoBusy === mc.id || !(infoAnswer[mc.id] || '').trim()}
+                                  onClick={() => answerInfoRequest(mc.id)}
+                                  className="h-9 w-full rounded-xl font-black uppercase text-[10px] tracking-widest">
+                                  {infoBusy === mc.id ? 'Sending…' : 'Send my answer'}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {Array.isArray(mc.photoUrls) && mc.photoUrls.length > 0 && (
                           <div className="flex gap-2 pt-1">
                             {mc.photoUrls.slice(0, 4).map((u: string) => (
