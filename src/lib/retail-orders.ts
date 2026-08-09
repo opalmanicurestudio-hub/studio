@@ -93,6 +93,8 @@ export interface RetailInventoryFields {
   stockReserved?: number;      // held by paid, unfulfilled online orders (default 0)
   showOnline?: boolean;        // listed on the public storefront (default false)
   barcode?: string;            // physical UPC/Code-128; falls back to sku
+  casePack?: number;           // units per sealed wholesale case (>1 enables case scanning)
+  caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
   onlineDescription?: string;  // storefront copy (name/msrp come from the item)
   imageUrls?: string[];
   lowStockThreshold?: number;
@@ -463,6 +465,8 @@ export interface OrderLine {
   qtyReturned: number;
   status: LineStatus;
   shortReason?: string;
+  casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
+  caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
 }
 
 export type ShortResolution = 'refund' | 'backorder';
@@ -488,6 +492,8 @@ export function buildOrderLine(
     qtyShorted: 0,
     qtyReturned: 0,
     status: 'pending',
+    ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
+    ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
   };
 }
 
@@ -786,7 +792,7 @@ export function queuePriority(
  * ════════════════════════════════════════════════════════════════════════════ */
 
 export type ScanResult =
-  | { ok: true; lineId: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean }
+  | { ok: true; lineId: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean; caseCounted?: number }
   | { ok: false; code: 'unknown_sku' | 'over_scan' | 'line_closed'; message: string };
 
 /**
@@ -837,7 +843,8 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
       ? l.productId === productIdFromQr
       : l.productId === raw ||
         l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw)
+        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
+        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw))
   );
 
   if (idx === -1) {
@@ -875,10 +882,17 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
     };
   }
 
+  // A scan of the CASE code counts a sealed case's worth of units in one
+  // beep — the spec's rule: verify 20 cases, not 500 bottles. The last case
+  // never overshoots: it counts exactly the units still owed.
+  const isCaseScan = !!line.caseBarcode && (line.casePack || 0) > 1 && codesMatch(line.caseBarcode, raw);
+  const remaining = line.qtyOrdered - line.qtyScanned;
+  const increment = isCaseScan ? Math.min(line.casePack as number, remaining) : 1;
+
   const updatedLine: OrderLine = {
     ...line,
-    qtyScanned: line.qtyScanned + 1,
-    status: line.qtyScanned + 1 === line.qtyOrdered ? 'picked' : 'pending',
+    qtyScanned: line.qtyScanned + increment,
+    status: line.qtyScanned + increment === line.qtyOrdered ? 'picked' : 'pending',
   };
   const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
 
@@ -889,6 +903,7 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
       qtyScanned: updatedLine.qtyScanned,
       qtyOrdered: line.qtyOrdered,
       pickComplete: isPickComplete(nextLines),
+      ...(isCaseScan ? { caseCounted: increment } : {}),
     },
     lines: nextLines,
   };
