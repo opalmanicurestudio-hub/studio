@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─── /api/retail/claim-notify/route.ts ────────────────────────────────────────
 // Emails the customer about a DECIDED claim. The desk calls this after a
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
     const tenant = tenantSnap.exists ? (tenantSnap.data() as any) : {};
     const shopName = String(tenant.businessName || tenant.name || 'the shop');
+    const emailBrand = await getEmailBrand(db, tenantId);
 
     const origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
     const orderLink = origin ? `${origin}/shop/${tenantId}/order/${decision.orderId}` : '';
@@ -80,13 +82,12 @@ export async function POST(req: NextRequest) {
          ${decision.declineReason ? `<p style="font-size:13px;color:#334155;line-height:1.6;border-left:3px solid #e2e8f0;padding-left:12px;margin:14px 0">${String(decision.declineReason)}</p>` : ''}
          <p style="font-size:14px;color:#334155;line-height:1.6">If we've got this wrong, you can appeal once from your order page — add anything we should know and a person will look at it again.</p>`;
 
-    const html = `
-    <div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:28px 20px">
-      <p style="font-size:14px;color:#0f172a;font-weight:700">Hi ${firstName},</p>
+    const html = brandedEmail(emailBrand, `
+      <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
       ${bodyHtml}
-      ${orderLink ? `<p style="margin:22px 0"><a href="${orderLink}" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">${approved ? 'View my order' : 'View or appeal'}</a></p>` : ''}
-      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Order #${String(decision.orderNumber ?? '').padStart(4, '0')} at ${shopName}.</p>
-    </div>`;
+      ${orderLink ? emailButton(orderLink, approved ? 'View my order' : 'View or appeal', emailBrand) : ''}
+      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Order #${String(decision.orderNumber ?? '').padStart(4, '0')} at ${shopName}.</p>`,
+      { preheader: approved ? 'Your report was approved' : 'An update on your report' });
 
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
