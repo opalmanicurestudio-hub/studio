@@ -1,6 +1,7 @@
 'use client';
 
 import { collection, doc, onSnapshot, orderBy, query, limit, runTransaction, type Firestore } from 'firebase/firestore';
+import { updateDoc } from 'firebase/firestore';
 import {
   ArrowLeft, Check, ClipboardList, ExternalLink, Loader, ShieldQuestion, X,
 } from 'lucide-react';
@@ -62,6 +63,8 @@ export default function RetailClaimsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineWhy, setDeclineWhy] = useState('');
+  const [askFor, setAskFor] = useState<Record<string, string>>({});
+  const [askBusy, setAskBusy] = useState<string | null>(null);
   const [approveCents, setApproveCents] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -77,6 +80,31 @@ export default function RetailClaimsPage() {
       () => setLoaded(true)
     );
   }, [firestore, tenantId]);
+
+  const requestInfo = async (c: Claim) => {
+    const text = (askFor[c.id] || '').trim();
+    if (!firestore || !tenantId || !text || askBusy) return;
+    setAskBusy(c.id);
+    try {
+      const now = new Date().toISOString();
+      await updateDoc(doc(firestore as Firestore, `tenants/${tenantId}/retailClaims`, c.id), {
+        infoRequestText: text.slice(0, 400),
+        infoRequestAt: now,
+        infoRequestBy: 'staff',
+      });
+      fetch('/api/retail/claim-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, claimId: c.id, kind: 'info_request' }),
+      }).catch(() => {});
+      setAskFor({ ...askFor, [c.id]: '' });
+      toast({ title: 'Request sent', description: 'The customer sees it on their order page and by email.' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Could not send the request' });
+    } finally {
+      setAskBusy(null);
+    }
+  };
 
   const decide = async (c: Claim, approve: boolean) => {
     if (!firestore || !tenantId || busy) return;
@@ -231,6 +259,33 @@ export default function RetailClaimsPage() {
                           <img src={u} alt="Customer claim photo" className="h-14 w-14 rounded-lg border-2 object-cover" />
                         </a>
                       ))}
+                    </div>
+                  )}
+                  {(c as any).infoRequestText && (
+                    <div className="mt-2 rounded-xl border-2 border-sky-100 bg-sky-50/60 p-2.5 space-y-1">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-sky-800">You asked for</p>
+                      <p className="text-[11px] font-bold text-sky-900">{(c as any).infoRequestText}</p>
+                      {(c as any).infoResponseText ? (
+                        <p className="text-[11px] font-bold text-foreground border-t-2 border-sky-100 pt-1.5">Customer: {(c as any).infoResponseText}</p>
+                      ) : (
+                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Waiting on the customer</p>
+                      )}
+                    </div>
+                  )}
+                  {c.status === 'in_review' && (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        aria-label="Ask the customer for a specific document or photo"
+                        placeholder="Ask for something specific — e.g. a photo of the batch code"
+                        value={askFor[c.id] ?? ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAskFor({ ...askFor, [c.id]: e.target.value })}
+                        className="h-9 flex-1 rounded-xl border-2 px-2.5 text-xs font-bold"
+                      />
+                      <Button size="sm" variant="outline" disabled={askBusy === c.id || !(askFor[c.id] || '').trim()}
+                        onClick={() => requestInfo(c)}
+                        className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                        {askBusy === c.id ? 'Sending…' : 'Request'}
+                      </Button>
                     </div>
                   )}
                   {c.description && <p className="text-sm font-bold leading-relaxed text-muted-foreground">&ldquo;{c.description}&rdquo;</p>}
