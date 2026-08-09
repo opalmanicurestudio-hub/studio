@@ -118,6 +118,7 @@ export default function OrderStatusPage() {
   const [claimLine, setClaimLine] = useState('');
   const [claimQty, setClaimQty] = useState(1);
   const [claimNote, setClaimNote] = useState('');
+  const [claimComponent, setClaimComponent] = useState('');
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
   const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null }[]>([]);
@@ -265,6 +266,7 @@ export default function OrderStatusPage() {
           lineId: claimType === 'not_received' ? '' : claimLine,
           qty: claimQty,
           description: claimNote.trim(),
+          component: claimComponent.trim(),
         }),
       });
       const data = await res.json();
@@ -991,9 +993,18 @@ export default function OrderStatusPage() {
                       </select>
                     </div>
                   )}
+                  {claimType !== 'not_received' && (
+                    <Input
+                      aria-label="Which piece of the item, if it's a set"
+                      placeholder="A set or collection? Name the exact piece"
+                      value={claimComponent}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClaimComponent(e.target.value)}
+                      className="h-11 rounded-xl border-2 font-bold text-sm"
+                    />
+                  )}
                   <Textarea
                     aria-label="Tell us what happened"
-                    placeholder="Anything that helps — what you found when you opened it"
+                    placeholder={claimType === 'damaged' ? 'Describe the damage \u2014 required, it\u2019s what the shop reviews first' : claimType === 'wrong_item' ? 'What arrived instead? Required' : 'Anything that helps \u2014 what you found when you opened it'}
                     value={claimNote}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setClaimNote(e.target.value)}
                     className="min-h-20 rounded-xl border-2 font-bold text-sm"
