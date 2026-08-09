@@ -58,10 +58,11 @@ export default function RetailClaimsPage() {
 
   const [claims, setClaims] = useState<Claim[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [filter, setFilter] = useState<'open' | 'all' | 'decided'>('open');
+  const [filter, setFilter] = useState<'open' | 'all' | 'decided'>('all');
   const [busy, setBusy] = useState<string | null>(null);
   const [declineFor, setDeclineFor] = useState<string | null>(null);
   const [declineWhy, setDeclineWhy] = useState('');
+  const [approveCents, setApproveCents] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
@@ -94,8 +95,10 @@ export default function RetailClaimsPage() {
         if (cur.status !== 'in_review') throw new Error('Already decided on another device');
         const now = new Date().toISOString();
         if (approve) {
-          const cents = Math.max(0, Number(cur.claimValueCents) || 0);
-          txn.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff' });
+          const asked = Math.max(0, Number(cur.claimValueCents) || 0);
+          const edited = approveCents[c.id];
+          const cents = Number.isFinite(edited) ? Math.max(0, Math.min(Math.round(edited), asked)) : asked;
+          txn.update(claimRef, { status: 'resolved', resolution: 'refund', resolutionCents: cents, decidedAt: now, decidedBy: 'staff', ...(cents !== asked ? { partialOfCents: asked } : {}) });
           if (orderSnap.exists()) {
             const o = orderSnap.data() as any;
             txn.update(orderRef, { pendingRefundCents: Math.max(0, Number(o.pendingRefundCents) || 0) + cents });
@@ -112,7 +115,7 @@ export default function RetailClaimsPage() {
       toast({
         title: approve ? 'Approved — refund queued' : 'Declined',
         description: approve
-          ? `${money(c.claimValueCents)} added to the refund banner. The customer has been emailed.`
+          ? `${money(Number.isFinite(approveCents[c.id]) ? Math.min(approveCents[c.id], Number(c.claimValueCents) || 0) : c.claimValueCents)} added to the refund banner. The customer has been emailed.`
           : 'Reason saved and emailed to the customer — they can appeal once.',
       });
       setDeclineFor(null);
@@ -131,9 +134,14 @@ export default function RetailClaimsPage() {
   }), [claims]);
 
   const shown = useMemo(() => {
-    if (filter === 'open') return claims.filter((c) => c.status === 'in_review');
-    if (filter === 'decided') return claims.filter((c) => c.status !== 'in_review');
-    return claims;
+    const base = filter === 'open' ? claims.filter((c) => c.status === 'in_review')
+      : filter === 'decided' ? claims.filter((c) => c.status !== 'in_review')
+      : claims;
+    return [...base].sort((a, b) => {
+      const ar = a.status === 'in_review' ? 0 : 1;
+      const br = b.status === 'in_review' ? 0 : 1;
+      return ar - br || String(b.openedAt || '').localeCompare(String(a.openedAt || ''));
+    });
   }, [claims, filter]);
 
   return (
@@ -214,6 +222,7 @@ export default function RetailClaimsPage() {
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                     {c.customerName}{c.customerEmail ? ` · ${c.customerEmail}` : ''}
                     {c.lineName ? ` · ${c.lineName}${(c.qty || 1) > 1 ? ` ×${c.qty}` : ''}` : ''}
+                    {(c as any).component ? ` · piece: ${(c as any).component}` : ''}
                   </p>
                   {c.description && <p className="text-sm font-bold leading-relaxed text-muted-foreground">&ldquo;{c.description}&rdquo;</p>}
                   {c.appealNote && (
@@ -248,14 +257,25 @@ export default function RetailClaimsPage() {
                     </Button>
                     {c.status === 'in_review' && (
                       <>
-                        <Button
-                          size="sm"
-                          disabled={busy === c.id}
-                          onClick={() => decide(c, true)}
-                          className="h-9 rounded-xl font-black uppercase text-[10px] tracking-widest"
-                        >
-                          {busy === c.id ? <Loader className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : (<><Check className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />Approve {money(c.claimValueCents)}</>)}
-                        </Button>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-black text-muted-foreground">$</span>
+                          <input
+                            aria-label="Approval amount in dollars — lower it for one piece of a kit or set"
+                            inputMode="decimal"
+                            value={Number.isFinite(approveCents[c.id]) ? String(approveCents[c.id] / 100) : String((Number(c.claimValueCents) || 0) / 100)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                              setApproveCents({ ...approveCents, [c.id]: Math.max(0, Math.round((Number(e.target.value) || 0) * 100)) })}
+                            className="h-9 w-20 rounded-xl border-2 bg-white px-2 text-center font-mono text-xs font-black"
+                          />
+                          <Button
+                            size="sm"
+                            disabled={busy === c.id}
+                            onClick={() => decide(c, true)}
+                            className="h-9 rounded-xl font-black uppercase text-[10px] tracking-widest"
+                          >
+                            {busy === c.id ? <Loader className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : (<><Check className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />Approve</>)}
+                          </Button>
+                        </div>
                         <Button
                           size="sm"
                           variant="ghost"
