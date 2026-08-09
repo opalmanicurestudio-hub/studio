@@ -776,3 +776,52 @@ export async function releaseBackorder(
     return { ok: false, message: e?.message || 'Could not release.' };
   }
 }
+
+/**
+ * Restock → release. Called by the receive dialogs AFTER stock commits:
+ * finds parked backorder children whose product was just received and
+ * releases them oldest-first while the received units still cover each
+ * child in full — spec's "system detects → system acts". Partial coverage
+ * releases nothing for that child (a release that instantly re-shorts at
+ * the bench would be motion, not progress). Best-effort by design: a
+ * failure here never touches the receive that already committed, and the
+ * board's manual Release button remains the human override either way.
+ */
+export async function releaseCoverableBackorders(
+  fs: Firestore,
+  tenantId: string,
+  received: { productId: string; qty: number }[],
+  actor: Actor
+): Promise<{ released: { orderId: string; orderNumber: number | null; units: number }[] }> {
+  const released: { orderId: string; orderNumber: number | null; units: number }[] = [];
+  try {
+    const budget = new Map<string, number>();
+    for (const r of received) {
+      if (r.productId && Number(r.qty) > 0) {
+        budget.set(r.productId, (budget.get(r.productId) || 0) + Math.floor(Number(r.qty)));
+      }
+    }
+    if (budget.size === 0) return { released };
+
+    const heldSnap = await getDocs(query(orderCol(fs, tenantId), where('holdUntilRestock', '==', true)));
+    const held = heldSnap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as RetailOrder) }))
+      .filter((o) => o.stage === 'paid')
+      .sort((a, b) => String(a.placedAt || '').localeCompare(String(b.placedAt || '')));
+
+    for (const child of held) {
+      const line = (child.lines || [])[0];
+      if (!line) continue;
+      const have = budget.get(line.productId) || 0;
+      if (have < line.qtyOrdered) continue;
+      const res = await releaseBackorder(fs, tenantId, child.id, actor);
+      if (res.ok) {
+        budget.set(line.productId, have - line.qtyOrdered);
+        released.push({ orderId: child.id, orderNumber: child.orderNumber ?? null, units: line.qtyOrdered });
+      }
+    }
+  } catch (e) {
+    console.warn('[retail-fulfill] backorder auto-release skipped:', (e as any)?.message);
+  }
+  return { released };
+}
