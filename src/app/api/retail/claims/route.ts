@@ -49,6 +49,7 @@ const CLAIM_STAGES = ['shipped', 'handed_off', 'completed'];
 const safeClaim = (d: any) => ({
   id: d.id, type: d.type, qty: d.qty || 1,
   lineName: d.lineName || null,
+  component: d.component || null,
   status: d.status, resolution: d.resolution || null,
   resolutionCents: d.resolutionCents ?? null,
   declineReason: d.declineReason || null,
@@ -133,9 +134,27 @@ export async function POST(req: NextRequest) {
     const lineId = String(body.lineId || '').trim();
     const qty = Math.max(1, Math.floor(Number(body.qty) || 1));
     const description = String(body.description || '').trim().slice(0, 600);
+    const component = String(body.component || '').trim().slice(0, 120);
 
     if (!CLAIM_TYPES.includes(type)) return NextResponse.json({ error: 'Missing claim details' }, { status: 400 });
     if (type !== 'not_received' && !lineId) return NextResponse.json({ error: 'Pick the affected item.' }, { status: 400 });
+    if ((type === 'damaged' || type === 'wrong_item') && description.length < 10) {
+      return NextResponse.json({ error: type === 'damaged'
+        ? 'Describe the damage in a sentence or two \u2014 it\u2019s what the shop reviews first.'
+        : 'Tell the shop what arrived instead \u2014 it\u2019s what the review starts from.' }, { status: 400 });
+    }
+
+    // Per-type completeness: a claim must carry what a decision needs.
+    // Damaged / wrong-item claims are undecidable without the customer's
+    // own words (what broke, what arrived instead — including WHICH PIECE
+    // of a kit or set), so a real description is required to file one.
+    if ((type === 'damaged' || type === 'wrong_item') && description.length < 10) {
+      return NextResponse.json({
+        error: type === 'damaged'
+          ? 'Tell the shop what\u2019s damaged \u2014 which item or piece, and what you found (a sentence is plenty).'
+          : 'Tell the shop what arrived instead \u2014 which item or piece was wrong.',
+      }, { status: 400 });
+    }
 
     const [orderSnap, tenantSnap] = await Promise.all([
       orderRef.get(),
@@ -226,6 +245,7 @@ export async function POST(req: NextRequest) {
       lineName: line ? String(line.name || '') : null,
       lineSku: line ? String(line.sku || '') : null,
       description: description || null,
+      component: component || null,
       claimValueCents,
       evidence, risk, riskFactors,
       status: autoApprove ? 'auto_resolved' : 'in_review',
