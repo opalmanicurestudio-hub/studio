@@ -4,6 +4,7 @@ import {
   Car, Check, CheckCircle2, Clock, LifeBuoy, Loader, Package, PackageCheck,
   QrCode, ShoppingBag, Store, Truck, XCircle,
 } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -118,12 +119,13 @@ export default function OrderStatusPage() {
   const [claimLine, setClaimLine] = useState('');
   const [claimQty, setClaimQty] = useState(1);
   const [claimNote, setClaimNote] = useState('');
+  const [photoBusyFor, setPhotoBusyFor] = useState<string | null>(null);
   const [claimComponent, setClaimComponent] = useState('');
   const [kitPieces, setKitPieces] = useState<string[]>([]);
   const [pieceOther, setPieceOther] = useState(false);
   const [claimSending, setClaimSending] = useState(false);
   const [claimDone, setClaimDone] = useState('');
-  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null }[]>([]);
+  const [myClaims, setMyClaims] = useState<{ id: string; type: string; qty: number; lineName: string | null; status: string; resolution: string | null; resolutionCents: number | null; declineReason: string | null; appealedAt: string | null; photoUrls?: string[] }[]>([]);
   const [appealFor, setAppealFor] = useState<string | null>(null);
   const [appealNote, setAppealNote] = useState('');
   const [appealSending, setAppealSending] = useState(false);
@@ -264,6 +266,49 @@ export default function OrderStatusPage() {
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimLine, claimType, selfToken, tenantId, orderId]);
+
+  const addClaimPhoto = async (claimId: string, file: File) => {
+    if (!selfToken || photoBusyFor) return;
+    setPhotoBusyFor(claimId);
+    try {
+      const dataUrl: string = await new Promise((resolve, reject) => {
+        const img = new Image();
+        const fr = new FileReader();
+        fr.onerror = () => reject(new Error('read'));
+        fr.onload = () => {
+          img.onload = () => {
+            const scale = Math.min(1, 1280 / Math.max(img.width, img.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(img.width * scale));
+            canvas.height = Math.max(1, Math.round(img.height * scale));
+            const ctx = canvas.getContext('2d');
+            if (!ctx) { reject(new Error('canvas')); return; }
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
+          };
+          img.onerror = () => reject(new Error('img'));
+          img.src = String(fr.result);
+        };
+        fr.readAsDataURL(file);
+      });
+      const res = await fetch('/api/retail/claim-photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, claimId, image: dataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({ variant: 'destructive', title: 'Photo not added', description: data.error || 'Try again.' });
+      } else {
+        toast({ title: 'Photo added', description: 'It\u2019s attached to your report for review.' });
+        await loadClaims();
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Photo not added', description: 'That photo couldn\u2019t be read \u2014 try another.' });
+    } finally {
+      setPhotoBusyFor(null);
+    }
+  };
 
   const submitClaim = async () => {
     if (!selfToken || claimSending) return;
@@ -914,6 +959,31 @@ export default function OrderStatusPage() {
                           </p>
                           <p className={cn('text-[9px] font-black uppercase tracking-widest', good ? 'text-primary' : 'text-muted-foreground')}>{statusLine}</p>
                         </div>
+                        {Array.isArray(mc.photoUrls) && mc.photoUrls.length > 0 && (
+                          <div className="flex gap-2 pt-1">
+                            {mc.photoUrls.slice(0, 4).map((u: string) => (
+                              <img key={u} src={u} alt="Photo attached to this report" className="h-12 w-12 rounded-lg border-2 object-cover" />
+                            ))}
+                          </div>
+                        )}
+                        {mc.status !== 'approved' && (mc.photoUrls?.length || 0) < 4 && (
+                          <label className="inline-flex items-center gap-1.5 pt-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground cursor-pointer">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="sr-only"
+                              aria-label="Add a photo to this report"
+                              disabled={photoBusyFor === mc.id}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = '';
+                                if (f) addClaimPhoto(mc.id, f);
+                              }}
+                            />
+                            <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+                            {photoBusyFor === mc.id ? 'Adding photo…' : 'Add a photo (helps the review)'}
+                          </label>
+                        )}
                         {mc.status === 'declined' && mc.declineReason && (
                           <p className="text-[11px] font-bold text-muted-foreground">{mc.declineReason}</p>
                         )}
