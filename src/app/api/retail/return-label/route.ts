@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 // ─── /api/retail/return-label/route.ts ────────────────────────────────────────
 // Buys a RETURN shipping label for an authorized return: the outbound label
@@ -190,6 +191,7 @@ export async function POST(req: NextRequest) {
       const to = String(order.customerEmail || '').trim();
       if (RESEND_API_KEY && RESEND_FROM && to) {
         const shopName = String(tenant.businessName || tenant.name || 'the shop');
+        const emailBrand = await getEmailBrand(db, tenantId);
         const firstName = String(order.customerName || '').trim().split(/\s+/)[0] || 'there';
         const itemsHtml = retLines.slice(0, 8).map((rl: any) =>
           `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${String(rl.name || 'Item')}${(Number(rl.qty) || 1) > 1 ? ` \u00d7 ${Number(rl.qty)}` : ''}</td></tr>`
@@ -197,15 +199,14 @@ export async function POST(req: NextRequest) {
         const deductHtml = labelDeductCents
           ? `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping of <strong>$${(labelDeductCents / 100).toFixed(2)}</strong> will be deducted from your refund, per the shop's return policy — you'll see the exact amount before it's processed.</p>`
           : `<p style="font-size:13px;color:#334155;line-height:1.6">Return shipping is on ${shopName} — the label costs you nothing.</p>`;
-        const html = `
-        <div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:28px 20px">
+        const html = brandedEmail(emailBrand, `
           <p style="font-size:14px;color:#0f172a;font-weight:700">Hi ${firstName},</p>
           <p style="font-size:14px;color:#334155;line-height:1.6">Your return label for order #${String(order.orderNumber ?? '').padStart(4, '0')} is ready. Print it, tape it over the old label on any box, and drop it with ${cheapest.provider} — that's the whole job.</p>
           <table style="border-collapse:collapse;margin:14px 0">${itemsHtml}</table>
           ${deductHtml}
-          <p style="margin:22px 0"><a href="${String(txn.label_url || '')}" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">Get my return label</a></p>
-          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking ${String(txn.tracking_number || '')}. Your refund moves once the return arrives and is checked in.</p>
-        </div>`;
+          ${emailButton(String(txn.label_url || ''), 'Open my return label', emailBrand)}
+          <p style="font-size:12px;color:#94a3b8;line-height:1.6">Tracking ${String(txn.tracking_number || '')}. Your refund moves once the return arrives and is checked in.</p>`,
+          { preheader: 'Your return label is ready' });
         await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
