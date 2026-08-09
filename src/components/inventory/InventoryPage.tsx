@@ -1,5 +1,3 @@
-
-
 'use client';
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
@@ -77,6 +75,7 @@ import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/comp
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
+import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
 import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
@@ -548,12 +547,28 @@ const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
         batch.update(orderRef, { status: newStatus });
       }
 
-      batch.commit().then(() => {
+      batch.commit().then(async () => {
           toast({
               title: "Stock Updated!",
               description: "Inventory has been updated with the received items.",
           });
           setOrderToReceive(null);
+          try {
+            const { released } = await releaseCoverableBackorders(
+              firestore,
+              tenantId,
+              receivedItems.map(item => ({ productId: item.productId, qty: item.quantityReceived })),
+              { id: 'staff', name: 'Receiving' }
+            );
+            if (released.length > 0) {
+              toast({
+                title: `Restock releases ${released.length} backorder${released.length > 1 ? 's' : ''}`,
+                description: released.map(r => `#${String(r.orderNumber ?? '').padStart(4, '0')} (${r.units}u)`).join(', ') + ' \u2014 back in the pick queue.',
+              });
+            }
+          } catch {
+            // receive already committed; the board's Release button still covers this
+          }
       }).catch(error => {
           console.error("Error receiving stock: ", error);
           toast({
@@ -1713,8 +1728,3 @@ export default function InventoryPage() {
     </ClientOnly>
   );
 }
-
-
-    
-
-
