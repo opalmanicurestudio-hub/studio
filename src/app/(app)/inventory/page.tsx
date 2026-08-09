@@ -1,832 +1,1729 @@
 'use client';
 
-import { differenceInMonths, endOfDay, format, isPast, parseISO, startOfDay, subDays } from 'date-fns';
-import { collection, doc, writeBatch, query, where, orderBy } from 'firebase/firestore';
-import { Html5Qrcode } from 'html5-qrcode';
-import {
-  Activity, AlertTriangle, BarChart, Beaker, Box, Briefcase, Building,
-  Calendar as CalendarIcon, Check, CheckCircle, ChevronDown, CircleHelp,
-  ClipboardList, Clock, DollarSign, Edit, Eye, File, FileImage, FileText,
-  FlaskConical, Hammer, HardHat, Link as LinkIcon, ListFilter, MapPin,
-  MoreHorizontal, Package, PackageX, Pencil, Pipette, Plus, PlusCircle,
-  Printer, QrCode, Recycle, RefreshCw, Rocket, Search, ShoppingCart,
-  SlidersHorizontal, Store, Trash2, TrendingUp, TrendingDown, Truck,
-  Warehouse, X, ChevronLeft, ChevronRight, Filter, XCircle, PackageOpen,
-  Loader, ArrowRight, CheckCircle2, Info, Coffee, History, Zap,
-  ExternalLink, Save,
-} from 'lucide-react';
-import Image from 'next/image';
-import Link from 'next/link';
-import { nanoid } from 'nanoid';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
-import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
-import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
-import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
-import { AddProductDialog } from '@/components/inventory/AddProductDialog';
-import { AddRefreshmentDialog } from '@/components/inventory/AddRefreshmentDialog';
-import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
-import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
-import { syncPublicFields } from '@/lib/product-public';
-import { EditProductDialog } from '@/components/inventory/EditProductDialog';
-import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
-import { FloatingInventoryFAB } from '@/components/inventory/FloatingInventoryFAB';
-import { InventorySidebar } from '@/components/inventory/InventorySidebar';
-import { Locations } from '@/components/inventory/Locations';
-import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
-import { LogUseDialog } from '@/components/inventory/LogUseDialog';
-import { ManageSpoilageDialog, type SpoilageItem } from '@/components/inventory/ManageSpoilageDialog';
-import { ProductCard } from '@/components/inventory/ProductCard';
-import { QuickReceiveDialog } from '@/components/inventory/QuickReceiveDialog';
-import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
-import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { ClientOnly } from '@/components/shared/ClientOnly';
-import { ImageUpload } from '@/components/shared/ImageUpload';
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  CardFooter,
+} from '@/components/ui/card';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { MoreHorizontal, PlusCircle, Search, SlidersHorizontal, Package, Hammer, FlaskConical, Pencil, Rocket, CheckCircle, Trash2, Edit, MapPin, Printer, PackageX, Box, Building, Store, ClipboardList, Plus, BarChart, File, Pipette, QrCode, AlertTriangle, ListFilter, ChevronDown, ShoppingCart, Briefcase, DollarSign, Activity, Eye, CircleHelp, Warehouse, Beaker, Recycle, TrendingUp, Truck, Clock, Check, Link as LinkIcon, FileImage, X } from 'lucide-react';
+import { 
+    type InventoryItem, 
+    type StockCorrection,
+    type Client,
+    type Appointment,
+    type Location,
+    type LocationType,
+    type Service,
+    type Order,
+    type Batch,
+    type SpoilageItem,
+} from '@/lib/data';
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import Image from 'next/image';
+import { useToast } from '@/hooks/use-toast';
 import { Input } from '@/components/ui/input';
+import { AddLocationDialog } from '@/components/inventory/AddLocationDialog';
+import { EditLocationDialog } from '@/components/inventory/EditLocationDialog';
+import { EndCostPerUseTestDialog } from '@/components/inventory/EndCostPerUseTestDialog';
+import { WriteOffDialog } from '@/components/inventory/WriteOffDialog';
+import { LogUseDialog } from '@/components/inventory/LogUseDialog';
+import { Locations } from '@/components/inventory/Locations';
+import Link from 'next/link';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { isPast, parseISO, differenceInMonths } from 'date-fns';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
+import { InventorySidebar } from '@/components/inventory/InventorySidebar';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { type Transaction } from '@/lib/financial-data';
+import { ClientOnly } from '@/components/shared/ClientOnly';
+import { AddProductDialog } from '@/components/inventory/AddProductDialog';
+import { AddEquipmentDialog } from '@/components/inventory/AddEquipmentDialog';
+import { AddOverheadDialog } from '@/components/inventory/AddOverheadDialog';
+import { useInventory } from '@/context/InventoryContext';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { EditProductDialog } from '@/components/inventory/EditProductDialog';
+import { useFirebase, useCollection, useMemoFirebase, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import { nanoid } from 'nanoid';
+import { BrowseProductsDialog } from '@/components/services/BrowseProductsDialog';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { cn, safeNumber } from '@/lib/utils';
-import { useInventory } from '@/context/InventoryContext';
-import { useTenant } from '@/context/TenantContext';
-import {
-  addDocumentNonBlocking, deleteDocumentNonBlocking, setDocumentNonBlocking,
-  updateDocumentNonBlocking, useCollection, useFirebase, useMemoFirebase, useUser,
-} from '@/firebase';
-import { useToast } from '@/hooks/use-toast';
-import {
-  Batch, InventoryItem, Location, LocationType, Order, StockCorrection, Staff, RefreshmentRequest
-} from '@/lib/data';
-import { Transaction } from '@/lib/financial-data';
-// ── Staff custody & replenishment ──────────────────────────────────────────
-import { createAssetUnit } from '@/lib/replenishment-firestore';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
-import { Separator } from '@/components/ui/separator';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CalendarIcon } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
-import { Progress } from '@/components/ui/progress';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
+import { ImageUpload } from '@/components/shared/ImageUpload';
+import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
+import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
+import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
+import { useTenant } from '@/context/TenantContext';
+import { Html5Qrcode } from 'html5-qrcode';
+import { ProductCard } from '@/components/inventory/ProductCard';
+import { EditEquipmentDialog } from '@/components/inventory/EditEquipmentDialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { LogSaleDialog } from '@/components/inventory/LogSaleDialog';
 
-const safeDate = (val: any): Date => {
-  if (!val) return new Date();
-  if (val instanceof Date) return val;
-  if (typeof val === 'string') return parseISO(val);
-  return new Date(val);
-};
 
-const ORDER_STATUS_STYLES: Record<string, string> = {
-  'Draft': 'bg-slate-100 border-slate-200 text-slate-600',
-  'Placed': 'bg-blue-50 border-blue-100 text-blue-700',
-  'Shipped': 'bg-amber-50 border-amber-100 text-amber-700',
-  'Partially Received': 'bg-orange-50 border-orange-100 text-orange-700',
-  'Received': 'bg-green-50 border-green-100 text-green-700',
-  'Cancelled': 'bg-destructive/5 border-destructive/10 text-destructive',
-};
+const OrderCard = ({ order, onSelect, onTrack, onReceive }: { order: Order, onSelect: (order: Order) => void, onTrack: (e: React.MouseEvent, url?: string) => void, onReceive: (order: Order) => void }) => {
+    const getStatusVariant = (status: Order['status']) => {
+        switch (status) {
+            case 'Placed': return { icon: <Clock className="h-3 w-3" />, className: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' };
+            case 'Shipped': return { icon: <Truck className="h-3 w-3" />, className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300' };
+            case 'Received':
+            case 'Partially Received':
+                return { icon: <Check className="h-3 w-3" />, className: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' };
+            case 'Cancelled':
+                return { icon: <X className="h-3 w-3" />, className: 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300' };
+            default: return { icon: <Package className="h-3 w-3" />, className: 'bg-gray-100 text-gray-700' };
+        }
+    };
+    const statusInfo = getStatusVariant(order.status);
+    const totalItems = order.items.reduce((acc, item) => acc + item.quantity, 0);
+    const totalCost = order.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
 
-const OrderCard = ({ order, onSelect, onTrack, onReceive }: {
-  order: Order; onSelect: (o: Order) => void;
-  onTrack: (e: React.MouseEvent, url?: string) => void; onReceive: (o: Order) => void;
-}) => {
-  const items = order.items ?? [];
-  const totalCost  = items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
-  const totalItems = items.reduce((a, i) => a + i.quantity, 0);
-  const canReceive = order.status === 'Placed' || order.status === 'Shipped' || order.status === 'Partially Received';
-  return (
-    <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white cursor-pointer hover:shadow-md hover:border-primary/20 transition-all group" onClick={() => onSelect(order)}>
-      <CardContent className="p-6 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1 text-left min-w-0">
-            <p className="font-black uppercase tracking-tight text-sm text-slate-900 truncate">{order.supplier}</p>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">#{order.id.slice(-6).toUpperCase()} · {format(parseISO(order.orderDate), 'MMM d, yyyy')}</p>
-          </div>
-          <Badge variant="outline" className={cn('h-6 px-3 font-black text-[9px] uppercase tracking-widest border-2 shrink-0', ORDER_STATUS_STYLES[order.status] ?? ORDER_STATUS_STYLES['Draft'])}>{order.status}</Badge>
-        </div>
-        <div className="space-y-1 text-left">
-          {items.slice(0, 2).map((item, i) => (<p key={i} className="text-[10px] font-bold text-muted-foreground truncate">· {item.productName} x{item.quantity}</p>))}
-          {items.length > 2 && <p className="text-[10px] font-black text-primary">+{items.length - 2} more items</p>}
-        </div>
-        <div className="flex items-center justify-between pt-3 border-t border-dashed">
-          <div className="text-left space-y-0.5">
-            <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Items / Cost</p>
-            <p className="font-black text-base tracking-tight">{totalItems} units · <span className="text-primary">${totalCost.toFixed(2)}</span></p>
-          </div>
-          <div className="flex gap-2">
-            {order.trackingNumber && (
-              <Button variant="outline" size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2" onClick={(e) => { e.stopPropagation(); onTrack(e, order.trackingUrl); }}>
-                <Truck className="mr-1.5 h-3 w-3" /> Track
-              </Button>
-            )}
-            {canReceive && (
-              <Button size="sm" className="h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-md shadow-primary/20" onClick={(e) => { e.stopPropagation(); onReceive(order); }}>
-                <PackageOpen className="mr-1.5 h-3 w-3" /> Receive
-              </Button>
-            )}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
-
-const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: {
-  order: Order | null; open: boolean; onOpenChange: (open: boolean) => void;
-  onSave: (o: Order) => void; onCancelOrder: (id: string) => void;
-  onTrack: (e: React.MouseEvent, url?: string) => void;
-}) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [notes, setNotes] = useState('');
-  const [trackingNumber, setTrackingNumber] = useState('');
-  const [trackingUrl, setTrackingUrl] = useState('');
-  const [expectedDate, setExpectedDate] = useState('');
-  useEffect(() => {
-    if (order) { setNotes(order.notes || ''); setTrackingNumber(order.trackingNumber || ''); setTrackingUrl(order.trackingUrl || ''); setExpectedDate(order.expectedArrivalDate || ''); setIsEditing(false); }
-  }, [order]);
-  if (!order) return null;
-  const items = order.items ?? [];
-  const totalCost = items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
-  const canCancel = order.status !== 'Cancelled' && order.status !== 'Received';
-  const handleSave = () => { onSave({ ...order, notes, trackingNumber, trackingUrl, expectedArrivalDate: expectedDate }); setIsEditing(false); };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl max-h-[90dvh] flex flex-col">
-        <DialogHeader className="p-8 pb-0 text-left flex-shrink-0">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-[10px] font-black uppercase tracking-widest text-primary/60">Purchase Order</p>
-              <DialogTitle className="text-2xl font-black uppercase tracking-tighter">{order.supplier}</DialogTitle>
-              <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">#{order.id.slice(-6).toUpperCase()} · Placed {format(parseISO(order.orderDate), 'MMM d, yyyy')}</DialogDescription>
-            </div>
-            <Badge variant="outline" className={cn('h-7 px-3 font-black text-[9px] uppercase tracking-widest border-2 shrink-0 mt-1', ORDER_STATUS_STYLES[order.status] ?? ORDER_STATUS_STYLES['Draft'])}>{order.status}</Badge>
-          </div>
-        </DialogHeader>
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="p-8 space-y-6">
-            <div className="space-y-2">
-              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Order Items</p>
-              <div className="rounded-2xl border-2 overflow-hidden">
-                <Table>
-                  <TableHeader className="bg-muted/10"><TableRow>
-                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 p-4">Product</TableHead>
-                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right">Qty</TableHead>
-                    <TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-right pr-4">Cost</TableHead>
-                  </TableRow></TableHeader>
-                  <TableBody>
-                    {items.map((item, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="p-4 font-bold text-sm text-slate-900">{item.productName}</TableCell>
-                        <TableCell className="text-right font-black font-mono">{item.quantity}</TableCell>
-                        <TableCell className="text-right pr-4 font-black font-mono text-primary">${(item.quantity * item.costPerUnit).toFixed(2)}</TableCell>
-                      </TableRow>
-                    ))}
-                    <TableRow className="bg-muted/10">
-                      <TableCell colSpan={2} className="p-4 font-black uppercase text-[10px] tracking-widest text-right">Total</TableCell>
-                      <TableCell className="text-right pr-4 font-black font-mono text-lg text-primary">${totalCost.toFixed(2)}</TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2 text-left">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tracking Number</Label>
-                {isEditing
-                  ? <Input value={trackingNumber} onChange={e => setTrackingNumber(e.target.value)} className="h-12 rounded-xl border-2 font-mono font-black text-xs" placeholder="e.g., 1Z999AA10123456784" />
-                  : <div className="h-12 rounded-xl border-2 border-dashed flex items-center px-4 gap-2">
-                      <span className="font-mono font-black text-xs text-slate-600">{trackingNumber || '—'}</span>
-                      {trackingNumber && <Button variant="ghost" size="icon" className="h-7 w-7 ml-auto" onClick={e => onTrack(e, trackingUrl || undefined)}><ExternalLink className="h-3.5 w-3.5" /></Button>}
+    return (
+        <Card onClick={() => onSelect(order)} className="cursor-pointer hover:shadow-lg transition-colors">
+            <CardHeader>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <CardTitle className="text-base">{order.supplier}</CardTitle>
+                        <CardDescription>Order placed: {format(parseISO(order.orderDate), 'MMM d, yyyy')}</CardDescription>
                     </div>
-                }
-              </div>
-              <div className="space-y-2 text-left">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Expected Arrival</Label>
-                {isEditing
-                  ? <Input type="date" value={expectedDate ? expectedDate.split('T')[0] : ''} onChange={e => setExpectedDate(e.target.value ? new Date(e.target.value).toISOString() : '')} className="h-12 rounded-xl border-2 font-black text-xs" />
-                  : <div className="h-12 rounded-xl border-2 border-dashed flex items-center px-4"><span className="font-black text-xs text-slate-600">{expectedDate ? format(parseISO(expectedDate), 'MMM d, yyyy') : '—'}</span></div>
-                }
-              </div>
-            </div>
-            {isEditing && (
-              <div className="space-y-2 text-left">
-                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Tracking URL</Label>
-                <Input value={trackingUrl} onChange={e => setTrackingUrl(e.target.value)} className="h-12 rounded-xl border-2 font-black text-xs" placeholder="https://track.carrier.com/..." />
-              </div>
-            )}
-            <div className="space-y-2 text-left">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Notes</Label>
-              {isEditing
-                ? <Textarea value={notes} onChange={e => setNotes(e.target.value)} className="rounded-2xl border-2 bg-muted/5 min-h-[80px]" placeholder="Internal notes about this order..." />
-                : <div className="rounded-2xl border-2 border-dashed p-4 min-h-[60px]"><p className="text-sm font-medium text-slate-600 whitespace-pre-wrap">{notes || <span className="opacity-30 font-black text-[10px] uppercase">No notes</span>}</p></div>
-              }
-            </div>
-          </div>
-        </ScrollArea>
-        <DialogFooter className="p-8 pt-0 border-t bg-muted/5 flex-shrink-0">
-          <div className="flex flex-col gap-3 w-full">
-            {isEditing ? (
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => setIsEditing(false)}>Cancel</Button>
-                <Button className="flex-[2] h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20" onClick={handleSave}><Save className="mr-2 h-4 w-4" /> Save Changes</Button>
-              </div>
-            ) : (
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => setIsEditing(true)}><Edit className="mr-2 h-4 w-4" /> Edit Order</Button>
-                {canCancel && <Button variant="destructive" className="flex-1 h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest" onClick={() => { onOpenChange(false); onCancelOrder(order.id); }}><XCircle className="mr-2 h-4 w-4" /> Cancel Order</Button>}
-              </div>
-            )}
-            <Button variant="ghost" className="h-10 font-bold uppercase text-[10px] tracking-widest text-muted-foreground" onClick={() => onOpenChange(false)}>Close</Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
+                    <div className="flex items-center gap-2">
+                        <Badge className={statusInfo.className}>{statusInfo.icon} <span className="ml-1.5">{order.status}</span></Badge>
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => e.stopPropagation()}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                            <DropdownMenuContent onClick={(e) => e.stopPropagation()} align="end">
+                                <DropdownMenuItem onClick={() => onSelect(order)}>View/Edit Order</DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => onReceive(order)}>Receive Stock</DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent>
+                <div className="text-sm space-y-2">
+                    <p><strong>{totalItems}</strong> items ordered</p>
+                    <p>Total Cost: <strong>${totalCost.toFixed(2)}</strong></p>
+                     <Button
+                        variant="link"
+                        size="xs"
+                        className="p-0 h-auto"
+                        onClick={(e) => onTrack(e, order.trackingUrl)}
+                    >
+                        <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
+                        Track
+                    </Button>
+                    {order.expectedArrivalDate && <p>Expected: <strong>{format(parseISO(order.expectedArrivalDate), 'MMM d, yyyy')}</strong></p>}
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
 
-const HospitalityLedger = () => {
-  const { refreshmentRequests, isLoading } = useInventory();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const filteredRequests = useMemo(() => {
-    if (!refreshmentRequests) return [];
-    return refreshmentRequests.filter(r => {
-      const matchesSearch = !searchTerm.trim() || r.clientName.toLowerCase().includes(searchTerm.toLowerCase()) || r.itemName.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [refreshmentRequests, searchTerm, statusFilter]);
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row items-center gap-4">
-        <div className="relative flex-1 w-full text-left"><Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" /><Input placeholder="SEARCH GUESTS OR ITEMS..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white" /></div>
-        <div className="w-full md:w-auto"><Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner"><SelectValue placeholder="STATUS" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="all" className="font-bold">ALL ENTRIES</SelectItem><SelectItem value="pending" className="font-bold">PENDING</SelectItem><SelectItem value="delivered" className="font-bold text-green-600">DELIVERED</SelectItem><SelectItem value="cancelled" className="font-bold text-destructive">CANCELLED</SelectItem></SelectContent></Select></div>
-      </div>
-      <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden bg-white"><CardContent className="p-0 overflow-x-auto text-left">{isLoading ? (<div className="p-20 text-center flex flex-col items-center gap-4"><Loader className="w-8 h-8 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest opacity-40">Syncing Registry...</p></div>) : (<Table><TableHeader className="bg-muted/10 border-b-2"><TableRow><TableHead className="font-black text-[10px] uppercase tracking-widest p-6 text-slate-900 text-left">Guest & Item</TableHead><TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Timestamp</TableHead><TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Location</TableHead><TableHead className="font-black text-[10px] uppercase tracking-widest text-slate-900 text-left">Status</TableHead><TableHead className="text-right font-black text-[10px] uppercase tracking-widest pr-10 text-slate-900">Qty</TableHead></TableRow></TableHeader><TableBody>{filteredRequests.length > 0 ? filteredRequests.map(req => (<TableRow key={req.id} className="group hover:bg-primary/[0.02]"><TableCell className="p-6 text-left"><div className="space-y-1"><p className="font-black uppercase tracking-tight text-xs text-slate-900">{req.clientName}</p><p className="text-[10px] font-bold text-primary uppercase tracking-widest">{req.itemName}</p></div></TableCell><TableCell className="text-[10px] font-black uppercase text-slate-600">{format(safeDate(req.requestedAt), 'MMM d, h:mm a')}</TableCell><TableCell className="text-[10px] font-black uppercase text-muted-foreground">{req.stationName || 'Lounge'}</TableCell><TableCell><Badge variant="outline" className={cn("h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2", req.status === 'delivered' ? "bg-green-50 border-green-100 text-green-700" : req.status === 'pending' ? "bg-amber-50 border-amber-100 text-amber-700 animate-pulse" : "bg-destructive/5 border-destructive/10 text-destructive")}>{req.status}</Badge></TableCell><TableCell className="text-right pr-10 font-black font-mono text-sm">{req.quantity || 1}</TableCell></TableRow>)) : (<TableRow><TableCell colSpan={5} className="py-20 text-center opacity-30 uppercase font-black tracking-widest text-xs">No hospitality events found</TableCell></TableRow>)}</TableBody></Table>)}</CardContent></Card>
-    </div>
-  );
-};
+const ViewOrEditOrderDialog = ({ order, open, onOpenChange, onSave, onCancelOrder, onTrack }: { order: Order | null, open: boolean, onOpenChange: (open: boolean) => void, onSave: (order: Order) => void, onCancelOrder: (orderId: string) => void, onTrack: (e: React.MouseEvent, url?: string) => void }) => {
+    const [editableOrder, setEditableOrder] = useState<Order | null>(order);
+    const [isEditing, setIsEditing] = useState(false);
+
+    useEffect(() => {
+        setEditableOrder(order);
+        if (!open) {
+            setIsEditing(false);
+        }
+    }, [order, open]);
+
+    const handleSave = () => {
+        if (editableOrder) {
+            onSave(editableOrder);
+        }
+        setIsEditing(false);
+    }
+    
+    const handleCancel = () => {
+        if (editableOrder) {
+            onCancelOrder(editableOrder.id);
+        }
+    }
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setEditableOrder(prev => prev ? ({ ...prev, [name]: value }) : null);
+    };
+
+    const handleDateChange = (date: Date | undefined, field: 'orderDate' | 'expectedArrivalDate') => {
+        setEditableOrder(prev => prev ? ({...prev, [field]: date?.toISOString()}) : null)
+    }
+    
+    const handleItemChange = (productId: string, field: 'quantity' | 'costPerUnit', value: number) => {
+        setEditableOrder(prev => prev ? ({
+            ...prev,
+            items: prev.items.map(item => item.productId === productId ? { ...item, [field]: value } : item)
+        }) : null);
+    }
+
+    if (!editableOrder) return null;
+
+    const totalCost = editableOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-xl">
+                <DialogHeader>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <DialogTitle>Order from {editableOrder.supplier}</DialogTitle>
+                            <DialogDescription>
+                                Order ID: {editableOrder.id.slice(-6).toUpperCase()}
+                            </DialogDescription>
+                        </div>
+                        <Badge variant="secondary">{editableOrder.status}</Badge>
+                    </div>
+                </DialogHeader>
+                 <div className="py-4 max-h-[60vh] overflow-y-auto pr-4 -mr-4">
+                     <div className="space-y-4">
+                        {isEditing ? (
+                            <div className="space-y-4">
+                                <div className="space-y-2"><Label htmlFor="edit-supplier">Supplier</Label><Input id="edit-supplier" value={editableOrder.supplier} onChange={handleChange} name="supplier" /></div>
+                                <div className="space-y-2">
+                                    <Label>Payment Method</Label>
+                                    <RadioGroup value={editableOrder.paymentContext || 'Business'} onValueChange={(v: any) => setEditableOrder(prev => prev ? ({...prev, paymentContext: v}) : null)} className="grid grid-cols-2 gap-2">
+                                        <div><RadioGroupItem value="Business" id="business-order-edit" className="peer sr-only" /><Label htmlFor="business-order-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Business</Label></div>
+                                        <div><RadioGroupItem value="Personal" id="personal-order-edit" className="peer sr-only" /><Label htmlFor="personal-order-edit" className="flex items-center justify-center rounded-md border-2 border-muted bg-popover p-2 text-sm hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary">Personal</Label></div>
+                                    </RadioGroup>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-2"><Label htmlFor="paymentMethod-edit">Account</Label><Select value={editableOrder.paymentMethod || ''} onValueChange={(v) => setEditableOrder(prev => prev ? ({...prev, paymentMethod: v}) : null)}><SelectTrigger id="paymentMethod-edit"><SelectValue placeholder="Select an account" /></SelectTrigger><SelectContent><SelectItem value="Checking">Checking</SelectItem><SelectItem value="Credit Card">Credit Card</SelectItem><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent></Select></div>
+                                    <div className="space-y-2"><Label htmlFor="paymentMethodIdentifier-edit">Identifier</Label><Input id="paymentMethodIdentifier-edit" placeholder="e.g., Chase ****1234" value={editableOrder.paymentMethodIdentifier || ''} onChange={e => setEditableOrder(prev => prev ? ({...prev, paymentMethodIdentifier: e.target.value}) : null)} /></div>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Order Date</Label>
+                                        <Input
+                                            type="date"
+                                            value={editableOrder.orderDate ? format(parseISO(editableOrder.orderDate), 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'orderDate')}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Expected Arrival</Label>
+                                        <Input
+                                            type="date"
+                                            value={editableOrder.expectedArrivalDate ? format(parseISO(editableOrder.expectedArrivalDate), 'yyyy-MM-dd') : ''}
+                                            onChange={(e) => handleDateChange(e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined, 'expectedArrivalDate')}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2"><Label htmlFor="edit-trackingNumber">Tracking Number</Label><Input id="edit-trackingNumber" value={editableOrder.trackingNumber || ''} onChange={handleChange} name="trackingNumber" /></div>
+                                <div className="space-y-2"><Label htmlFor="edit-trackingUrl">Tracking URL</Label><Input id="edit-trackingUrl" value={editableOrder.trackingUrl || ''} onChange={handleChange} name="trackingUrl" placeholder="https://carrier.com/track/..."/></div>
+                                 <div className="space-y-2"><Label>Items</Label><div className="space-y-2">{editableOrder.items.map(item => (<div key={item.productId} className="flex items-center gap-2 p-2 border rounded-md"><span className="flex-1 text-sm font-medium">{item.productName}</span><Input type="number" value={item.quantity} onChange={e => handleItemChange(item.productId, 'quantity', Number(e.target.value))} className="w-16 h-8" /><Input type="number" value={item.costPerUnit} onChange={e => handleItemChange(item.productId, 'costPerUnit', Number(e.target.value))} className="w-20 h-8" /></div>))}</div></div>
+                                <div className="space-y-2">
+                                    <Label>Invoice/Receipt</Label>
+                                    <ImageUpload
+                                        onImageUploaded={(url) => setEditableOrder(prev => prev ? ({...prev, invoiceUrl: url}) : null)}
+                                        initialImage={editableOrder.invoiceUrl}
+                                    />
+                                </div>
+                                <div className="space-y-2"><Label htmlFor="edit-notes">Notes</Label><Textarea id="edit-notes" value={editableOrder.notes || ''} onChange={handleChange} name="notes" /></div>
+                            </div>
+                        ) : (
+                             <div className="space-y-4">
+                                <p><strong>Items:</strong></p>
+                                <div className="space-y-2 border rounded-md p-2">
+                                {editableOrder.items.map(item => (
+                                    <div key={item.productId} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-md">
+                                        <div>
+                                            <p className="font-medium">{item.productName}</p>
+                                            <p className="text-xs text-muted-foreground">{item.quantity} units @ ${item.costPerUnit.toFixed(2)}/unit</p>
+                                        </div>
+                                        <p className="font-semibold">${(item.quantity * item.costPerUnit).toFixed(2)}</p>
+                                    </div>
+                                ))}
+                                <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                                    <span>Total Cost</span>
+                                    <span>${totalCost.toFixed(2)}</span>
+                                </div>
+                                </div>
+                                <div className="text-sm space-y-2">
+                                     <Button
+                                        variant="link"
+                                        size="xs"
+                                        className="p-0 h-auto"
+                                        onClick={(e) => onTrack(e, editableOrder.trackingUrl)}
+                                    >
+                                        <Truck className="w-4 h-4 text-muted-foreground mr-2"/>
+                                        Track
+                                    </Button>
+                                    {editableOrder.expectedArrivalDate && <p><strong>Expected Arrival:</strong> {format(parseISO(editableOrder.expectedArrivalDate), 'MMM d, yyyy')}</p>}
+                                    {editableOrder.paymentMethod && <p><strong>Paid with:</strong> {editableOrder.paymentContext} {editableOrder.paymentMethod} {editableOrder.paymentMethodIdentifier && `(****${editableOrder.paymentMethodIdentifier.slice(-4)})`}</p>}
+                                    {editableOrder.invoiceUrl && (
+                                        <div className="flex items-center gap-2">
+                                            <FileImage className="w-4 h-4 text-muted-foreground" />
+                                            <a href={editableOrder.invoiceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">View Attached File</a>
+                                        </div>
+                                    )}
+                                    {editableOrder.notes && <p><strong>Notes:</strong> {editableOrder.notes}</p>}
+                                </div>
+                            </div>
+                        )}
+                     </div>
+                </div>
+                <DialogFooter>
+                    {isEditing ? (
+                        <>
+                            <Button variant="ghost" onClick={() => setIsEditing(false)}>Cancel</Button>
+                            <Button onClick={handleSave}>Save Changes</Button>
+                        </>
+                    ) : (
+                        <>
+                            <Button variant="destructive" onClick={handleCancel} disabled={editableOrder.status === 'Cancelled'}>Cancel Order</Button>
+                            <div className="flex-1" />
+                            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+                            <Button onClick={() => setIsEditing(true)}>Edit Order</Button>
+                        </>
+                    )}
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
+}
 
 const OrdersTab = ({ inventory }: { inventory: InventoryItem[] }) => {
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const tenantId = selectedTenant?.id;
-  const { toast } = useToast();
-  const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
-  const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
-  const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
-  const [cancelReason, setCancelReason] = useState('');
-  const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+    const { firestore } = useFirebase();
+    const { selectedTenant } = useTenant();
+    const tenantId = selectedTenant?.id;
+    const { toast } = useToast();
+    
+    const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
+    const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
 
-  const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
-    if (!firestore || !tenantId) return;
-    const orderId = nanoid();
-    const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
-    (newOrderData.items ?? []).forEach(item => {
-      if (item.productId.startsWith('custom-')) {
-        const newProductId = nanoid();
-        const shell: InventoryItem = { id: newProductId, name: item.productName, type: 'professional', category: 'Uncategorized', totalStock: 0, supplier: newOrderData.supplier, costPerUnit: item.costPerUnit, batches: [] };
-        setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, newProductId), shell, {});
-        finalItems.push({ ...item, productId: newProductId });
-      } else { finalItems.push(item); }
-    });
-    const newOrder: Order = { ...newOrderData, id: orderId, items: finalItems, status: 'Placed' };
-    setDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/orders`, orderId), JSON.parse(JSON.stringify(newOrder)), {});
-    const totalCost = newOrder.items.reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
-    if (totalCost > 0) {
-      addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'transactions'), { description: `Purchase Order: ${newOrder.supplier}`, clientOrVendor: newOrder.supplier, type: 'expense', context: newOrder.paymentContext || 'Business', category: 'Supplies', amount: totalCost, paymentMethod: newOrder.paymentMethod || 'On Account', paymentMethodIdentifier: newOrder.paymentMethodIdentifier, hasReceipt: !!newOrder.invoiceUrl, receiptUrl: newOrder.invoiceUrl, relatedOrderId: orderId, date: newOrder.orderDate });
-    }
-    toast({ title: "Order Created!", description: `Your order to ${newOrder.supplier} has been saved.` });
-  };
+    const [isAddOrderOpen, setIsAddOrderOpen] = useState(false);
+    const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+    const [orderToCancel, setOrderToCancel] = useState<Order | null>(null);
+    const [cancelReason, setCancelReason] = useState('');
+    const [orderToReceive, setOrderToReceive] = useState<Order | null>(null);
+    
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
 
-  const handleUpdateOrder = (updatedOrder: Order) => {
-    if (!firestore || !tenantId) return;
-    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id), JSON.parse(JSON.stringify(updatedOrder)));
-    toast({ title: "Order Updated", description: `Order ${updatedOrder.id.slice(-6)} has been updated.` });
-  };
+    const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
+        if (!firestore || !tenantId) return;
 
-  const handleCancelOrderClick = (orderId: string) => {
-    const order = orders?.find(o => o.id === orderId);
-    if (order) { setSelectedOrder(null); setOrderToCancel(order); }
-  };
+        const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
+        
+        newOrderData.items.forEach(item => {
+            if (item.productId.startsWith('custom-')) {
+                const newProductId = nanoid();
+                const newProductShell: InventoryItem = {
+                    id: newProductId,
+                    name: item.productName,
+                    type: 'professional',
+                    category: 'Uncategorized',
+                    totalStock: 0,
+                    supplier: newOrderData.supplier,
+                    costPerUnit: item.costPerUnit,
+                    batches: [],
+                };
+                const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
+                setDocumentNonBlocking(productDocRef, newProductShell, {});
+                finalItems.push({ ...item, productId: newProductId });
+            } else {
+                finalItems.push(item);
+            }
+        });
 
-  const handleConfirmCancelOrder = () => {
-    if (!firestore || !orderToCancel || !tenantId) return;
-    const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${orderToCancel.notes || ''}`;
-    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id), { status: 'Cancelled', notes: newNotes });
-    const totalCost = (orderToCancel.items ?? []).reduce((a, i) => a + i.quantity * i.costPerUnit, 0);
-    if (totalCost > 0) {
-      addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'transactions'), { description: `Reversal for Order: ${orderToCancel.supplier}`, clientOrVendor: orderToCancel.supplier, type: 'reversal', context: orderToCancel.paymentContext || 'Business', category: 'Supplies', amount: totalCost, paymentMethod: 'On Account', hasReceipt: !!orderToCancel.invoiceUrl, receiptUrl: orderToCancel.invoiceUrl, relatedOrderId: orderToCancel.id, date: new Date().toISOString() });
-    }
-    toast({ title: "Order Cancelled", description: `Order ${orderToCancel.id.slice(-6)} has been cancelled and the expense reversed.` });
-    setOrderToCancel(null); setCancelReason('');
-  };
-
-  const filteredOrders = useMemo(() => {
-    if (!orders) return [];
-    return orders.filter(order => {
-      const sl = searchTerm.toLowerCase();
-      const orderItems = order.items ?? [];
-      const m = searchTerm === '' || order.supplier.toLowerCase().includes(sl) || order.id.toLowerCase().includes(sl) || orderItems.some(i => i.productName.toLowerCase().includes(sl));
-      return m && (statusFilter === 'all' || order.status === statusFilter);
-    }).sort((a, b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
-  }, [orders, searchTerm, statusFilter]);
-
-  const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
-    e.stopPropagation();
-    if (!url) return;
-    window.open(/^https?:\/\//i.test(url) ? url : 'https://' + url, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
-    if (!firestore || !orderToReceive || !tenantId) return;
-    const batch = writeBatch(firestore);
-    (receivedItems ?? []).forEach(item => {
-      const existing = inventory.find(p => p.id === item.productId);
-      if (existing) {
-        const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
-        if (item.quantityReceived > 0) {
-          const nb: any = { id: `batch-${nanoid()}`, stock: item.quantityReceived, costPerUnit: item.costPerUnit, receivedDate: new Date().toISOString() };
-          if (item.expirationDate) nb.expirationDate = item.expirationDate.toISOString();
-          const ub = [...(existing.batches ?? []), nb];
-          const patch: any = { batches: ub, totalStock: ub.reduce((a, b) => a + b.stock, 0), costPerUnit: item.costPerUnit };
-          if (item.capturedBarcode && !(existing as any).barcode) patch.barcode = item.capturedBarcode;
-          batch.update(productRef, JSON.parse(JSON.stringify(patch)));
-          batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.productId, date: new Date().toISOString(), change: item.quantityReceived, unit: existing.unit || 'units', reason: `Shipment from ${orderToReceive.supplier}` });
+        const newOrder: Order = {
+            ...newOrderData,
+            id: nanoid(),
+            items: finalItems,
+            status: 'Placed',
+        };
+        const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
+        addDocumentNonBlocking(orderRef, newOrder);
+        
+        const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Purchase Order: ${newOrder.supplier}`,
+                clientOrVendor: newOrder.supplier,
+                type: 'expense',
+                context: newOrder.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: newOrder.paymentMethod || 'On Account',
+                paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
+                hasReceipt: !!newOrder.invoiceUrl,
+                receiptUrl: newOrder.invoiceUrl,
+                relatedOrderId: newOrder.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
         }
-        if (item.quantityDamaged > 0) {
-          batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), { date: new Date().toISOString(), description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`, clientOrVendor: orderToReceive.supplier, type: 'expense', context: 'Business', category: 'Spoilage', amount: item.quantityDamaged * item.costPerUnit, paymentMethod: 'Internal', hasReceipt: !!orderToReceive.invoiceUrl, receiptUrl: orderToReceive.invoiceUrl, relatedOrderId: orderToReceive.id });
+
+        toast({
+            title: "Order Created!",
+            description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
+        });
+    };
+
+    const handleUpdateOrder = (updatedOrder: Order) => {
+        if (!firestore || !tenantId) return;
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, updatedOrder.id);
+        updateDocumentNonBlocking(orderRef, updatedOrder);
+        toast({
+            title: "Order Updated",
+            description: `Order ${updatedOrder.id.slice(-6)} has been updated.`
+        })
+    }
+
+    const handleCancelOrderClick = (orderId: string) => {
+        const order = orders?.find(o => o.id === orderId);
+        if (order) {
+            setSelectedOrder(null);
+            setOrderToCancel(order);
         }
+    };
+
+    const handleConfirmCancelOrder = () => {
+        if (!firestore || !orderToCancel || !tenantId) return;
+
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToCancel.id);
+        const existingNotes = orderToCancel.notes || '';
+        const newNotes = `Cancelled on ${new Date().toLocaleDateString()}${cancelReason ? `: ${cancelReason}` : ''}\n---\n${existingNotes}`;
+        
+        updateDocumentNonBlocking(orderRef, { status: 'Cancelled', notes: newNotes });
+
+        const totalCost = orderToCancel.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+        if (totalCost > 0) {
+            const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+                description: `Reversal for Order: ${orderToCancel.supplier}`,
+                clientOrVendor: orderToCancel.supplier,
+                type: 'reversal',
+                context: orderToCancel.paymentContext || 'Business',
+                category: 'Supplies',
+                amount: totalCost,
+                paymentMethod: 'On Account',
+                paymentMethodIdentifier: orderToCancel.paymentMethodIdentifier,
+                hasReceipt: !!orderToCancel.invoiceUrl,
+                receiptUrl: orderToCancel.invoiceUrl,
+                relatedOrderId: orderToCancel.id,
+            };
+            const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: new Date().toISOString() });
+        }
+
+        toast({
+            title: "Order Cancelled",
+            description: `Order ${orderToCancel.id.slice(-6)} has been cancelled and the expense reversed.`
+        });
+        
+        setOrderToCancel(null);
+        setCancelReason('');
+    };
+    
+    const filteredOrders = useMemo(() => {
+        if (!orders) return [];
+        return orders.filter(order => {
+            const searchTermLower = searchTerm.toLowerCase();
+            const searchTermMatch = searchTerm === '' ||
+                order.supplier.toLowerCase().includes(searchTermLower) ||
+                order.id.toLowerCase().includes(searchTermLower) ||
+                order.items.some(item => item.productName.toLowerCase().includes(searchTermLower));
+
+            const statusMatch = statusFilter === 'all' || order.status === statusFilter;
+
+            return searchTermMatch && statusMatch;
+        }).sort((a,b) => parseISO(b.orderDate).getTime() - parseISO(a.orderDate).getTime());
+    }, [orders, searchTerm, statusFilter]);
+    
+    const openTrackingUrl = (e: React.MouseEvent, url?: string) => {
+        e.stopPropagation();
+        if (!url) return;
+        let finalUrl = url;
+        if (!/^https?:\/\//i.test(url)) {
+            finalUrl = 'https://' + url;
+        }
+        window.open(finalUrl, '_blank', 'noopener,noreferrer');
+    };
+
+    const handleReceiveStock = (receivedItems: ReceivedItem[]) => {
+      if (!firestore || !orderToReceive || !tenantId) return;
+
+      const batch = writeBatch(firestore);
+
+      receivedItems.forEach(item => {
+        const existingProduct = inventory.find(p => p.id === item.productId);
+        if (existingProduct) {
+          const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+          
+          if (item.quantityReceived > 0) {
+              const newBatchData: Omit<Batch, 'id'> & {id: string} = {
+                id: `batch-${nanoid()}`,
+                stock: item.quantityReceived,
+                costPerUnit: item.costPerUnit,
+                receivedDate: new Date().toISOString(),
+                expirationDate: item.expirationDate ? item.expirationDate.toISOString() : undefined,
+              };
+              
+              const updatedBatches = [...existingProduct.batches, newBatchData];
+              const totalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+              batch.update(productRef, {
+                batches: updatedBatches,
+                totalStock: totalStock,
+                costPerUnit: item.costPerUnit,
+              });
+
+              const stockCorrection: Omit<StockCorrection, 'id'> = {
+                productId: item.productId,
+                date: new Date().toISOString(),
+                change: item.quantityReceived,
+                unit: existingProduct.unit || 'units',
+                reason: `Shipment from ${orderToReceive.supplier}`,
+              };
+              const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+              batch.set(scRef, stockCorrection);
+          }
+
+          if (item.quantityDamaged > 0) {
+              const damageCost = item.quantityDamaged * item.costPerUnit;
+              const damageTransaction: Omit<Transaction, 'id'> = {
+                date: new Date().toISOString(),
+                description: `Damaged on arrival: ${item.quantityDamaged} x ${item.productName}`,
+                clientOrVendor: orderToReceive.supplier,
+                type: 'expense',
+                context: 'Business',
+                category: 'Spoilage',
+                amount: damageCost,
+                paymentMethod: 'Internal',
+                hasReceipt: !!orderToReceive.invoiceUrl,
+                receiptUrl: orderToReceive.invoiceUrl,
+                relatedOrderId: orderToReceive.id,
+              };
+              const dtRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+              batch.set(dtRef, damageTransaction);
+          }
+        }
+      });
+      
+      const allItemsFullyOrPartiallyReceived = receivedItems.every(item => item.quantityReceived + item.quantityDamaged >= item.quantityOrdered);
+      const someItemsReceived = receivedItems.some(item => item.quantityReceived > 0 || item.quantityDamaged > 0);
+
+      let newStatus: Order['status'] = orderToReceive.status;
+      if (allItemsFullyOrPartiallyReceived) {
+        newStatus = 'Received';
+      } else if (someItemsReceived) {
+        newStatus = 'Partially Received';
       }
-    });
-    const safeReceivedItems = receivedItems ?? [];
-    const allReceived = safeReceivedItems.every(i => i.quantityReceived + i.quantityDamaged >= i.quantityOrdered);
-    const someReceived = safeReceivedItems.some(i => i.quantityReceived > 0 || i.quantityDamaged > 0);
-    const newStatus = allReceived ? 'Received' : someReceived ? 'Partially Received' : orderToReceive.status;
-    if (newStatus !== orderToReceive.status) batch.update(doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id), JSON.parse(JSON.stringify({ status: newStatus })));
-    batch.commit().then(() => { toast({ title: "Stock Updated!" }); setOrderToReceive(null); }).catch(e => { console.error(e); toast({ variant: "destructive", title: "Error", description: "Failed to update stock." }); });
-  };
+      
+      if (newStatus !== orderToReceive.status) {
+        const orderRef = doc(firestore, `tenants/${tenantId}/orders`, orderToReceive.id);
+        batch.update(orderRef, { status: newStatus });
+      }
 
-  return (
-    <div className="space-y-8 text-left">
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1"><CardTitle className="text-xl md:text-2xl font-black uppercase tracking-tighter text-left">Purchase Orders</CardTitle><CardDescription className="text-xs font-bold uppercase tracking-widest opacity-60 text-left">Procurement & landed cost ledger.</CardDescription></div>
-          <Button onClick={() => setIsAddOrderOpen(true)} className="h-12 px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20 w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4" /> Initiate Order</Button>
-        </div>
-        <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-col md:flex-row items-center gap-4">
-          <div className="relative flex-1 w-full"><Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" /><input placeholder="SEARCH BY SUPPLIER OR SKU..." className="pl-12 h-14 w-full rounded-2xl border-2 border-border bg-white font-black uppercase text-xs tracking-widest outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-          <div className="w-full md:w-auto"><Select value={statusFilter} onValueChange={v => setStatusFilter(v)}><SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner"><SelectValue placeholder="STATUS" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="all" className="font-bold">ALL STATUSES</SelectItem><SelectItem value="Draft" className="font-bold">DRAFT</SelectItem><SelectItem value="Placed" className="font-bold">PLACED</SelectItem><SelectItem value="Shipped" className="font-bold">SHIPPED</SelectItem><SelectItem value="Partially Received" className="font-bold text-amber-600">PARTIAL</SelectItem><SelectItem value="Received" className="font-bold text-green-600">RECEIVED</SelectItem><SelectItem value="Cancelled" className="font-bold text-destructive">CANCELLED</SelectItem></SelectContent></Select></div>
-        </div>
-      </div>
-      {ordersLoading ? (<div className="flex flex-col items-center justify-center p-24 gap-4"><Loader className="animate-spin h-8 w-8 text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-primary opacity-60">Synchronizing Ledger...</p></div>) : orders && orders.length > 0 ? (filteredOrders.length > 0 ? (<div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in duration-500">{filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}</div>) : (<div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4"><Filter className="w-16 h-16" /><p className="font-black uppercase tracking-widest text-sm">No Matches Found</p></div>)) : (<EmptyOrdersState onAddFirstOrder={() => setIsAddOrderOpen(true)} />)}
-      <AddOrderDialog open={isAddOrderOpen} onOpenChange={setIsAddOrderOpen} onSave={handleAddOrder} />
-      <ViewOrEditOrderDialog order={selectedOrder} open={!!selectedOrder} onOpenChange={isOpen => !isOpen && setSelectedOrder(null)} onSave={handleUpdateOrder} onCancelOrder={handleCancelOrderClick} onTrack={openTrackingUrl} />
-      <ReceiveStockDialog inventory={inventory} open={!!orderToReceive} onOpenChange={() => setOrderToReceive(null)} order={orderToReceive} onConfirm={handleReceiveStock} />
-      <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
-        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-          <AlertDialogHeader className="p-6 pb-0"><AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Order</AlertDialogTitle><AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">This will void Order <strong>#{orderToCancel?.id.slice(-6).toUpperCase()}</strong> and create a reversal entry in your financial ledger. <strong>This action is non-reversible.</strong></AlertDialogDescription></AlertDialogHeader>
-          <div className="p-6 space-y-3 text-left"><Label htmlFor="cancel-reason" className="text-[10px] font-black uppercase tracking-widest ml-1 opacity-60">Audit Note</Label><Textarea id="cancel-reason" placeholder="Reason for protocol termination..." value={cancelReason} onChange={e => setCancelReason(e.target.value)} className="rounded-2xl border-2 bg-muted/5 focus-visible:ring-primary/20" /></div>
-          <AlertDialogFooter className="p-6 pt-0 flex flex-col gap-3"><Button onClick={handleConfirmCancelOrder} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Confirm Termination</Button><AlertDialogCancel onClick={() => setOrderToCancel(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
+      batch.commit().then(async () => {
+          toast({
+              title: "Stock Updated!",
+              description: "Inventory has been updated with the received items.",
+          });
+          setOrderToReceive(null);
+          try {
+            const { released } = await releaseCoverableBackorders(
+              firestore,
+              tenantId,
+              receivedItems.map(item => ({ productId: item.productId, qty: item.quantityReceived })),
+              { id: 'staff', name: 'Receiving' }
+            );
+            if (released.length > 0) {
+              toast({
+                title: `Restock releases ${released.length} backorder${released.length > 1 ? 's' : ''}`,
+                description: released.map(r => `#${String(r.orderNumber ?? '').padStart(4, '0')} (${r.units}u)`).join(', ') + ' \u2014 back in the pick queue.',
+              });
+            }
+          } catch {
+            // receive already committed; the board's Release button still covers this
+          }
+      }).catch(error => {
+          console.error("Error receiving stock: ", error);
+          toast({
+              variant: "destructive",
+              title: "Error",
+              description: "Failed to update stock.",
+          });
+      });
+    };
+    
+    return (
+        <>
+            <Card>
+                <CardHeader>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <CardTitle>Purchase Orders</CardTitle>
+                            <CardDescription>Track your inventory supply orders.</CardDescription>
+                        </div>
+                        <Button onClick={() => setIsAddOrderOpen(true)} className="w-full sm:w-auto"><PlusCircle className="mr-2 h-4 w-4"/>New Order</Button>
+                    </div>
+                     <div className="mt-4 flex flex-col sm:flex-row items-center gap-4">
+                        <div className="relative w-full flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Search by supplier, ID, or product..."
+                                className="pl-9"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                        </div>
+                        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as any)}>
+                            <SelectTrigger className="w-full sm:w-[180px]">
+                                <SelectValue placeholder="Filter by status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Statuses</SelectItem>
+                                <SelectItem value="Draft">Draft</SelectItem>
+                                <SelectItem value="Placed">Placed</SelectItem>
+                                <SelectItem value="Shipped">Shipped</SelectItem>
+                                <SelectItem value="Partially Received">Partially Received</SelectItem>
+                                <SelectItem value="Received">Received</SelectItem>
+                                <SelectItem value="Cancelled">Cancelled</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                     {ordersLoading ? <p>Loading orders...</p> : orders && orders.length > 0 ? (
+                        filteredOrders.length > 0 ? (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {filteredOrders.map(order => <OrderCard key={order.id} order={order} onSelect={setSelectedOrder} onTrack={openTrackingUrl} onReceive={setOrderToReceive} />)}
+                          </div>
+                        ) : (
+                            <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                                <p className="text-muted-foreground">No orders found matching your filters.</p>
+                            </div>
+                        )
+                    ) : (
+                         <div className="text-center py-10 px-6 border-2 border-dashed rounded-lg">
+                            <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
+                            <h3 className="mt-2 text-sm font-semibold">No orders yet</h3>
+                            <p className="mt-1 text-sm text-muted-foreground">Create your first purchase order to start tracking supplies.</p>
+                         </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            <AddOrderDialog
+                open={isAddOrderOpen}
+                onOpenChange={setIsAddOrderOpen}
+                onSave={handleAddOrder}
+            />
+            <ViewOrEditOrderDialog
+                order={selectedOrder}
+                open={!!selectedOrder}
+                onOpenChange={(isOpen) => !isOpen && setSelectedOrder(null)}
+                onSave={handleUpdateOrder}
+                onCancelOrder={handleCancelOrderClick}
+                onTrack={openTrackingUrl}
+            />
+             <ReceiveStockDialog
+                open={!!orderToReceive}
+                onOpenChange={() => setOrderToReceive(null)}
+                order={orderToReceive}
+                onConfirm={handleReceiveStock}
+            />
+            <AlertDialog open={!!orderToCancel} onOpenChange={() => setOrderToCancel(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Are you sure you want to cancel this order?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will mark the order as cancelled and create a reversal transaction for the cost. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="py-4">
+                        <Label htmlFor="cancel-reason" className="mb-2 block">Reason for Cancellation (Optional)</Label>
+                        <Textarea
+                            id="cancel-reason"
+                            placeholder="e.g., Ordered by mistake, found a better price..."
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                        />
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setOrderToCancel(null)}>Back</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleConfirmCancelOrder} className={buttonVariants({ variant: "destructive" })}>
+                            Yes, Cancel Order
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </>
+    );
 };
 
-const EmptyOrdersState = ({ onAddFirstOrder }: { onAddFirstOrder: () => void }) => (
-  <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
-    <div className="w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner"><Truck className="w-12 h-12 text-muted-foreground" /></div>
-    <div className="space-y-2"><h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Procurement Clear</h3><p className="text-sm font-bold uppercase tracking-tight text-muted-foreground mx-auto">No supply orders in the ledger. Track supplier shipments and landed costs to protect your margins.</p></div>
-    <Button size="lg" onClick={onAddFirstOrder} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"><PlusCircle className="mr-2 h-5 w-5" />Initiate First Order</Button>
-  </div>
+const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
+    <div className="text-center py-20 px-6 col-span-full border-2 border-dashed rounded-lg">
+        <div className='flex justify-center mb-6'>
+            <div className='w-20 h-20 bg-muted rounded-full flex items-center justify-center'>
+                <Package className='w-10 h-10 text-muted-foreground' />
+            </div>
+        </div>
+        <h3 className="text-xl font-semibold mb-2">Your Inventory is Empty</h3>
+        <p className="text-muted-foreground max-w-sm mx-auto mb-6">
+            Get started by adding your first product, piece of equipment, or overhead supply.
+        </p>
+         <Button onClick={onAddFirstItem}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add First Item
+        </Button>
+    </div>
 );
 
-const EmptyState = ({ onAddFirstItem }: { onAddFirstItem: () => void }) => (
-  <div className="text-center py-24 px-6 col-span-full border-4 border-dashed rounded-[3rem] opacity-40 flex flex-col items-center gap-6">
-    <div className="w-24 h-24 bg-muted rounded-[2rem] flex items-center justify-center shadow-inner"><Package className="w-12 h-12 text-muted-foreground" /></div>
-    <div className="space-y-2"><h3 className="text-2xl font-black uppercase tracking-tighter text-slate-900">Your Inventory is Empty</h3><p className="text-sm font-bold uppercase tracking-tight text-muted-foreground mx-auto">Start building your asset manifest to unlock automated costing and yield tracking.</p></div>
-    <Button size="lg" onClick={onAddFirstItem} className="h-14 px-10 rounded-2xl font-black uppercase tracking-widest text-xs shadow-xl shadow-primary/20"><PlusCircle className="mr-2 h-5 w-5" />Add First Asset</Button>
-  </div>
-);
 
 export default function InventoryPage() {
-  const { inventory, stockCorrections, locations, locationTypes, transactions, refreshmentRequests, isLoading: isInventoryLoading } = useInventory();
+  const { 
+    inventory, 
+    stockCorrections,
+    locations, 
+    locationTypes,
+    transactions,
+    isLoading: isInventoryLoading
+  } = useInventory();
+  
   const { toast } = useToast();
-  const { firestore } = useFirebase();
+  const { firestore, user } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
+  
   const [activeView, setActiveView] = useState('products');
-  const [quickReceiveOpen, setQuickReceiveOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  
   const [isAddProductDialogOpen, setIsAddProductDialogOpen] = useState(false);
   const [addProductDialogType, setAddProductDialogType] = useState<'professional' | 'retail'>('professional');
   const [isAddEquipmentDialogOpen, setIsAddEquipmentDialogOpen] = useState(false);
   const [isAddOverheadDialogOpen, setIsAddOverheadDialogOpen] = useState(false);
-  const [isAddRefreshmentDialogOpen, setIsAddRefreshmentDialogOpen] = useState(false);
   const [isAddLocationDialogOpen, setIsAddLocationDialogOpen] = useState(false);
   const [isEditLocationDialogOpen, setIsEditLocationDialogOpen] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+
   const [isLogUseOpen, setIsLogUseOpen] = useState(false);
   const [isLogSaleOpen, setIsLogSaleOpen] = useState(false);
   const [isWriteOffOpen, setIsWriteOffOpen] = useState(false);
   const [isEndExperimentOpen, setIsEndExperimentOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<InventoryItem | null>(null);
   const [logUseDialogType, setLogUseDialogType] = useState<'product' | 'overhead'>('product');
+
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  
   const [selectedItems, setSelectedItems] = useState(new Set<string>());
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false);
+
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
+  
   const [productCategories, setProductCategories] = useState<string[]>([]);
 
-  useEffect(() => {
-    if (inventory) {
-      const c = inventory.map(p => p.category).filter((c): c is string => !!c);
-      setProductCategories([...new Set(c)]);
-    }
-  }, [inventory]);
+    useEffect(() => {
+        if (inventory) {
+            const allCategories = inventory.map(p => p.category).filter((c): c is string => !!c);
+            setProductCategories([...new Set(allCategories)]);
+        }
+    }, [inventory]);
 
-  const onNewCategory = useCallback((n: string) => { if (!productCategories.includes(n)) setProductCategories(prev => [...prev, n].sort()); }, [productCategories]);
-
+    const onNewCategory = useCallback((newCategory: string) => {
+        if (!productCategories.includes(newCategory)) {
+            setProductCategories(prev => [...prev, newCategory].sort());
+        }
+    }, [productCategories]);
+  
   const ordersQuery = useMemoFirebase(() => tenantId ? collection(firestore, `tenants/${tenantId}/orders`) : null, [firestore, tenantId]);
-  const { data: orders } = useCollection<Order>(ordersQuery);
+  const { data: orders, isLoading: ordersLoading } = useCollection<Order>(ordersQuery);
 
   const orderedProductIds = useMemo(() => {
-    if (!orders) return new Set<string>();
-    const ids = new Set<string>();
-    orders
-      .filter(o => o.status === 'Placed' || o.status === 'Shipped')
-      .forEach(o => (o.items ?? []).forEach(i => ids.add(i.productId)));
-    return ids;
+    if (!orders) return new Set();
+    const activeOrders = orders.filter(
+      (order) => order.status === 'Placed' || order.status === 'Shipped'
+    );
+    const productIds = new Set<string>();
+    activeOrders.forEach((order) => {
+      order.items.forEach((item) => {
+        productIds.add(item.productId);
+      });
+    });
+    return productIds;
   }, [orders]);
 
-  const handleEditItem = (item: InventoryItem) => { setEditingItem(item); setIsEditDialogOpen(true); };
-  const handleUpdateItem = (updatedItem: InventoryItem) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id), syncPublicFields(updatedItem)); toast({ title: "Item Updated", description: `${updatedItem.name} has been successfully updated.` }); setIsEditDialogOpen(false); };
-  const handleItemSelect = useCallback((itemId: string) => { setSelectedItems(prev => { const s = new Set(prev); s.has(itemId) ? s.delete(itemId) : s.add(itemId); return s; }); }, []);
-  const handleBulkDeleteClick = () => setIsBulkDeleteConfirmOpen(true);
-  const handleBulkDeleteConfirm = useCallback(() => { if (!firestore || !tenantId) return; const n = selectedItems.size; const batch = writeBatch(firestore); selectedItems.forEach(id => batch.delete(doc(firestore, `tenants/${tenantId}/inventory`, id))); batch.commit(); setSelectedItems(new Set()); setIsBulkDeleteConfirmOpen(false); toast({ title: "Items Deleted", description: `${n} item(s) have been removed from your inventory.` }); }, [selectedItems, toast, firestore, tenantId]);
-  const handleBulkArchive = useCallback(() => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); selectedItems.forEach(id => batch.update(doc(firestore, `tenants/${tenantId}/inventory`, id), { status: 'archived' })); batch.commit(); toast({ title: `${selectedItems.size} item(s) have been archived.` }); setSelectedItems(new Set()); }, [selectedItems, firestore, tenantId, toast]);
-  const handleBulkUnarchive = useCallback(() => { if (!firestore || !tenantId) return; const batch = writeBatch(firestore); selectedItems.forEach(id => batch.update(doc(firestore, `tenants/${tenantId}/inventory`, id), { status: 'active' })); batch.commit(); toast({ title: `${selectedItems.size} item(s) have been restored.` }); setSelectedItems(new Set()); }, [selectedItems, firestore, tenantId, toast]);
-  const handleOpenAddProductDialog = (type: 'professional' | 'retail') => { setAddProductDialogType(type); setIsAddProductDialogOpen(true); };
-  // Every write passes through syncPublicFields() so the photo and copy typed
-  // here also land in the fields the storefront reads. Without it, a product
-  // added in Inventory shows up online with no image — the exact disconnect
-  // this app had before.
-  const handleProductAdded = (p: InventoryItem) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', p.id), JSON.parse(JSON.stringify(syncPublicFields(p))), {}); toast({ title: `New ${p.type} product created`, description: `${p.name} has been added to your inventory.` }); };
-
-  // ── Staff custody & replenishment ──────────────────────────────────────
-  // Updated to accept the second argument AddEquipmentDialog now passes
-  // (shouldCreateAssetUnit). When true, also creates the linked AssetUnit
-  // via createAssetUnit() from lib/replenishment-firestore.ts so the new
-  // equipment item has a scannable custody record from the moment it's
-  // registered.
-  const handleEquipmentAdded = (item: InventoryItem, shouldCreateAssetUnit: boolean) => {
-    if (!firestore || !tenantId) return;
-
-    setDocumentNonBlocking(
-      doc(firestore, 'tenants', tenantId, 'inventory', item.id),
-      JSON.parse(JSON.stringify(item)),
-      {}
-    );
-
-    if (shouldCreateAssetUnit) {
-      createAssetUnit(firestore, tenantId, {
-        itemId: item.id,
-        serial: item.sku || item.name,
-      }).catch((err) => {
-        console.error('Failed to create AssetUnit for', item.id, err);
-        toast({
-          variant: 'destructive',
-          title: 'Custody Tracking Failed',
-          description: `${item.name} was saved, but its scan label could not be generated. You can retry from the item's detail page.`,
-        });
-      });
-    }
+  const handleEditItem = (item: InventoryItem) => {
+    setEditingItem(item);
+    setIsEditDialogOpen(true);
   };
 
-  const handleOverheadAdded = (o: InventoryItem) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', o.id), JSON.parse(JSON.stringify(o)), {}); };
-  const handleRefreshmentAdded = (item: InventoryItem) => { if (!firestore || !tenantId) return; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', item.id), JSON.parse(JSON.stringify(item)), {}); toast({ title: "Amenity Registered", description: `${item.name} is now available in your hospitality manifest.` }); };
-  const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
-  const handleOpenEditLocation = (location: Location) => { setSelectedLocation(location); setIsEditLocationDialogOpen(true); };
-  const handleSaveLocation = (newLocation: Omit<Location, 'id'>) => { if (!firestore || !tenantId) return {} as Location; const loc = { ...newLocation, id: `loc-${nanoid()}` }; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'locations', loc.id), JSON.parse(JSON.stringify(loc)), {}); return loc; };
-  const handleUpdateLocation = (updatedLocation: Location) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'locations', updatedLocation.id), JSON.parse(JSON.stringify(updatedLocation))); };
-  const handleAddNewLocationType = (name: string, icon: string): LocationType => { if (!firestore || !tenantId) return { id: '', name: '', icon: '' }; const t = { id: `lt-${nanoid()}`, name, icon }; setDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'locationTypes', t.id), JSON.parse(JSON.stringify(t)), {}); return t; };
-  const handleOpenLogUse = (item: InventoryItem) => { setLogUseDialogType('product'); setSelectedProduct(item); setIsLogUseOpen(true); };
-  const handleOpenLogSale = (item: InventoryItem) => { setSelectedProduct(item); setIsLogSaleOpen(true); };
-  const handleOpenWriteOff = (item: InventoryItem) => { setSelectedProduct(item); setIsWriteOffOpen(true); };
+  const handleUpdateItem = (updatedItem: InventoryItem) => {
+    if (!firestore || !tenantId) return;
+    const itemDocRef = doc(firestore, `tenants/${tenantId}/inventory`, updatedItem.id);
+    updateDocumentNonBlocking(itemDocRef, updatedItem);
+    toast({
+        title: "Item Updated",
+        description: `${updatedItem.name} has been successfully updated.`,
+    });
+    setIsEditDialogOpen(false);
+  };
 
-  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string, notes?: string, imageUrl?: string): { success: boolean, message: string } => {
+  const handleItemSelect = useCallback((itemId: string) => {
+    setSelectedItems(prev => {
+        const newSelection = new Set(prev);
+        if (newSelection.has(itemId)) {
+            newSelection.delete(itemId);
+        } else {
+            newSelection.add(itemId);
+        }
+        return newSelection;
+    });
+  }, []);
+
+  const handleBulkDeleteClick = () => {
+    setIsBulkDeleteConfirmOpen(true);
+  };
+  
+  const handleBulkDeleteConfirm = useCallback(() => {
+    if (!firestore || !tenantId) return;
+    const itemCount = selectedItems.size;
+    const batch = writeBatch(firestore);
+    selectedItems.forEach(id => {
+      const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+      batch.delete(itemDoc);
+    });
+    batch.commit();
+    setSelectedItems(new Set());
+    setIsBulkDeleteConfirmOpen(false);
+    toast({
+        title: "Items Deleted",
+        description: `${itemCount} item(s) have been removed from your inventory.`,
+    })
+  }, [selectedItems, toast, firestore, tenantId]);
+  
+    const handleBulkArchive = useCallback(() => {
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        selectedItems.forEach(id => {
+            const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+            batch.update(itemDoc, { status: 'archived' });
+        });
+        batch.commit();
+        toast({ title: `${selectedItems.size} item(s) have been archived.` });
+        setSelectedItems(new Set());
+    }, [selectedItems, firestore, tenantId, toast]);
+
+    const handleBulkUnarchive = useCallback(() => {
+        if (!firestore || !tenantId) return;
+        const batch = writeBatch(firestore);
+        selectedItems.forEach(id => {
+            const itemDoc = doc(firestore, `tenants/${tenantId}/inventory`, id);
+            batch.update(itemDoc, { status: 'active' });
+        });
+        batch.commit();
+        toast({ title: `${selectedItems.size} item(s) have been restored.` });
+        setSelectedItems(new Set());
+    }, [selectedItems, firestore, tenantId, toast]);
+
+
+  const handleOpenAddProductDialog = (type: 'professional' | 'retail') => {
+    setAddProductDialogType(type);
+    setIsAddProductDialogOpen(true);
+  };
+  
+  const handleProductAdded = (newProduct: InventoryItem) => {
+    if (!firestore || !tenantId) return;
+    const newProductRef = doc(firestore, 'tenants', tenantId, 'inventory', newProduct.id);
+    const sanitizedData = JSON.parse(JSON.stringify(newProduct));
+    setDocumentNonBlocking(newProductRef, sanitizedData, {});
+    toast({
+      title: `New ${newProduct.type} product created`,
+      description: `${newProduct.name} has been added to your inventory.`
+    });
+  };
+
+  const handleEquipmentAdded = (newEquipment: InventoryItem) => {
+    if (!firestore || !tenantId) return;
+    const newEquipmentRef = doc(firestore, 'tenants', tenantId, 'inventory', newEquipment.id);
+    const sanitizedData = JSON.parse(JSON.stringify(newEquipment));
+    setDocumentNonBlocking(newEquipmentRef, sanitizedData, {});
+  };
+  
+  const handleOverheadAdded = (newOverhead: InventoryItem) => {
+    if (!firestore || !tenantId) return;
+    const newOverheadRef = doc(firestore, 'tenants', tenantId, 'inventory', newOverhead.id);
+    const sanitizedData = JSON.parse(JSON.stringify(newOverhead));
+    setDocumentNonBlocking(newOverheadRef, sanitizedData, {});
+  };
+  
+  const handleAddOrder = (newOrderData: Omit<Order, 'id'>) => {
+    if (!firestore || !tenantId) return;
+
+    const finalItems: { productId: string; productName: string; quantity: number; costPerUnit: number; }[] = [];
+    
+    newOrderData.items.forEach(item => {
+        if (item.productId.startsWith('custom-')) {
+            const newProductId = nanoid();
+            const newProductShell: InventoryItem = {
+                id: newProductId,
+                name: item.productName,
+                type: 'professional',
+                category: 'Uncategorized',
+                totalStock: 0,
+                supplier: newOrderData.supplier,
+                costPerUnit: item.costPerUnit,
+                batches: [],
+            };
+            const productDocRef = doc(firestore, `tenants/${tenantId}/inventory`, newProductId);
+            setDocumentNonBlocking(productDocRef, newProductShell, {});
+            finalItems.push({ ...item, productId: newProductId });
+        } else {
+            finalItems.push(item);
+        }
+    });
+
+    const newOrder: Order = {
+        ...newOrderData,
+        id: nanoid(),
+        items: finalItems,
+        status: 'Placed',
+    };
+    const orderRef = collection(firestore, 'tenants', tenantId, 'orders');
+    addDocumentNonBlocking(orderRef, newOrder);
+    
+    const totalCost = newOrder.items.reduce((acc, item) => acc + (item.quantity * item.costPerUnit), 0);
+    if (totalCost > 0) {
+        const newTransaction: Omit<Transaction, 'id' | 'date'> = {
+            description: `Purchase Order: ${newOrder.supplier}`,
+            clientOrVendor: newOrder.supplier,
+            type: 'expense',
+            context: newOrder.paymentContext || 'Business',
+            category: 'Supplies',
+            amount: totalCost,
+            paymentMethod: newOrder.paymentMethod || 'On Account',
+            paymentMethodIdentifier: newOrder.paymentMethodIdentifier,
+            hasReceipt: !!newOrder.invoiceUrl,
+            receiptUrl: newOrder.invoiceUrl,
+            relatedOrderId: newOrder.id,
+        };
+        const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
+        addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+    }
+
+    toast({
+        title: "Order Created!",
+        description: `Your order to ${newOrder.supplier} has been saved as '${newOrder.status}'.`
+    });
+  };
+  
+
+  const handleOpenAddLocation = () => setIsAddLocationDialogOpen(true);
+  
+  const handleOpenEditLocation = (location: Location) => {
+    setSelectedLocation(location);
+    setIsEditLocationDialogOpen(true);
+  };
+  
+  const handleSaveLocation = (newLocation: Omit<Location, 'id'>) => {
+    if (!firestore || !tenantId) return {} as Location;
+    const newLocWithId = { ...newLocation, id: `loc-${nanoid()}`};
+    const locationRef = doc(firestore, 'tenants', tenantId, 'locations', newLocWithId.id);
+    const sanitizedData = JSON.parse(JSON.stringify(newLocWithId));
+    setDocumentNonBlocking(locationRef, sanitizedData, {});
+    return newLocWithId;
+  };
+
+  const handleUpdateLocation = (updatedLocation: Location) => {
+    if (!firestore || !tenantId) return;
+    const locationRef = doc(firestore, 'tenants', tenantId, 'locations', updatedLocation.id);
+    const sanitizedData = JSON.parse(JSON.stringify(updatedLocation));
+    updateDocumentNonBlocking(locationRef, sanitizedData);
+  };
+
+  const handleAddNewLocationType = (name: string, icon: string): LocationType => {
+    if (!firestore || !tenantId) return { id: '', name: '', icon: '' };
+    const newType = { id: `lt-${nanoid()}`, name, icon };
+    const locTypeRef = doc(firestore, 'tenants', tenantId, 'locationTypes', newType.id);
+    const sanitizedData = JSON.parse(JSON.stringify(newType));
+    setDocumentNonBlocking(locTypeRef, sanitizedData, {});
+    return newType;
+  };
+
+
+  const handleOpenLogUse = (item: InventoryItem) => {
+    setLogUseDialogType('product');
+    setSelectedProduct(item);
+    setIsLogUseOpen(true);
+  }
+
+  const handleOpenLogSale = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsLogSaleOpen(true);
+  };
+  
+  const handleOpenOverheadLogUse = () => {
+    setLogUseDialogType('overhead');
+    setIsLogUseOpen(true);
+  }
+
+  const handleOpenWriteOff = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsWriteOffOpen(true);
+  };
+
+  const handleWriteOffConfirm = useCallback((productId: string, batchId: string, quantity: number, reason: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
-    const batches = product.batches ?? [];
-    const batchIdx = batches.findIndex(b => b.id === batchId);
-    if (batchIdx === -1) return { success: false, message: 'Batch not found.' };
-    const b = batches[batchIdx];
-    if (b.stock < quantity) return { success: false, message: `Cannot write off more than available stock (${b.stock}).` };
-    const lossAmount = quantity * b.costPerUnit;
-    const updatedBatches = [...batches]; updatedBatches[batchIdx] = { ...b, stock: b.stock - quantity };
-    const newTotalStock = updatedBatches.reduce((a, b) => a + b.stock, 0);
-    const updatedData: Partial<InventoryItem> = { batches: updatedBatches, totalStock: newTotalStock };
-    if (newTotalStock === 0) { updatedData.partialContainerUses = 0; updatedData.partialContainerSize = 0; }
-    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, productId), updatedData);
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), { productId, date: new Date().toISOString(), change: -quantity, unit: product.unit || 'units', reason: `Write-off: ${reason}` });
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { date: new Date().toISOString(), description: `Write-off: ${quantity} x ${product.name}`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Spoilage', amount: lossAmount, paymentMethod: 'Internal', hasReceipt: !!imageUrl, receiptUrl: imageUrl, notes });
-    toast({ title: "Item Written Off", description: `${quantity} unit(s) of ${product.name} written off. Total loss: $${lossAmount.toFixed(2)}.` });
+
+    const batchToIndex = product.batches.findIndex(b => b.id === batchId);
+    if (batchToIndex === -1) return { success: false, message: 'Batch not found.' };
+
+    const batchToUpdate = product.batches[batchToIndex];
+    if (batchToUpdate.stock < quantity) {
+      return { success: false, message: `Cannot write off more than available stock (${batchToUpdate.stock}).` };
+    }
+
+    const lossAmount = quantity * batchToUpdate.costPerUnit;
+
+    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+    const updatedBatches = [...product.batches];
+    updatedBatches[batchToIndex] = { ...batchToUpdate, stock: batchToUpdate.stock - quantity };
+    const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+    
+    const updatedData: Partial<InventoryItem> = {
+      batches: updatedBatches,
+      totalStock: newTotalStock
+    };
+
+    if (newTotalStock === 0) {
+        updatedData.partialContainerUses = 0;
+        updatedData.partialContainerSize = 0;
+    }
+
+    updateDocumentNonBlocking(productRef, updatedData);
+    
+    const stockCorrection: Omit<StockCorrection, 'id'> = {
+      productId: productId,
+      date: new Date().toISOString(),
+      change: -quantity,
+      unit: product.unit || 'units',
+      reason: `Write-off: ${reason}`,
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+
+    const transaction: Omit<Transaction, 'id' | 'date'> = {
+      description: `Write-off: ${quantity} x ${product.name}`,
+      clientOrVendor: 'Internal',
+      type: 'expense',
+      context: 'Business',
+      category: 'Spoilage',
+      amount: lossAmount,
+      paymentMethod: 'Internal',
+      hasReceipt: false,
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...transaction, date: new Date().toISOString() });
+
+    toast({
+        title: "Item Written Off",
+        description: `${quantity} unit(s) of ${product.name} have been written off with a total loss of $${lossAmount.toFixed(2)}.`,
+    });
+
     return { success: true, message: "Write-off successful." };
   }, [inventory, firestore, tenantId, toast]);
-
+  
   const handleLogUseConfirm = (productId: string, quantity: number, notes: string): { success: boolean, message: string } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
-    const product = inventory.find(p => p.id === productId);
+    
+    const product = inventory.find((p: InventoryItem) => p.id === productId);
     if (!product) return { success: false, message: 'Product not found' };
+
+    const productDocRef = doc(firestore, 'tenants', tenantId, 'inventory', productId);
+    const stockCorrectionsRef = collection(firestore, 'tenants', tenantId, 'stockCorrections');
+    
     const updateData: Partial<InventoryItem> = {};
     let unit = 'units';
+    
     if (product.costingMethod === 'uses') {
-      unit = product.useUnit || 'uses';
-      let currentUses = safeNumber(product.partialContainerUses), currentStock = safeNumber(product.totalStock);
-      const upc = safeNumber(product.estimatedUses) || 1;
-      currentUses -= quantity;
-      while (currentUses <= 0 && currentStock > 0) { currentStock -= 1; currentUses += upc; }
-      if (currentStock < 0) return { success: false, message: `Insufficient stock for ${product.name}.` };
-      updateData.totalStock = currentStock; updateData.partialContainerUses = currentUses;
-    } else if (product.costingMethod === 'size' && product.size) {
-      unit = product.unit || 'ml';
-      let currentSize = safeNumber(product.partialContainerSize), currentStock = safeNumber(product.totalStock);
-      const spc = safeNumber(product.size);
-      currentSize -= quantity;
-      while (currentSize <= 0 && currentStock > 0) { currentStock -= 1; currentSize += spc; }
-      if (currentStock < 0) return { success: false, message: `Insufficient stock for ${product.name}.` };
-      updateData.totalStock = currentStock; updateData.partialContainerSize = currentSize;
-    } else { updateData.totalStock = (product.totalStock || 0) - quantity; unit = product.unit || 'units'; }
-    if (updateData.totalStock !== undefined && updateData.totalStock < 0) return { success: false, message: `Insufficient stock for ${product.name}.` };
-    updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', productId), updateData);
-    addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'stockCorrections'), { productId, date: new Date().toISOString(), change: -quantity, unit, reason: notes || 'Manual Use Log' });
+        unit = product.useUnit || 'uses';
+        let currentUses = product.partialContainerUses || 0;
+        let currentStock = product.totalStock;
+        const usesPerContainer = product.estimatedUses || 1;
+        
+        currentUses -= quantity;
+        while (currentUses < 0 && currentStock > 0) {
+            currentStock -= 1;
+            currentUses += usesPerContainer;
+        }
+        
+        updateData.totalStock = currentStock;
+        updateData.partialContainerUses = currentUses;
+
+    } else if (product.costingMethod === 'size') {
+        unit = product.unit || 'ml';
+        let currentSize = product.partialContainerSize || 0;
+        let currentStock = product.totalStock;
+        const sizePerContainer = product.size || 1;
+
+        currentSize -= quantity;
+        while (currentSize < 0 && currentStock > 0) {
+            currentStock -= 1;
+            currentSize += sizePerContainer;
+        }
+        
+        updateData.totalStock = currentStock;
+        updateData.partialContainerSize = currentSize;
+
+    } else { // 'unit' costing method, or undefined
+        updateData.totalStock = (product.totalStock || 0) - quantity;
+        unit = product.unit || 'units';
+    }
+
+    if ((updateData.totalStock !== undefined && updateData.totalStock < 0) || 
+        (updateData.partialContainerUses !== undefined && updateData.partialContainerUses < 0) || 
+        (updateData.partialContainerSize !== undefined && updateData.partialContainerSize < 0)) {
+        return { success: false, message: `Insufficient stock for ${product.name}.`};
+    }
+    
+    updateDocumentNonBlocking(productDocRef, updateData);
+
+    const newCorrection: Omit<StockCorrection, 'id'> = {
+        productId: productId,
+        date: new Date().toISOString(),
+        change: -quantity,
+        unit: unit,
+        reason: notes || 'Manual Use Log',
+    };
+    addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
+    
     return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
   };
 
-  const handleLogSaleConfirm = (productId: string, quantity: number, paymentMethod: string): { success: boolean; message: string } => {
+  const handleLogSaleConfirm = (productId: string, quantity: number, paymentMethod: string): { success: boolean; message: string; } => {
     if (!firestore || !tenantId || !inventory) return { success: false, message: 'Firestore not available' };
+
     const product = inventory.find(p => p.id === productId);
     if (!product) return { success: false, message: 'Product not found.' };
-    const availableForSale = product.totalStock - ((product as any).stockReserved ?? 0);
-    if (availableForSale < quantity) return { success: false, message: `Not enough unreserved stock. Only ${Math.max(0, availableForSale)} available — online orders may be holding units.` };
-    const sorted = [...(product.batches ?? [])].sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
-    let rem = quantity;
-    for (const batch of sorted) { if (rem <= 0) break; const d = Math.min(batch.stock, rem); batch.stock -= d; rem -= d; }
-    const newStock = sorted.reduce((a, b) => a + b.stock, 0);
-    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/inventory`, productId), { totalStock: newStock, batches: sorted });
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), { productId, date: new Date().toISOString(), change: -quantity, unit: 'units', reason: 'Manual Retail Sale' });
+
+    if (product.totalStock < quantity) {
+      return { success: false, message: `Not enough stock. Only ${product.totalStock} available.` };
+    }
+
+    const productRef = doc(firestore, `tenants/${tenantId}/inventory`, productId);
+    
+    const sortedBatches = [...product.batches].sort((a,b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
+    let remainingToDeduct = quantity;
+    
+    for (const batch of sortedBatches) {
+        if (remainingToDeduct <= 0) break;
+        const deductFromBatch = Math.min(batch.stock, remainingToDeduct);
+        batch.stock -= deductFromBatch;
+        remainingToDeduct -= deductFromBatch;
+    }
+    
+    const newTotalStock = sortedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+    updateDocumentNonBlocking(productRef, { 
+      totalStock: newTotalStock,
+      batches: sortedBatches,
+    });
+    
+    const stockCorrection: Omit<StockCorrection, 'id'> = {
+      productId: productId,
+      date: new Date().toISOString(),
+      change: -quantity,
+      unit: 'units',
+      reason: 'Manual Retail Sale',
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
+
     const saleAmount = (product.msrp || product.costPerUnit || 0) * quantity;
-    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { date: new Date().toISOString(), description: `Retail Sale: ${quantity} x ${product.name}`, clientOrVendor: 'In-Store Customer', type: 'income', context: 'Business', category: 'Retail', amount: saleAmount, paymentMethod, hasReceipt: false });
-    toast({ title: "Sale Logged", description: `${quantity} unit(s) of ${product.name} sold for $${saleAmount.toFixed(2)}.` });
+    const transaction: Omit<Transaction, 'id' | 'date'> = {
+      description: `Retail Sale: ${quantity} x ${product.name}`,
+      clientOrVendor: 'In-Store Customer',
+      type: 'income',
+      context: 'Business',
+      category: 'Retail',
+      amount: saleAmount,
+      paymentMethod: paymentMethod,
+      hasReceipt: false,
+    };
+    addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/transactions`), { ...transaction, date: new Date().toISOString() });
+
+    toast({
+        title: "Sale Logged",
+        description: `${quantity} unit(s) of ${product.name} sold for $${saleAmount.toFixed(2)}.`,
+    });
+
     return { success: true, message: "Sale logged successfully." };
   };
-
+  
   const handleSpoilageConfirm = (items: SpoilageItem[], notes?: string, imageUrl?: string) => {
     if (!firestore || !tenantId || !inventory) return;
-    const batch = writeBatch(firestore); let totalLoss = 0;
-    (items ?? []).forEach(item => {
-      const product = inventory.find(p => p.id === item.productId);
-      if (product) {
-        const ub = (product.batches ?? []).map(b => { if (b.id === item.batchId) { totalLoss += item.stock * item.costPerUnit; return { ...b, stock: 0 }; } return b; });
-        const newStock = ub.reduce((a, b) => a + b.stock, 0);
-        const up: Partial<InventoryItem> = { batches: ub, totalStock: newStock };
-        if (newStock === 0) { up.partialContainerUses = 0; up.partialContainerSize = 0; }
-        batch.update(doc(firestore, `tenants/${tenantId}/inventory`, item.productId), JSON.parse(JSON.stringify(up)));
-        batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), { productId: item.productId, date: new Date().toISOString(), change: -item.stock, unit: product.unit || 'units', reason: 'Spoilage - Expired' });
-      }
+
+    const batch = writeBatch(firestore);
+    let totalLoss = 0;
+
+    items.forEach(item => {
+        const product = inventory.find(p => p.id === item.productId);
+        if (product) {
+            const productRef = doc(firestore, `tenants/${tenantId}/inventory`, item.productId);
+            const updatedBatches = product.batches.map(b => {
+                if (b.id === item.batchId) {
+                    totalLoss += item.stock * item.costPerUnit;
+                    return { ...b, stock: 0 }; // Set stock of this batch to 0
+                }
+                return b;
+            });
+            
+            const newTotalStock = updatedBatches.reduce((acc, b) => acc + b.stock, 0);
+
+            const updatePayload: Partial<InventoryItem> = {
+                batches: updatedBatches,
+                totalStock: newTotalStock,
+            };
+            
+            // If writing off the last container, clear partial usage as well
+            if (newTotalStock === 0) {
+                updatePayload.partialContainerUses = 0;
+                updatePayload.partialContainerSize = 0;
+            }
+
+            batch.update(productRef, updatePayload);
+            
+            const stockCorrection: Omit<StockCorrection, 'id'> = {
+                productId: item.productId,
+                date: new Date().toISOString(),
+                change: -item.stock,
+                unit: product.unit || 'units',
+                reason: 'Spoilage - Expired',
+            };
+            const scRef = doc(collection(firestore, `tenants/${tenantId}/stockCorrections`));
+            batch.set(scRef, stockCorrection);
+        }
     });
-    if (totalLoss > 0) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), JSON.parse(JSON.stringify({ date: new Date().toISOString(), description: `Spoilage Write-off: ${(items ?? []).length} batch(es)`, clientOrVendor: 'Internal', type: 'expense', context: 'Business', category: 'Spoilage', amount: totalLoss, paymentMethod: 'Internal', hasReceipt: !!imageUrl, receiptUrl: imageUrl, notes })));
-    batch.commit().then(() => toast({ title: "Spoilage Written Off", description: `${(items ?? []).length} item(s) written off. Total loss: $${totalLoss.toFixed(2)}.` })).catch(e => { console.error(e); toast({ variant: "destructive", title: "Error", description: "Failed to write off spoilage." }); });
+    
+    // Create a single transaction for the total loss
+    if (totalLoss > 0) {
+        const transaction: Omit<Transaction, 'id' | 'date'> = {
+            description: `Spoilage Write-off: ${items.length} batch(es)`,
+            clientOrVendor: 'Internal',
+            type: 'expense',
+            context: 'Business',
+            category: 'Spoilage',
+            amount: totalLoss,
+            paymentMethod: 'Internal',
+            hasReceipt: !!imageUrl,
+            receiptUrl: imageUrl,
+            notes: notes,
+        };
+        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
+        batch.set(txnRef, {...transaction, date: new Date().toISOString() });
+    }
+
+
+    batch.commit().then(() => {
+        toast({
+            title: "Spoilage Written Off",
+            description: `${items.length} item(s) written off with a total loss of $${totalLoss.toFixed(2)}.`,
+        });
+    }).catch((error) => {
+        console.error("Error writing off spoilage:", error);
+        toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to write off spoilage.",
+        });
+    });
+  };
+  
+  const handleToggleExperiment = (item: InventoryItem) => {
+    if (!firestore || !tenantId) return;
+    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', item.id);
+    updateDocumentNonBlocking(itemRef, { isExperimentActive: true, experimentUses: 0 });
+    toast({
+        title: "Experiment Started!",
+        description: `You are now tracking the cost-per-use for ${item.name}.`,
+    });
   };
 
-  const handleToggleExperiment = (item: InventoryItem) => { if (!firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { isExperimentActive: true, experimentUses: 0 }); toast({ title: "Experiment Started!", description: `You are now tracking the cost-per-use for ${item.name}.` }); };
-  const handleEndExperiment = (item: InventoryItem) => { setSelectedProduct(item); setIsEndExperimentOpen(true); };
-  const handleEndExperimentConfirmed = (results: any) => { if (!selectedProduct || !firestore || !tenantId) return; updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId, 'inventory', selectedProduct.id), { isExperimentActive: false, lastTestResult: results }); toast({ title: "Experiment Ended", description: `Cost-per-use tracking for ${selectedProduct.name} has been stopped.` }); setIsEndExperimentOpen(false); setSelectedProduct(null); };
+  const handleEndExperiment = (item: InventoryItem) => {
+    setSelectedProduct(item);
+    setIsEndExperimentOpen(true);
+  };
+  
+  const handleEndExperimentConfirmed = (results: any) => {
+    if (!selectedProduct || !firestore || !tenantId) return;
+    
+    const itemRef = doc(firestore, 'tenants', tenantId, 'inventory', selectedProduct.id);
+    updateDocumentNonBlocking(itemRef, { isExperimentActive: false, lastTestResult: results });
+
+    toast({
+        title: "Experiment Ended",
+        description: `Cost-per-use tracking for ${selectedProduct.name} has been stopped.`,
+    });
+    setIsEndExperimentOpen(false);
+    setSelectedProduct(null);
+  }
 
   const filteredInventory = useMemo(() => {
     if (!inventory) return [];
-    let items = inventory.filter(item => showArchived ? item.status === 'archived' : item.status !== 'archived');
-    if (activeFilter !== 'all') items = items.filter(item => item.type === activeFilter);
-    if (searchTerm) {
-      const lc = searchTerm.toLowerCase();
-      items = items.filter(item =>
-        item.name.toLowerCase().includes(lc) ||
-        item.id.toLowerCase().includes(lc) ||
-        item.id.toUpperCase().endsWith(searchTerm.toUpperCase()) ||
-        (item.sku?.toLowerCase().includes(lc) ?? false)
-      );
+    let items = inventory.filter(item => {
+      return showArchived ? item.status === 'archived' : item.status !== 'archived';
+    });
+
+    if (activeFilter !== 'all') {
+      items = items.filter(item => item.type === activeFilter);
     }
+    
+    if (searchTerm) {
+        const lowercasedSearchTerm = searchTerm.toLowerCase();
+        items = items.filter(item => 
+            item.name.toLowerCase().includes(lowercasedSearchTerm) ||
+            item.id.toLowerCase().includes(lowercasedSearchTerm)
+        );
+    }
+
     return items;
   }, [inventory, activeFilter, searchTerm, showArchived]);
-
+  
   const totalPages = Math.ceil(filteredInventory.length / ITEMS_PER_PAGE);
-  const paginatedItems = useMemo(() => { const s = (currentPage - 1) * ITEMS_PER_PAGE; return filteredInventory.slice(s, s + ITEMS_PER_PAGE); }, [filteredInventory, currentPage]);
+  const paginatedItems = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredInventory.slice(startIndex, endIndex);
+  }, [filteredInventory, currentPage]);
+
+  const handlePrevPage = () => {
+    setCurrentPage(prev => Math.max(prev - 1, 1));
+  };
+
+  const handleNextPage = () => {
+    setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  };
+
 
   const handleScan = useCallback((data: string) => {
-    const raw = data.trim();
-    if (raw.startsWith('clarityflow://product/')) { const id = raw.split('/').pop(); if (id) { setSearchTerm(id); toast({ title: "Product Found" }); } }
-    else { setSearchTerm(raw); toast({ title: "Scanning...", description: `Searching for code: ${raw}` }); }
+    if (data.startsWith('clarityflow://product/')) {
+        const productId = data.split('/').pop();
+        if (productId) {
+            setSearchTerm(productId);
+            toast({
+                title: "Product Found",
+                description: `Displaying results for scanned product.`,
+            });
+        }
+    } else {
+        toast({
+            variant: 'destructive',
+            title: 'Invalid QR Code',
+            description: 'Please scan a valid ClarityFlow product QR code.',
+        });
+    }
   }, [toast]);
-
+  
   useEffect(() => {
-    let qr: Html5Qrcode | undefined;
+    let html5QrCode: Html5Qrcode | undefined;
     if (isScannerOpen) {
       const timer = setTimeout(() => {
-        const el = document.getElementById('qr-reader-inventory');
-        if (el) {
-          qr = new Html5Qrcode('qr-reader-inventory');
-          qr.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } },
-            (text: string) => { if (qr?.isScanning) qr.stop().catch(console.error); handleScan(text); setIsScannerOpen(false); },
-            () => {}
-          ).catch(() => { toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera.' }); setIsScannerOpen(false); });
+        const element = document.getElementById('qr-reader-inventory');
+        if (element) {
+          html5QrCode = new Html5Qrcode('qr-reader-inventory');
+          const onScanSuccess = (decodedText: string) => {
+            if (html5QrCode?.isScanning) {
+              html5QrCode.stop().catch(console.error);
+            }
+            handleScan(decodedText);
+            setIsScannerOpen(false);
+          };
+          const onScanFailure = () => { /* ignore */ };
+          html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 250, height: 250 } }, onScanSuccess, onScanFailure)
+            .catch(err => {
+              toast({ variant: 'destructive', title: 'Camera Error', description: 'Could not start the camera. Please check permissions and try again.' });
+              setIsScannerOpen(false);
+            });
         }
       }, 300);
-      return () => { clearTimeout(timer); if (qr?.isScanning) qr.stop().catch(console.error); };
+      return () => {
+          clearTimeout(timer);
+          if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop().catch(err => console.error("Failed to stop QR Code scanner.", err));
+          }
+      };
     }
   }, [isScannerOpen, handleScan, toast]);
-
+  
   const hasInventory = inventory && inventory.length > 0;
   const hasFilteredInventory = filteredInventory.length > 0;
 
   return (
     <ClientOnly>
-    <div className="flex min-h-screen w-full flex-col bg-slate-50/50">
+    <div className="flex h-screen w-full flex-col">
       <AppHeader title="Inventory Hub" />
-      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto min-w-0">
-
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-10 text-left">
-          <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-slate-900 leading-none">Asset Base</h1>
-            <p className="text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Supply, retail & equipment pulse</p>
-          </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <Button variant="outline" asChild className="flex-1 md:flex-none h-14 px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-white/50 backdrop-blur-sm">
-              <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" /> Reports</Link>
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid lg:grid-cols-3 xl:grid-cols-4 gap-10 items-start">
-          <div className="hidden lg:block lg:col-span-1">
-            <InventorySidebar inventory={inventory || []} stockCorrections={stockCorrections || []} onLogOverheadUse={handleOpenLogUse} />
-          </div>
-          <div className="lg:col-span-2 xl:col-span-3 space-y-8 min-w-0">
-            <div className="lg:hidden mb-6">
-              <Sheet>
-                <SheetTrigger asChild><Button variant="outline" className="w-full h-12 rounded-2xl border-2 font-black uppercase tracking-widest text-[10px] shadow-sm bg-white/50 backdrop-blur-sm"><SlidersHorizontal className="mr-2 h-4 w-4" />Stats & Tactical Ops</Button></SheetTrigger>
-                <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0 border-none rounded-t-[3rem] bg-background shadow-3xl">
-                  <SheetHeader className="p-8 pb-4 border-b bg-muted/5 flex-shrink-0 text-left"><SheetTitle className="text-2xl font-black uppercase tracking-tighter text-slate-900">Inventory Pulse</SheetTitle><SheetDescription className="text-xs font-bold uppercase tracking-widest opacity-60">High-level asset metrics.</SheetDescription></SheetHeader>
-                  <ScrollArea className="flex-1"><div className="p-8"><InventorySidebar inventory={inventory || []} stockCorrections={stockCorrections || []} onLogOverheadUse={handleOpenLogUse} /></div></ScrollArea>
-                </SheetContent>
-              </Sheet>
+      <main className="flex-1 p-4 md:p-8">
+        
+        <div className="grid lg:grid-cols-4 gap-8 items-start">
+            <div className="hidden lg:block lg:col-span-1">
+                <InventorySidebar
+                  inventory={inventory || []}
+                  stockCorrections={stockCorrections || []}
+                  onLogOverheadUse={handleOpenLogUse} 
+                />
             </div>
 
-            <Card className="border-2 shadow-sm rounded-[2.5rem] overflow-hidden">
-              <CardHeader className="bg-muted/5 border-b p-6 md:p-8 space-y-8 text-left">
-                <div className="flex flex-col md:flex-row items-center gap-4">
-                  <div className="relative flex-1 w-full"><Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" /><Input placeholder="SEARCH BY NAME, SKU, OR ID..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-                  <div className="flex items-center gap-2 w-full md:w-auto">
-                    <Button variant="outline" size="icon" className="h-14 w-14 rounded-2xl border-2 shrink-0 bg-white/50" onClick={() => setIsScannerOpen(true)}><QrCode className="h-6 w-6 opacity-40" /></Button>
-                    <Select value={activeFilter} onValueChange={setActiveFilter}><SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest w-full md:w-48 bg-white shadow-inner"><SelectValue placeholder="ALL DEPARTMENTS" /></SelectTrigger><SelectContent className="rounded-xl border-2 shadow-2xl"><SelectItem value="all" className="font-bold">ALL DEPARTMENTS</SelectItem><SelectItem value="professional" className="font-bold">PROFESSIONAL</SelectItem><SelectItem value="retail" className="font-bold">RETAIL</SelectItem><SelectItem value="equipment" className="font-bold">EQUIPMENT</SelectItem><SelectItem value="overhead" className="font-bold">OVERHEAD</SelectItem><SelectItem value="refreshment" className="font-bold">REFRESHMENT</SelectItem></SelectContent></Select>
-                  </div>
+            <div className="lg:col-span-3">
+                 <div className="lg:hidden mb-6">
+                    <Sheet>
+                        <SheetTrigger asChild>
+                            <Button variant="outline" className="w-full">
+                                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                                View Stats & Actions
+                            </Button>
+                        </SheetTrigger>
+                        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
+                             <SheetHeader className="p-4 border-b">
+                                <SheetTitle>Inventory Overview</SheetTitle>
+                                <SheetDescription>Key metrics and actions for your inventory.</SheetDescription>
+                            </SheetHeader>
+                            <ScrollArea className="flex-1">
+                                <div className="p-4">
+                                     <InventorySidebar
+                                      inventory={inventory || []}
+                                      stockCorrections={stockCorrections || []}
+                                      onLogOverheadUse={handleOpenLogUse}
+                                     />
+                                </div>
+                            </ScrollArea>
+                        </SheetContent>
+                    </Sheet>
                 </div>
-                <div className="p-4 md:p-6 bg-primary/[0.03] rounded-3xl border-2 border-dashed border-primary/20 flex flex-wrap items-center gap-x-6 md:gap-x-10 gap-y-4 md:gap-y-6">
-                  <div className="flex items-center gap-3 w-full md:w-auto text-left"><div className="p-2 bg-primary/10 rounded-xl"><SlidersHorizontal className="w-4 h-4 text-primary" /></div><h4 className="text-[10px] font-black uppercase text-primary tracking-widest">Base Filters</h4></div>
-                  <div className="flex items-center space-x-2"><Switch id="show-archived-inv" checked={showArchived} onCheckedChange={setShowArchived} /><Label htmlFor="show-archived-inv" className="text-[10px] font-black uppercase tracking-widest cursor-pointer text-slate-600">Archived Items</Label></div>
-                </div>
-              </CardHeader>
-
-              <CardContent className="p-6 md:p-8">
-                {selectedItems.size > 0 && (
-                  <div className="mb-8 p-5 rounded-[2rem] bg-slate-900 text-white flex items-center justify-between shadow-2xl animate-in slide-in-from-top-4 duration-500">
-                    <div className="flex items-center gap-4"><div className="p-2 bg-white/10 rounded-xl"><Check className="w-5 h-5" /></div><p className="text-xs font-black uppercase tracking-widest">{selectedItems.size} Selected</p></div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={() => window.open(`/print/product-labels/${tenantId}?ids=${[...selectedItems].join(',')}`, '_blank')}><Printer className="mr-1.5 h-3.5 w-3.5" /> Labels</Button>
-                      {showArchived ? <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkUnarchive}>Restore</Button> : <Button variant="outline" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest border-white/20 hover:bg-white/10" onClick={handleBulkArchive}>Archive</Button>}
-                      <Button variant="destructive" size="sm" className="h-10 rounded-xl font-black uppercase text-[10px] tracking-widest" onClick={handleBulkDeleteClick}>Purge</Button>
-                    </div>
-                  </div>
-                )}
                 <Tabs value={activeView} onValueChange={setActiveView} className="w-full">
-                  <Button
-                    onClick={() => setQuickReceiveOpen(true)}
-                    className="w-full sm:w-auto h-12 mb-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-primary/20"
-                  >
-                    <PackageOpen className="mr-2 h-4 w-4" /> Receive stock — scan the box in
-                  </Button>
-                  <QuickReceiveDialog
-                    open={quickReceiveOpen}
-                    onOpenChange={setQuickReceiveOpen}
-                    tenantId={selectedTenant?.id || ''}
-                    inventory={inventory as any[]}
-                  />
-                  <TabsList className="bg-muted/30 p-1 rounded-2xl border-2 border-muted shadow-inner flex gap-1.5 mb-8 overflow-x-auto scrollbar-hide">
-                    <TabsTrigger value="products" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Manifest</TabsTrigger>
-                    <TabsTrigger value="orders" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Orders</TabsTrigger>
-                    <TabsTrigger value="hospitality" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Hospitality</TabsTrigger>
-                    <TabsTrigger value="locations" className="flex-1 min-w-[100px] h-11 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md">Zones</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="products" className="mt-0">
-                    {!hasInventory && !isInventoryLoading ? (<EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {hasFilteredInventory ? paginatedItems.map(item => (
-                          <ProductCard key={item.id} item={item} onEdit={handleEditItem} onToggleExperiment={handleToggleExperiment} onEndExperiment={handleEndExperiment} onLogUse={handleOpenLogUse} onWriteOff={handleOpenWriteOff} onLogSale={handleOpenLogSale} isSelected={selectedItems.has(item.id)} onSelect={() => handleItemSelect(item.id)} isOrdered={orderedProductIds.has(item.id)} />
-                        )) : (<div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4 col-span-full"><Filter className="w-16 h-16" /><p className="font-black uppercase tracking-widest text-sm">No Assets Found</p></div>)}
-                      </div>
-                    )}
-                  </TabsContent>
-                  <TabsContent value="orders" className="mt-0"><OrdersTab inventory={inventory || []} /></TabsContent>
-                  <TabsContent value="hospitality" className="mt-0 animate-in fade-in duration-500"><HospitalityLedger /></TabsContent>
-                  <TabsContent value="locations" className="mt-0"><Locations locations={locations || []} locationTypes={locationTypes || []} inventory={inventory || []} onAddLocation={handleOpenAddLocation} onEditLocation={handleOpenEditLocation} onDelete={() => {}} /></TabsContent>
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="products">Products</TabsTrigger>
+                    <TabsTrigger value="orders">Orders</TabsTrigger>
+                    <TabsTrigger value="locations">Locations</TabsTrigger>
+                </TabsList>
+                <TabsContent value="products" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                <div>
+                                    <CardTitle>All Inventory</CardTitle>
+                                    <CardDescription>A complete list of your professional, retail, and equipment stock.</CardDescription>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Button variant="outline" asChild>
+                                        <Link href="/inventory/report"><BarChart className="mr-2 h-4 w-4" />View Report</Link>
+                                    </Button>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button><PlusCircle className="mr-2" /> New Item</Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('professional')}><Package className="mr-2" />Product (Professional)</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleOpenAddProductDialog('retail')}><Store className="mr-2" />Product (Retail)</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setIsAddEquipmentDialogOpen(true)}><Hammer className="mr-2" />Equipment</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setIsAddOverheadDialogOpen(true)}><Recycle className="mr-2" />Overhead</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="mb-4 space-y-4">
+                                <div className="flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="relative flex-1 w-full">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                                        <Input 
+                                            placeholder="Search by name..." 
+                                            className="pl-9"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <Button variant="outline" size="icon" onClick={() => setIsScannerOpen(true)}>
+                                            <QrCode className="h-4 w-4" />
+                                            <span className="sr-only">Scan</span>
+                                        </Button>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button variant="outline" className="w-full sm:w-auto">
+                                                    <ListFilter className="mr-2 h-4 w-4" />
+                                                    Filter
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem onClick={() => setActiveFilter('all')}>All</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('professional')}>Professional</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('retail')}>Retail</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('equipment')}>Equipment</DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setActiveFilter('overhead')}>Overhead</DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <Switch id="show-archived" checked={showArchived} onCheckedChange={setShowArchived} />
+                                    <Label htmlFor="show-archived">{showArchived ? "Viewing Archived" : "Show Archived"}</Label>
+                                </div>
+                            </div>
+                             {selectedItems.size > 0 && (
+                                <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
+                                    <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
+                                    <div className="flex gap-2">
+                                        {showArchived ? (
+                                            <Button variant="outline" size="sm" onClick={handleBulkUnarchive}>Unarchive</Button>
+                                        ) : (
+                                            <Button variant="outline" size="sm" onClick={handleBulkArchive}>Archive</Button>
+                                        )}
+                                        <Button variant="destructive" size="sm" onClick={handleBulkDeleteClick}>Delete</Button>
+                                    </div>
+                                </div>
+                            )}
+                            {!hasInventory ? (
+                                <EmptyState onAddFirstItem={() => handleOpenAddProductDialog('professional')} />
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6">
+                                    {hasFilteredInventory ? paginatedItems.map(item => (
+                                        <ProductCard 
+                                            key={item.id}
+                                            item={item} 
+                                            onEdit={handleEditItem} 
+                                            onToggleExperiment={handleToggleExperiment} 
+                                            onEndExperiment={handleEndExperiment} 
+                                            onLogUse={handleOpenLogUse}
+                                            onWriteOff={handleOpenWriteOff}
+                                            onLogSale={handleOpenLogSale}
+                                            isSelected={selectedItems.has(item.id)}
+                                            onSelect={() => handleItemSelect(item.id)}
+                                            isOrdered={orderedProductIds.has(item.id)}
+                                        />
+                                    )) : (
+                                        <p className="text-muted-foreground col-span-full text-center py-10">No items match your filters.</p>
+                                    )}
+                                </div>
+                            )}
+                        </CardContent>
+                        {totalPages > 1 && (
+                            <CardFooter>
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="text-sm text-muted-foreground">
+                                        Page {currentPage} of {totalPages}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handlePrevPage}
+                                            disabled={currentPage === 1}
+                                        >
+                                            Previous
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={handleNextPage}
+                                            disabled={currentPage === totalPages}
+                                        >
+                                            Next
+                                        </Button>
+                                    </div>
+                                </div>
+                            </CardFooter>
+                        )}
+                    </Card>
+                </TabsContent>
+                <TabsContent value="orders" className="mt-6">
+                    <OrdersTab 
+                        inventory={inventory || []}
+                    />
+                </TabsContent>
+                <TabsContent value="locations" className="mt-6">
+                        <Locations 
+                            locations={locations || []}
+                            locationTypes={locationTypes || []}
+                            inventory={inventory || []}
+                            setLocations={() => {}}
+                            onAddLocation={handleOpenAddLocation}
+                            onEditLocation={handleOpenEditLocation}
+                        />
+                </TabsContent>
                 </Tabs>
-              </CardContent>
-
-              {activeView === 'products' && totalPages > 1 && (
-                <CardFooter className="p-8 pt-0 border-t bg-muted/5">
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Segment {currentPage} of {totalPages}</span>
-                    <div className="flex items-center gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest"><ChevronLeft className="mr-2 h-4 w-4" /> Previous</Button>
-                      <Button variant="ghost" size="sm" onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages} className="h-10 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest">Next <ChevronRight className="ml-2 h-4 w-4" /></Button>
-                    </div>
-                  </div>
-                </CardFooter>
-              )}
-            </Card>
-          </div>
+            </div>
         </div>
       </main>
+      
+      <AddProductDialog
+        open={isAddProductDialogOpen}
+        onOpenChange={setIsAddProductDialogOpen}
+        initialType={addProductDialogType}
+        categories={productCategories}
+        onNewCategory={onNewCategory}
+        onProductAdded={handleProductAdded}
+        locations={locations || []}
+        onAddLocationClick={handleOpenAddLocation}
+      />
+      
+       <AddEquipmentDialog
+        open={isAddEquipmentDialogOpen}
+        onOpenChange={setIsAddEquipmentDialogOpen}
+        onEquipmentAdded={handleEquipmentAdded}
+        equipmentCategories={productCategories}
+        onNewCategory={onNewCategory}
+        locations={locations || []}
+      />
+      
+      <AddOverheadDialog
+        open={isAddOverheadDialogOpen}
+        onOpenChange={setIsAddOverheadDialogOpen}
+        onOverheadAdded={handleOverheadAdded}
+        categories={productCategories}
+        onNewCategory={onNewCategory}
+        locations={locations || []}
+      />
 
-      <AddProductDialog open={isAddProductDialogOpen} onOpenChange={setIsAddProductDialogOpen} initialType={addProductDialogType} categories={productCategories} onNewCategory={onNewCategory} onProductAdded={handleProductAdded} locations={locations || []} onAddLocationClick={handleOpenAddLocation} />
-      <AddEquipmentDialog open={isAddEquipmentDialogOpen} onOpenChange={setIsAddEquipmentDialogOpen} onEquipmentAdded={handleEquipmentAdded} equipmentCategories={productCategories} onNewCategory={onNewCategory} locations={locations || []} />
-      <AddOverheadDialog open={isAddOverheadDialogOpen} onOpenChange={setIsAddOverheadDialogOpen} onOverheadAdded={handleOverheadAdded} categories={productCategories} onNewCategory={onNewCategory} locations={locations || []} />
-      <AddRefreshmentDialog open={isAddRefreshmentDialogOpen} onOpenChange={setIsAddRefreshmentDialogOpen} onRefreshmentAdded={handleRefreshmentAdded} locations={locations || []} />
+        {editingItem && editingItem.type === 'equipment' && (
+            <EditEquipmentDialog
+                open={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+                equipment={editingItem}
+                onEquipmentUpdated={handleUpdateItem}
+                equipmentCategories={productCategories}
+                onNewCategory={onNewCategory}
+                locations={locations || []}
+            />
+        )}
+        
+        {editingItem && (editingItem.type === 'professional' || editingItem.type === 'retail') && (
+            <EditProductDialog
+                open={isEditDialogOpen}
+                onOpenChange={setIsEditDialogOpen}
+                product={editingItem}
+                onProductUpdated={handleUpdateItem}
+                categories={productCategories}
+                onNewCategory={onNewCategory}
+                locations={locations || []}
+                onAddLocationClick={handleOpenAddLocation}
+            />
+        )}
 
-      {editingItem && editingItem.type === 'equipment' && (<EditEquipmentDialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen} equipment={editingItem} onEquipmentUpdated={handleUpdateItem} equipmentCategories={productCategories} onNewCategory={onNewCategory} locations={locations || []} />)}
-      {editingItem && (editingItem.type === 'professional' || editingItem.type === 'retail' || editingItem.type === 'overhead' || editingItem.type === 'refreshment') && (<EditProductDialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen} product={editingItem} onProductUpdated={handleUpdateItem} categories={productCategories} onNewCategory={onNewCategory} locations={locations || []} onAddLocationClick={handleOpenAddLocation} />)}
+      <LogUseDialog
+        open={isLogUseOpen}
+        onOpenChange={setIsLogUseOpen}
+        product={selectedProduct}
+        allProducts={inventory || []}
+        onConfirm={handleLogUseConfirm}
+        dialogType={logUseDialogType}
+      />
+      <LogSaleDialog
+        open={isLogSaleOpen}
+        onOpenChange={setIsLogSaleOpen}
+        product={selectedProduct}
+        onConfirm={handleLogSaleConfirm}
+      />
 
-      <LogUseDialog open={isLogUseOpen} onOpenChange={setIsLogUseOpen} product={selectedProduct} allProducts={inventory || []} onConfirm={handleLogUseConfirm} dialogType={logUseDialogType} />
-      <LogSaleDialog open={isLogSaleOpen} onOpenChange={setIsLogSaleOpen} product={selectedProduct} onConfirm={handleLogSaleConfirm} />
-      {selectedProduct && <WriteOffDialog open={isWriteOffOpen} onOpenChange={setIsWriteOffOpen} product={selectedProduct} onConfirm={handleWriteOffConfirm} />}
-      {selectedProduct && <EndCostPerUseTestDialog open={isEndExperimentOpen} onOpenChange={setIsEndExperimentOpen} product={selectedProduct} onConfirm={handleEndExperimentConfirmed} />}
-
-      <AddLocationDialog open={isAddLocationDialogOpen} onOpenChange={setIsAddLocationDialogOpen} onSave={handleSaveLocation} locationTypes={locationTypes || []} onAddNewLocationType={handleAddNewLocationType} />
-      {selectedLocation && <EditLocationDialog open={isEditLocationDialogOpen} onOpenChange={setIsEditLocationDialogOpen} location={selectedLocation} onSave={handleUpdateLocation} locationTypes={locationTypes || []} onAddNewLocationType={handleAddNewLocationType} />}
-
-      <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md p-0 overflow-hidden border-4 rounded-[3rem] shadow-3xl">
-          <DialogHeader className="p-8 pb-0 text-left"><DialogTitle className="text-2xl font-black uppercase tracking-tighter">Asset Scanner</DialogTitle><DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60">Scan ClarityFlow QR codes or standard SKUs.</DialogDescription></DialogHeader>
-          <div className="p-8 relative">
-            <div id="qr-reader-inventory" className="w-full aspect-square rounded-3xl bg-muted shadow-inner" />
-            <div className="absolute inset-8 flex items-center justify-center pointer-events-none">
-              <div className="w-2/3 h-2/3 border-4 border-primary rounded-3xl shadow-2xl" />
+      {selectedProduct && (
+        <WriteOffDialog
+            open={isWriteOffOpen}
+            onOpenChange={setIsWriteOffOpen}
+            product={selectedProduct}
+            onConfirm={handleWriteOffConfirm}
+        />
+      )}
+      
+      {selectedProduct && (
+        <EndCostPerUseTestDialog
+            open={isEndExperimentOpen}
+            onOpenChange={setIsEndExperimentOpen}
+            product={selectedProduct}
+            onConfirm={handleEndExperimentConfirmed}
+        />
+       )}
+        <AddLocationDialog 
+            open={isAddLocationDialogOpen} 
+            onOpenChange={setIsAddLocationDialogOpen}
+            onSave={handleSaveLocation}
+            locationTypes={locationTypes || []}
+            onAddNewLocationType={handleAddNewLocationType}
+        />
+        {selectedLocation && (
+            <EditLocationDialog
+                open={isEditLocationDialogOpen}
+                onOpenChange={setIsEditLocationDialogOpen}
+                location={selectedLocation}
+                onSave={handleUpdateLocation}
+                locationTypes={locationTypes || []}
+                onAddNewLocationType={handleAddNewLocationType}
+            />
+        )}
+        
+       <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent className="sm:max-w-md p-0">
+          <DialogHeader className="p-4 pb-0">
+            <DialogTitle>Scan Product</DialogTitle>
+            <DialogDescription>
+              Position the product's barcode or QR code inside the frame.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-4 relative">
+             <div id="qr-reader-inventory" className="w-full rounded-md bg-muted" />
+             <div className="absolute inset-4 flex items-center justify-center pointer-events-none">
+                <div className="w-2/3 h-1/2 border-4 border-primary/50 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]" />
             </div>
           </div>
-          <DialogFooter className="p-8 pt-0"><Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button" className="w-full h-14 rounded-2xl font-bold uppercase tracking-widest text-[10px]">Cancel Scanning</Button></DialogFooter>
+           <DialogFooter className="p-4 pt-0">
+                <Button variant="outline" onClick={() => setIsScannerOpen(false)} type="button">Cancel</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <FloatingInventoryFAB
-        onAddProfessional={() => handleOpenAddProductDialog('professional')}
-        onAddRetail={() => handleOpenAddProductDialog('retail')}
-        onAddEquipment={() => setIsAddEquipmentDialogOpen(true)}
-        onAddOverhead={() => setIsAddOverheadDialogOpen(true)}
-        onAddRefreshment={() => setIsAddRefreshmentDialogOpen(true)}
-      />
-
-      <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
-        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl">
-          <AlertDialogHeader className="p-6 pb-0"><AlertDialogTitle className="text-2xl font-black uppercase tracking-tighter">Terminate Assets</AlertDialogTitle><AlertDialogDescription className="font-bold text-sm text-slate-600 leading-relaxed uppercase">You are about to permanently delete {selectedItems.size} items. This will wipe all associated stock history and performance metrics. <strong>This action is non-reversible.</strong></AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3"><Button onClick={handleBulkDeleteConfirm} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-destructive/20 bg-destructive text-destructive-foreground hover:bg-destructive/90">Purge Assets</Button><AlertDialogCancel className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Abort</AlertDialogCancel></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <AlertDialog open={isBulkDeleteConfirmOpen} onOpenChange={setIsBulkDeleteConfirmOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        This will permanently delete {selectedItems.size} item(s) from your inventory. This action cannot be undone.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleBulkDeleteConfirm} className={buttonVariants({ variant: "destructive" })}>
+                        Delete
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
     </div>
     </ClientOnly>
   );
