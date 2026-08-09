@@ -224,6 +224,15 @@ export default function RetailClaimsPage() {
                     {c.lineName ? ` · ${c.lineName}${(c.qty || 1) > 1 ? ` ×${c.qty}` : ''}` : ''}
                     {(c as any).component ? ` · piece: ${(c as any).component}` : ''}
                   </p>
+                  {Array.isArray((c as any).photoUrls) && (c as any).photoUrls.length > 0 && (
+                    <div className="mt-2 flex gap-2">
+                      {((c as any).photoUrls as string[]).slice(0, 4).map((u) => (
+                        <a key={u} href={u} target="_blank" rel="noreferrer" aria-label="Open customer photo full size">
+                          <img src={u} alt="Customer claim photo" className="h-14 w-14 rounded-lg border-2 object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   {c.description && <p className="text-sm font-bold leading-relaxed text-muted-foreground">&ldquo;{c.description}&rdquo;</p>}
                   {c.appealNote && (
                     <p className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3 text-sm font-bold leading-relaxed text-amber-900">
