@@ -804,6 +804,37 @@ export default function OrderStatusPage() {
               <ShoppingBag className="w-4 h-4 text-primary" />
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your items</p>
             </div>
+            {(() => {
+              const totOrdered = order.lines.reduce((a, l) => a + l.qtyOrdered, 0);
+              const totBack = order.lines.filter((l) => l.status === 'backordered').reduce((a, l) => a + l.qtyShorted, 0);
+              const totRefunded = order.lines.filter((l) => l.status === 'refunded').reduce((a, l) => a + l.qtyShorted, 0);
+              const totNow = totOrdered - totBack - totRefunded;
+              if (totBack === 0 && totRefunded === 0) return null;
+              return (
+                <div className="grid grid-cols-3 gap-2 rounded-2xl border-2 border-amber-200 bg-amber-50/50 p-3 text-center">
+                  <div>
+                    <p className="font-mono text-base font-black">{totOrdered}</p>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Ordered</p>
+                  </div>
+                  <div>
+                    <p className="font-mono text-base font-black">{totNow}</p>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">{isShip ? 'In this shipment' : 'Ready with this order'}</p>
+                  </div>
+                  <div>
+                    <p className="font-mono text-base font-black text-amber-700">{totBack > 0 ? totBack : totRefunded}</p>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-amber-700">{totBack > 0 ? 'Backordered' : 'Refunded'}</p>
+                  </div>
+                  {totBack > 0 && (
+                    <p className="col-span-3 text-[9px] font-bold text-amber-800">
+                      {isShip
+                        ? 'Backordered units ship separately at no extra shipping cost \u2014 we\u2019ll email tracking when they\u2019re on the way.'
+                        : 'Backordered units will be ready for pickup when restocked \u2014 we\u2019ll let you know.'}
+                      {totRefunded > 0 ? ` ${totRefunded} unavailable unit(s) were refunded.` : ''}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
             <div className="space-y-2.5">
               {order.lines.map((l, i) => (
                 <div key={i} className="flex items-start justify-between gap-3">
