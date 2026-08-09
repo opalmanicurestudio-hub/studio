@@ -77,9 +77,10 @@ const EVENT_LABELS: Record<string, string> = {
   override: 'Manager override', note: 'Note',
 };
 
-const STAGE_FILTERS: { id: 'all' | 'active' | OrderStage; label: string }[] = [
+const STAGE_FILTERS: { id: 'all' | 'active' | 'backordered' | OrderStage; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
+  { id: 'backordered', label: 'Backordered' },
   { id: 'completed', label: 'Completed' },
   { id: 'shipped', label: 'Shipped' },
   { id: 'cancelled', label: 'Cancelled' },
@@ -116,7 +117,7 @@ export default function RetailOrderHistoryPage() {
   const [exhausted, setExhausted] = useState(false);
   const [cursor, setCursor] = useState<any>(null);
   const [term, setTerm] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | OrderStage>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'backordered' | OrderStage>('all');
   const [detail, setDetail] = useState<HistoryOrder | null>(null);
   const [events, setEvents] = useState<OrderEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -169,7 +170,9 @@ export default function RetailOrderHistoryPage() {
     return orders.filter((o) => {
       const isDraft = o.stage === 'placed';
       if (filter !== 'placed' && isDraft) return false;
-      if (filter === 'active' ? !ACTIVE_STAGES.includes(o.stage) : filter !== 'all' && o.stage !== filter) return false;
+      if (filter === 'backordered') {
+        if (!(o.lines || []).some((l: any) => l.status === 'backordered')) return false;
+      } else if (filter === 'active' ? !ACTIVE_STAGES.includes(o.stage) : filter !== 'all' && o.stage !== filter) return false;
       if (!t) return true;
       return (
         String(o.orderNumber ?? '').includes(t.replace(/^#/, '')) ||
@@ -294,6 +297,11 @@ export default function RetailOrderHistoryPage() {
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">
                       {o.customerName}{o.customerEmail ? ` · ${o.customerEmail}` : ''}
                     </p>
+                    {(o.lines || []).some((l: any) => l.status === 'backordered') && (
+                      <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
+                        Owes {(o.lines || []).filter((l: any) => l.status === 'backordered').reduce((a: number, l: any) => a + (Number(l.qtyShorted) || 0), 0)} backordered unit(s) — ship when restocked
+                      </p>
+                    )}
                     <div className="flex items-center gap-2">
                       {stageBadge(o.stage)}
                       <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{when(o.placedAt)}</p>
