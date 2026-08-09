@@ -28,6 +28,7 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
 import { buildEvent, buildOrderQrValue } from '@/lib/retail-orders';
+import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
 /* ── QR token (HMAC-signed; raw ids are never scannable) ─────────────────── */
 
@@ -402,11 +403,17 @@ export async function sendOrderConfirmation(
   if (!origin) return;
 
   let shopName = 'Your order';
+  let emailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
   try {
     const tSnap = await db.collection('tenants').doc(tenantId).get();
     if (tSnap.exists) {
       const t = tSnap.data() || {};
       shopName = String(t.businessName || t.name || shopName);
+      emailBrand = {
+        shopName,
+        brandColor: (typeof t?.retailSettings?.shopTheme?.brand === 'string' && /^#[0-9a-fA-F]{6}$/.test(t.retailSettings.shopTheme.brand.trim()))
+          ? t.retailSettings.shopTheme.brand.trim() : '#16171a',
+      };
     }
   } catch {
     // name is cosmetic
@@ -432,8 +439,8 @@ export async function sendOrderConfirmation(
     ? `<p style="font-size:13px;color:#0f172a">Requested time: <strong>${String(order.pickupAt)}</strong></p>`
     : '';
 
-  const html = `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:520px;margin:0 auto;padding:8px">
-    <p style="font-size:16px;color:#0f172a"><strong>Thanks${order.customerName ? `, ${String(order.customerName).split(' ')[0]}` : ''}!</strong> Your order ${num} is confirmed.</p>
+  const emailBody = `
+    <p style="font-size:16px;color:#0f172a;margin:0 0 8px"><strong>Thanks${order.customerName ? `, ${String(order.customerName).split(' ')[0]}` : ''}!</strong> Your order ${num} is confirmed.</p>
     <p style="font-size:13px;color:#64748b">${nextStep}</p>
     ${pickupNote}
     <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
@@ -446,11 +453,8 @@ export async function sendOrderConfirmation(
       ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">Total paid</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(session?.amount_total ?? order.totalCents)}</td></tr>
     </table>
-    <p style="text-align:center;margin:24px 0">
-      <a href="${origin}/shop/${tenantId}/order/${orderId}" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">View my order</a>
-    </p>
-    <p style="font-size:11px;color:#94a3b8;text-align:center">${shopName}</p>
-  </div>`;
+    ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}`;
+  const html = brandedEmail(emailBrand, emailBody, { preheader: `Order ${num} confirmed` });
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -533,12 +537,18 @@ async function sendCartRecovery(
     if (!origin) return;
 
     let shopName = 'the shop';
+    let emailBrand = { shopName: 'the shop', brandColor: '#16171a' };
     let enabled = true;
     try {
       const tSnap = await db.collection('tenants').doc(tenantId).get();
       if (tSnap.exists) {
         const t = tSnap.data() || {};
         shopName = String(t.businessName || t.name || shopName);
+        emailBrand = {
+          shopName,
+          brandColor: (typeof t?.retailSettings?.shopTheme?.brand === 'string' && /^#[0-9a-fA-F]{6}$/.test(t.retailSettings.shopTheme.brand.trim()))
+            ? t.retailSettings.shopTheme.brand.trim() : '#16171a',
+        };
         enabled = (t.retailSettings || {}).cartRecoveryEnabled !== false;
       }
     } catch {
@@ -555,17 +565,14 @@ async function sendCartRecovery(
       `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${String(l.name || 'Item')}${Number(l.qtyOrdered) > 1 ? ` \u00d7 ${Number(l.qtyOrdered)}` : ''}</td></tr>`
     ).join('');
 
-    const html = `
-    <div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:28px 20px">
-      <p style="font-size:14px;color:#0f172a;font-weight:700">Hi ${firstName},</p>
+    const recoveryBody = `
+      <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
       <p style="font-size:14px;color:#334155;line-height:1.6">Your cart at <strong>${shopName}</strong> is still saved — checkout timed out before payment went through, and nothing was charged.</p>
       <table style="border-collapse:collapse;margin:14px 0">${rows}</table>
       ${order?.subtotalCents ? `<p style="font-size:13px;color:#64748b">Subtotal ${money(order.subtotalCents)}</p>` : ''}
-      <p style="margin:22px 0">
-        <a href="${origin}/shop/${tenantId}/checkout" style="background:#111827;color:#ffffff;padding:14px 30px;border-radius:12px;text-decoration:none;font-weight:700;font-size:13px">Finish my order</a>
-      </p>
-      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Stock isn't held forever, so popular items can sell out. If you already placed this order or changed your mind, just ignore this — you won't hear from us about it again.</p>
-    </div>`;
+      ${emailButton(`${origin}/shop/${tenantId}/checkout`, 'Finish my order', emailBrand)}
+      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Stock isn't held forever, so popular items can sell out. If you already placed this order or changed your mind, just ignore this — you won't hear from us about it again.</p>`;
+    const html = brandedEmail(emailBrand, recoveryBody, { preheader: 'Your cart is still saved — nothing was charged' });
 
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
