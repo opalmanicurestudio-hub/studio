@@ -51,6 +51,9 @@ const safeClaim = (d: any) => ({
   lineName: d.lineName || null,
   component: d.component || null,
   photoUrls: Array.isArray(d.photoUrls) ? d.photoUrls : [],
+  infoRequestText: d.infoRequestText || null,
+  infoRequestAt: d.infoRequestAt || null,
+  infoResponseText: d.infoResponseText || null,
   status: d.status, resolution: d.resolution || null,
   resolutionCents: d.resolutionCents ?? null,
   declineReason: d.declineReason || null,
@@ -112,6 +115,32 @@ export async function POST(req: NextRequest) {
 
   try {
     // ── APPEAL: reopen a declined claim, once, with the customer's note ──
+    if (String(body.action || '') === 'respond_info') {
+      const claimId = String(body.claimId || '').trim();
+      const note = String(body.note || '').trim().slice(0, 600);
+      if (!claimId || !note) return NextResponse.json({ error: 'Write what the shop asked for.' }, { status: 400 });
+
+      const claimRef = db.collection(`tenants/${tenantId}/retailClaims`).doc(claimId);
+      const [orderSnap, claimSnap] = await Promise.all([orderRef.get(), claimRef.get()]);
+      if (!orderSnap.exists || !claimSnap.exists) return NextResponse.json({ error: 'Claim not found.' }, { status: 404 });
+      const order = orderSnap.data() as any;
+      const claim = claimSnap.data() as any;
+      if (order.qrToken !== qrToken || claim.orderId !== orderId) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
+      if (!claim.infoRequestText) return NextResponse.json({ error: 'The shop hasn\u2019t asked for anything on this claim.' }, { status: 409 });
+      if (claim.status === 'resolved') return NextResponse.json({ error: 'This claim is already approved.' }, { status: 409 });
+
+      const batch = db.batch();
+      batch.set(claimRef, { infoResponseText: note, infoResponseAt: new Date().toISOString() }, { merge: true });
+      const evRef = orderRef.collection('events').doc();
+      batch.set(evRef, {
+        id: evRef.id, type: 'note', at: new Date().toISOString(),
+        actorId: 'customer', actorName: order.customerName || 'Customer',
+        meta: { text: `Customer answered the evidence request on their ${String(claim.type || 'issue')} report` },
+      });
+      await batch.commit();
+      return NextResponse.json({ ok: true });
+    }
+
     if (String(body.action || '') === 'appeal') {
       const claimId = String(body.claimId || '').trim();
       const note = String(body.note || '').trim().slice(0, 600);
