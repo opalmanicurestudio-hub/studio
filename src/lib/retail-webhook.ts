@@ -88,8 +88,12 @@ export async function handleRetailOrderPaid(
 
   // Sanity: what Stripe collected should match what we quoted at checkout.
   // In stripe-tax mode the quote deliberately excluded tax, so the honest
-  // comparison adds Stripe's own tax figure back before crying mismatch.
-  const expectedTotal = (Number(order.totalCents) || 0) + (stripeTaxMode ? sessionTaxCents : 0);
+  // comparison adds Stripe's own tax figure back before crying mismatch —
+  // and a store-credit discount LOWERS the collected amount on purpose, so
+  // the expectation subtracts it too, or every credit order would cry wolf.
+  const expectedTotal = (Number(order.totalCents) || 0)
+    + (stripeTaxMode ? sessionTaxCents : 0)
+    - Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
   if (sessionTotalCents != null && sessionTotalCents !== expectedTotal) {
     console.warn(
       `[connect-webhook] retail order ${orderId} amount mismatch: ` +
@@ -197,6 +201,55 @@ export async function handleRetailOrderPaid(
   // the PRE-transaction snapshot, whose orderNumber is still null on a draft.
   // Re-point them at the freshly numbered document.
   order = { ...order, ...(confirmed.data() || {}) };
+
+  // ── Store credit consumption. The checkout gave the discount UP FRONT on
+  // the Stripe page; the credits burn only now, when money actually moved.
+  // FIFO oldest-first, partial docs tracked via usedCents. A racing second
+  // checkout can leave a shortfall — consumed < requested — which is
+  // RECORDED on the order and flagged as an event instead of silently
+  // eaten; a person settles the rare race, the books never lie.
+  const requestedCredit = Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
+  if (requestedCredit > 0) {
+    try {
+      const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
+        .where('clientEmail', '==', String(order.customerEmail || '').toLowerCase().trim())
+        .where('status', '==', 'available')
+        .limit(25).get();
+      const docs = credSnap.docs
+        .map((d: any) => ({ ref: d.ref, ...(d.data() || {}) }))
+        .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+      let remaining = requestedCredit;
+      const consumeBatch = db.batch();
+      for (const c of docs) {
+        if (remaining <= 0) break;
+        const avail = Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
+        if (avail <= 0) continue;
+        const take = Math.min(avail, remaining);
+        remaining -= take;
+        consumeBatch.set(c.ref, {
+          usedCents: (Number(c.usedCents) || 0) + take,
+          status: take >= avail ? 'used' : 'available',
+          lastUsedAt: new Date().toISOString(),
+          lastUsedOnRetailOrderId: orderId,
+        }, { merge: true });
+      }
+      const consumed = requestedCredit - remaining;
+      const evRef2 = orderRef.collection('events').doc();
+      consumeBatch.set(evRef2, {
+        id: evRef2.id, type: 'note', at: new Date().toISOString(),
+        actorId: 'system', actorName: 'Store credit',
+        meta: { text: remaining > 0
+          ? `Store credit: $${(consumed / 100).toFixed(2)} of the $${(requestedCredit / 100).toFixed(2)} discount was still available \u2014 $${(remaining / 100).toFixed(2)} shortfall needs a look`
+          : `Store credit applied \u2014 $${(consumed / 100).toFixed(2)} redeemed` },
+      });
+      if (remaining > 0) {
+        consumeBatch.set(orderRef, { creditShortfallCents: remaining }, { merge: true });
+      }
+      await consumeBatch.commit();
+    } catch (e: any) {
+      console.error('[retail-webhook] store-credit consumption failed:', e?.message);
+    }
+  }
 
   // ── Audit events + income transaction (batched) ─────────────────────────
   const batch = db.batch();
