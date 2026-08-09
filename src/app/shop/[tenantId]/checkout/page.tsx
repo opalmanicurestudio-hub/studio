@@ -103,6 +103,7 @@ export default function CheckoutPage() {
   const [addr, setAddr] = useState({ name: '', line1: '', line2: '', city: '', state: '', postalCode: '' });
   const [placing, setPlacing] = useState(false);
   const [tipPct, setTipPct] = useState<number>(0);
+  const [applyCredit, setApplyCredit] = useState(false);
   const [pickupChoice, setPickupChoice] = useState('ASAP');
 
   // Live carrier rates. The server signs every option (amount + service +
@@ -285,6 +286,7 @@ export default function CheckoutPage() {
           tipCents,
           pickupAt: method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
           method,
+          applyStoreCredit: applyCredit,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' ? { ...addr, country: 'US' } : undefined,
           shippingQuote: method === 'ship' && selectedQuote
@@ -530,6 +532,19 @@ export default function CheckoutPage() {
             )}
             {shop.tipsEnabled && (
               <div className="flex items-center justify-between gap-2">
+              <label className="mb-3 flex items-start gap-2.5 rounded-2xl border-2 p-3">
+                <input
+                  type="checkbox"
+                  aria-label="Apply my store credit if I have any"
+                  checked={applyCredit}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApplyCredit(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-current"
+                />
+                <span className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+                  <span className="font-black uppercase tracking-widest text-foreground">Apply my store credit</span>
+                  <br />From past returns, if any is on file for your email — the discount appears on the payment page.
+                </span>
+              </label>
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
                 <div className="flex gap-1">
                   {[0, 10, 15, 20].map((pct) => (
