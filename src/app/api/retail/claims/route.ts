@@ -50,6 +50,7 @@ const safeClaim = (d: any) => ({
   id: d.id, type: d.type, qty: d.qty || 1,
   lineName: d.lineName || null,
   component: d.component || null,
+  photoUrls: Array.isArray(d.photoUrls) ? d.photoUrls : [],
   status: d.status, resolution: d.resolution || null,
   resolutionCents: d.resolutionCents ?? null,
   declineReason: d.declineReason || null,
