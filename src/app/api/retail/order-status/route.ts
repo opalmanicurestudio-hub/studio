@@ -97,6 +97,7 @@ export async function GET(req: NextRequest) {
   const selfServeToken = order.qrToken ? String(order.qrToken) : null;
 
   return NextResponse.json({
+    shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
     selfServeToken,
     order: {
       id: orderId,
@@ -136,6 +137,9 @@ export async function GET(req: NextRequest) {
         ? { arrivedAt: order.curbside.arrivedAt || null, spotOrVehicle: order.curbside.spotOrVehicle || '' }
         : null,
       shipCity: order.shippingAddress ? `${order.shippingAddress.city}, ${order.shippingAddress.state}` : null,
+      shippingAddress: order.shippingAddress || null,
+      customerEmail: order.customerEmail || '',
+      storeCreditRequestedCents: order.storeCreditRequestedCents || 0,
       trackingNumber: order.trackingNumber || null,
       trackingUrl: order.trackingUrl || null,
       carrier: order.carrier || null,
