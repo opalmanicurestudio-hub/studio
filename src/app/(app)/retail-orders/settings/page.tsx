@@ -143,7 +143,7 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string;
+    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string;
   }>>({});
 
   useEffect(() => {
@@ -314,6 +314,8 @@ export default function RetailSettingsPage() {
     img: (it.imageUrls || []).join('\n'),
     howToUse: it.howToUse || '',
     kit: (it.kitContents || []).join('\n'),
+    casePack: it.casePack ? String(it.casePack) : '',
+    caseBarcode: it.caseBarcode || '',
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
     options: optionGroupsToText(it.optionGroups),
@@ -357,6 +359,8 @@ export default function RetailSettingsPage() {
         onlineDescription: d.desc.trim(),
         howToUse: d.howToUse.trim(),
         kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
+        casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
+        caseBarcode: d.caseBarcode.trim() || null,
         imageUrls,
         specs: JSON.parse(JSON.stringify(specs)),
         documents: JSON.parse(JSON.stringify(documents)),
@@ -1372,6 +1376,16 @@ export default function RetailSettingsPage() {
                         <Textarea placeholder="How to use — steps or instructions" value={d.howToUse}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input placeholder="Units per case (wholesale)" inputMode="numeric" aria-label="Units per sealed case"
+                            value={d.casePack}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, casePack: e.target.value } })}
+                            className="h-10 rounded-xl border-2 font-bold text-xs" />
+                          <Input placeholder="Case barcode (on the carton)" aria-label="Case barcode"
+                            value={d.caseBarcode}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, caseBarcode: e.target.value } })}
+                            className="h-10 rounded-xl border-2 font-bold text-xs" />
+                        </div>
                         <Textarea placeholder={'Kit or collection? List what\u2019s inside — one piece per line. Customers reporting a problem then pick the exact piece.'} value={d.kit}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, kit: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
