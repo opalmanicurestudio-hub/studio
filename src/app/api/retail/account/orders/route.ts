@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
   const creditCents = creditSnap.docs
     .map((d: any) => d.data())
     .filter((c: any) => c.status === 'available')
-    .reduce((s: number, c: any) => s + (c.amountCents || 0), 0);
+    .reduce((s: number, c: any) => s + Math.max(0, (c.amountCents || 0) - (c.usedCents || 0)), 0);
 
   return NextResponse.json({ email, orders, creditCents });
 }
