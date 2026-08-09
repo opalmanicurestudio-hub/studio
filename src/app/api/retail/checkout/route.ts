@@ -68,6 +68,7 @@ function getAdminDb() {
 }
 
 interface CheckoutBody {
+  applyStoreCredit?: boolean;
   tenantId?: string;
   items?: { productId?: string; qty?: number; selections?: Record<string, string> }[];
   method?: string;
@@ -343,6 +344,7 @@ async function handleCheckout(req: NextRequest) {
     shippingCents,
     shippingService,
     refundedCents: 0,
+    storeCreditRequestedCents: 0,
     tipCents,
     pickupAt,
     totalCents,
@@ -450,11 +452,48 @@ async function handleCheckout(req: NextRequest) {
     cancel_url: `${origin}/shop/${tenantId}?canceled=1`,
   });
 
+  // ── Store credit (speculative): the box says "apply mine IF I have any".
+  // The server checks — nothing about balances ever leaves except as the
+  // discount the OWNER sees on their own payment page, so there is no
+  // balance-probe endpoint to abuse. The credit docs are NOT touched here:
+  // consumption happens in the paid webhook, so an abandoned session leaves
+  // every credit intact. Cap keeps a 50¢ card charge — full-credit
+  // zero-charge orders are a later round, said plainly.
+  let creditCoupon: string | null = null;
+  let creditAppliedCents = 0;
+  if (body.applyStoreCredit === true && customerEmail) {
+    try {
+      const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
+        .where('clientEmail', '==', customerEmail)
+        .where('status', '==', 'available')
+        .limit(25).get();
+      const available = credSnap.docs.reduce((a: number, d: any) => {
+        const c = d.data();
+        return a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
+      }, 0);
+      const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+      creditAppliedCents = Math.max(0, Math.min(available, chargeable - 50));
+      if (creditAppliedCents > 0) {
+        const coupon = await stripe.coupons.create(
+          { amount_off: creditAppliedCents, currency: 'usd', duration: 'once', name: 'Store credit' },
+          { stripeAccount: stripeAccountId }
+        );
+        creditCoupon = coupon.id;
+        await orderRef.set({ storeCreditRequestedCents: creditAppliedCents }, { merge: true });
+      }
+    } catch {
+      // Any failure here means the customer simply pays full price and every
+      // credit survives untouched — the safe direction.
+      creditCoupon = null;
+      creditAppliedCents = 0;
+    }
+  }
+
   try {
     let session: any;
     try {
       session = await stripe.checkout.sessions.create(
-        sessionParams(lineItems, stripeTax),
+        { ...sessionParams(lineItems, stripeTax), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },
         { stripeAccount: stripeAccountId }
       );
     } catch (taxErr: any) {
@@ -477,7 +516,7 @@ async function handleCheckout(req: NextRequest) {
         totalCents: subtotalCents + fbTaxCents + shippingCents + tipCents,
       }, { merge: true });
       session = await stripe.checkout.sessions.create(
-        sessionParams(buildLineItems(false, fbTaxCents), false),
+        { ...sessionParams(buildLineItems(false, fbTaxCents), false), ...(creditCoupon ? { discounts: [{ coupon: creditCoupon }] } : {}) },
         { stripeAccount: stripeAccountId }
       );
     }
