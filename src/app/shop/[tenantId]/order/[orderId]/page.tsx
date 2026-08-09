@@ -887,6 +887,16 @@ export default function OrderStatusPage() {
                   {rcptSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Email my receipt again'}
                 </Button>
               )}
+              {order && selfToken && order.stage !== 'placed' && order.stage !== 'cancelled' && (
+                <a
+                  href={`/shop/${tenantId}/invoice/${orderId}?t=${encodeURIComponent(selfToken)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex w-full h-10 items-center justify-center rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
+                >
+                  Download invoice
+                </a>
+              )}
               {helpSent ? (
                 <p className="text-sm font-bold text-muted-foreground">
                   Got it — your message is with the shop and tied to this order. They&apos;ll reach out.
