@@ -9,14 +9,20 @@
 //   · Button/header text color is COMPUTED from the brand color's luminance,
 //     so a shop with a pale-lemon brand doesn't send white-on-yellow email.
 //   · Email clients are hostile terrain: table-free simple divs, inline
-//     styles only, system font stack (webfonts don't load reliably in mail
-//     clients — matching the app's tone beats half-loading its typeface),
-//     560px column, colors that survive dark-mode inversion reasonably.
+//     styles, 560px column, colors that survive dark-mode inversion. Type
+//     is Jakarta-first (her one-typeface rule): Apple Mail loads it via
+//     @import; Gmail/Outlook strip webfonts and fall back to the system
+//     stack — the email is branded where possible, clean everywhere.
 //
 // Senders build only their BODY html and hand it here. One place to change
 // the look; zero drift between senders.
 
 export type EmailBrand = { shopName: string; brandColor: string };
+
+// Jakarta-first everywhere. Clients that honor webfonts (Apple Mail — most
+// phone inboxes) render the brand typeface; clients that strip them (Gmail,
+// Outlook) fall back to the system stack. The @import lives in the shell.
+const EMAIL_FONT = "'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif";
 
 /** Per-send tenant brand lookup. Fallbacks keep emails sending when a tenant
  *  has no theme: ink header, honest name. */
@@ -69,17 +75,19 @@ export function brandedEmail(brand: EmailBrand, bodyHtml: string, opts?: { prehe
   const pre = opts?.preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${opts.preheader}</div>`
     : '';
-  return `${pre}<div style="background:#f4f4f5;padding:24px 12px">
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;700;800&display=swap');</style>
+</head><body style="margin:0;padding:0">${pre}<div style="background:#f4f4f5;padding:24px 12px">
   <div style="max-width:560px;margin:0 auto">
-    <div style="background:${brand.brandColor};color:${headerFg};border-radius:16px 16px 0 0;padding:18px 24px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif">
+    <div style="background:${brand.brandColor};color:${headerFg};border-radius:16px 16px 0 0;padding:18px 24px;font-family:${EMAIL_FONT}">
       <span style="font-size:15px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase">${brand.shopName}</span>
     </div>
-    <div style="background:#ffffff;border-radius:0 0 16px 16px;padding:26px 24px;font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif">
+    <div style="background:#ffffff;border-radius:0 0 16px 16px;padding:26px 24px;font-family:${EMAIL_FONT}">
       ${bodyHtml}
     </div>
-    <p style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:11px;color:#94a3b8;text-align:center;margin:14px 0 0">
+    <p style="font-family:${EMAIL_FONT};font-size:11px;color:#94a3b8;text-align:center;margin:14px 0 0">
       Sent by ${brand.shopName}
     </p>
   </div>
-</div>`;
+</div></body></html>`;
 }
