@@ -25,6 +25,7 @@ export const dynamic = 'force-dynamic';
 const MAX_TURNS = 12;          // messages sent per request (tail of thread)
 const MAX_MSG_CHARS = 1000;
 const MAX_QUESTIONS_PER_ORDER = 30;
+const MAX_QUESTIONS_PER_TENANT_PER_DAY = 400;
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -106,6 +107,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This order\u2019s helper has answered a lot already \u2014 use Report a problem below and a person will take it from here.' }, { status: 429 });
     }
 
+    // Tenant-wide daily ceiling: the per-order cap bounds one link; this
+    // bounds the whole shop's day, so the platform API bill has a hard
+    // roof no matter how many order links exist. Counter in /private
+    // (server-only per rules), keyed by UTC day, reserved atomically
+    // BEFORE the model call so parallel requests can't slip past it.
+    const dayKey = new Date().toISOString().slice(0, 10);
+    const meterRef = db.collection(`tenants/${tenantId}/private`).doc('aiSupportMeter');
+    try {
+      const allowed = await db.runTransaction(async (txn: any) => {
+        const m = await txn.get(meterRef);
+        const cur = m.exists ? (m.data() as any) : {};
+        const count = cur.day === dayKey ? (Number(cur.count) || 0) : 0;
+        if (count >= MAX_QUESTIONS_PER_TENANT_PER_DAY) return false;
+        txn.set(meterRef, { day: dayKey, count: count + 1 }, { merge: true });
+        return true;
+      });
+      if (!allowed) {
+        return NextResponse.json({ error: 'The helper is resting for today \u2014 the buttons below all still work, and Report a problem reaches a person.' }, { status: 429 });
+      }
+    } catch {
+      // The meter must never take the helper down; the per-order cap and
+      // per-request token ceiling still bound the worst case.
+    }
+
     const [tenantSnap, claimsSnap, returnsSnap] = await Promise.all([
       db.collection('tenants').doc(tenantId).get(),
       db.collection(`tenants/${tenantId}/retailClaims`).where('orderId', '==', orderId).limit(10).get(),
@@ -163,8 +188,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'The helper came back empty \u2014 try rephrasing.' }, { status: 502 });
     }
 
-    // Meter AFTER a successful answer; failures never spend the budget.
-    await orderRef.set({ aiSupportUses: (Number(order.aiSupportUses) || 0) + 1 }, { merge: true });
+    // Meter AFTER a successful answer; failures never spend the per-order
+    // budget. Atomic increment — parallel questions can't undercount.
+    try {
+      const { FieldValue } = require('firebase-admin/firestore');
+      await orderRef.set({ aiSupportUses: FieldValue.increment(1) }, { merge: true });
+    } catch {
+      await orderRef.set({ aiSupportUses: (Number(order.aiSupportUses) || 0) + 1 }, { merge: true });
+    }
 
     return NextResponse.json({ ok: true, reply: text });
   } catch (err: any) {
