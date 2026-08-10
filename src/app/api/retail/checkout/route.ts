@@ -402,7 +402,15 @@ async function handleCheckout(req: NextRequest) {
       price_data: {
         currency: 'usd',
         unit_amount: l.unitPriceCents,
-        product_data: { name: l.name, ...(withTaxCodes ? { tax_code: 'txcd_99999999' } : {}) },
+        // Stripe's general-goods code is wrong for a download: many states
+        // tax digital products differently, or not at all. txcd_10501000 is
+        // Stripe's "digital goods — downloadable" code, so their engine
+        // applies the right rule per state instead of taxing a PDF like a
+        // bottle of polish.
+        product_data: {
+          name: l.name,
+          ...(withTaxCodes ? { tax_code: l.digital === true ? 'txcd_10501000' : 'txcd_99999999' } : {}),
+        },
         ...(withTaxCodes ? { tax_behavior: 'exclusive' } : {}),
       },
     }));
