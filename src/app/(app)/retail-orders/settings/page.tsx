@@ -148,6 +148,7 @@ export default function RetailSettingsPage() {
     howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
+  const [runBusy, setRunBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (loaded) return;
@@ -1442,6 +1443,49 @@ export default function RetailSettingsPage() {
                               value={d.preorderLimit}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderLimit: e.target.value } })}
                               className="h-10 rounded-xl border-2 font-bold text-xs" />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={runBusy === it.id}
+                              className="h-9 w-full rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
+                              onClick={async () => {
+                                if (!tenantId) return;
+                                setRunBusy(it.id);
+                                try {
+                                  const peek = await fetch('/api/retail/preorder-run-cancel', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ tenantId, productId: it.id, dryRun: true }),
+                                  }).then((r) => r.json());
+                                  if (!peek.ok) {
+                                    toast({ variant: 'destructive', title: 'Could not check the run', description: peek.error || 'Try again.' });
+                                    return;
+                                  }
+                                  if (!peek.orders) {
+                                    toast({ title: 'Nothing to cancel', description: 'No open pre-orders on this product.' });
+                                    return;
+                                  }
+                                  const ok = window.confirm(`Cancel this run? ${peek.orders} customer order(s), $${(peek.refundCents / 100).toFixed(2)} to refund. Each person is emailed and their refund is queued for you to send in Stripe.`);
+                                  if (!ok) return;
+                                  const why = window.prompt('Tell them why (goes in the email word for word):') || '';
+                                  const res = await fetch('/api/retail/preorder-run-cancel', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ tenantId, productId: it.id, reason: why }),
+                                  });
+                                  const data = await res.json();
+                                  if (!res.ok) toast({ variant: 'destructive', title: 'Not cancelled', description: data.error || 'Try again.' });
+                                  else toast({ title: 'Run cancelled', description: `${data.orders} order(s), $${(data.refundCents / 100).toFixed(2)} queued for refund, ${data.emailed} emailed.` });
+                                } catch {
+                                  toast({ variant: 'destructive', title: 'Not cancelled', description: 'Check your connection and try again.' });
+                                } finally {
+                                  setRunBusy(null);
+                                }
+                              }}
+                            >
+                              {runBusy === it.id ? 'Working\u2026' : 'Cancel this run + refund everyone'}
+                            </Button>
                             <p className="text-[10px] font-bold text-muted-foreground">
                               Taken so far: {(it as any).preorderSold || 0}. Leave the close date blank to keep taking orders until you turn it off. If you miss the ship-by date, buyers get a one-tap refund \u2014 so promise a date you can keep.
                             </p>
