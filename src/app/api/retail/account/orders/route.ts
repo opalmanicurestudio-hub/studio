@@ -81,5 +81,36 @@ export async function GET(req: NextRequest) {
     .filter((c: any) => c.status === 'available')
     .reduce((s: number, c: any) => s + Math.max(0, (c.amountCents || 0) - (c.usedCents || 0)), 0);
 
-  return NextResponse.json({ email, orders, creditCents });
+  // ── One shelf for everything they've ever bought that isn't a parcel.
+  // Assembled across ALL their orders, newest first, deduped by product so
+  // buying the same guide twice doesn't read as two entitlements. Each entry
+  // carries the order it came from, because access is checked against that
+  // order — the shelf is a directory, never a second door.
+  const library: any[] = [];
+  const seenProducts = new Set<string>();
+  [...seen.values()]
+    .sort((a, b) => String(b.paidAt || b.placedAt || '').localeCompare(String(a.paidAt || a.placedAt || '')))
+    .forEach((o: any) => {
+      if (['placed', 'cancelled', 'refunded'].includes(String(o.stage))) return;
+      (o.lines || []).forEach((l: any) => {
+        if (l.digital !== true) return;
+        if (['refunded', 'backordered'].includes(String(l.status))) return;
+        if (seenProducts.has(l.productId)) return;
+        seenProducts.add(l.productId);
+        const days = Number(l.digitalAccessDays) || 0;
+        const start = Date.parse(String(o.paidAt || o.placedAt || '')) || 0;
+        const endsAt = days > 0 && start ? new Date(start + days * 86400000).toISOString() : null;
+        library.push({
+          productId: l.productId,
+          name: l.name,
+          orderId: o.id,
+          orderNumber: o.orderNumber ?? null,
+          boughtAt: o.paidAt || o.placedAt || '',
+          endsAt,
+          expired: !!endsAt && Date.parse(endsAt) < Date.now(),
+        });
+      });
+    });
+
+  return NextResponse.json({ email, orders, creditCents, library });
 }
