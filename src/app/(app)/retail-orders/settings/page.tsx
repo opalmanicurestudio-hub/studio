@@ -145,7 +145,7 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
+    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; palletPack: string; palletBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
   const [runBusy, setRunBusy] = useState<string | null>(null);
@@ -330,6 +330,8 @@ export default function RetailSettingsPage() {
     digitalFilePath: it.digitalFilePath || '',
     digitalFileName: it.digitalFileName || '',
     casePack: it.casePack ? String(it.casePack) : '',
+    palletPack: it.palletPack ? String(it.palletPack) : '',
+    palletBarcode: it.palletBarcode || '',
     caseBarcode: it.caseBarcode || '',
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
     docs: (it.documents || []).map((d: any) => `${d.name} | ${d.url}`).join('\n'),
@@ -384,6 +386,8 @@ export default function RetailSettingsPage() {
         digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
         digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
         casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
+        palletPack: Math.max(0, Math.floor(Number(d.palletPack) || 0)) || null,
+        palletBarcode: d.palletBarcode.trim() || null,
         caseBarcode: d.caseBarcode.trim() || null,
         imageUrls,
         specs: JSON.parse(JSON.stringify(specs)),
@@ -1601,6 +1605,25 @@ export default function RetailSettingsPage() {
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, caseBarcode: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-bold text-xs" />
                         </div>
+                        {Number(d.casePack) > 1 && (
+                          <div className="space-y-1.5">
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input placeholder="Cases per pallet" inputMode="numeric" aria-label="Cases per pallet"
+                                value={d.palletPack}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, palletPack: e.target.value } })}
+                                className="h-10 rounded-xl border-2 font-bold text-xs" />
+                              <Input placeholder="Pallet label code" aria-label="Pallet or master-carton barcode"
+                                value={d.palletBarcode}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, palletBarcode: e.target.value } })}
+                                className="h-10 rounded-xl border-2 font-bold text-xs" />
+                            </div>
+                            {Number(d.palletPack) > 1 && (
+                              <p className="text-[10px] font-bold text-muted-foreground">
+                                One pallet scan counts {Number(d.casePack) * Number(d.palletPack)} units ({d.palletPack} cases of {d.casePack}) — never more than the job still owes.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         <Textarea placeholder={'Kit or collection? List what\u2019s inside — one piece per line. Customers reporting a problem then pick the exact piece.'} value={d.kit}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, kit: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
