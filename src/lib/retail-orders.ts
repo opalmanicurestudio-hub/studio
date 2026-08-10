@@ -467,6 +467,7 @@ export interface OrderLine {
   shortReason?: string;
   casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
   caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
+  qtyPacked?: number;          // second-scan count at the box (pack verification)
 }
 
 export type ShortResolution = 'refund' | 'backorder';
@@ -903,6 +904,64 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
       qtyScanned: updatedLine.qtyScanned,
       qtyOrdered: line.qtyOrdered,
       pickComplete: isPickComplete(nextLines),
+      ...(isCaseScan ? { caseCounted: increment } : {}),
+    },
+    lines: nextLines,
+  };
+}
+
+/**
+ * SECOND SCAN — pack verification. The pick scan proved the item left the
+ * shelf; this proves it entered the BOX. Its own counter (qtyPacked), same
+ * matching rules (QR / barcode / SKU / case code), bounded by what the
+ * order actually owes after shorts. Only meaningful for orders whose pick
+ * scan happened at the shelf — wave orders already scan AT the bench, and
+ * a third pass would be labor without information.
+ */
+export function isPackComplete(lines: OrderLine[]): boolean {
+  return lines.every((l) =>
+    ['refunded', 'backordered'].includes(l.status) ||
+    (l.qtyPacked || 0) >= l.qtyOrdered - l.qtyShorted
+  );
+}
+
+export function applyPackScan(lines: OrderLine[], scannedValue: string): {
+  result: ScanResult;
+  lines: OrderLine[];
+} {
+  const raw = scannedValue.trim();
+  const productIdFromQr = parseProductQr(raw);
+  const idx = lines.findIndex((l) =>
+    productIdFromQr !== null
+      ? l.productId === productIdFromQr
+      : l.productId === raw ||
+        l.productId.toLowerCase() === raw.toLowerCase() ||
+        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
+        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw))
+  );
+  if (idx === -1) {
+    return { result: { ok: false, code: 'unknown_sku', message: `Scanned code "${raw}" is not on this order.` }, lines };
+  }
+  const line = lines[idx];
+  const owed = line.qtyOrdered - line.qtyShorted;
+  if (['refunded', 'backordered'].includes(line.status)) {
+    return { result: { ok: false, code: 'line_closed', message: `${line.name} was ${line.status} — it doesn't go in the box.` }, lines };
+  }
+  if ((line.qtyPacked || 0) >= owed) {
+    return { result: { ok: false, code: 'over_scan', message: `${line.name} already has all ${owed} pack-checked.` }, lines };
+  }
+  const isCaseScan = !!line.caseBarcode && (line.casePack || 0) > 1 && codesMatch(line.caseBarcode, raw);
+  const remaining = owed - (line.qtyPacked || 0);
+  const increment = isCaseScan ? Math.min(line.casePack as number, remaining) : 1;
+  const updatedLine: OrderLine = { ...line, qtyPacked: (line.qtyPacked || 0) + increment };
+  const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
+  return {
+    result: {
+      ok: true,
+      lineId: line.lineId,
+      qtyScanned: updatedLine.qtyPacked as number,
+      qtyOrdered: owed,
+      pickComplete: isPackComplete(nextLines),
       ...(isCaseScan ? { caseCounted: increment } : {}),
     },
     lines: nextLines,
