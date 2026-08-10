@@ -98,6 +98,7 @@ export const RetailCatalog: React.FC<RetailCatalogProps> = ({ inventory, service
                 <div className="relative flex-1">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                     <Input 
+                        aria-label="Search the catalog"
                         placeholder="SEARCH CATALOG..."
                         className="pl-12 h-12 md:h-14 rounded-2xl border-2 font-black uppercase text-[10px] md:text-xs tracking-widest focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
                         value={searchTerm}
