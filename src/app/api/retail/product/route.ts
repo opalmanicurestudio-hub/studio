@@ -4,6 +4,7 @@ import {
   isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem,
 } from '@/lib/retail-orders';
 import { publicFields } from '@/lib/product-public';
+import { preorderState } from '@/lib/retail-orders';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
 
 // ─── /api/retail/product/route.ts ─────────────────────────────────────────────
@@ -121,9 +122,12 @@ export async function GET(req: NextRequest) {
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
       digital: item.digital === true,
+      preorder: preorderState(item as any),
       // A digital item can never be out of stock — the storefront must not
       // grey out a course because a stock number nobody maintains hit zero.
-      inStock: item.digital === true || available > 0 || item.allowBackorder === true,
+      inStock: item.digital === true
+        || (item.preorder === true ? preorderState(item as any).open : false)
+        || available > 0 || item.allowBackorder === true,
       qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
       lowStock: available > 0 && available <= (item.lowStockThreshold ?? 0),
     },
