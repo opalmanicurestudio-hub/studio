@@ -248,6 +248,44 @@ export default function OrderEvidencePage({ params }: { params: Promise<{ orderI
         </CardContent>
       </Card>
 
+      {(order?.lines || []).some((l: any) => l.digital === true) && (
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <ScanLine className="h-4 w-4 text-primary" aria-hidden="true" />
+              <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Digital delivery</p>
+            </div>
+            <div className="space-y-2">
+              {(order?.lines || []).filter((l: any) => l.digital === true).map((l: any) => {
+                const opens = Number((order as any)?.digitalOpens?.[l.productId]) || 0;
+                const days = Number(l.digitalAccessDays) || 0;
+                const start = Date.parse(String((order as any)?.paidAt || (order as any)?.placedAt || '')) || 0;
+                const endsAt = days > 0 && start ? new Date(start + days * 86400000) : null;
+                return (
+                  <div key={l.lineId} className="flex items-center justify-between gap-3 rounded-2xl border-2 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-black uppercase tracking-tight">{l.name}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                        {endsAt ? `Access until ${endsAt.toLocaleDateString()}` : 'Access for good'}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-mono text-base font-black leading-none">{opens}</p>
+                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">
+                        open{opens === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[10px] font-bold text-muted-foreground">
+              Opens are counted per buyer. A number far above what one person would need is the signal worth looking at \u2014 every file they open carries their name printed inside it.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
         <CardContent className="p-5 space-y-3">
           <div className="flex items-center gap-2">
