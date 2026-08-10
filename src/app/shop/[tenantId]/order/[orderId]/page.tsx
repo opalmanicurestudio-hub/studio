@@ -1406,8 +1406,13 @@ export default function OrderStatusPage() {
               ) : (
                 <>
                   <p className="text-[10px] font-black uppercase tracking-widest">Start a return</p>
+                  {(order.lines || []).some((l: any) => l.digital === true) && (
+                    <p className="rounded-2xl border-2 border-amber-200 bg-amber-50/60 p-2.5 text-[11px] font-bold text-amber-900">
+                      Digital items aren&apos;t listed \u2014 there&apos;s nothing to post back. If something\u2019s wrong with one, use &ldquo;Report a problem&rdquo; and the shop will sort it with you.
+                    </p>
+                  )}
                   <div className="space-y-2">
-                    {order.lines.filter((l) => l.lineId && (l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0)) > 0).map((l) => {
+                    {order.lines.filter((l) => l.lineId && (l as any).digital !== true && (l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0)) > 0).map((l) => {
                       const max = l.qtyOrdered - l.qtyShorted - (l.qtyReturned || 0);
                       const q = retQty[l.lineId as string] || 0;
                       return (
