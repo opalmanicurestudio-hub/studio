@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sendOrderConfirmation } from '@/lib/retail-webhook';
 import { requestForensics } from '@/lib/request-forensics';
+import { isPromiseLate } from '@/lib/retail-orders';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -51,6 +52,10 @@ function getAdminDb() {
 
 const RETURN_STAGES = ['shipped', 'handed_off', 'completed'];
 const CANCEL_STAGES = ['placed', 'paid'];
+// Stages where nothing has left the building yet. Past the promised ship
+// date, the FTC rule gives the buyer an unconditional right to cancel for a
+// refund — so "packing has started" stops being a reason to say no.
+const LATE_CANCEL_STAGES = ['placed', 'paid', 'picking', 'packed', 'ready'];
 const REASONS = ['damaged_in_transit', 'defective', 'wrong_item', 'changed_mind', 'other'];
 
 export async function POST(req: NextRequest) {
@@ -80,7 +85,11 @@ export async function POST(req: NextRequest) {
         const order = snap.data() as any;
         if (order.qrToken !== qrToken) return { status: 403, error: 'Not authorized.' };
 
-        if (!CANCEL_STAGES.includes(order.stage)) {
+        const promiseLate = isPromiseLate(order);
+        const cancellable = promiseLate
+          ? LATE_CANCEL_STAGES.includes(order.stage)
+          : CANCEL_STAGES.includes(order.stage);
+        if (!cancellable) {
           if (['cancelled', 'refunded'].includes(order.stage)) {
             return { status: 409, error: 'This order is already cancelled.' };
           }
