@@ -237,8 +237,10 @@ export default function ShopDesignerPage() {
                             className="h-11 w-11 shrink-0 cursor-pointer rounded-xl border-2 bg-white p-1"
                           />
                           <div className="min-w-0 flex-1">
-                            <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
+                            <Label htmlFor={`theme-${key}`} className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
                             <Input
+                              id={`theme-${key}`}
+                              aria-label={lab}
                               value={(theme as any)[key]}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTheme({ ...theme, [key]: e.target.value })}
                               className="mt-1 h-10 rounded-xl border-2 font-mono text-xs"
@@ -265,8 +267,8 @@ export default function ShopDesignerPage() {
                         ['backdrop', 'Background', [['plain', 'None'], ['tint', 'Tint'], ['grain', 'Grain'], ['grid', 'Grid']]],
                       ] as const).map(([key, lab, opts]) => (
                         <div key={key} className="space-y-1.5">
-                          <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
-                          <div className="flex flex-wrap gap-1.5">
+                          <Label id={`group-${key}-label`} className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
+                          <div role="group" aria-labelledby={`group-${key}-label`} className="flex flex-wrap gap-1.5">
                             {opts.map(([val, name]) => (
                               <button key={val} type="button"
                                 aria-pressed={(theme as any)[key] === val}
@@ -291,8 +293,8 @@ export default function ShopDesignerPage() {
                         ['priceStyle', 'Prices', [['mono', 'Tabular'], ['plain', 'Plain'], ['tag', 'Tag']]],
                       ] as const).map(([key, lab, opts]) => (
                         <div key={key} className="space-y-1.5">
-                          <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
-                          <div className="flex flex-wrap gap-1.5">
+                          <Label id={`group-${key}-label`} className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{lab}</Label>
+                          <div role="group" aria-labelledby={`group-${key}-label`} className="flex flex-wrap gap-1.5">
                             {opts.map(([val, name]) => (
                               <button key={val} type="button"
                                 aria-pressed={(theme as any)[key] === val}
@@ -318,8 +320,12 @@ export default function ShopDesignerPage() {
                         ['showStickyBar', 'Sticky buy bar'],
                       ] as const).map(([key, lab]) => (
                         <div key={key} className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-black uppercase tracking-tight">{lab}</span>
-                          <Switch checked={(pdp as any)[key]} onCheckedChange={(v: boolean) => setPdp({ ...pdp, [key]: v })} />
+                          <span id={`pdp-${key}-label`} className="text-xs font-black uppercase tracking-tight">{lab}</span>
+                          <Switch
+                            aria-labelledby={`pdp-${key}-label`}
+                            checked={(pdp as any)[key]}
+                            onCheckedChange={(v: boolean) => setPdp({ ...pdp, [key]: v })}
+                          />
                         </div>
                       ))}
 
@@ -331,6 +337,7 @@ export default function ShopDesignerPage() {
                           <div key={i} className="space-y-2 rounded-xl border-2 p-3">
                             <Input
                               placeholder="Question"
+                              aria-label={`FAQ ${i + 1} question`}
                               value={f.q}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                                 const next = [...pdp.faq]; next[i] = { ...next[i], q: e.target.value }; setPdp({ ...pdp, faq: next });
@@ -488,16 +495,16 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'hero' && (
                 <div className="space-y-2">
-                  <Input placeholder="Headline" value={selected.props.headline || ''}
+                  <Input placeholder="Headline" aria-label="Headline" value={selected.props.headline || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'headline', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Textarea placeholder="Subheadline" value={selected.props.subhead || ''}
+                  <Textarea placeholder="Subheadline" aria-label="Subheadline" value={selected.props.subhead || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'subhead', e.target.value)}
                     className="rounded-xl border-2 min-h-[56px] font-bold text-sm" />
-                  <Input placeholder="Image URL" value={selected.props.imageUrl || ''}
+                  <Input placeholder="Image URL" aria-label="Image URL" value={selected.props.imageUrl || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'imageUrl', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-xs" />
-                  <Input placeholder="Button label" value={selected.props.ctaLabel || ''}
+                  <Input placeholder="Button label" aria-label="Button label" value={selected.props.ctaLabel || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'ctaLabel', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                 </div>
@@ -505,16 +512,16 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'drop' && (
                 <div className="space-y-2">
-                  <Input placeholder="Title (e.g. Holiday drop)" value={selected.props.title || ''}
+                  <Input placeholder="Title (e.g. Holiday drop)" aria-label="Title (e.g. Holiday drop)" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                   <div className="space-y-1">
-                    <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Counts down to</Label>
-                    <Input type="datetime-local" value={selected.props.endsAt || ''}
+                    <Label htmlFor="countdown-endsAt" className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Counts down to</Label>
+                    <Input id="countdown-endsAt" aria-label="Counts down to" type="datetime-local" value={selected.props.endsAt || ''}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'endsAt', e.target.value)}
                       className="h-11 rounded-xl border-2 font-bold text-sm" />
                   </div>
-                  <Input placeholder="Text after it hits zero" value={selected.props.endedText || ''}
+                  <Input placeholder="Text after it hits zero" aria-label="Text after it hits zero" value={selected.props.endedText || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'endedText', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                 </div>
@@ -522,7 +529,7 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'featured' && (
                 <div className="space-y-2">
-                  <Input placeholder="Section title" value={selected.props.title || ''}
+                  <Input placeholder="Section title" aria-label="Section title" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                   <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
@@ -554,10 +561,10 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'banner' && (
                 <div className="space-y-2">
-                  <Input placeholder="Banner text" value={selected.props.text || ''}
+                  <Input placeholder="Banner text" aria-label="Banner text" value={selected.props.text || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'text', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Input placeholder="Button label" value={selected.props.ctaLabel || ''}
+                  <Input placeholder="Button label" aria-label="Button label" value={selected.props.ctaLabel || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'ctaLabel', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                 </div>
@@ -565,13 +572,13 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'story' && (
                 <div className="space-y-2">
-                  <Input placeholder="Title" value={selected.props.title || ''}
+                  <Input placeholder="Title" aria-label="Title" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Textarea placeholder="Your story" value={selected.props.body || ''}
+                  <Textarea placeholder="Your story" aria-label="Your story" value={selected.props.body || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'body', e.target.value)}
                     className="rounded-xl border-2 min-h-[80px] font-bold text-sm" />
-                  <Input placeholder="Image URL" value={selected.props.imageUrl || ''}
+                  <Input placeholder="Image URL" aria-label="Image URL" value={selected.props.imageUrl || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'imageUrl', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-xs" />
                 </div>
@@ -579,16 +586,16 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'policies' && (
                 <div className="space-y-2">
-                  <Input placeholder="Section title" value={selected.props.title || ''}
+                  <Input placeholder="Section title" aria-label="Section title" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Textarea placeholder="Pickup policy (blank hides the card)" value={selected.props.pickupText || ''}
+                  <Textarea placeholder="Pickup policy (blank hides the card)" aria-label="Pickup policy (blank hides the card)" value={selected.props.pickupText || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'pickupText', e.target.value)}
                     className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
-                  <Textarea placeholder="Curbside policy (blank hides the card)" value={selected.props.curbsideText || ''}
+                  <Textarea placeholder="Curbside policy (blank hides the card)" aria-label="Curbside policy (blank hides the card)" value={selected.props.curbsideText || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'curbsideText', e.target.value)}
                     className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
-                  <Textarea placeholder="Shipping policy (blank hides the card)" value={selected.props.shippingText || ''}
+                  <Textarea placeholder="Shipping policy (blank hides the card)" aria-label="Shipping policy (blank hides the card)" value={selected.props.shippingText || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'shippingText', e.target.value)}
                     className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
                 </div>
@@ -596,20 +603,20 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'locator' && (
                 <div className="space-y-2">
-                  <Input placeholder="Section title (e.g. Find us)" value={selected.props.title || ''}
+                  <Input placeholder="Section title (e.g. Find us)" aria-label="Section title (e.g. Find us)" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
-                  <Textarea placeholder="Address" value={selected.props.address || ''}
+                  <Textarea placeholder="Address" aria-label="Address" value={selected.props.address || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'address', e.target.value)}
                     className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
                   <Textarea placeholder={'Hours (e.g. Mon-Fri 9-6, Sat 10-4)'} value={selected.props.hours || ''}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateProps(selected.id, 'hours', e.target.value)}
                     className="rounded-xl border-2 min-h-[52px] font-bold text-sm" />
                   <div className="grid grid-cols-2 gap-2">
-                    <Input placeholder="Phone" value={selected.props.phone || ''}
+                    <Input placeholder="Phone" aria-label="Phone" value={selected.props.phone || ''}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'phone', e.target.value)}
                       className="h-11 rounded-xl border-2 font-bold text-sm" />
-                    <Input placeholder="Google Maps link" value={selected.props.mapsUrl || ''}
+                    <Input placeholder="Google Maps link" aria-label="Google Maps link" value={selected.props.mapsUrl || ''}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'mapsUrl', e.target.value)}
                       className="h-11 rounded-xl border-2 font-bold text-xs" />
                   </div>
@@ -618,7 +625,7 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'faq' && (
                 <div className="space-y-2">
-                  <Input placeholder="Section title" value={selected.props.title || ''}
+                  <Input placeholder="Section title" aria-label="Section title" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                   <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
@@ -642,7 +649,7 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'marquee' && (
                 <div className="space-y-2">
-                  <Input placeholder={'Ticker text (e.g. Free pickup \u00b7 Same-day curbside)'} value={selected.props.text || ''}
+                  <Input placeholder={'Ticker text (e.g. Free pickup \u00b7 Same-day curbside)'} aria-label="Ticker text" value={selected.props.text || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'text', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                   <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/60">
@@ -653,7 +660,7 @@ export default function ShopDesignerPage() {
 
               {selected.type === 'testimonials' && (
                 <div className="space-y-2">
-                  <Input placeholder="Section title" value={selected.props.title || ''}
+                  <Input placeholder="Section title" aria-label="Section title" value={selected.props.title || ''}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateProps(selected.id, 'title', e.target.value)}
                     className="h-11 rounded-xl border-2 font-bold text-sm" />
                   <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
