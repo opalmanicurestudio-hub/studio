@@ -4,6 +4,7 @@ import { doc, setDoc, updateDoc, type Firestore } from 'firebase/firestore';
 import {
   ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
 } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -109,6 +110,7 @@ export default function RetailSettingsPage() {
   const [rs, setRs] = useState<RetailSettings>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>('shop');
   const [newSpot, setNewSpot] = useState('');
   const [itemBusy, setItemBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
@@ -434,6 +436,21 @@ export default function RetailSettingsPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-5">
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'shop' ? null : 'shop')}
+            aria-expanded={openGroup === 'shop'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Your shop</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Open or pause it, name it, and choose how people collect.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'shop' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'shop' && (
+            <div className="space-y-5">
         <Card className={cn('border-2 rounded-[2rem] overflow-hidden bg-white', rs.storePaused && 'border-amber-300')}>
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-3">
@@ -471,7 +488,6 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
@@ -537,7 +553,6 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
@@ -608,7 +623,25 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
+            </div>
+          )}
+        </section>
 
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
+            aria-expanded={openGroup === 'money'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Money</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Tax, tips, and the shipping labels you buy.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'money' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'money' && (
+            <div className="space-y-5">
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
@@ -651,12 +684,67 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shippo API key — blank keeps manual tracking entry</Label>
+              <Input aria-label="Shippo API key — blank keeps manual tracking entry" placeholder="shippo_live_…" value={rs.shippoApiKey || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shippoApiKey: e.target.value })}
+                className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
+              <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, name: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+              <Input aria-label="Street address" placeholder="Street address" value={rs.shipFrom?.street1 || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, street1: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+              <div className="grid grid-cols-3 gap-2">
+                <Input aria-label="City" placeholder="City" value={rs.shipFrom?.city || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, city: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+                <Input aria-label="State" placeholder="State" value={rs.shipFrom?.state || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, state: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+                <Input aria-label="ZIP" placeholder="ZIP" value={rs.shipFrom?.zip || ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, zip: e.target.value } })}
+                  className="h-11 rounded-xl border-2 font-bold text-sm" />
+              </div>
+              <Input aria-label="Phone (carriers may require it)" placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, phone: e.target.value } })}
+                className="h-11 rounded-xl border-2 font-bold text-sm" />
+            </div>
+          </CardContent>
+        </Card>
+            </div>
+          )}
+        </section>
 
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'orders' ? null : 'orders')}
+            aria-expanded={openGroup === 'orders'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Getting orders out</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">What you promise customers, and the checks that protect you.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'orders' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'orders' && (
+            <div className="space-y-5">
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Truck className="w-4 h-4 text-primary shrink-0" />
-              <p className="text-[11px] font-black uppercase tracking-widest">Fulfilment promises &amp; waves</p>
+              <p className="text-[11px] font-black uppercase tracking-widest">How fast you promise to be ready</p>
             </div>
             <p className="text-[11px] font-bold text-muted-foreground">
               These set the clock every order is measured against, and when the morning wave builds itself.
@@ -718,12 +806,11 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-black uppercase tracking-tight">Shipment protection</p>
+              <p className="text-sm font-black uppercase tracking-tight">Proof for expensive parcels</p>
             </div>
             <p className="text-[11px] font-bold text-muted-foreground">
               Both cost money per label, so both start off. They defend against different things,
@@ -830,12 +917,11 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Camera className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-black uppercase tracking-tight">Photo the packed box</p>
+              <p className="text-sm font-black uppercase tracking-tight">Photograph the packed box</p>
             </div>
             <p className="text-[11px] font-bold text-muted-foreground">
               One shot of the open box at the bench, before it is sealed. It ends a
@@ -895,12 +981,30 @@ export default function RetailSettingsPage() {
             )}
           </CardContent>
         </Card>
+            </div>
+          )}
+        </section>
 
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'after' ? null : 'after')}
+            aria-expanded={openGroup === 'after'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">After the sale</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Returns, reported problems, and win-backs.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'after' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'after' && (
+            <div className="space-y-5">
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm font-black uppercase tracking-tight">Address check &amp; policy</p>
+              <p className="text-sm font-black uppercase tracking-tight">Returns &amp; reported problems</p>
             </div>
 
             <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
@@ -1059,12 +1163,73 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
+            </div>
+          )}
+        </section>
 
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'trade' ? null : 'trade')}
+            aria-expanded={openGroup === 'trade'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Selling to salons</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Wholesale pricing and who can see it.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'trade' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'trade' && (
+            <div className="space-y-5">
+        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale pricing</p>
+            </div>
+            <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+              <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
+            </Button>
+            <div className="space-y-1.5">
+              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                House code — shared fallback; per-account codes live in Wholesale
+              </Label>
+              <Input aria-label="e.g. OPALPRO2026" placeholder="e.g. OPALPRO2026" value={rs.wholesaleAccessCode || ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, wholesaleAccessCode: e.target.value })}
+                className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
+              <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
+            </div>
+          </CardContent>
+        </Card>
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'extras' ? null : 'extras')}
+            aria-expanded={openGroup === 'extras'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Extras</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Order-ahead menu options.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'extras' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'extras' && (
+            <div className="space-y-5">
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Menu mode — order-ahead extras</p>
+              <p className="text-[10px] font-black uppercase tracking-widest">Order-ahead extras</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
@@ -1096,75 +1261,43 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
+            </div>
+          )}
+        </section>
 
+        <section className="space-y-3">
+          <button
+            type="button"
+            onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
+            aria-expanded={openGroup === 'products'}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+          >
+            <span className="min-w-0">
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Your products</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Every product, what shows on its page, and the printable catalog.</span>
+            </span>
+            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'products' && 'rotate-180')} aria-hidden="true" />
+          </button>
+          {openGroup === 'products' && (
+            <div className="space-y-5">
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Truck className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Shipping labels (Shippo)</p>
+          <CardContent className="p-6 space-y-3">
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest">How your shop looks</p>
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Colours, layout and type live in the Designer, where you can watch them change as you tap. The switches below control what appears on a product page.
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shippo API key — blank keeps manual tracking entry</Label>
-              <Input aria-label="Shippo API key — blank keeps manual tracking entry" placeholder="shippo_live_…" value={rs.shippoApiKey || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shippoApiKey: e.target.value })}
-                className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
-              <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, name: e.target.value } })}
-                className="h-11 rounded-xl border-2 font-bold text-sm" />
-              <Input aria-label="Street address" placeholder="Street address" value={rs.shipFrom?.street1 || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, street1: e.target.value } })}
-                className="h-11 rounded-xl border-2 font-bold text-sm" />
-              <div className="grid grid-cols-3 gap-2">
-                <Input aria-label="City" placeholder="City" value={rs.shipFrom?.city || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, city: e.target.value } })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-                <Input aria-label="State" placeholder="State" value={rs.shipFrom?.state || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, state: e.target.value } })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-                <Input aria-label="ZIP" placeholder="ZIP" value={rs.shipFrom?.zip || ''}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, zip: e.target.value } })}
-                  className="h-11 rounded-xl border-2 font-bold text-sm" />
-              </div>
-              <Input aria-label="Phone (carriers may require it)" placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, phone: e.target.value } })}
-                className="h-11 rounded-xl border-2 font-bold text-sm" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-primary" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Wholesale &amp; B2B</p>
-            </div>
-            <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-              <Link href="/retail-orders/wholesale">Manage per-business accounts</Link>
+            <Button asChild variant="outline" className="h-11 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+              <Link href="/retail-orders/designer">Open the Designer</Link>
             </Button>
-            <div className="space-y-1.5">
-              <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                House code — shared fallback; per-account codes live in Wholesale
-              </Label>
-              <Input aria-label="e.g. OPALPRO2026" placeholder="e.g. OPALPRO2026" value={rs.wholesaleAccessCode || ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, wholesaleAccessCode: e.target.value })}
-                className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
-              <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}
-                onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
-            </div>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Globe className="w-4 h-4 text-primary shrink-0" />
-              <p className="text-[11px] font-black uppercase tracking-widest">Product page layout</p>
+              <p className="text-[11px] font-black uppercase tracking-widest">What shows on a product page</p>
             </div>
             <p className="text-[11px] font-bold text-muted-foreground">
               Turn blocks off for shops that don&rsquo;t need them. Everything is on by default.
@@ -1257,12 +1390,11 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center gap-2">
               <Printer className="w-4 h-4 text-primary shrink-0" />
-              <p className="text-[11px] font-black uppercase tracking-widest">Catalog health &amp; printing</p>
+              <p className="text-[11px] font-black uppercase tracking-widest">Catalog check &amp; printing</p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -1326,7 +1458,6 @@ export default function RetailSettingsPage() {
             </p>
           </CardContent>
         </Card>
-
         <Card className="border-2 rounded-[2rem] overflow-hidden bg-white">
           <CardContent className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-2">
@@ -1651,6 +1782,9 @@ export default function RetailSettingsPage() {
             </div>
           </CardContent>
         </Card>
+            </div>
+          )}
+        </section>
       </main>
     </div>
   );
