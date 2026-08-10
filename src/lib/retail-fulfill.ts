@@ -7,6 +7,7 @@ import { nanoid } from 'nanoid';
 
 import {
   BATCH_CLAIM_TIMEOUT_MIN, MAX_SHIP_ORDERS_PER_BATCH, STAGE_LABELS,
+  applyPackScan, isPackComplete,
   applyScan, buildEvent, canAdvance, codesMatch, depleteBatchesFIFO, fulfilledQty,
   isClaimStale, isPickComplete, parseOrderQr, parseProductQr, queuePriority, shortLine,
   type FulfillmentBatch, type InventoryBatchRef, type OrderEventType,
@@ -412,8 +413,46 @@ export async function resolveShortLine(
  * PACKED → READY (with early-arrival auto-advance)
  * ════════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * Persist one PACK-verification scan (the second scan). Same event ledger
+ * discipline as pick scans: mismatches recorded, phase stamped
+ * 'pack_check', completion celebrated once.
+ */
+export async function recordPackScan(
+  fs: Firestore, tenantId: string, orderId: string, scannedValue: string, actor: Actor
+): Promise<{ ok: boolean; message: string; packComplete?: boolean }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) throw new Error('Order not found.');
+      const order = { ...(oSnap.data() as RetailOrder), id: orderId };
+      const { result, lines } = applyPackScan(order.lines, scannedValue);
+      if (!result.ok) {
+        txn.set(doc(collection(oRef, 'events')),
+          evPayload('scan_mismatch', actor, {
+            scannedValue: scannedValue.slice(0, 80), code: result.code, phase: 'pack_check',
+          }));
+        return { ok: false, message: result.message };
+      }
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(lines)) });
+      txn.set(doc(collection(oRef, 'events')), evPayload('item_scanned', actor, {
+        lineId: result.lineId, qtyScanned: result.qtyScanned, qtyOrdered: result.qtyOrdered,
+        phase: 'pack_check',
+      }));
+      if (result.pickComplete) {
+        txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, { text: 'Pack check complete \u2014 every unit verified into the box' }));
+      }
+      return { ok: true, message: `Pack check ${result.qtyScanned}/${result.qtyOrdered}`, packComplete: result.pickComplete };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not record the pack scan.' };
+  }
+}
+
 export async function markPacked(
-  fs: Firestore, tenantId: string, orderId: string, actor: Actor
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor,
+  opts?: { requirePackScan?: boolean }
 ): Promise<{ ok: boolean; message: string }> {
   try {
     const batchId = await runTransaction(fs, async (txn) => {
@@ -424,6 +463,14 @@ export async function markPacked(
 
       const guard = canAdvance(order, 'packed');
       if (!guard.ok) throw new Error(guard.reason);
+
+      // SECOND-SCAN GATE (merchant setting). Only for orders whose pick
+      // scan happened at the shelf — a wave order's single scan already
+      // happens AT the bench (phase 'pack'), so demanding another pass
+      // would be labor without information.
+      if (opts?.requirePackScan && !(order as any).waveId && !isPackComplete(order.lines)) {
+        throw new Error('Pack check required \u2014 scan every item again as it goes into the box.');
+      }
 
       txn.update(oRef, { stage: 'packed', packedAt: new Date().toISOString() });
       txn.set(doc(collection(oRef, 'events')), evPayload('packed', actor));
