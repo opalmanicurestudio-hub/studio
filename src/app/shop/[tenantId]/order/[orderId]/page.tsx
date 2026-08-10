@@ -887,6 +887,14 @@ export default function OrderStatusPage() {
                   {rcptSending ? <Loader className="h-4 w-4 animate-spin" /> : 'Email my receipt again'}
                 </Button>
               )}
+              {order && selfToken && (order.lines || []).some((l: any) => l.digital === true) && order.stage !== 'placed' && order.stage !== 'cancelled' && (
+                <a
+                  href={`/shop/${tenantId}/library/${orderId}?t=${encodeURIComponent(selfToken)}`}
+                  className="flex w-full h-10 items-center justify-center rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
+                >
+                  Open my library
+                </a>
+              )}
               {order && selfToken && order.stage !== 'placed' && order.stage !== 'cancelled' && (
                 <a
                   href={`/shop/${tenantId}/invoice/${orderId}?t=${encodeURIComponent(selfToken)}`}
