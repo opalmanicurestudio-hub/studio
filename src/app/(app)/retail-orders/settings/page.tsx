@@ -145,7 +145,7 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string;
+    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string; preorder: boolean; preorderEtaAt: string; preorderClosesAt: string; preorderLimit: string;
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
 
@@ -321,6 +321,10 @@ export default function RetailSettingsPage() {
     kit: (it.kitContents || []).join('\n'),
     digital: it.digital === true,
     digitalUrl: it.digitalUrl || '',
+    preorder: it.preorder === true,
+    preorderEtaAt: it.preorderEtaAt || '',
+    preorderClosesAt: it.preorderClosesAt || '',
+    preorderLimit: it.preorderLimit ? String(it.preorderLimit) : '',
     digitalAccessDays: it.digitalAccessDays ? String(it.digitalAccessDays) : '',
     digitalFilePath: it.digitalFilePath || '',
     digitalFileName: it.digitalFileName || '',
@@ -371,6 +375,10 @@ export default function RetailSettingsPage() {
         kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
         digital: d.digital === true,
         digitalUrl: d.digital === true ? (d.digitalUrl.trim() || null) : null,
+        preorder: d.preorder === true,
+        preorderEtaAt: d.preorder === true ? (d.preorderEtaAt || null) : null,
+        preorderClosesAt: d.preorder === true ? (d.preorderClosesAt || null) : null,
+        preorderLimit: d.preorder === true ? (Math.max(0, Math.floor(Number(d.preorderLimit) || 0)) || null) : null,
         digitalAccessDays: d.digital === true ? (Math.max(0, Math.floor(Number(d.digitalAccessDays) || 0)) || null) : null,
         digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
         digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
@@ -1404,6 +1412,41 @@ export default function RetailSettingsPage() {
                         <Textarea placeholder="How to use — steps or instructions" value={d.howToUse}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
+                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
+                          <div>
+                            <Label className="text-[11px] font-black uppercase tracking-widest">Pre-order</Label>
+                            <p className="text-[11px] font-bold text-muted-foreground">Sell before it lands. You promise a ship-by date \u2014 the law holds you to it, and so does this.</p>
+                          </div>
+                          <Switch
+                            checked={d.preorder === true}
+                            onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, preorder: v } })}
+                          />
+                        </div>
+                        {d.preorder === true && (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ships by</Label>
+                                <Input type="date" aria-label="Promised ship-by date" value={d.preorderEtaAt}
+                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderEtaAt: e.target.value } })}
+                                  className="h-10 rounded-xl border-2 font-bold text-xs" />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Orders close</Label>
+                                <Input type="date" aria-label="Last day to pre-order" value={d.preorderClosesAt}
+                                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderClosesAt: e.target.value } })}
+                                  className="h-10 rounded-xl border-2 font-bold text-xs" />
+                              </div>
+                            </div>
+                            <Input placeholder="How many this run can take (blank = no limit)" inputMode="numeric" aria-label="Pre-order run limit"
+                              value={d.preorderLimit}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, preorderLimit: e.target.value } })}
+                              className="h-10 rounded-xl border-2 font-bold text-xs" />
+                            <p className="text-[10px] font-bold text-muted-foreground">
+                              Taken so far: {(it as any).preorderSold || 0}. Leave the close date blank to keep taking orders until you turn it off. If you miss the ship-by date, buyers get a one-tap refund \u2014 so promise a date you can keep.
+                            </p>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
                           <div>
                             <Label className="text-[11px] font-black uppercase tracking-widest">Digital item</Label>
