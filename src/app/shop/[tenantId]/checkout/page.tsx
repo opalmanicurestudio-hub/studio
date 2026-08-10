@@ -186,6 +186,11 @@ export default function CheckoutPage() {
 
   const cartEntries = Object.entries(cart).filter(([key, q]) => q > 0 && byId.has(parseCartKey(key).productId));
   const cartCount = cartEntries.reduce((a, [, q]) => a + q, 0);
+  // A cart of nothing-but-digital has no parcel and no pickup: asking for a
+  // delivery method (or an address) reads as a broken shop, and that's where
+  // abandoned carts come from. The server already accepts this shape.
+  const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) =>
+    (byId.get(parseCartKey(key).productId) as any)?.digital === true);
 
   const optionDelta = (key: string) => {
     const { productId, selections } = parseCartKey(key);
@@ -241,7 +246,7 @@ export default function CheckoutPage() {
   const freeQualified = freeOverCents > 0 && subtotalCents >= freeOverCents;
 
   const shippingCents = useMemo(() => {
-    if (method !== 'ship' || !shop) return 0;
+    if (digitalOnlyCart || method !== 'ship' || !shop) return 0;
     if (freeQualified) return 0;
     if (selectedQuote) return selectedQuote.amountCents;
     return Math.round((shop.flatShippingDollars || 0) * 100);
@@ -271,7 +276,7 @@ export default function CheckoutPage() {
 
   const canPlace =
     cartCount > 0 && name.trim() && email.trim() && minIssues.length === 0 &&
-    (method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode));
+    (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode));
 
   const placeOrder = async () => {
     if (!canPlace || placing) return;
@@ -284,11 +289,11 @@ export default function CheckoutPage() {
           tenantId,
           items: cartEntries.map(([key, qty]) => ({ ...parseCartKey(key), qty })),
           tipCents,
-          pickupAt: method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
-          method,
+          pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
+          method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
-          shippingAddress: method === 'ship' ? { ...addr, country: 'US' } : undefined,
+          shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...addr, country: 'US' } : undefined,
           shippingQuote: method === 'ship' && selectedQuote
             ? { amountCents: selectedQuote.amountCents, service: selectedQuote.service, exp: selectedQuote.exp, token: selectedQuote.token }
             : undefined,
@@ -400,7 +405,16 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          <div className="space-y-2">
+          {digitalOnlyCart && (
+            <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.04] p-3">
+              <p className="text-[10px] font-black uppercase tracking-widest">Instant access</p>
+              <p className="text-[11px] font-bold text-muted-foreground">
+                Nothing ships. The moment you pay, everything opens in your library and lands in your email.
+              </p>
+            </div>
+          )}
+
+          <div className={cn('space-y-2', digitalOnlyCart && 'hidden')}>
             <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">How would you like it?</Label>
             <div className="grid grid-cols-2 gap-2 min-[380px]:grid-cols-3">
               {([
@@ -440,7 +454,7 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          {method === 'ship' && (
+          {method === 'ship' && !digitalOnlyCart && (
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Ship to</Label>
               <Input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={addr.name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddr({ ...addr, name: e.target.value })} className="h-12 rounded-xl border-2 font-bold text-sm" />
@@ -507,7 +521,7 @@ export default function CheckoutPage() {
             <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
               <span>Subtotal</span><span className="font-mono">{fmt(subtotalCents)}</span>
             </div>
-            {method === 'ship' && (
+            {method === 'ship' && !digitalOnlyCart && (
               <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
                 <span>Shipping</span>
                 <span className="font-mono">{shippingCents === 0 ? 'Free' : fmt(shippingCents)}</span>
