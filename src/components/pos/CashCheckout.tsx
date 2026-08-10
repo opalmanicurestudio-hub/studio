@@ -321,6 +321,7 @@ export function CashCheckout({
       <div className="relative">
         <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
         <Input
+          aria-label="Cash amount received from the customer"
           type="number"
           inputMode="decimal"
           value={amountTendered || ''}
@@ -453,6 +454,8 @@ export function CashCheckout({
                   initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}
                   className="space-y-2">
                   <Input
+                    aria-label={receiptMode === 'email' ? 'Email address for the receipt' : 'Phone number for the receipt'}
+                    autoComplete={receiptMode === 'email' ? 'email' : 'tel'}
                     type={receiptMode === 'email' ? 'email' : 'tel'}
                     placeholder={receiptMode === 'email' ? 'client@email.com' : '+1 (555) 000-0000'}
                     value={receiptContact}
