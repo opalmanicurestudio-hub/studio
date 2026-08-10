@@ -443,13 +443,13 @@ export default function RetailSettingsPage() {
                   {rs.storePaused ? 'Paused' : 'Open'}
                 </p>
               </div>
-              <Switch checked={rs.storePaused !== true}
+              <Switch aria-label="Store status" checked={rs.storePaused !== true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, storePaused: !v })} />
             </div>
             {rs.storePaused && (
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Message visitors see while paused</Label>
-                <Textarea placeholder="We are restocking the shelves — back within the hour!"
+                <Textarea aria-label="Message visitors see while paused" placeholder="We are restocking the shelves — back within the hour!"
                   value={rs.storePausedMessage || ''}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRs({ ...rs, storePausedMessage: e.target.value })}
                   className="rounded-2xl border-2 min-h-[70px] font-bold text-sm" />
@@ -461,7 +461,7 @@ export default function RetailSettingsPage() {
             <div className="grid grid-cols-2 gap-3 pt-1 border-t-2 border-dashed">
               <div className="space-y-1.5 pt-3">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Cart hold (minutes, 0 = off)</Label>
-                <Input inputMode="numeric" value={rs.cartHoldMinutes == null ? '' : String(rs.cartHoldMinutes)}
+                <Input aria-label="Cart hold (minutes, 0 = off)" inputMode="numeric" value={rs.cartHoldMinutes == null ? '' : String(rs.cartHoldMinutes)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, cartHoldMinutes: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
@@ -524,13 +524,13 @@ export default function RetailSettingsPage() {
             <div className="grid md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tagline under your name</Label>
-                <Input placeholder="Shop" value={rs.shopTagline || ''}
+                <Input aria-label="Tagline under your name" placeholder="Shop" value={rs.shopTagline || ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopTagline: e.target.value })}
                   className="h-11 rounded-xl border-2 font-bold text-sm" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Announcement bar (optional)</Label>
-                <Input placeholder="e.g. Free pickup orders ready in 2 hours" value={rs.shopAnnouncement || ''}
+                <Input aria-label="Announcement bar (optional)" placeholder="e.g. Free pickup orders ready in 2 hours" value={rs.shopAnnouncement || ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shopAnnouncement: e.target.value })}
                   className="h-11 rounded-xl border-2 font-bold text-sm" />
               </div>
@@ -546,7 +546,7 @@ export default function RetailSettingsPage() {
             </div>
             <div className="flex items-center justify-between">
               <Label className="text-xs font-black uppercase tracking-widest">Offer curbside</Label>
-              <Switch checked={rs.curbsideOffered !== false}
+              <Switch aria-label="Offer curbside" checked={rs.curbsideOffered !== false}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, curbsideOffered: v })} />
             </div>
             {rs.curbsideOffered !== false && (
@@ -578,7 +578,7 @@ export default function RetailSettingsPage() {
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <Input placeholder="Spot name (e.g. Spot 1)" value={newSpot}
+                      <Input aria-label="Spot name (e.g. Spot 1)" placeholder="Spot name (e.g. Spot 1)" value={newSpot}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewSpot(e.target.value)}
                         className="h-11 rounded-xl border-2 font-bold text-sm" />
                       <Button variant="outline" disabled={!newSpot.trim()}
@@ -603,7 +603,7 @@ export default function RetailSettingsPage() {
               <Label className="text-xs font-black uppercase tracking-widest flex items-center gap-2 pt-3">
                 <Truck className="w-3.5 h-3.5" /> Offer shipping
               </Label>
-              <Switch checked={rs.shippingOffered !== false}
+              <Switch aria-label="Offer shipping" checked={rs.shippingOffered !== false}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, shippingOffered: v })} />
             </div>
           </CardContent>
@@ -618,19 +618,19 @@ export default function RetailSettingsPage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tax %</Label>
-                <Input inputMode="decimal" value={num(rs.taxRatePercent)}
+                <Input aria-label="Tax %" inputMode="decimal" value={num(rs.taxRatePercent)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, taxRatePercent: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Flat ship $</Label>
-                <Input inputMode="decimal" value={num(rs.flatShippingDollars)}
+                <Input aria-label="Flat ship $" inputMode="decimal" value={num(rs.flatShippingDollars)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, flatShippingDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Free over $</Label>
-                <Input inputMode="decimal" value={num(rs.freeShippingOverDollars)}
+                <Input aria-label="Free over $" inputMode="decimal" value={num(rs.freeShippingOverDollars)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, freeShippingOverDollars: e.target.value === '' ? 0 : Number(e.target.value) })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm" />
               </div>
@@ -646,7 +646,7 @@ export default function RetailSettingsPage() {
                     : 'Off — every order uses the flat Tax % above. Right for pickup-only shops; a parcel crossing state lines should be taxed at its destination, which is what turning this on does.'}
                 </p>
               </div>
-              <Switch checked={rs.stripeTaxEnabled === true}
+              <Switch aria-label="Automatic sales tax on shipped orders" checked={rs.stripeTaxEnabled === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, stripeTaxEnabled: v })} />
             </div>
           </CardContent>
@@ -672,6 +672,7 @@ export default function RetailSettingsPage() {
                 <div key={key} className="space-y-1.5">
                   <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
                   <Input
+                    aria-label={label}
                     inputMode="numeric"
                     value={String((rs as any)[key] ?? '')}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, [key]: Number(e.target.value) || 0 })}
@@ -689,7 +690,7 @@ export default function RetailSettingsPage() {
                     Waiting when you open the wave page — never before your set hour, never twice a day.
                   </p>
                 </div>
-                <Switch
+                <Switch aria-label="Build the morning wave for me"
                   checked={rs.autoWaveEnabled === true}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, autoWaveEnabled: v })}
                 />
@@ -698,7 +699,7 @@ export default function RetailSettingsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">From hour (0-23)</Label>
-                    <Input
+                    <Input aria-label="From hour (0-23)"
                       inputMode="numeric" value={String(rs.autoWaveHour ?? 9)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, autoWaveHour: Number(e.target.value) || 0 })}
                       className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
@@ -706,7 +707,7 @@ export default function RetailSettingsPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Totes to use</Label>
-                    <Input
+                    <Input aria-label="Totes to use"
                       inputMode="numeric" value={String(rs.autoWaveTotes ?? 12)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, autoWaveTotes: Number(e.target.value) || 1 })}
                       className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
@@ -739,7 +740,7 @@ export default function RetailSettingsPage() {
                     person &mdash; which is what wins a &ldquo;never arrived&rdquo; dispute.
                   </p>
                 </div>
-                <Switch
+                <Switch aria-label="Require a signature on valuable orders"
                   checked={rs.signatureConfirmationEnabled === true}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, signatureConfirmationEnabled: v })}
                 />
@@ -748,7 +749,7 @@ export default function RetailSettingsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Orders over ($)</Label>
-                    <Input
+                    <Input aria-label="Orders over ($)"
                       inputMode="decimal"
                       value={String((Number(rs.signatureOverCents) || 0) / 100)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -789,7 +790,7 @@ export default function RetailSettingsPage() {
                     merchandise total &mdash; never shipping or tip, and never a line you already refunded.
                   </p>
                 </div>
-                <Switch
+                <Switch aria-label="Insure valuable orders"
                   checked={rs.shipmentInsuranceEnabled === true}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, shipmentInsuranceEnabled: v })}
                 />
@@ -797,7 +798,7 @@ export default function RetailSettingsPage() {
               {rs.shipmentInsuranceEnabled && (
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Orders over ($)</Label>
-                  <Input
+                  <Input aria-label="Orders over ($)"
                     inputMode="decimal"
                     value={String((Number(rs.insuranceOverCents) || 0) / 100)}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -813,6 +814,7 @@ export default function RetailSettingsPage() {
                 Weight tolerance (oz)
               </Label>
               <Input
+                aria-label="Weight tolerance in ounces"
                 inputMode="numeric"
                 value={String(rs.weightToleranceOz ?? 4)}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -844,7 +846,7 @@ export default function RetailSettingsPage() {
 
             <div className="flex items-center justify-between gap-3 rounded-2xl border-2 border-dashed p-3">
               <p className="text-xs font-black uppercase tracking-tight">Ask packers for a photo</p>
-              <Switch
+              <Switch aria-label="Ask packers for a photo"
                 checked={rs.packPhotoEnabled === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, packPhotoEnabled: v })}
               />
@@ -855,7 +857,7 @@ export default function RetailSettingsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Required over ($)</Label>
-                    <Input
+                    <Input aria-label="Required over ($)"
                       inputMode="decimal"
                       value={String((Number(rs.packPhotoOverCents) || 0) / 100)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -865,7 +867,7 @@ export default function RetailSettingsPage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Or items over</Label>
-                    <Input
+                    <Input aria-label="Or items over"
                       inputMode="numeric"
                       value={String(rs.packPhotoOverUnits ?? 0)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -881,7 +883,7 @@ export default function RetailSettingsPage() {
                 </p>
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Photos per order (max 10)</Label>
-                  <Input
+                  <Input aria-label="Photos per order (max 10)"
                     inputMode="numeric"
                     value={String(rs.packPhotoMaxPhotos ?? 3)}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -909,7 +911,7 @@ export default function RetailSettingsPage() {
                   seconds &mdash; rather than at the label, or a week later when the parcel comes back.
                 </p>
               </div>
-              <Switch
+              <Switch aria-label="Check addresses at checkout"
                 checked={rs.addressValidationEnabled === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, addressValidationEnabled: v })}
               />
@@ -926,7 +928,7 @@ export default function RetailSettingsPage() {
                     the order as evidence.
                   </p>
                 </div>
-                <Switch
+                <Switch aria-label="Refuse addresses the carriers cannot find"
                   checked={rs.blockUndeliverableAddresses === true}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, blockUndeliverableAddresses: v })}
                 />
@@ -941,7 +943,7 @@ export default function RetailSettingsPage() {
                   problem&rdquo; stays open regardless &mdash; a shop can decline changed minds, never defects.
                 </p>
               </div>
-              <Switch
+              <Switch aria-label="Accept returns"
                 checked={rs.returnsEnabled !== false}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, returnsEnabled: v })}
               />
@@ -973,7 +975,7 @@ export default function RetailSettingsPage() {
 
             <div className="space-y-1.5">
               <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Auto-approve claims up to ($)</Label>
-              <Input
+              <Input aria-label="Auto-approve claims up to ($)"
                 inputMode="decimal"
                 value={String(((rs.claimAutoResolveMaxCents || 0) / 100) || '')}
                 placeholder="0 = every claim gets a human"
@@ -995,7 +997,7 @@ export default function RetailSettingsPage() {
                   One email when a checkout times out unpaid &mdash; their cart link, nothing else, never twice.
                 </p>
               </div>
-              <Switch
+              <Switch aria-label="Cart recovery email"
                 checked={rs.cartRecoveryEnabled !== false}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, cartRecoveryEnabled: v })}
               />
@@ -1008,7 +1010,7 @@ export default function RetailSettingsPage() {
                   Items scan once off the shelf and AGAIN into the box &mdash; two-touch verification. Wave orders skip it (their scan already happens at the bench).
                 </p>
               </div>
-              <Switch
+              <Switch aria-label="Second scan at packing"
                 checked={rs.requirePackScan === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, requirePackScan: v })}
               />
@@ -1017,7 +1019,7 @@ export default function RetailSettingsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Return window (days)</Label>
-                <Input
+                <Input aria-label="Return window (days)"
                   inputMode="numeric"
                   value={String(rs.returnWindowDays ?? 30)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -1027,7 +1029,7 @@ export default function RetailSettingsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Report a problem within</Label>
-                <Input
+                <Input aria-label="Report a problem within"
                   inputMode="numeric"
                   value={String(rs.deliveryIssueWindowDays ?? 7)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -1041,7 +1043,7 @@ export default function RetailSettingsPage() {
               <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">
                 Policy wording (optional)
               </Label>
-              <Textarea
+              <Textarea aria-label="Leave blank and we write it from the two numbers above."
                 placeholder="Leave blank and we write it from the two numbers above."
                 value={rs.returnPolicyText || ''}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -1067,13 +1069,13 @@ export default function RetailSettingsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Prep promise (min, 0 = off)</Label>
-                <Input inputMode="numeric" value={String(rs.prepMinutes ?? 0)}
+                <Input aria-label="Prep promise (min, 0 = off)" inputMode="numeric" value={String(rs.prepMinutes ?? 0)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, prepMinutes: Number(e.target.value) || 0 })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Max orders / 15 min (0 = off)</Label>
-                <Input inputMode="numeric" value={String(rs.throttlePer15 ?? 0)}
+                <Input aria-label="Max orders / 15 min (0 = off)" inputMode="numeric" value={String(rs.throttlePer15 ?? 0)}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, throttlePer15: Number(e.target.value) || 0 })}
                   className="h-11 rounded-xl border-2 font-black font-mono text-sm text-center" />
               </div>
@@ -1083,14 +1085,14 @@ export default function RetailSettingsPage() {
                 <p className="text-xs font-black uppercase tracking-tight">Tips at checkout</p>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">10 / 15 / 20% chips on the payment sheet</p>
               </div>
-              <Switch checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
+              <Switch aria-label="Max orders / 15 min (0 = off)" checked={rs.tipsEnabled === true} onCheckedChange={(v: boolean) => setRs({ ...rs, tipsEnabled: v })} />
             </div>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-tight">Scheduled pickup</p>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">ASAP / +15 / +30 / +45 / +60 picker</p>
               </div>
-              <Switch checked={rs.scheduledPickup === true} onCheckedChange={(v: boolean) => setRs({ ...rs, scheduledPickup: v })} />
+              <Switch aria-label="ASAP / +15 / +30 / +45 / +60 picker" checked={rs.scheduledPickup === true} onCheckedChange={(v: boolean) => setRs({ ...rs, scheduledPickup: v })} />
             </div>
           </CardContent>
         </Card>
@@ -1103,30 +1105,30 @@ export default function RetailSettingsPage() {
             </div>
             <div className="space-y-1.5">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Shippo API key — blank keeps manual tracking entry</Label>
-              <Input placeholder="shippo_live_…" value={rs.shippoApiKey || ''}
+              <Input aria-label="Shippo API key — blank keeps manual tracking entry" placeholder="shippo_live_…" value={rs.shippoApiKey || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shippoApiKey: e.target.value })}
                 className="h-11 rounded-xl border-2 font-mono font-bold text-xs" />
             </div>
             <div className="space-y-2">
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Ship-from address (printed on labels, used for rates)</Label>
-              <Input placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
+              <Input aria-label="Ship-from address (printed on labels, used for rates)" placeholder="Sender name (defaults to shop name)" value={rs.shipFrom?.name || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, name: e.target.value } })}
                 className="h-11 rounded-xl border-2 font-bold text-sm" />
-              <Input placeholder="Street address" value={rs.shipFrom?.street1 || ''}
+              <Input aria-label="Street address" placeholder="Street address" value={rs.shipFrom?.street1 || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, street1: e.target.value } })}
                 className="h-11 rounded-xl border-2 font-bold text-sm" />
               <div className="grid grid-cols-3 gap-2">
-                <Input placeholder="City" value={rs.shipFrom?.city || ''}
+                <Input aria-label="City" placeholder="City" value={rs.shipFrom?.city || ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, city: e.target.value } })}
                   className="h-11 rounded-xl border-2 font-bold text-sm" />
-                <Input placeholder="State" value={rs.shipFrom?.state || ''}
+                <Input aria-label="State" placeholder="State" value={rs.shipFrom?.state || ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, state: e.target.value } })}
                   className="h-11 rounded-xl border-2 font-bold text-sm" />
-                <Input placeholder="ZIP" value={rs.shipFrom?.zip || ''}
+                <Input aria-label="ZIP" placeholder="ZIP" value={rs.shipFrom?.zip || ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, zip: e.target.value } })}
                   className="h-11 rounded-xl border-2 font-bold text-sm" />
               </div>
-              <Input placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
+              <Input aria-label="Phone (carriers may require it)" placeholder="Phone (carriers may require it)" value={rs.shipFrom?.phone || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, shipFrom: { ...rs.shipFrom, phone: e.target.value } })}
                 className="h-11 rounded-xl border-2 font-bold text-sm" />
             </div>
@@ -1146,13 +1148,13 @@ export default function RetailSettingsPage() {
               <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                 House code — shared fallback; per-account codes live in Wholesale
               </Label>
-              <Input placeholder="e.g. OPALPRO2026" value={rs.wholesaleAccessCode || ''}
+              <Input aria-label="e.g. OPALPRO2026" placeholder="e.g. OPALPRO2026" value={rs.wholesaleAccessCode || ''}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, wholesaleAccessCode: e.target.value })}
                 className="h-11 rounded-xl border-2 font-black uppercase tracking-widest text-sm" />
             </div>
             <div className="flex items-center justify-between">
               <Label className="text-xs font-black uppercase tracking-widest">Wholesale orders tax-exempt</Label>
-              <Switch checked={rs.wholesaleTaxExempt === true}
+              <Switch aria-label="Wholesale orders tax-exempt" checked={rs.wholesaleTaxExempt === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, wholesaleTaxExempt: v })} />
             </div>
           </CardContent>
@@ -1177,10 +1179,11 @@ export default function RetailSettingsPage() {
             ] as const).map(([key, label, hint]) => (
               <div key={key} className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-xs font-black uppercase tracking-tight">{label}</p>
+                  <p id={`toggle-${key}-label`} className="text-xs font-black uppercase tracking-tight">{label}</p>
                   <p className="text-[11px] font-bold text-muted-foreground">{hint}</p>
                 </div>
                 <Switch
+                  aria-labelledby={`toggle-${key}-label`}
                   checked={(rs as any)[key] !== false}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, [key]: v })}
                 />
@@ -1193,12 +1196,12 @@ export default function RetailSettingsPage() {
               </p>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-black uppercase tracking-tight">Local pickup</p>
-                <Switch checked={rs.pickupEnabled !== false}
+                <Switch aria-label="Local pickup" checked={rs.pickupEnabled !== false}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, pickupEnabled: v })} />
               </div>
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-black uppercase tracking-tight">Shipping</p>
-                <Switch checked={rs.shippingEnabled !== false}
+                <Switch aria-label="Shipping" checked={rs.shippingEnabled !== false}
                   onCheckedChange={(v: boolean) => setRs({ ...rs, shippingEnabled: v })} />
               </div>
               <p className="text-[11px] font-bold text-muted-foreground">
@@ -1213,7 +1216,7 @@ export default function RetailSettingsPage() {
               </p>
               {(rs.pdpFaq || []).map((f, i) => (
                 <div key={i} className="rounded-2xl border-2 p-3 space-y-2">
-                  <Input
+                  <Input aria-label="Question"
                     placeholder="Question"
                     value={f.q}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1223,7 +1226,7 @@ export default function RetailSettingsPage() {
                     }}
                     className="h-10 rounded-xl border-2 font-bold text-xs"
                   />
-                  <Textarea
+                  <Textarea aria-label="Answer"
                     placeholder="Answer"
                     value={f.a}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1383,38 +1386,38 @@ export default function RetailSettingsPage() {
                     {live && (
                       <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-2">
-                          <Input placeholder="Wholesale $ (optional)" inputMode="decimal" value={d.wholesale}
+                          <Input aria-label="Wholesale $ (optional)" placeholder="Wholesale $ (optional)" inputMode="decimal" value={d.wholesale}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, wholesale: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
-                          <Input placeholder="Wholesale min qty" inputMode="numeric" value={d.minQty}
+                          <Input aria-label="Wholesale min qty" placeholder="Wholesale min qty" inputMode="numeric" value={d.minQty}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, minQty: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
-                          <Input placeholder="Weight (oz) — auto-weighs parcels" inputMode="decimal" value={d.weight}
+                          <Input aria-label="Weight (oz) — auto-weighs parcels" placeholder="Weight (oz) — auto-weighs parcels" inputMode="decimal" value={d.weight}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, weight: e.target.value } })}
                             className="h-10 rounded-xl border-2 font-black font-mono text-xs" />
                         </div>
                         <div className="flex gap-2">
                           <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `image-${it.id}` && 'opacity-50 pointer-events-none')}>
                             {uploading === `image-${it.id}` ? 'Uploading…' : '📷 Upload images'}
-                            <input type="file" accept="image/*" multiple className="hidden"
+                            <input type="file" accept="image/*" multiple aria-label={`Upload images for ${it.name}`} className="hidden"
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'image'); e.target.value = ''; }} />
                           </label>
                           <label className={cn('flex-1 h-10 rounded-xl border-2 border-dashed flex items-center justify-center text-[9px] font-black uppercase tracking-widest cursor-pointer hover:border-primary/50 transition-all', uploading === `video-${it.id}` && 'opacity-50 pointer-events-none')}>
                             {uploading === `video-${it.id}` ? 'Uploading…' : '🎬 Upload video'}
-                            <input type="file" accept="video/*" className="hidden"
+                            <input type="file" accept="video/*" aria-label={`Upload a video for ${it.name}`} className="hidden"
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => { uploadMedia(it, e.target.files, 'video'); e.target.value = ''; }} />
                           </label>
                         </div>
                         {d.video && (
                           <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">Video attached ✓ — saves with the item</p>
                         )}
-                        <Textarea placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
+                        <Textarea aria-label="Storefront description" placeholder={'Image URLs — one per line (first is the cover)'} value={d.img}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, img: e.target.value } })}
                           className="rounded-xl border-2 min-h-[54px] font-bold text-xs" />
-                        <Textarea placeholder="Storefront description" value={d.desc}
+                        <Textarea aria-label="Storefront description" placeholder="Storefront description" value={d.desc}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, desc: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
-                        <Textarea placeholder="How to use — steps or instructions" value={d.howToUse}
+                        <Textarea aria-label="How to use — steps or instructions" placeholder="How to use — steps or instructions" value={d.howToUse}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
                         <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
@@ -1422,7 +1425,7 @@ export default function RetailSettingsPage() {
                             <Label className="text-[11px] font-black uppercase tracking-widest">Pre-order</Label>
                             <p className="text-[11px] font-bold text-muted-foreground">Sell before it lands. You promise a ship-by date \u2014 the law holds you to it, and so does this.</p>
                           </div>
-                          <Switch
+                          <Switch aria-label="Pre-order"
                             checked={d.preorder === true}
                             onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, preorder: v } })}
                           />
@@ -1546,7 +1549,7 @@ export default function RetailSettingsPage() {
                             <Label className="text-[11px] font-black uppercase tracking-widest">Digital item</Label>
                             <p className="text-[11px] font-bold text-muted-foreground">No stock, no shipping \u2014 the link below is emailed the moment they pay.</p>
                           </div>
-                          <Switch
+                          <Switch aria-label="Digital item"
                             checked={d.digital === true}
                             onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, digital: v } })}
                           />
