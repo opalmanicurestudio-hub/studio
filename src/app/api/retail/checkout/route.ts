@@ -8,6 +8,7 @@ import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
+import { shipPromiseAt } from '@/lib/retail-orders';
 import { verifyQuote } from '@/lib/shipping-quote';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -214,7 +215,10 @@ async function handleCheckout(req: NextRequest) {
     if (!isStorefrontVisible(item)) {
       return NextResponse.json({ error: `${item.name || 'An item'} is no longer available` }, { status: 409 });
     }
-    if (item.digital !== true && sellableStock(item) < qty && item.allowBackorder !== true) {
+    // Pre-order items are SOLD before stock exists — that's the point. The
+    // promise they carry is what makes it legitimate, and it's enforced by
+    // the clock below rather than by pretending the shelf is full.
+    if (item.digital !== true && item.preorder !== true && sellableStock(item) < qty && item.allowBackorder !== true) {
       return NextResponse.json(
         { error: `Only ${Math.max(0, sellableStock(item))} of ${item.name} left`, productId: item.id },
         { status: 409 }
@@ -361,6 +365,14 @@ async function handleCheckout(req: NextRequest) {
     customerName,
     customerEmail,
     ...(digitalOnly ? { digitalOnly: true } : {}),
+    // The FTC promise, fixed at purchase: the latest pre-order date on the
+    // order, or 30 days. Stored so a later settings change can never quietly
+    // move a date the customer was already given.
+    ...(() => {
+      const promise = shipPromiseAt(lines as any, new Date().toISOString(), new Date().toISOString());
+      return promise && !digitalOnly ? { shipPromiseAt: promise } : {};
+    })(),
+    ...(lines.some((l: any) => l.preorder === true) ? { hasPreorder: true } : {}),
     customerPhone: body.customer?.phone || '',
     shippingAddress: method === 'ship' ? body.shippingAddress : null,
     curbside: null,
