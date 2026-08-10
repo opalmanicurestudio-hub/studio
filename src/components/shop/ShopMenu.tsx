@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  CircleUserRound, Grid3x3, LifeBuoy, Lock, Menu, PackageSearch, Store, Truck, X,
+  CircleUserRound, FileDown, Grid3x3, LifeBuoy, Lock, Menu, PackageSearch, Store, Truck, X,
 } from 'lucide-react';
 import Link from 'next/link';
 import React, { useState } from 'react';
@@ -31,10 +31,15 @@ export interface ShopMenuProps {
    *  on a phone; it belongs here, with the other things most shoppers never
    *  need. */
   onUnlockWholesale?: () => void;
+  /** True once a buyer has unlocked B2B pricing — the printable catalog then
+   *  carries wholesale prices and minimum order quantities instead of retail.
+   *  Defaults to the retail sheet, which is the safe direction: a retail
+   *  shopper must never be handed a wholesale price list. */
+  wholesaleUnlocked?: boolean;
 }
 
 export function ShopMenu({
-  tenantId, shopName, categories = [], activeCategory, onUnlockWholesale,
+  tenantId, shopName, categories = [], activeCategory, onUnlockWholesale, wholesaleUnlocked,
 }: ShopMenuProps) {
   const [open, setOpen] = useState(false);
 
@@ -87,6 +92,22 @@ export function ShopMenu({
               >
                 <Grid3x3 className="h-4 w-4 shrink-0" aria-hidden="true" /> All products
               </Link>
+
+              <a
+                href={`/print/catalog/${tenantId}${wholesaleUnlocked ? '?tier=wholesale' : ''}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={close}
+                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-bold hover:bg-muted/60"
+              >
+                <FileDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1">
+                  {wholesaleUnlocked ? 'Wholesale line sheet' : 'Printable catalog'}
+                  <span className="block text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                    Opens to print or save as PDF
+                  </span>
+                </span>
+              </a>
 
               {onUnlockWholesale && (
                 <button
