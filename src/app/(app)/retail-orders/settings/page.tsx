@@ -5,6 +5,7 @@ import {
   ArrowLeft, Camera, Car, DollarSign, Globe, Loader, Lock, MapPin, Plus, Printer, ShieldCheck, Store, Truck, X, Zap,
 } from 'lucide-react';
 import { ChevronDown } from 'lucide-react';
+import { Building2, ClipboardList, Package, RotateCcw, Sparkles, Store as StoreIcon, Wallet } from 'lucide-react';
 import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
@@ -443,6 +444,10 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'shop'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'shop' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <StoreIcon className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
               <span className="block font-black uppercase tracking-tighter text-base leading-none">Your shop</span>
               <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Open or pause it, name it, and choose how people collect.</span>
@@ -634,6 +639,10 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'money'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'money' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <Wallet className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
               <span className="block font-black uppercase tracking-tighter text-base leading-none">Money</span>
               <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Tax, tips, and the shipping labels you buy.</span>
@@ -732,6 +741,10 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'orders'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'orders' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <ClipboardList className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
               <span className="block font-black uppercase tracking-tighter text-base leading-none">Getting orders out</span>
               <span className="mt-1 block text-[11px] font-bold text-muted-foreground">What you promise customers, and the checks that protect you.</span>
@@ -786,16 +799,16 @@ export default function RetailSettingsPage() {
               {rs.autoWaveEnabled && (
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">From hour (0-23)</Label>
-                    <Input aria-label="From hour (0-23)"
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Start at (24-hour clock)</Label>
+                    <Input aria-label="Start hour on a 24-hour clock"
                       inputMode="numeric" value={String(rs.autoWaveHour ?? 9)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, autoWaveHour: Number(e.target.value) || 0 })}
                       className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Totes to use</Label>
-                    <Input aria-label="Totes to use"
+                    <Label className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Bins or baskets available</Label>
+                    <Input aria-label="How many bins or baskets are available"
                       inputMode="numeric" value={String(rs.autoWaveTotes ?? 12)}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, autoWaveTotes: Number(e.target.value) || 1 })}
                       className="h-11 rounded-xl border-2 text-center font-mono text-sm font-bold"
@@ -992,6 +1005,10 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'after'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'after' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
               <span className="block font-black uppercase tracking-tighter text-base leading-none">After the sale</span>
               <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Returns, reported problems, and win-backs.</span>
@@ -1174,9 +1191,13 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'trade'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'trade' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <Building2 className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Selling to salons</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Wholesale pricing and who can see it.</span>
+              <span className="block font-black uppercase tracking-tighter text-base leading-none">Trade &amp; wholesale</span>
+              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Trade pricing and who is allowed to see it.</span>
             </span>
             <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'trade' && 'rotate-180')} aria-hidden="true" />
           </button>
@@ -1217,6 +1238,10 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'extras'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'extras' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
               <span className="block font-black uppercase tracking-tighter text-base leading-none">Extras</span>
               <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Order-ahead menu options.</span>
@@ -1272,6 +1297,10 @@ export default function RetailSettingsPage() {
             aria-expanded={openGroup === 'products'}
             className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
           >
+            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
+              openGroup === 'products' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
+              <Package className="h-4 w-4" aria-hidden="true" />
+            </span>
             <span className="min-w-0">
               <span className="block font-black uppercase tracking-tighter text-base leading-none">Your products</span>
               <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Every product, what shows on its page, and the printable catalog.</span>
