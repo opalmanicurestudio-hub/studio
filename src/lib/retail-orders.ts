@@ -104,6 +104,8 @@ export interface RetailInventoryFields {
   imageUrls?: string[];
   lowStockThreshold?: number;
   allowBackorder?: boolean;    // default false
+  preorder?: boolean;          // sellable before stock exists, with a promised date
+  preorderEtaAt?: string;      // ISO date the shop promises to ship by
   wholesalePriceDollars?: number; // B2B price; falls back to msrp when absent
   wholesaleMinQty?: number;       // per-item minimum units for wholesale orders
   howToUse?: string;              // usage/instructions shown on the product page
@@ -476,6 +478,8 @@ export interface OrderLine {
   digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
   digitalUrl?: string;         // snapshot of the delivery link at purchase time
   digitalAccessDays?: number;  // snapshot of the access window SOLD (later policy changes never shorten it)
+  preorder?: boolean;          // bought before stock existed
+  preorderEtaAt?: string;      // the date promised AT PURCHASE — the promise that binds
 }
 
 export type ShortResolution = 'refund' | 'backorder';
@@ -503,6 +507,10 @@ export function buildOrderLine(
     status: 'pending',
     ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
     ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
+    ...(item.preorder === true ? {
+      preorder: true,
+      ...(item.preorderEtaAt ? { preorderEtaAt: String(item.preorderEtaAt) } : {}),
+    } : {}),
     ...(item.digital === true ? {
       digital: true,
       ...(item.digitalUrl ? { digitalUrl: String(item.digitalUrl) } : {}),
@@ -943,6 +951,40 @@ export function digitalAccessEndsAt(line: OrderLine, paidAt?: string | null, pla
   if (days <= 0) return null;
   const start = Date.parse(String(paidAt || placedAt || '')) || Date.now();
   return new Date(start + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * THE PROMISE CLOCK (FTC Mail, Internet, or Telephone Order Merchandise Rule).
+ *
+ * The rule in plain terms: when a shop takes money for something it hasn't
+ * shipped, it must ship by the date it promised — or, if it promised no
+ * date, within 30 days. If it can't, it owes the buyer a notice with a
+ * revised date AND a plain way to cancel for a full refund. The buyer's
+ * silence is NOT consent to wait.
+ *
+ * So the promise is computed from what was actually sold: the latest
+ * pre-order date on the order if there is one, otherwise 30 days from
+ * payment. Stored per order at checkout, but derived here too so old orders
+ * and re-reads agree.
+ */
+export const FTC_DEFAULT_PROMISE_DAYS = 30;
+
+export function shipPromiseAt(lines: OrderLine[], paidAt?: string | null, placedAt?: string | null): string | null {
+  const start = Date.parse(String(paidAt || placedAt || ''));
+  if (!Number.isFinite(start)) return null;
+  const etas = lines
+    .filter((l) => l.preorder === true && l.preorderEtaAt)
+    .map((l) => Date.parse(String(l.preorderEtaAt)))
+    .filter((n) => Number.isFinite(n));
+  if (etas.length > 0) return new Date(Math.max(...etas)).toISOString();
+  return new Date(start + FTC_DEFAULT_PROMISE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** Past the promised date with nothing shipped or handed over yet. */
+export function isPromiseLate(order: { stage: string; lines: OrderLine[]; paidAt?: string | null; placedAt?: string | null; shipPromiseAt?: string | null }): boolean {
+  if (!['paid', 'picking', 'packed', 'ready'].includes(String(order.stage))) return false;
+  const promise = order.shipPromiseAt || shipPromiseAt(order.lines || [], order.paidAt, order.placedAt);
+  return !!promise && Date.parse(promise) < Date.now();
 }
 
 /** True when NOTHING on the order needs picking, packing, or postage. */
