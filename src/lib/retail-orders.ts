@@ -95,6 +95,8 @@ export interface RetailInventoryFields {
   barcode?: string;            // physical UPC/Code-128; falls back to sku
   casePack?: number;           // units per sealed wholesale case (>1 enables case scanning)
   caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
+  digital?: boolean;           // nothing physical ships — delivered by link on payment
+  digitalUrl?: string;         // the delivery destination (course, PDF, download page)
   onlineDescription?: string;  // storefront copy (name/msrp come from the item)
   imageUrls?: string[];
   lowStockThreshold?: number;
@@ -468,6 +470,8 @@ export interface OrderLine {
   casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
   caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
   qtyPacked?: number;          // second-scan count at the box (pack verification)
+  digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
+  digitalUrl?: string;         // snapshot of the delivery link at purchase time
 }
 
 export type ShortResolution = 'refund' | 'backorder';
@@ -495,6 +499,7 @@ export function buildOrderLine(
     status: 'pending',
     ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
     ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
+    ...(item.digital === true ? { digital: true, ...(item.digitalUrl ? { digitalUrl: String(item.digitalUrl) } : {}) } : {}),
   };
 }
 
@@ -918,8 +923,19 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
  * scan happened at the shelf — wave orders already scan AT the bench, and
  * a third pass would be labor without information.
  */
+/** True when NOTHING on the order needs picking, packing, or postage. */
+export function isDigitalOnlyOrder(lines: OrderLine[]): boolean {
+  return lines.length > 0 && lines.every((l) => l.digital === true);
+}
+
+/** Physical lines only — what the floor actually handles. */
+export function physicalLines(lines: OrderLine[]): OrderLine[] {
+  return lines.filter((l) => l.digital !== true);
+}
+
 export function isPackComplete(lines: OrderLine[]): boolean {
   return lines.every((l) =>
+    l.digital === true ||
     ['refunded', 'backordered'].includes(l.status) ||
     (l.qtyPacked || 0) >= l.qtyOrdered - l.qtyShorted
   );
@@ -1005,6 +1021,7 @@ export function shortLine(
 export function isPickComplete(lines: OrderLine[]): boolean {
   return lines.every(
     (l) =>
+      l.digital === true ||
       l.qtyScanned === l.qtyOrdered ||
       l.status === 'shorted' ||
       l.status === 'refunded' ||
