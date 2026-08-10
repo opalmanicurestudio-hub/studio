@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStorage } from 'firebase-admin/storage';
+import { digitalAccessEndsAt } from '@/lib/retail-orders';
 
 // ─── /api/retail/digital-access ──────────────────────────────────────────────
 // The private door to a purchased file. Honest framing first: NOTHING can
@@ -114,6 +115,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Access for this item was closed.' }, { status: 409 });
     }
 
+    // ── ACCESS WINDOW. Most digital goods here are sold outright, so the
+    // default is access for good and this block does nothing. When the shop
+    // DID sell a limited window, it is enforced here rather than only shown
+    // in the UI — and the refusal names the date and points at a human,
+    // because "expired" with no recourse is how a paying customer ends up
+    // feeling robbed over a $12 PDF.
+    const endsAt = digitalAccessEndsAt(line, order.paidAt, order.placedAt);
+    if (endsAt && Date.parse(endsAt) < Date.now()) {
+      return NextResponse.json({
+        error: `Your access to this ended on ${new Date(endsAt).toLocaleDateString()}. Message the shop from your order page \u2014 they can extend it.`,
+        expired: true, endsAt,
+      }, { status: 403 });
+    }
+
     // The file lives on the item, so the shop can swap or withdraw it later.
     const itemSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(productId).get();
     const item = itemSnap.exists ? (itemSnap.data() as any) : {};
@@ -156,6 +171,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true, url, kind,
       name: line.name,
+      endsAt,
       watermark: `${order.customerName || 'Customer'} \u00b7 ${order.customerEmail || ''} \u00b7 #${String(order.orderNumber ?? '').padStart(4, '0')}`,
       expiresInMinutes: LINK_MINUTES,
     });
