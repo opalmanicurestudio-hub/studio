@@ -131,6 +131,8 @@ export async function POST(req: NextRequest) {
 
     // ── Appointment verification for cancel / reschedule / late ────────────
     let appointment: any = null;
+    let svc: any = null;
+    let start: Date | null = null;
     let appointmentSpoken: string | undefined;
     let codeVerified: 'verified' | 'mismatch' | 'not_provided' = 'not_provided';
     let autoCancelled = false;
@@ -205,9 +207,9 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const svc = ctx.services.find((s: any) => s.id === appointment.serviceId);
+      svc = ctx.services.find((s: any) => s.id === appointment.serviceId);
       const staffMember = ctx.staff.find((s: any) => s.id === appointment.staffId);
-      const start =
+      start =
         typeof appointment.startTime === 'string'
           ? new Date(appointment.startTime)
           : null;
