@@ -75,6 +75,7 @@ interface RetailSettings {
   returnLabelPayer?: 'shop' | 'customer' | 'fault';
   claimAutoResolveMaxCents?: number;
   cartRecoveryEnabled?: boolean;
+  requirePackScan?: boolean;
   deliveryIssueWindowDays?: number;
   returnPolicyText?: string;
   shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
@@ -186,6 +187,7 @@ export default function RetailSettingsPage() {
       returnLabelPayer: existing.returnLabelPayer === 'shop' || existing.returnLabelPayer === 'customer' ? existing.returnLabelPayer : 'fault',
       claimAutoResolveMaxCents: Number(existing.claimAutoResolveMaxCents) || 0,
       cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
+      requirePackScan: existing.requirePackScan === true,
       deliveryIssueWindowDays: Number(existing.deliveryIssueWindowDays) || 7,
       returnPolicyText: existing.returnPolicyText || '',
       shipFrom: existing.shipFrom || {},
@@ -285,6 +287,7 @@ export default function RetailSettingsPage() {
           returnLabelPayer: rs.returnLabelPayer === 'shop' || rs.returnLabelPayer === 'customer' ? rs.returnLabelPayer : 'fault',
           claimAutoResolveMaxCents: Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0)),
           cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
+          requirePackScan: rs.requirePackScan === true,
           deliveryIssueWindowDays: Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7)),
           returnPolicyText: String(rs.returnPolicyText || '').trim().slice(0, 1200),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
@@ -970,6 +973,19 @@ export default function RetailSettingsPage() {
               <Switch
                 checked={rs.cartRecoveryEnabled !== false}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, cartRecoveryEnabled: v })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Second scan at packing</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Items scan once off the shelf and AGAIN into the box &mdash; two-touch verification. Wave orders skip it (their scan already happens at the bench).
+                </p>
+              </div>
+              <Switch
+                checked={rs.requirePackScan === true}
+                onCheckedChange={(v: boolean) => setRs({ ...rs, requirePackScan: v })}
               />
             </div>
 
