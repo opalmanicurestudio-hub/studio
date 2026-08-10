@@ -182,11 +182,11 @@ const RecoveryOverrideDialog = ({ open, onOpenChange, staff, onConfirm }: any) =
         <div style={{ padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1.5rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem', width: '12rem' }}>
             <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.2em', color: '#94a3b8' }}>Manager PIN</label>
-            <input ref={pinInputRef} type="number" inputMode="numeric" pattern="[0-9]*" placeholder="0000" maxLength={4} value={pin} onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))} style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }} />
+            <input ref={pinInputRef} aria-label="Manager PIN, four digits" type="number" inputMode="numeric" pattern="[0-9]*" placeholder="0000" maxLength={4} value={pin} onChange={e => setPin(e.target.value.slice(0, 4).replace(/\D/g, ''))} style={{ width: '100%', textAlign: 'center', fontSize: '2rem', fontWeight: 900, height: '5rem', letterSpacing: '0.4em', backgroundColor: '#f8fafc', border: '4px solid #e2e8f0', borderRadius: '1.5rem', outline: 'none', padding: '0 1rem' }} />
           </div>
           <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <label style={{ fontSize: '0.6rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Override Reason</label>
-            <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Detail the justification..." rows={3} style={{ width: '100%', borderRadius: '1rem', border: '2px solid #e2e8f0', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }} />
+            <textarea aria-label="Override reason" value={reason} onChange={e => setReason(e.target.value)} placeholder="Detail the justification..." rows={3} style={{ width: '100%', borderRadius: '1rem', border: '2px solid #e2e8f0', padding: '0.75rem', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'none', outline: 'none', boxSizing: 'border-box' }} />
           </div>
         </div>
         <div style={{ padding: '0 1.5rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -252,11 +252,11 @@ export function VoidAuthForm({ onConfirm, onCancel }: { onConfirm: (pin: string,
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Manager PIN</Label>
-          <Input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="••••" className="h-10 rounded-xl text-center font-black text-lg tracking-widest border-2" />
+          <Input aria-label="Manager PIN, four digits" type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="••••" className="h-10 rounded-xl text-center font-black text-lg tracking-widest border-2" />
         </div>
         <div className="space-y-1.5">
           <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Reason</Label>
-          <Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe void reason" className="h-10 rounded-xl border-2" />
+          <Input aria-label="Reason for voiding" value={reason} onChange={e => setReason(e.target.value)} placeholder="Describe void reason" className="h-10 rounded-xl border-2" />
         </div>
       </div>
       <div className="flex gap-2">
@@ -1817,6 +1817,7 @@ function POSPage() {
               maxLength is generous because a scanned QR hands over a full URL.
             */}
             <Input
+              aria-label="Scan or type a code"
               ref={scanInputRef}
               value={scanQuery}
               onChange={e => handleScanInput(e.target.value)}
