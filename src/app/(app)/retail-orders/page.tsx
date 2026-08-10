@@ -27,7 +27,7 @@ import {
 } from '@/lib/retail-orders';
 import {
   cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
-  markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine,
+  markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine, splitReadyFromWaiting,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
 import { markRefundExecuted } from '@/lib/retail-returns';
@@ -969,6 +969,18 @@ export default function RetailFulfillmentBoard() {
                       <Ship className="mr-1.5 h-3.5 w-3.5" /> Mark shipped
                     </Button>
                   </div>
+                )}
+                {['paid', 'picking'].includes(o.stage) && !(o as any).parentOrderId
+                  && (o.lines || []).some((l: any) => l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)))
+                  && (o.lines || []).some((l: any) => l.preorder !== true) && (
+                  <Button
+                    variant="outline"
+                    disabled={busy === `split-${o.id}`}
+                    onClick={() => act(`split-${o.id}`, () => splitReadyFromWaiting(requireCtx() as Firestore, tenantId, o.id, actor))}
+                    className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-amber-700 border-amber-200"
+                  >
+                    Ship what&apos;s ready now
+                  </Button>
                 )}
                 {['ready', 'arrived'].includes(o.stage) && o.method !== 'ship' && (
                   <Button
