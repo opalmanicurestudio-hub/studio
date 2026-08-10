@@ -25,7 +25,6 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   const [items, setItems] = useState<Item[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [viewing, setViewing] = useState<{ url: string; name: string; watermark: string; kind: string; productId: string } | null>(null);
-  const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,7 +62,6 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       const d = await res.json();
       if (!res.ok) { setErr(d.error || 'Could not open that.'); return; }
       if (d.kind === 'link') { window.open(d.url, '_blank', 'noopener,noreferrer'); return; }
-      setStale(false);
       setViewing({ url: d.url, name: d.name, watermark: d.watermark, kind: d.kind, productId: it.productId });
     } catch {
       setErr('Could not open that \u2014 try again.');
@@ -73,9 +71,6 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   };
 
   if (viewing) {
-    if (!stale) {
-      setTimeout(() => setStale(true), 8.5 * 60 * 1000);
-    }
     return (
       <div className="mx-auto max-w-3xl p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -95,16 +90,16 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
             ))}
           </div>
         </div>
-        {stale && (
-          <button
-            onClick={() => open({ productId: viewing.productId, name: viewing.name })}
-            className="mt-3 h-10 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
-          >
-            Refresh this view
-          </button>
-        )}
+        <a
+          href={viewing.url}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-3 flex h-10 w-full items-center justify-center rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
+        >
+          Open full screen
+        </a>
         <p className="mt-3 text-[11px] font-bold text-muted-foreground">
-          Licensed to {viewing.watermark}. This copy is personal \u2014 please don\u2019t share or repost it.
+          Licensed to {viewing.watermark} \u2014 your name is printed into this file itself. Personal use only, please don\u2019t share or repost it.
         </p>
       </div>
     );
