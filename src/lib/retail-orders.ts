@@ -97,6 +97,9 @@ export interface RetailInventoryFields {
   caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
   digital?: boolean;           // nothing physical ships — delivered by link on payment
   digitalUrl?: string;         // the delivery destination (course, PDF, download page)
+  digitalFilePath?: string;    // private storage path (never a public URL)
+  digitalFileName?: string;    // what the buyer sees it called
+  digitalAccessDays?: number;  // 0/absent = access for good; N = N days from purchase
   onlineDescription?: string;  // storefront copy (name/msrp come from the item)
   imageUrls?: string[];
   lowStockThreshold?: number;
@@ -472,6 +475,7 @@ export interface OrderLine {
   qtyPacked?: number;          // second-scan count at the box (pack verification)
   digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
   digitalUrl?: string;         // snapshot of the delivery link at purchase time
+  digitalAccessDays?: number;  // snapshot of the access window SOLD (later policy changes never shorten it)
 }
 
 export type ShortResolution = 'refund' | 'backorder';
@@ -499,7 +503,11 @@ export function buildOrderLine(
     status: 'pending',
     ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
     ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
-    ...(item.digital === true ? { digital: true, ...(item.digitalUrl ? { digitalUrl: String(item.digitalUrl) } : {}) } : {}),
+    ...(item.digital === true ? {
+      digital: true,
+      ...(item.digitalUrl ? { digitalUrl: String(item.digitalUrl) } : {}),
+      ...(Number(item.digitalAccessDays) > 0 ? { digitalAccessDays: Math.floor(Number(item.digitalAccessDays)) } : {}),
+    } : {}),
   };
 }
 
@@ -923,6 +931,20 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
  * scan happened at the shelf — wave orders already scan AT the bench, and
  * a third pass would be labor without information.
  */
+/**
+ * When a digital line's access ends — null means never. The window is read
+ * from the LINE, not the item: what was sold is what's honoured, so raising
+ * or lowering the policy later can't retroactively shorten someone's access.
+ * The clock starts at payment (paidAt), falling back to when the order was
+ * placed, so a missing timestamp can never silently mean "expired".
+ */
+export function digitalAccessEndsAt(line: OrderLine, paidAt?: string | null, placedAt?: string | null): string | null {
+  const days = Number(line.digitalAccessDays) || 0;
+  if (days <= 0) return null;
+  const start = Date.parse(String(paidAt || placedAt || '')) || Date.now();
+  return new Date(start + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
 /** True when NOTHING on the order needs picking, packing, or postage. */
 export function isDigitalOnlyOrder(lines: OrderLine[]): boolean {
   return lines.length > 0 && lines.every((l) => l.digital === true);
