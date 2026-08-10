@@ -568,6 +568,12 @@ export default function OrderStatusPage() {
   const rank = stageRank[order.stage] ?? 0;
 
   const refundedLines = order.lines.filter((l) => l.qtyShorted > 0);
+  // Past the date we promised, with nothing shipped: the customer gets an
+  // unconditional way out (FTC mail/internet order rule). Derived here rather
+  // than trusted from the server alone so the banner and the button agree.
+  const promiseLate = !!(order as any).shipPromiseAt
+    && ['paid', 'picking', 'packed', 'ready'].includes(order.stage)
+    && Date.parse((order as any).shipPromiseAt) < Date.now();
 
   // What the customer actually received, as opposed to where the order got to.
   const fulfilment = fulfilmentSummary(order.lines);
@@ -1052,14 +1058,25 @@ export default function OrderStatusPage() {
           </Card>
         )}
 
-        {selfToken && order && ['placed', 'paid'].includes(order.stage) && (
+        {selfToken && order && promiseLate && (
+          <Card className="border-2 border-amber-200 rounded-[2rem] overflow-hidden bg-amber-50/60">
+            <CardContent className="p-5 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">Running late</p>
+              <p className="text-xs font-bold text-amber-900">
+                We said this would be on its way by {new Date((order as any).shipPromiseAt).toLocaleDateString()} and it isn&apos;t yet. You can wait \u2014 we&apos;ll email as soon as it ships \u2014 or cancel right now for a full refund, no questions asked.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {selfToken && order && (['placed', 'paid'].includes(order.stage) || promiseLate) && (
           <Button
             variant="outline"
             disabled={cancelBusy}
             onClick={cancelSelf}
             className="w-full h-11 rounded-2xl border-2 border-destructive/30 text-destructive font-black uppercase text-[10px] tracking-widest"
           >
-            {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : 'Cancel this order'}
+            {cancelBusy ? <Loader className="h-4 w-4 animate-spin" /> : promiseLate ? 'Cancel and refund me' : 'Cancel this order'}
           </Button>
         )}
 
