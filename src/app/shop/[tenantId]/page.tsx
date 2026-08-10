@@ -323,6 +323,7 @@ export default function ShopPage() {
             shopName={shop.name}
             categories={[...new Set(products.map((p) => p.category).filter(Boolean))].sort()}
             onUnlockWholesale={shop.wholesaleOffered && !wholesale ? () => setUnlockOpen(true) : undefined}
+            wholesaleUnlocked={wholesale}
           />
 
           <Link
