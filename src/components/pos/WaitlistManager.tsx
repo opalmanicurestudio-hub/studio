@@ -307,6 +307,8 @@ export function WaitlistManager({
           </DialogHeader>
           <div className="p-6 space-y-4">
             <Input
+              aria-label="Client name (required)"
+              autoComplete="name"
               autoFocus
               placeholder="Client name *"
               value={newName}
@@ -314,6 +316,8 @@ export function WaitlistManager({
               className="h-11 rounded-xl border-2"
             />
             <Input
+              aria-label="Client phone"
+              autoComplete="tel"
               placeholder="Phone"
               value={newPhone}
               onChange={(e) => setNewPhone(e.target.value)}
@@ -321,6 +325,8 @@ export function WaitlistManager({
               className="h-11 rounded-xl border-2"
             />
             <Input
+              aria-label="Client email"
+              autoComplete="email"
               placeholder="Email"
               value={newEmail}
               onChange={(e) => setNewEmail(e.target.value)}
@@ -389,6 +395,7 @@ export function WaitlistManager({
               <div className="space-y-1.5">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Date</p>
                 <input
+                  aria-label="Date to offer them"
                   type="date"
                   value={notifyDate}
                   onChange={(e) => setNotifyDate(e.target.value)}
@@ -398,6 +405,7 @@ export function WaitlistManager({
               <div className="space-y-1.5">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Time</p>
                 <input
+                  aria-label="Time to offer them"
                   type="time"
                   value={notifyTime}
                   onChange={(e) => setNotifyTime(e.target.value)}
@@ -457,6 +465,7 @@ export function WaitlistManager({
               <div className="space-y-1.5">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Date</p>
                 <input
+                  aria-label="Booking date"
                   type="date"
                   value={bookDate}
                   onChange={(e) => setBookDate(e.target.value)}
@@ -466,6 +475,7 @@ export function WaitlistManager({
               <div className="space-y-1.5">
                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Time</p>
                 <input
+                  aria-label="Booking time"
                   type="time"
                   value={bookTime}
                   onChange={(e) => setBookTime(e.target.value)}
