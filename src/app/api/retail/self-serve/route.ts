@@ -248,6 +248,15 @@ export async function POST(req: NextRequest) {
       if (qty <= 0) continue;
       const orig = (order.lines || []).find((l: any) => l.lineId === sel.lineId);
       if (!orig) return NextResponse.json({ error: 'Item not found on this order.' }, { status: 400 });
+      // A download has no parcel to send back, and printing a return label
+      // for one wastes the shop's money and the customer's afternoon. The
+      // door isn't closed — it just goes to a person, who can refund and
+      // withdraw access in one move.
+      if (orig.digital === true) {
+        return NextResponse.json({
+          error: `${orig.name} is a digital item \u2014 there\u2019s nothing to post back. Use \u201cReport a problem\u201d and the shop will sort a refund with you directly.`,
+        }, { status: 409 });
+      }
       const returnable = (orig.qtyOrdered || 0) - (orig.qtyShorted || 0) - (orig.qtyReturned || 0);
       if (qty > returnable) {
         return NextResponse.json({ error: `Only ${returnable} of ${orig.name} can still be returned.` }, { status: 400 });
