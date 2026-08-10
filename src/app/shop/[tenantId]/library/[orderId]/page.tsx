@@ -14,16 +14,18 @@
 // sharing rather than pretending piracy is solvable.
 
 import { Loader, Lock } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import React, { useEffect, useState } from 'react';
 
-type Item = { productId: string; name: string; opened?: boolean };
+type Item = { productId: string; name: string; endsAt?: string | null; expired?: boolean };
 
 export default function LibraryPage({ params }: { params: Promise<{ tenantId: string; orderId: string }> }) {
   const { tenantId, orderId } = React.use(params);
   const [token, setToken] = useState('');
   const [items, setItems] = useState<Item[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ url: string; name: string; watermark: string; kind: string } | null>(null);
+  const [viewing, setViewing] = useState<{ url: string; name: string; watermark: string; kind: string; productId: string } | null>(null);
+  const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,7 +39,12 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
         if (!res.ok) { setErr(d.error || 'This library could not be loaded.'); return; }
         const digital = (d.order?.lines || []).filter((l: any) => l.digital === true);
         if (digital.length === 0) setErr('There\u2019s nothing digital on this order.');
-        setItems(digital.map((l: any) => ({ productId: l.productId, name: l.name })));
+        const paid = d.order?.timestamps?.paidAt || d.order?.timestamps?.placedAt || '';
+        setItems(digital.map((l: any) => {
+          const days = Number(l.digitalAccessDays) || 0;
+          const ends = days > 0 && paid ? new Date(Date.parse(paid) + days * 86400000).toISOString() : null;
+          return { productId: l.productId, name: l.name, endsAt: ends, expired: !!ends && Date.parse(ends) < Date.now() };
+        }));
       } catch {
         setErr('This library could not be loaded \u2014 check your connection.');
       }
@@ -56,7 +63,8 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       const d = await res.json();
       if (!res.ok) { setErr(d.error || 'Could not open that.'); return; }
       if (d.kind === 'link') { window.open(d.url, '_blank', 'noopener,noreferrer'); return; }
-      setViewing({ url: d.url, name: d.name, watermark: d.watermark, kind: d.kind });
+      setStale(false);
+      setViewing({ url: d.url, name: d.name, watermark: d.watermark, kind: d.kind, productId: it.productId });
     } catch {
       setErr('Could not open that \u2014 try again.');
     } finally {
@@ -65,6 +73,9 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
   };
 
   if (viewing) {
+    if (!stale) {
+      setTimeout(() => setStale(true), 8.5 * 60 * 1000);
+    }
     return (
       <div className="mx-auto max-w-3xl p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -84,6 +95,14 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
             ))}
           </div>
         </div>
+        {stale && (
+          <button
+            onClick={() => open({ productId: viewing.productId, name: viewing.name })}
+            className="mt-3 h-10 w-full rounded-xl border-2 font-black uppercase text-[10px] tracking-widest hover:bg-muted"
+          >
+            Refresh this view
+          </button>
+        )}
         <p className="mt-3 text-[11px] font-bold text-muted-foreground">
           Licensed to {viewing.watermark}. This copy is personal \u2014 please don\u2019t share or repost it.
         </p>
@@ -113,8 +132,17 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
               disabled={busy === it.productId}
               className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-4 text-left hover:bg-muted"
             >
-              <span className="text-sm font-bold">{it.name}</span>
-              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              <span className="min-w-0">
+                <span className="block text-sm font-bold">{it.name}</span>
+                <span className={cn('block text-[10px] font-black uppercase tracking-widest', it.expired ? 'text-red-600' : 'text-muted-foreground')}>
+                  {it.expired
+                    ? `Access ended ${new Date(it.endsAt as string).toLocaleDateString()}`
+                    : it.endsAt
+                    ? `Available until ${new Date(it.endsAt).toLocaleDateString()}`
+                    : 'Yours to keep'}
+                </span>
+              </span>
+              <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                 {busy === it.productId ? 'Opening\u2026' : 'Open'}
               </span>
             </button>
@@ -123,7 +151,7 @@ export default function LibraryPage({ params }: { params: Promise<{ tenantId: st
       )}
 
       <p className="mt-6 text-[11px] font-bold text-muted-foreground">
-        These open here in the app and stay tied to your order \u2014 no expiring downloads to keep track of. Come back any time.
+        These live with your order, so you can come back from any device \u2014 sign in with your email on the shop\u2019s account page and open the order again. Nothing to keep track of.
       </p>
     </div>
   );
