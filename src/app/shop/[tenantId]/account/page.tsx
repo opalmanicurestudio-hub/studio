@@ -67,6 +67,7 @@ function AccountInner() {
   const [checkedStorage, setCheckedStorage] = useState(false);
   const [orders, setOrders] = useState<AccountOrder[]>([]);
   const [creditCents, setCreditCents] = useState(0);
+  const [library, setLibrary] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [emailInput, setEmailInput] = useState('');
   const [requesting, setRequesting] = useState(false);
@@ -101,6 +102,7 @@ function AccountInner() {
       }
       setOrders(data.orders || []);
       setCreditCents(data.creditCents || 0);
+      setLibrary(Array.isArray(data.library) ? data.library : []);
     } finally {
       setLoading(false);
     }
@@ -232,6 +234,32 @@ function AccountInner() {
                 <Button asChild variant="outline" className="rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
                   <Link href={`/shop/${tenantId}`}>Start shopping</Link>
                 </Button>
+              </div>
+            )}
+
+            {library.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Your library</p>
+                {library.map((d: any) => (
+                  <Link
+                    key={d.productId}
+                    href={`/shop/${tenantId}/order/${d.orderId}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border-2 bg-white p-3.5 hover:border-primary/40"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-black uppercase tracking-tight">{d.name}</span>
+                      <span className={cn('block text-[9px] font-black uppercase tracking-widest',
+                        d.expired ? 'text-red-600' : 'text-muted-foreground')}>
+                        {d.expired
+                          ? `Access ended ${when(d.endsAt)}`
+                          : d.endsAt
+                          ? `Available until ${when(d.endsAt)}`
+                          : 'Yours to keep'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-widest text-muted-foreground">Open</span>
+                  </Link>
+                ))}
               </div>
             )}
 
