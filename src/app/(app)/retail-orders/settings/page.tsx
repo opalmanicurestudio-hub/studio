@@ -1448,6 +1448,52 @@ export default function RetailSettingsPage() {
                               variant="outline"
                               size="sm"
                               disabled={runBusy === it.id}
+                              className="h-9 w-full rounded-xl border-2 border-amber-300 text-amber-800 font-black uppercase text-[9px] tracking-widest"
+                              onClick={async () => {
+                                if (!tenantId) return;
+                                const newDate = d.preorderEtaAt;
+                                if (!newDate) {
+                                  toast({ variant: 'destructive', title: 'Set the new ship-by date first', description: 'Change "Ships by" above, then tell everyone.' });
+                                  return;
+                                }
+                                setRunBusy(it.id);
+                                try {
+                                  const peek = await fetch('/api/retail/preorder-run-eta', {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ tenantId, productId: it.id, dryRun: true }),
+                                  }).then((r) => r.json());
+                                  if (!peek.ok) {
+                                    toast({ variant: 'destructive', title: 'Could not check the run', description: peek.error || 'Try again.' });
+                                    return;
+                                  }
+                                  if (!peek.orders) {
+                                    toast({ title: 'Nobody to tell', description: 'No open pre-orders on this product yet.' });
+                                    return;
+                                  }
+                                  const ok = window.confirm(`Tell ${peek.orders} customer(s) the new date is ${newDate}? Each can keep waiting or cancel for a full refund.`);
+                                  if (!ok) return;
+                                  const why = window.prompt('Why the change? (optional \u2014 goes in the email word for word)') || '';
+                                  const res = await fetch('/api/retail/preorder-run-eta', {
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ tenantId, productId: it.id, newDate, note: why }),
+                                  });
+                                  const data = await res.json();
+                                  if (!res.ok) toast({ variant: 'destructive', title: 'Not sent', description: data.error || 'Try again.' });
+                                  else toast({ title: 'Everyone told', description: `${data.orders} order(s) updated, ${data.emailed} emailed.` });
+                                } catch {
+                                  toast({ variant: 'destructive', title: 'Not sent', description: 'Check your connection and try again.' });
+                                } finally {
+                                  setRunBusy(null);
+                                }
+                              }}
+                            >
+                              {runBusy === it.id ? 'Working\u2026' : 'Tell everyone the new date'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={runBusy === it.id}
                               className="h-9 w-full rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
                               onClick={async () => {
                                 if (!tenantId) return;
