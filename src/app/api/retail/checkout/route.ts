@@ -6,6 +6,7 @@ import {
 } from '@/lib/address-validation';
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
+import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { verifyQuote } from '@/lib/shipping-quote';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -472,6 +473,94 @@ async function handleCheckout(req: NextRequest) {
         return a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
       }, 0);
       const chargeable = subtotalCents + (stripeTax ? 0 : taxCents) + shippingCents + tipCents;
+
+      // ── FULL-CREDIT, ZERO-CHARGE PATH ────────────────────────────────────
+      // When credit covers the ENTIRE total, Stripe has nothing to collect —
+      // its 50¢ minimum made full redemption impossible. So we skip Stripe
+      // entirely: one atomic transaction re-verifies the credit, mints the
+      // order number, reserves stock, burns the credits FIFO, and flips the
+      // order straight to paid — the same work the webhook does after a card
+      // payment, but atomic here because no third party sits in the middle.
+      // Only on flat/no-tax tenants: with Stripe Tax the true total isn't
+      // known until session time, and guessing tax on a money path is how
+      // books start lying. If a racing checkout shrank the credit, the
+      // transaction reports it and we fall through to the normal card path.
+      // No income/deposit entry is written: no cash moved today — the cash
+      // story lives with the original credit issuance; the credit docs and
+      // the order's event trail carry the redemption.
+      if (!stripeTax && chargeable > 0 && available >= chargeable) {
+        const zeroChargeOk = await db.runTransaction(async (txn: any) => {
+          const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
+          const credRefs = credSnap.docs.map((d: any) => d.ref);
+          const [freshOrder, counterSnap, ...credFresh] = await Promise.all([
+            txn.get(orderRef), txn.get(counterRef), ...credRefs.map((r: any) => txn.get(r)),
+          ]);
+          if (!freshOrder.exists) return false;
+          const creditDocs = credFresh
+            .map((c: any, i: number) => ({ ref: credRefs[i], ...(c.exists ? c.data() : {}) }))
+            .filter((c: any) => c.status === 'available')
+            .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+          const liveAvailable = creditDocs.reduce((a: number, c: any) =>
+            a + Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0)), 0);
+          if (liveAvailable < chargeable) return false; // racing spend — card path takes over
+
+          const itemRefs = lines.map((l: any) => db.collection(`tenants/${tenantId}/inventory`).doc(l.productId));
+          const itemSnaps = await Promise.all(itemRefs.map((r: any) => txn.get(r)));
+
+          const assignedNumber = ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
+          txn.set(counterRef, { value: assignedNumber }, { merge: true });
+          itemSnaps.forEach((snap: any, i: number) => {
+            if (!snap.exists) return;
+            txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + lines[i].qtyOrdered });
+          });
+
+          let remaining = chargeable;
+          for (const c of creditDocs) {
+            if (remaining <= 0) break;
+            const avail = Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
+            if (avail <= 0) continue;
+            const take = Math.min(avail, remaining);
+            remaining -= take;
+            txn.set(c.ref, {
+              usedCents: (Number(c.usedCents) || 0) + take,
+              status: take >= avail ? 'used' : 'available',
+              lastUsedAt: new Date().toISOString(),
+              lastUsedOnRetailOrderId: orderId,
+            }, { merge: true });
+          }
+
+          const qrToken = makeQrToken(orderId);
+          txn.update(orderRef, {
+            stage: 'paid', paidAt: new Date().toISOString(), isDraft: false,
+            orderNumber: assignedNumber, qrToken,
+            storeCreditRequestedCents: chargeable,
+            paidVia: 'store_credit',
+          });
+          const evRef = orderRef.collection('events').doc();
+          txn.set(evRef, {
+            id: evRef.id, type: 'paid', at: new Date().toISOString(),
+            actorId: 'system', actorName: 'Store credit',
+            meta: { text: `Paid in full with store credit \u2014 $${(chargeable / 100).toFixed(2)} redeemed, nothing charged` },
+          });
+          return true;
+        });
+
+        if (zeroChargeOk) {
+          const paidSnap = await orderRef.get();
+          const paidOrder = { id: orderId, ...(paidSnap.data() || {}) };
+          try {
+            await sendOrderConfirmation(db, tenantId, orderId, paidOrder, null);
+          } catch (e: any) {
+            console.error('[checkout] zero-charge receipt failed (order is paid):', e?.message);
+          }
+          const origin = process.env.NEXT_PUBLIC_APP_ORIGIN || process.env.NEXT_PUBLIC_SITE_URL || '';
+          return NextResponse.json({
+            url: `${origin}/shop/${tenantId}/order/${orderId}?paid=credit`,
+            orderId, orderNumber: (paidOrder as any).orderNumber ?? null, isDraft: false, zeroCharge: true,
+          });
+        }
+      }
+
       creditAppliedCents = Math.max(0, Math.min(available, chargeable - 50));
       if (creditAppliedCents > 0) {
         const coupon = await stripe.coupons.create(
