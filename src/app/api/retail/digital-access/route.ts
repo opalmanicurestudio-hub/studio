@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStorage } from 'firebase-admin/storage';
 import { digitalAccessEndsAt } from '@/lib/retail-orders';
+import { watermarkPdf, looksLikePdf } from '@/lib/pdf-watermark';
 
 // ─── /api/retail/digital-access ──────────────────────────────────────────────
 // The private door to a purchased file. Honest framing first: NOTHING can
@@ -25,7 +26,6 @@ import { digitalAccessEndsAt } from '@/lib/retail-orders';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const LINK_MINUTES = 10;
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -43,8 +43,36 @@ function getAdminDb() {
   return getFirestore(app);
 }
 
-/** Bucket hunt, same chain the claim-photo uploader proved out. */
-async function signedUrlFor(path: string, tenantBucket: string | null): Promise<string | null> {
+/**
+ * One gate, used by both handlers. Returns either a refusal or everything
+ * the caller needs. Keeping this shared is the point: a second copy of the
+ * ownership rules is a second place for them to rot.
+ */
+async function authorize(db: any, tenantId: string, orderId: string, qrToken: string, productId: string): Promise<
+  { error: string; status: number } | { order: any; line: any; item: any; endsAt: string | null }
+> {
+  const orderSnap = await db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId).get();
+  if (!orderSnap.exists) return { error: 'Order not found', status: 404 };
+  const order = orderSnap.data() as any;
+  if (!order.qrToken || String(order.qrToken) !== qrToken) return { error: 'Not allowed', status: 403 };
+  if (['placed', 'cancelled', 'refunded'].includes(String(order.stage))) {
+    return { error: 'This order isn\u2019t active.', status: 409 };
+  }
+  const line = (order.lines || []).find((l: any) => l.productId === productId && l.digital === true);
+  if (!line) return { error: 'That isn\u2019t on this order.', status: 404 };
+  if (['refunded', 'backordered'].includes(String(line.status))) {
+    return { error: 'Access for this item was closed.', status: 409 };
+  }
+  const endsAt = digitalAccessEndsAt(line, order.paidAt, order.placedAt);
+  if (endsAt && Date.parse(endsAt) < Date.now()) {
+    return { error: `Your access to this ended on ${new Date(endsAt).toLocaleDateString()}. Message the shop from your order page \u2014 they can extend it.`, status: 403 };
+  }
+  const itemSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(productId).get();
+  return { order, line, item: itemSnap.exists ? (itemSnap.data() as any) : {}, endsAt };
+}
+
+/** Download the stored file through the same bucket-hunting chain. */
+async function downloadFile(path: string, tenantBucket: string | null): Promise<Uint8Array | null> {
   let projectId = process.env.FIREBASE_PROJECT_ID || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
     || process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
   let appBucket: string | null = null;
@@ -55,8 +83,7 @@ async function signedUrlFor(path: string, tenantBucket: string | null): Promise<
     if (!projectId) projectId = opts.projectId || opts.credential?.projectId || '';
   } catch { /* keep hunting */ }
   const names: (string | null)[] = [
-    tenantBucket,
-    null,
+    tenantBucket, null,
     process.env.FIREBASE_STORAGE_BUCKET || null,
     process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || null,
     appBucket,
@@ -69,14 +96,57 @@ async function signedUrlFor(path: string, tenantBucket: string | null): Promise<
     if (name !== null) tried.add(name);
     try {
       const bucket = name === null ? getStorage().bucket() : getStorage().bucket(name);
-      const [url] = await bucket.file(path).getSignedUrl({
-        action: 'read',
-        expires: Date.now() + LINK_MINUTES * 60 * 1000,
-      });
-      if (url) return url;
+      const [buf] = await bucket.file(path).download();
+      if (buf) return new Uint8Array(buf);
     } catch { /* next candidate */ }
   }
   return null;
+}
+
+/**
+ * GET streams the file itself, watermarked, from OUR origin — so the buyer's
+ * name is inside the bytes even when iOS hands the PDF to its native viewer
+ * and our on-page overlay never renders. Ownership is re-checked on every
+ * request, so this URL is no more shareable than the order link it came from.
+ */
+export async function GET(req: NextRequest) {
+  try {
+    const q = req.nextUrl.searchParams;
+    const tenantId = String(q.get('tenantId') || '').trim();
+    const orderId = String(q.get('orderId') || '').trim();
+    const qrToken = String(q.get('t') || '').trim();
+    const productId = String(q.get('productId') || '').trim();
+    if (!tenantId || !orderId || !qrToken || !productId) {
+      return NextResponse.json({ error: 'Missing details' }, { status: 400 });
+    }
+    const db = getAdminDb();
+    const auth = await authorize(db, tenantId, orderId, qrToken, productId);
+    if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+    const filePath = String(auth.item.digitalFilePath || '');
+    if (!filePath) return NextResponse.json({ error: 'Nothing attached to this yet.' }, { status: 409 });
+
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    const tenantBucket = String((tSnap.data() as any)?.storageBucket || '') || null;
+    const bytes = await downloadFile(filePath, tenantBucket);
+    if (!bytes) return NextResponse.json({ error: 'The file couldn\u2019t be opened just now.' }, { status: 502 });
+
+    const label = `${auth.order.customerName || 'Customer'} \u00b7 ${auth.order.customerEmail || ''} \u00b7 #${String(auth.order.orderNumber ?? '').padStart(4, '0')}`;
+    const isPdf = looksLikePdf(filePath, bytes);
+    const out = isPdf ? await watermarkPdf(bytes, label) : bytes;
+
+    return new NextResponse(Buffer.from(out), {
+      status: 200,
+      headers: {
+        'Content-Type': isPdf ? 'application/pdf' : 'application/octet-stream',
+        'Content-Disposition': `inline; filename="${String(auth.item.digitalFileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')}"`,
+        'Cache-Control': 'private, no-store',
+      },
+    });
+  } catch (err: any) {
+    console.error('[digital-access] stream failed:', err?.message);
+    return NextResponse.json({ error: 'Something went wrong opening this.' }, { status: 500 });
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -138,14 +208,15 @@ export async function POST(req: NextRequest) {
     let url: string | null = null;
     let kind: 'file' | 'link' | null = null;
     if (filePath) {
-      const tSnap = await db.collection('tenants').doc(tenantId).get();
-      const tenantBucket = String((tSnap.data() as any)?.storageBucket || '') || null;
-      url = await signedUrlFor(filePath, tenantBucket);
-      kind = 'file';
-      if (!url) {
-        return NextResponse.json({ error: 'The file couldn\u2019t be opened just now \u2014 try again in a minute.' }, { status: 502 });
-      }
-    } else if (linkUrl) {
+      // Stored files stream through our own GET so the watermark is baked in.
+      const streamUrl = `/api/retail/digital-access?tenantId=${encodeURIComponent(tenantId)}&orderId=${encodeURIComponent(orderId)}&productId=${encodeURIComponent(productId)}&t=${encodeURIComponent(qrToken)}`;
+      return NextResponse.json({
+        ok: true, url: streamUrl, kind: 'file', name: line.name, endsAt,
+        watermark: `${order.customerName || 'Customer'} \u00b7 ${order.customerEmail || ''} \u00b7 #${String(order.orderNumber ?? '').padStart(4, '0')}`,
+        expiresInMinutes: 0,
+      });
+    }
+    if (linkUrl) {
       url = linkUrl;
       kind = 'link';
     } else {
@@ -154,6 +225,20 @@ export async function POST(req: NextRequest) {
 
     // Log the open. Counted per line so repeated opens read as one story
     // rather than flooding the ledger.
+    await logOpen(orderRef, order, line, productId);
+
+    return NextResponse.json({
+      ok: true, url, kind, name: line.name, endsAt,
+      watermark: `${order.customerName || 'Customer'} \u00b7 ${order.customerEmail || ''} \u00b7 #${String(order.orderNumber ?? '').padStart(4, '0')}`,
+      expiresInMinutes: 0,
+    });
+  } catch (err: any) {
+    console.error('[digital-access] failed:', err?.message);
+    return NextResponse.json({ error: 'Something went wrong opening this.' }, { status: 500 });
+  }
+}
+
+async function logOpen(orderRef: any, order: any, line: any, productId: string): Promise<void> {
     try {
       const { FieldValue } = require('firebase-admin/firestore');
       const opens = (Number(order.digitalOpens?.[productId]) || 0) + 1;
@@ -167,16 +252,4 @@ export async function POST(req: NextRequest) {
         });
       }
     } catch { /* logging must never block the customer's access */ }
-
-    return NextResponse.json({
-      ok: true, url, kind,
-      name: line.name,
-      endsAt,
-      watermark: `${order.customerName || 'Customer'} \u00b7 ${order.customerEmail || ''} \u00b7 #${String(order.orderNumber ?? '').padStart(4, '0')}`,
-      expiresInMinutes: LINK_MINUTES,
-    });
-  } catch (err: any) {
-    console.error('[digital-access] failed:', err?.message);
-    return NextResponse.json({ error: 'Something went wrong opening this.' }, { status: 500 });
-  }
 }
