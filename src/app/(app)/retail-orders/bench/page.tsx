@@ -8,6 +8,8 @@ import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
+import { recordPackScan } from '@/lib/retail-fulfill';
+import { isPackComplete } from '@/lib/retail-orders';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useInventory } from '@/context/InventoryContext';
@@ -183,6 +185,14 @@ export default function PackBenchPage() {
     (a, l) => a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyScanned || 0)), 0
   );
   const allScanned = active ? remaining === 0 : false;
+  // Second-scan (pack check): merchant setting; only for shelf-picked orders —
+  // wave orders' single scan already happens at this bench.
+  const packScanOn = ((selectedTenant as any)?.retailSettings?.requirePackScan === true);
+  const needsPackCheck = !!active && packScanOn && !(active as any).waveId && allScanned;
+  const packRemaining = active ? lines.reduce(
+    (a: number, l: any) => ['refunded', 'backordered'].includes(l.status) ? a
+      : a + Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0) - (l.qtyPacked || 0)), 0) : 0;
+  const packDone = active ? isPackComplete(lines as any) : false;
   const isCancelled = active ? ['cancelled', 'refunded'].includes(String(active.stage)) : false;
 
   const nextTote = () => {
@@ -199,7 +209,9 @@ export default function PackBenchPage() {
     }
     setBusy('scan');
     try {
-      const res = await recordItemScan(firestore as Firestore, tenantId, active.id, value, actor);
+      const res = needsPackCheck
+        ? await recordPackScan(firestore as Firestore, tenantId, active.id, value, actor)
+        : await recordItemScan(firestore as Firestore, tenantId, active.id, value, actor);
       if (res.ok) {
         scanFeedback(true);
         toast({ title: res.message });
@@ -333,12 +345,21 @@ export default function PackBenchPage() {
                   </div>
                 </div>
 
-                {!isCancelled && !allScanned && <ScanGate onScan={onScan} />}
+                {!isCancelled && (!allScanned || (needsPackCheck && !packDone)) && <ScanGate onScan={onScan} />}
+                {needsPackCheck && (
+                  <div className={cn('rounded-2xl border-2 p-3', packDone ? 'border-primary/30 bg-primary/[0.04]' : 'border-sky-200 bg-sky-50/60')}>
+                    <p className="text-[10px] font-black uppercase tracking-widest">
+                      {packDone ? 'Pack check complete \u2014 every unit verified into the box' : `Pack check: scan each item again as it goes in \u2014 ${packRemaining} left`}
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-2">
                   {lines.map((l: any) => {
                     const need = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
-                    const done = (l.qtyScanned || 0) >= need && need > 0;
+                    const done = needsPackCheck
+                      ? (l.qtyPacked || 0) >= need && need > 0
+                      : (l.qtyScanned || 0) >= need && need > 0;
                     const shorted = (l.qtyShorted || 0) > 0;
                     return (
                       <div key={l.lineId} className={cn('flex items-center gap-3 rounded-2xl border-2 p-3', done && 'opacity-50')}>
@@ -483,12 +504,13 @@ export default function PackBenchPage() {
 
                     {active.stage === 'picking' && (
                       <Button
-                        disabled={!allScanned || busy === 'pack' || (photoNeeded && photoUrls.length === 0)}
-                        onClick={() => firestore && act('pack', () => markPacked(firestore as Firestore, tenantId, active.id, actor))}
+                        disabled={!allScanned || (needsPackCheck && !packDone) || busy === 'pack' || (photoNeeded && photoUrls.length === 0)}
+                        onClick={() => firestore && act('pack', () => markPacked(firestore as Firestore, tenantId, active.id, actor, { requirePackScan: packScanOn }))}
                         className="h-14 w-full rounded-2xl text-xs font-black uppercase tracking-widest"
                       >
                         {busy === 'pack' ? <Loader className="h-4 w-4 animate-spin" />
                           : !allScanned ? `Scan ${remaining} more item${remaining === 1 ? '' : 's'}`
+                          : (needsPackCheck && !packDone) ? `Pack check ${packRemaining} more`
                           : (photoNeeded && photoUrls.length === 0) ? 'Photo the box first'
                           : 'Everything in the box — mark packed'}
                       </Button>
