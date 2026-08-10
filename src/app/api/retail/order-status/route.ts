@@ -140,6 +140,8 @@ export async function GET(req: NextRequest) {
       shippingAddress: order.shippingAddress || null,
       customerEmail: order.customerEmail || '',
       storeCreditRequestedCents: order.storeCreditRequestedCents || 0,
+      shipPromiseAt: order.shipPromiseAt || null,
+      hasPreorder: order.hasPreorder === true,
       trackingNumber: order.trackingNumber || null,
       trackingUrl: order.trackingUrl || null,
       carrier: order.carrier || null,
