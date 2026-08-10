@@ -221,6 +221,8 @@ export default function RetailReturnsPage() {
               <ScanGate onScan={doLookup} label="Customer's order QR from their phone or packing slip" />
               <div className="flex gap-2">
                 <Input
+                  aria-label="Order number to look up"
+                  inputMode="numeric"
                   placeholder="Order # (e.g. 1042)"
                   value={lookupKey}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLookupKey(e.target.value)}
@@ -291,7 +293,7 @@ export default function RetailReturnsPage() {
                   ))}
                 </div>
               </div>
-              <Textarea placeholder="Notes (optional)" value={notes}
+              <Textarea placeholder="Notes (optional)" aria-label="Notes about this return (optional)" value={notes}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
                 className="rounded-2xl border-2 min-h-[70px] font-bold text-sm" />
               <Button disabled={opening || Object.values(qtys).every((q) => !q)} onClick={startOpen}
