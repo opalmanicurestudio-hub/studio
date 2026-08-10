@@ -77,10 +77,11 @@ const EVENT_LABELS: Record<string, string> = {
   override: 'Manager override', note: 'Note',
 };
 
-const STAGE_FILTERS: { id: 'all' | 'active' | 'backordered' | OrderStage; label: string }[] = [
+const STAGE_FILTERS: { id: 'all' | 'active' | 'backordered' | 'late_promise' | OrderStage; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
   { id: 'backordered', label: 'Backordered' },
+  { id: 'late_promise', label: 'Past promise' },
   { id: 'completed', label: 'Completed' },
   { id: 'shipped', label: 'Shipped' },
   { id: 'cancelled', label: 'Cancelled' },
@@ -89,6 +90,14 @@ const STAGE_FILTERS: { id: 'all' | 'active' | 'backordered' | OrderStage; label:
 ];
 
 const ACTIVE_STAGES = ['paid', 'picking', 'packed', 'ready', 'arrived'];
+
+// Past the date the shop promised, with nothing shipped. Same rule the
+// customer's order page uses, so the work list and their refund right can
+// never disagree about who is late.
+const isLatePromise = (o: any): boolean =>
+  !!o?.shipPromiseAt
+  && ['paid', 'picking', 'packed', 'ready'].includes(String(o.stage))
+  && Date.parse(o.shipPromiseAt) < Date.now();
 
 // A draft is a cart that reached checkout and never paid. It has no order
 // number, because the webhook mints that only when money lands. Showing it as
@@ -117,7 +126,7 @@ export default function RetailOrderHistoryPage() {
   const [exhausted, setExhausted] = useState(false);
   const [cursor, setCursor] = useState<any>(null);
   const [term, setTerm] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | 'backordered' | OrderStage>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'backordered' | 'late_promise' | OrderStage>('all');
   const [detail, setDetail] = useState<HistoryOrder | null>(null);
   const [events, setEvents] = useState<OrderEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -170,7 +179,9 @@ export default function RetailOrderHistoryPage() {
     return orders.filter((o) => {
       const isDraft = o.stage === 'placed';
       if (filter !== 'placed' && isDraft) return false;
-      if (filter === 'backordered') {
+      if (filter === 'late_promise') {
+        if (!isLatePromise(o)) return false;
+      } else if (filter === 'backordered') {
         if (!(o.lines || []).some((l: any) => l.status === 'backordered')) return false;
       } else if (filter === 'active' ? !ACTIVE_STAGES.includes(o.stage) : filter !== 'all' && o.stage !== filter) return false;
       if (!t) return true;
@@ -297,6 +308,11 @@ export default function RetailOrderHistoryPage() {
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">
                       {o.customerName}{o.customerEmail ? ` · ${o.customerEmail}` : ''}
                     </p>
+                    {isLatePromise(o) && (
+                      <p className="text-[9px] font-black uppercase tracking-widest text-red-600">
+                        Past the promised date ({when(o.shipPromiseAt)}) — the customer can cancel for a refund
+                      </p>
+                    )}
                     {(o.lines || []).some((l: any) => l.status === 'backordered') && (
                       <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
                         Owes {(o.lines || []).filter((l: any) => l.status === 'backordered').reduce((a: number, l: any) => a + (Number(l.qtyShorted) || 0), 0)} backordered unit(s) — ship when restocked
@@ -352,6 +368,33 @@ export default function RetailOrderHistoryPage() {
                     <Button variant="outline" size="sm" className="h-9 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest"
                       onClick={() => window.open(`/print/packing-slip/${tenantId}/${detail.id}?t=${encodeURIComponent(detail.qrToken || '')}`, '_blank')}>
                       <Printer className="mr-1.5 h-3.5 w-3.5" /> Slip
+                    </Button>
+                  )}
+                  {!['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(detail.stage) && (
+                    <Button variant="outline" size="sm" disabled={busy}
+                      className="h-9 rounded-xl border-2 border-amber-300 text-amber-800 font-black uppercase text-[9px] tracking-widest"
+                      onClick={async () => {
+                        const revisedDate = window.prompt('New ship-by date (YYYY-MM-DD) \u2014 the customer gets it in writing, with a one-tap refund option:');
+                        if (!revisedDate) return;
+                        const note = window.prompt('Anything to add? (optional \u2014 it goes in the email word for word)') || '';
+                        setBusy(true);
+                        try {
+                          const res = await fetch('/api/retail/delay-notice', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tenantId, orderId: detail.id, revisedDate, note }),
+                          });
+                          const data = await res.json();
+                          if (!res.ok) toast({ variant: 'destructive', title: 'Not sent', description: data.error || 'Try again.' });
+                          else if (data.sent) toast({ title: 'Delay notice sent', description: `New ship-by ${revisedDate}. They can cancel for a refund from their order page.` });
+                          else toast({ title: 'Nothing to send', description: 'That date was already sent, or the order has moved on.' });
+                        } catch {
+                          toast({ variant: 'destructive', title: 'Not sent', description: 'Check your connection and try again.' });
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}>
+                      Delay notice
                     </Button>
                   )}
                   {!['shipped', 'handed_off', 'completed', 'cancelled', 'refunded'].includes(detail.stage) && (
