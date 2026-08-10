@@ -804,6 +804,75 @@ export async function markShipped(
 }
 
 /** Backorder tray: release a parked child order into the live queue. */
+/**
+ * SHIP WHAT'S READY. A mixed cart — gel in stock, pre-order kit that lands in
+ * six weeks — currently waits for the slowest item, which is the wrong
+ * default: the customer paid for the gel today.
+ *
+ * This splits the order in two, reusing the child-order machinery the
+ * backorder flow already proved: the WAITING lines move to a child order
+ * (parked, same customer QR, same order number) and the parent keeps only
+ * what can go now, so the bench works a normal, complete job. When the
+ * pre-order lands, releasing the child puts it back in the queue exactly
+ * like a restocked backorder.
+ *
+ * Deliberately manual: shipping twice costs postage, and only the shop can
+ * decide whether that's worth it for this order. Nothing here charges the
+ * customer more.
+ */
+export async function splitReadyFromWaiting(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor
+): Promise<{ ok: boolean; message: string; childOrderId?: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = { ...(oSnap.data() as RetailOrder), id: orderId };
+      if (!['paid', 'picking'].includes(String(order.stage))) {
+        return { ok: false, message: 'Only a paid or picking order can be split.' };
+      }
+      if ((order as any).parentOrderId) {
+        return { ok: false, message: 'This is already a split shipment.' };
+      }
+
+      const waiting = (order.lines || []).filter((l: any) =>
+        l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)));
+      const ready = (order.lines || []).filter((l: any) => !waiting.includes(l));
+      if (waiting.length === 0) return { ok: false, message: 'Nothing on this order is waiting.' };
+      if (ready.length === 0) return { ok: false, message: 'Everything here is waiting — nothing to ship yet.' };
+
+      const childRef = doc(orderCol(fs, tenantId));
+      const child = {
+        id: childRef.id, tenantId,
+        orderNumber: order.orderNumber,
+        stage: 'paid', method: order.method, priceTier: order.priceTier || 'retail',
+        businessName: order.businessName || '', poNumber: order.poNumber || '',
+        lines: waiting.map((l: any) => ({
+          ...l, lineId: `line-${nanoid(8)}`, qtyScanned: 0, qtyPacked: 0, status: 'pending',
+        })),
+        subtotalCents: 0, taxCents: 0, shippingCents: 0, refundedCents: 0, totalCents: 0,
+        customerName: order.customerName, customerEmail: order.customerEmail,
+        customerPhone: order.customerPhone || '',
+        shippingAddress: order.shippingAddress || null,
+        parentOrderId: orderId, holdUntilRestock: true,
+        hasPreorder: true,
+        shipPromiseAt: (order as any).shipPromiseAt || null,
+        qrToken: order.qrToken || null,
+        placedAt: new Date().toISOString(), paidAt: order.paidAt || new Date().toISOString(),
+      };
+      txn.set(childRef, JSON.parse(JSON.stringify(child)));
+      txn.update(oRef, { lines: JSON.parse(JSON.stringify(ready)), splitChildOrderId: childRef.id });
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
+        text: `Split shipment \u2014 ${ready.length} item(s) ship now, ${waiting.length} pre-order item(s) follow when they land`,
+      }));
+      return { ok: true, message: `Split \u2014 ${ready.length} ready now, ${waiting.length} to follow`, childOrderId: childRef.id };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not split the order.' };
+  }
+}
+
 export async function releaseBackorder(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor
 ): Promise<{ ok: boolean; message: string }> {
