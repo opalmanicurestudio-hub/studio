@@ -18,6 +18,7 @@ import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
+import { uploadPrivateFile } from '@/lib/upload-image';
 import { getDownloadURL, getStorage, ref as storageRef, uploadBytes } from 'firebase/storage';
 
 import { optionGroupsToText, parseOptionGroups } from '@/lib/retail-orders';
@@ -144,8 +145,9 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string;
+    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string;
   }>>({});
+  const [fileBusy, setFileBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (loaded) return;
@@ -319,6 +321,8 @@ export default function RetailSettingsPage() {
     kit: (it.kitContents || []).join('\n'),
     digital: it.digital === true,
     digitalUrl: it.digitalUrl || '',
+    digitalFilePath: it.digitalFilePath || '',
+    digitalFileName: it.digitalFileName || '',
     casePack: it.casePack ? String(it.casePack) : '',
     caseBarcode: it.caseBarcode || '',
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
@@ -366,6 +370,8 @@ export default function RetailSettingsPage() {
         kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
         digital: d.digital === true,
         digitalUrl: d.digital === true ? (d.digitalUrl.trim() || null) : null,
+        digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
+        digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
         casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
         caseBarcode: d.caseBarcode.trim() || null,
         imageUrls,
@@ -1407,10 +1413,44 @@ export default function RetailSettingsPage() {
                           />
                         </div>
                         {d.digital === true && (
-                          <Input placeholder="Delivery link (course, download, or PDF)" aria-label="Digital delivery link"
-                            value={d.digitalUrl}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalUrl: e.target.value } })}
-                            className="h-10 rounded-xl border-2 font-bold text-xs" />
+                          <div className="space-y-2">
+                            <label className="flex h-10 w-full cursor-pointer items-center justify-center rounded-xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest hover:bg-muted">
+                              <input
+                                type="file"
+                                className="sr-only"
+                                aria-label="Upload the file customers receive"
+                                disabled={fileBusy === it.id}
+                                onChange={async (e: React.ChangeEvent<HTMLInputElement>) => {
+                                  const f = e.target.files?.[0];
+                                  e.target.value = '';
+                                  if (!f || !tenantId) return;
+                                  if (f.size > 40 * 1024 * 1024) {
+                                    toast({ variant: 'destructive', title: 'File too large', description: 'Keep files under 40 MB \u2014 host video elsewhere and paste the link instead.' });
+                                    return;
+                                  }
+                                  setFileBusy(it.id);
+                                  try {
+                                    const path = `tenants/${tenantId}/digital/${it.id}/${Date.now()}-${f.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+                                    await uploadPrivateFile(path, f);
+                                    setDrafts({ ...drafts, [it.id]: { ...d, digitalFilePath: path, digitalFileName: f.name } });
+                                    toast({ title: 'File attached', description: 'Save the item to publish it to buyers.' });
+                                  } catch {
+                                    toast({ variant: 'destructive', title: 'Upload failed', description: 'Try again, or paste a link instead.' });
+                                  } finally {
+                                    setFileBusy(null);
+                                  }
+                                }}
+                              />
+                              {fileBusy === it.id ? 'Uploading\u2026' : d.digitalFileName ? `File: ${d.digitalFileName}` : 'Upload the file (PDF, zip, image)'}
+                            </label>
+                            <Input placeholder="\u2026or paste a link (course, video, download page)" aria-label="Digital delivery link"
+                              value={d.digitalUrl}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalUrl: e.target.value } })}
+                              className="h-10 rounded-xl border-2 font-bold text-xs" />
+                            <p className="text-[10px] font-bold text-muted-foreground">
+                              Uploaded files open inside the app, watermarked with the buyer&apos;s name \u2014 never a public URL.
+                            </p>
+                          </div>
                         )}
                         <div className="grid grid-cols-2 gap-2">
                           <Input placeholder="Units per case (wholesale)" inputMode="numeric" aria-label="Units per sealed case"
