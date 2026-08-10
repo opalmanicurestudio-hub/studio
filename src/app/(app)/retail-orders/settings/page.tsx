@@ -144,7 +144,7 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string;
+    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string;
   }>>({});
 
   useEffect(() => {
@@ -317,6 +317,8 @@ export default function RetailSettingsPage() {
     img: (it.imageUrls || []).join('\n'),
     howToUse: it.howToUse || '',
     kit: (it.kitContents || []).join('\n'),
+    digital: it.digital === true,
+    digitalUrl: it.digitalUrl || '',
     casePack: it.casePack ? String(it.casePack) : '',
     caseBarcode: it.caseBarcode || '',
     specs: (it.specs || []).map((sp: any) => `${sp.label}: ${sp.value}`).join('\n'),
@@ -362,6 +364,8 @@ export default function RetailSettingsPage() {
         onlineDescription: d.desc.trim(),
         howToUse: d.howToUse.trim(),
         kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
+        digital: d.digital === true,
+        digitalUrl: d.digital === true ? (d.digitalUrl.trim() || null) : null,
         casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
         caseBarcode: d.caseBarcode.trim() || null,
         imageUrls,
@@ -1392,6 +1396,22 @@ export default function RetailSettingsPage() {
                         <Textarea placeholder="How to use — steps or instructions" value={d.howToUse}
                           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDrafts({ ...drafts, [it.id]: { ...d, howToUse: e.target.value } })}
                           className="rounded-xl border-2 min-h-[60px] font-bold text-xs" />
+                        <div className="flex items-center justify-between gap-3 rounded-xl border-2 p-2.5">
+                          <div>
+                            <Label className="text-[11px] font-black uppercase tracking-widest">Digital item</Label>
+                            <p className="text-[11px] font-bold text-muted-foreground">No stock, no shipping \u2014 the link below is emailed the moment they pay.</p>
+                          </div>
+                          <Switch
+                            checked={d.digital === true}
+                            onCheckedChange={(v: boolean) => setDrafts({ ...drafts, [it.id]: { ...d, digital: v } })}
+                          />
+                        </div>
+                        {d.digital === true && (
+                          <Input placeholder="Delivery link (course, download, or PDF)" aria-label="Digital delivery link"
+                            value={d.digitalUrl}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalUrl: e.target.value } })}
+                            className="h-10 rounded-xl border-2 font-bold text-xs" />
+                        )}
                         <div className="grid grid-cols-2 gap-2">
                           <Input placeholder="Units per case (wholesale)" inputMode="numeric" aria-label="Units per sealed case"
                             value={d.casePack}
