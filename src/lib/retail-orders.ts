@@ -95,6 +95,8 @@ export interface RetailInventoryFields {
   barcode?: string;            // physical UPC/Code-128; falls back to sku
   casePack?: number;           // units per sealed wholesale case (>1 enables case scanning)
   caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
+  palletPack?: number;         // CASES per pallet or master carton (not units)
+  palletBarcode?: string;      // the pallet label's own code (SSCC/ITF-14)
   digital?: boolean;           // nothing physical ships — delivered by link on payment
   digitalUrl?: string;         // the delivery destination (course, PDF, download page)
   digitalFilePath?: string;    // private storage path (never a public URL)
@@ -474,6 +476,8 @@ export interface OrderLine {
   shortReason?: string;
   casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
   caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
+  palletPack?: number;         // CASES per pallet (snapshot)
+  palletBarcode?: string;      // the pallet label's own code (snapshot)
   qtyPacked?: number;          // second-scan count at the box (pack verification)
   digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
   digitalUrl?: string;         // snapshot of the delivery link at purchase time
@@ -507,6 +511,8 @@ export function buildOrderLine(
     status: 'pending',
     ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
     ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
+    ...(Number(item.palletPack) > 1 ? { palletPack: Math.floor(Number(item.palletPack)) } : {}),
+    ...(item.palletBarcode ? { palletBarcode: String(item.palletBarcode) } : {}),
     ...(item.preorder === true ? {
       preorder: true,
       ...(item.preorderEtaAt ? { preorderEtaAt: String(item.preorderEtaAt) } : {}),
@@ -866,7 +872,8 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
       : l.productId === raw ||
         l.productId.toLowerCase() === raw.toLowerCase() ||
         codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw))
+        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
+        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw))
   );
 
   if (idx === -1) {
@@ -907,9 +914,10 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
   // A scan of the CASE code counts a sealed case's worth of units in one
   // beep — the spec's rule: verify 20 cases, not 500 bottles. The last case
   // never overshoots: it counts exactly the units still owed.
-  const isCaseScan = !!line.caseBarcode && (line.casePack || 0) > 1 && codesMatch(line.caseBarcode, raw);
   const remaining = line.qtyOrdered - line.qtyScanned;
-  const increment = isCaseScan ? Math.min(line.casePack as number, remaining) : 1;
+  const resolved = scanUnitsFor(line, raw, remaining);
+  const isCaseScan = resolved.tier !== 'unit';
+  const increment = resolved.units;
 
   const updatedLine: OrderLine = {
     ...line,
@@ -929,6 +937,42 @@ export function applyScan(lines: OrderLine[], scannedValue: string): {
     },
     lines: nextLines,
   };
+}
+
+/**
+ * THE PHYSICAL HIERARCHY, resolved in ONE place: unit -> case -> pallet.
+ *
+ * A pallet label is worth its cases, a case label is worth its units, a unit
+ * code is worth one. Picking, pack-checking and receiving all ask this
+ * function rather than repeating the arithmetic, because three copies of a
+ * multiplier is three places for a miscount to hide. `remaining` caps every
+ * answer, which is what stops a pallet beep on a 3-unit line from inventing
+ * 144 units.
+ */
+export function scanUnitsFor(
+  identity: { casePack?: number; caseBarcode?: string; palletPack?: number; palletBarcode?: string },
+  raw: string,
+  remaining: number,
+): { units: number; tier: 'unit' | 'case' | 'pallet' } {
+  const casePack = Math.max(0, Math.floor(Number(identity.casePack) || 0));
+  const palletPack = Math.max(0, Math.floor(Number(identity.palletPack) || 0));
+  const cap = Math.max(0, Math.floor(remaining));
+
+  if (palletPack > 1 && casePack > 1 && identity.palletBarcode && codesMatch(identity.palletBarcode, raw)) {
+    const units = casePack * palletPack;
+    return { units: cap > 0 ? Math.min(units, cap) : units, tier: 'pallet' };
+  }
+  if (casePack > 1 && identity.caseBarcode && codesMatch(identity.caseBarcode, raw)) {
+    return { units: cap > 0 ? Math.min(casePack, cap) : casePack, tier: 'case' };
+  }
+  return { units: 1, tier: 'unit' };
+}
+
+/** Units on a full pallet, or null when the product isn't palletised. */
+export function unitsPerPallet(identity: { casePack?: number; palletPack?: number }): number | null {
+  const c = Math.max(0, Math.floor(Number(identity.casePack) || 0));
+  const p = Math.max(0, Math.floor(Number(identity.palletPack) || 0));
+  return c > 1 && p > 1 ? c * p : null;
 }
 
 /**
@@ -1017,7 +1061,8 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string): {
       : l.productId === raw ||
         l.productId.toLowerCase() === raw.toLowerCase() ||
         codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw))
+        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
+        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw))
   );
   if (idx === -1) {
     return { result: { ok: false, code: 'unknown_sku', message: `Scanned code "${raw}" is not on this order.` }, lines };
@@ -1030,9 +1075,10 @@ export function applyPackScan(lines: OrderLine[], scannedValue: string): {
   if ((line.qtyPacked || 0) >= owed) {
     return { result: { ok: false, code: 'over_scan', message: `${line.name} already has all ${owed} pack-checked.` }, lines };
   }
-  const isCaseScan = !!line.caseBarcode && (line.casePack || 0) > 1 && codesMatch(line.caseBarcode, raw);
   const remaining = owed - (line.qtyPacked || 0);
-  const increment = isCaseScan ? Math.min(line.casePack as number, remaining) : 1;
+  const resolved = scanUnitsFor(line, raw, remaining);
+  const isCaseScan = resolved.tier !== 'unit';
+  const increment = resolved.units;
   const updatedLine: OrderLine = { ...line, qtyPacked: (line.qtyPacked || 0) + increment };
   const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
   return {
