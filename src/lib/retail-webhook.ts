@@ -171,6 +171,7 @@ export async function handleRetailOrderPaid(
         return;
       }
       const current = snap.data().stockReserved ?? 0;
+      if (fresh.lines[i].digital === true) return;
       txn.update(itemRefs[i], { stockReserved: current + fresh.lines[i].qtyOrdered });
     });
 
@@ -202,6 +203,27 @@ export async function handleRetailOrderPaid(
   // the PRE-transaction snapshot, whose orderNumber is still null on a draft.
   // Re-point them at the freshly numbered document.
   order = { ...order, ...(confirmed.data() || {}) };
+
+  // ── DIGITAL-ONLY: nothing to pick, pack, or post. The receipt below IS the
+  // delivery, so the order is finished the moment money lands — it must never
+  // appear on the board as work nobody can do. Physical orders and mixed carts
+  // are untouched: a mixed cart still has a parcel to fulfil.
+  if ((order as any).digitalOnly === true && order.stage === 'paid') {
+    try {
+      const nowIso = new Date().toISOString();
+      const dBatch = db.batch();
+      dBatch.set(orderRef, { stage: 'completed', completedAt: nowIso }, { merge: true });
+      const evD = orderRef.collection('events').doc();
+      dBatch.set(evD, {
+        id: evD.id, type: 'note', at: nowIso, actorId: 'system', actorName: 'Digital delivery',
+        meta: { text: 'Digital order \u2014 delivered by email on payment, nothing to fulfil' },
+      });
+      await dBatch.commit();
+      order = { ...order, stage: 'completed', completedAt: nowIso };
+    } catch (e: any) {
+      console.error('[retail-webhook] digital auto-complete failed (order is paid):', e?.message);
+    }
+  }
 
   // ── Store credit consumption. The checkout gave the discount UP FRONT on
   // the Stripe page; the credits burn only now, when money actually moved.
@@ -453,6 +475,14 @@ export async function sendOrderConfirmation(
       ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
       <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">Total paid</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(session?.amount_total ?? order.totalCents)}</td></tr>
     </table>
+    ${(order.lines || []).some((l: any) => l.digital === true && l.digitalUrl)
+      ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
+           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Ready now</p>
+           ${(order.lines || []).filter((l: any) => l.digital === true && l.digitalUrl).map((l: any) =>
+             `<p style="font-size:13px;color:#0f172a;margin:0 0 6px"><a href="${l.digitalUrl}" style="color:#0f172a;font-weight:700">${l.name}</a></p>`).join('')}
+           <p style="font-size:11px;color:#94a3b8;margin:8px 0 0">These links are also on your order page, any time you need them again.</p>
+         </div>`
+      : ''}
     ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}`;
   const html = brandedEmail(emailBrand, emailBody, { preheader: `Order ${num} confirmed` });
 
