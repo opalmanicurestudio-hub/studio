@@ -542,7 +542,14 @@ async function handleCheckout(req: NextRequest) {
 
           const qrToken = makeQrToken(orderId);
           txn.update(orderRef, {
-            stage: 'paid', paidAt: new Date().toISOString(), isDraft: false,
+            // A digital-only order paid entirely with credit never touches
+            // Stripe, so the webhook that normally completes digital orders
+            // never runs. Finish it HERE or it parks on the board as work
+            // nobody can do.
+            stage: digitalOnly ? 'completed' : 'paid',
+            paidAt: new Date().toISOString(),
+            ...(digitalOnly ? { completedAt: new Date().toISOString() } : {}),
+            isDraft: false,
             orderNumber: assignedNumber, qrToken,
             storeCreditRequestedCents: chargeable,
             paidVia: 'store_credit',
