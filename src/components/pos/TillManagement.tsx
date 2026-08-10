@@ -117,6 +117,7 @@ const DenominationInput = ({ denom, count, onChange, disabled, subtitle }: any) 
             </div>
             <div className="flex items-center gap-3">
                 <Input 
+                    aria-label={`How many ${denom.label}`}
                     type="number" 
                     value={count || ''} 
                     onChange={e => onChange(denom.key, parseInt(e.target.value) || 0)}
@@ -530,6 +531,7 @@ export const TillManagement = ({
                                                 <div className="relative flex-1">
                                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground opacity-40" />
                                                     <Input 
+                                                        aria-label="Search till history by ID or staff member"
                                                         placeholder="SEARCH BY ID OR TECH..." 
                                                         value={historySearch} 
                                                         onChange={e => setHistorySearch(e.target.value)}
@@ -537,7 +539,7 @@ export const TillManagement = ({
                                                     />
                                                 </div>
                                                 <Select value={historyDateFilter} onValueChange={setHistoryDateFilter}>
-                                                    <SelectTrigger className="h-11 w-full sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                                                    <SelectTrigger aria-label="Filter till history by period" className="h-11 w-full sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
                                                         <SelectValue placeholder="Period" />
                                                     </SelectTrigger>
                                                     <SelectContent className="rounded-xl border-2 shadow-2xl">
@@ -682,6 +684,7 @@ export const TillManagement = ({
                                                         <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Primary Auditor PIN</Label>
                                                     </div>
                                                     <Input 
+                                                        aria-label="Primary auditor PIN, four digits"
                                                         type="password" 
                                                         maxLength={4} 
                                                         value={primaryPin} 
@@ -698,6 +701,7 @@ export const TillManagement = ({
                                                             <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Witness Verification PIN</Label>
                                                         </div>
                                                         <Input 
+                                                            aria-label="Witness verification PIN, four digits"
                                                             type="password" 
                                                             maxLength={4} 
                                                             value={witnessPin} 
