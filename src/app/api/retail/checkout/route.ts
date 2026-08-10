@@ -7,6 +7,7 @@ import {
 import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
+import { isDigitalOnlyOrder } from '@/lib/retail-orders';
 import { verifyQuote } from '@/lib/shipping-quote';
 
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -123,12 +124,13 @@ async function handleCheckout(req: NextRequest) {
   if (!PRICE_TIERS.includes(priceTier)) {
     return NextResponse.json({ error: 'priceTier must be retail or wholesale' }, { status: 400 });
   }
-  if (method === 'ship') {
+  // The ship-address requirement is checked AFTER the lines are resolved:
+  // a cart of nothing-but-digital goods has no parcel, so demanding an
+  // address would block a sale that needs no postage.
+  const shipAddressOk = (() => {
     const a = body.shippingAddress;
-    if (!a?.name || !a?.line1 || !a?.city || !a?.state || !a?.postalCode || !a?.country) {
-      return NextResponse.json({ error: 'Complete shippingAddress is required for ship orders' }, { status: 400 });
-    }
-  }
+    return !!(a?.name && a?.line1 && a?.city && a?.state && a?.postalCode && a?.country);
+  })();
 
   // Merge duplicate cart rows for the same product
   const qtyByProduct = new Map<string, number>();
@@ -212,7 +214,7 @@ async function handleCheckout(req: NextRequest) {
     if (!isStorefrontVisible(item)) {
       return NextResponse.json({ error: `${item.name || 'An item'} is no longer available` }, { status: 409 });
     }
-    if (sellableStock(item) < qty && item.allowBackorder !== true) {
+    if (item.digital !== true && sellableStock(item) < qty && item.allowBackorder !== true) {
       return NextResponse.json(
         { error: `Only ${Math.max(0, sellableStock(item))} of ${item.name} left`, productId: item.id },
         { status: 409 }
@@ -224,6 +226,13 @@ async function handleCheckout(req: NextRequest) {
       line.unitPriceCents = discountedCents(line.unitPriceCents, wsDiscount);
     }
     lines.push(line);
+  }
+
+  // Nothing physical? Then no address, no postage, no pickup slot — and the
+  // fulfilment floor never sees this order at all.
+  const digitalOnly = isDigitalOnlyOrder(lines);
+  if (method === 'ship' && !digitalOnly && !shipAddressOk) {
+    return NextResponse.json({ error: 'Complete shippingAddress is required for ship orders' }, { status: 400 });
   }
 
   if (priceTier === 'wholesale') {
@@ -253,7 +262,7 @@ async function handleCheckout(req: NextRequest) {
 
   let shippingCents = 0;
   let shippingService = '';
-  if (method === 'ship') {
+  if (method === 'ship' && !digitalOnly) {
     const flat = Math.round((Number(rs.flatShippingDollars) || 0) * 100);
     const freeOver = Math.round((Number(rs.freeShippingOverDollars) || 0) * 100);
     shippingCents = freeOver > 0 && subtotalCents >= freeOver ? 0 : flat;
@@ -351,6 +360,7 @@ async function handleCheckout(req: NextRequest) {
     totalCents,
     customerName,
     customerEmail,
+    ...(digitalOnly ? { digitalOnly: true } : {}),
     customerPhone: body.customer?.phone || '',
     shippingAddress: method === 'ship' ? body.shippingAddress : null,
     curbside: null,
@@ -511,6 +521,7 @@ async function handleCheckout(req: NextRequest) {
           txn.set(counterRef, { value: assignedNumber }, { merge: true });
           itemSnaps.forEach((snap: any, i: number) => {
             if (!snap.exists) return;
+            if (lines[i].digital === true) return;
             txn.update(itemRefs[i], { stockReserved: (snap.data().stockReserved ?? 0) + lines[i].qtyOrdered });
           });
 
