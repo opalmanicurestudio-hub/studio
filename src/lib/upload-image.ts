@@ -97,3 +97,18 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new Blob([bytes], { type: mime });
 }
+
+/**
+ * Upload a file that is NOT meant to be publicly addressable — a purchased
+ * PDF, a zip, a worksheet. Deliberately different from uploadImage: no
+ * downscaling (it isn't necessarily an image), no re-encoding, and — the
+ * important part — it returns the STORAGE PATH, not a tokened download URL.
+ * A token URL is a permanent public link to anyone who copies it; a path is
+ * only useful to the server, which mints a short-lived signed link per view
+ * after checking the customer actually bought it.
+ */
+export async function uploadPrivateFile(path: string, file: File): Promise<string> {
+  const storage = getStorage();
+  await uploadBytes(storageRef(storage, path), file, { contentType: file.type || 'application/octet-stream' });
+  return path;
+}
