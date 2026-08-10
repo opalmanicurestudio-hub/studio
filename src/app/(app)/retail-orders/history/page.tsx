@@ -251,6 +251,7 @@ export default function RetailOrderHistoryPage() {
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
             <Input
+              aria-label="Search orders by number, name, email, business, or PO"
               placeholder="Search order #, name, email, business, PO…"
               value={term}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTerm(e.target.value)}
