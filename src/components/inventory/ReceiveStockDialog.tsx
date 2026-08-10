@@ -25,6 +25,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { type InventoryItem, type Order } from '@/lib/data';
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { codesMatch, parseProductQr } from '@/lib/retail-orders';
+import { scanUnitsFor, unitsPerPallet } from '@/lib/retail-orders';
 import { Truck, Sparkles, CheckCircle2, AlertTriangle, Calendar as CalendarIcon, PackageOpen, ArrowRight, Package, Check, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -71,6 +72,8 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
         const inv = inventory.find((i) => i.id === ri.productId) as any;
         return codesMatch(String(inv?.barcode || ''), raw) ||
           codesMatch(String(inv?.sku || ''), raw) ||
+          codesMatch(String(inv?.caseBarcode || ''), raw) ||
+          codesMatch(String(inv?.palletBarcode || ''), raw) ||
           codesMatch(ri.productName, raw);
       });
       if (idx === -1) {
@@ -82,7 +85,9 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
         if (i !== idx) return ri;
         const inv = inventory.find((x) => x.id === ri.productId) as any;
         const capture = isPlainCode && !(inv?.barcode) ? { capturedBarcode: raw } : {};
-        return { ...ri, quantityReceived: ri.quantityReceived + 1, ...capture };
+        const remaining = Math.max(0, ri.quantityOrdered - ri.quantityReceived);
+        const step = scanUnitsFor(inv || {}, raw, remaining).units;
+        return { ...ri, quantityReceived: ri.quantityReceived + step, ...capture };
       });
     });
   };
@@ -119,7 +124,25 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
     }));
   };
 
+  // A short delivery is the supplier's problem, but only if someone notices it
+  // at the door. Committing silently is how a shop pays for cases it never got.
+  const shortLines = receivedItems.filter(
+    (ri) => ri.quantityReceived + ri.quantityDamaged < ri.quantityOrdered
+  );
+  const overLines = receivedItems.filter(
+    (ri) => ri.quantityReceived + ri.quantityDamaged > ri.quantityOrdered
+  );
+
   const handleConfirmClick = () => {
+    if (shortLines.length > 0 || overLines.length > 0) {
+      const lines = [...shortLines, ...overLines]
+        .map((ri) => `${ri.productName}: ordered ${ri.quantityOrdered}, counted ${ri.quantityReceived}${ri.quantityDamaged ? ` (+${ri.quantityDamaged} damaged)` : ''}`)
+        .join('\n');
+      const ok = window.confirm(
+        `The count doesn't match the purchase order:\n\n${lines}\n\nCommit anyway? Only what you counted goes into stock \u2014 raise the difference with your supplier.`
+      );
+      if (!ok) return;
+    }
     onConfirm(receivedItems);
     onOpenChange(false);
   };
@@ -134,6 +157,27 @@ export const ReceiveStockDialog: React.FC<ReceiveStockDialogProps> = ({
                     <p className="font-black text-lg uppercase tracking-tight text-slate-900 leading-tight">{item.productName}</p>
                     <div className="flex items-center gap-2">
                         <Badge variant="outline" className="bg-muted/50 border-none font-black text-[8px] uppercase h-5 px-2">Ordered: {item.quantityOrdered} Units</Badge>
+                        {(() => {
+                          const counted = item.quantityReceived + item.quantityDamaged;
+                          const gap = counted - item.quantityOrdered;
+                          if (gap === 0) return null;
+                          return (
+                            <Badge variant="outline" className={`border-2 font-black text-[8px] uppercase h-5 px-2 ${gap < 0 ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-sky-200 bg-sky-50 text-sky-800'}`}>
+                              {gap < 0 ? `${Math.abs(gap)} short` : `${gap} extra`}
+                            </Badge>
+                          );
+                        })()}
+                        {(() => {
+                          const inv = inventory.find((x: any) => x.id === item.productId) as any;
+                          const cp = Math.max(0, Math.floor(Number(inv?.casePack) || 0));
+                          if (cp <= 1 || !inv?.caseBarcode) return null;
+                          const per = unitsPerPallet(inv || {});
+                          return (
+                            <Badge variant="outline" className="border-2 border-primary/20 bg-primary/5 font-black text-[8px] uppercase h-5 px-2">
+                              Case = {cp}{per ? ` · pallet = ${per}` : ''} · scan the label
+                            </Badge>
+                          );
+                        })()}
                     </div>
                 </div>
                 
