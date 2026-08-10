@@ -120,7 +120,10 @@ export async function GET(req: NextRequest) {
       priceCents: listingPriceCents(item, 'retail'),
       wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
       wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
-      inStock: available > 0 || item.allowBackorder === true,
+      digital: item.digital === true,
+      // A digital item can never be out of stock — the storefront must not
+      // grey out a course because a stock number nobody maintains hit zero.
+      inStock: item.digital === true || available > 0 || item.allowBackorder === true,
       qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
       lowStock: available > 0 && available <= (item.lowStockThreshold ?? 0),
     },
