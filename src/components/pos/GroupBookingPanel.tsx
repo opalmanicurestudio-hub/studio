@@ -259,6 +259,7 @@ function GuestRow({
       {expanded && (
         <div className="border-t px-4 pb-4 pt-3 space-y-3 bg-muted/5">
           <Input
+            aria-label={`Guest ${index + 1} name (required)`}
             placeholder="Guest name *"
             value={guest.name}
             onChange={(e) => updateAndUnlink({ name: e.target.value })}
@@ -278,6 +279,8 @@ function GuestRow({
           <div className="relative">
             <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <Input
+              aria-label={`Guest ${index + 1} email (optional)`}
+              autoComplete="email"
               placeholder="Email (optional)"
               value={guest.email || ''}
               onChange={(e) => updateAndUnlink({ email: e.target.value })}
@@ -346,6 +349,7 @@ function GuestRow({
             <div className="relative">
               <Cake className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground z-10 pointer-events-none" />
               <Input
+                aria-label={`Guest ${index + 1} birthday (optional)`}
                 value={guest.birthday || ''}
                 onChange={(e) => onChange({ ...guest, birthday: e.target.value })}
                 className="h-10 rounded-xl border-2 text-sm pl-9 w-full"
