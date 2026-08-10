@@ -344,7 +344,13 @@ export default function ProductPage() {
             </div>
             <Button disabled={!product.inStock || paused} onClick={add}
               className="flex-1 h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20">
-              {paused ? 'Shop briefly paused' : product.inStock ? `${(product as any).digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt((price + optionDeltaCents) * qty)}` : 'Sold out'}
+              {paused
+                ? 'Shop briefly paused'
+                : product.inStock
+                ? `${(product as any).preorder?.isPreorder ? 'Pre-order' : (product as any).digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt((price + optionDeltaCents) * qty)}`
+                : (product as any).preorder?.isPreorder
+                ? ((product as any).preorder.reason === 'closed' ? 'Pre-orders closed' : 'Run sold out')
+                : 'Sold out'}
             </Button>
           </div>
 
@@ -356,7 +362,11 @@ export default function ProductPage() {
               )}
             >
               <span className={cn('h-2 w-2 rounded-full', product.inStock ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
-              {(product as any).digital
+              {(product as any).preorder?.isPreorder
+                ? ((product as any).preorder.open
+                    ? `Pre-order${(product as any).preorder.etaAt ? ` \u00b7 ships by ${new Date(`${(product as any).preorder.etaAt}T12:00:00`).toLocaleDateString()}` : ''}`
+                    : (product as any).preorder.reason === 'closed' ? 'Pre-orders closed' : 'This run sold out')
+                : (product as any).digital
                 ? 'Instant access \u2014 nothing ships'
                 : product.inStock
                 ? (product.lowStock ? `Only ${product.qtyAvailable} left` : 'In stock')
@@ -367,7 +377,17 @@ export default function ProductPage() {
           {cfg.showTrust && (
           <div className="grid grid-cols-3 gap-2">
             {[
-              (product as any).digital
+              (product as any).preorder?.isPreorder
+                ? {
+                    icon: Truck,
+                    title: (product as any).preorder.etaAt
+                      ? `Ships by ${new Date(`${(product as any).preorder.etaAt}T12:00:00`).toLocaleDateString()}`
+                      : 'Made to order',
+                    sub: (product as any).preorder.closesAt
+                      ? `Pre-orders close ${new Date(`${(product as any).preorder.closesAt}T12:00:00`).toLocaleDateString()}${(product as any).preorder.remaining !== null ? ` \u00b7 ${(product as any).preorder.remaining} left in this run` : ''}`
+                      : 'Charged today, shipped when it lands \u2014 cancel any time before it ships',
+                  }
+                : (product as any).digital
                 ? { icon: Truck, title: 'Instant access', sub: 'Opens in your library the moment you pay' }
                 : fulfil.offersPickup
                 ? { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' }
