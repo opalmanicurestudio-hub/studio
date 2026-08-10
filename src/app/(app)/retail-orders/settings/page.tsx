@@ -145,7 +145,7 @@ export default function RetailSettingsPage() {
 
   const [drafts, setDrafts] = useState<Record<string, {
     wholesale: string; minQty: string; weight: string; desc: string; img: string; video: string;
-    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string;
+    howToUse: string; specs: string; docs: string; options: string; kit: string; casePack: string; caseBarcode: string; digital: boolean; digitalUrl: string; digitalFilePath: string; digitalFileName: string; digitalAccessDays: string;
   }>>({});
   const [fileBusy, setFileBusy] = useState<string | null>(null);
 
@@ -321,6 +321,7 @@ export default function RetailSettingsPage() {
     kit: (it.kitContents || []).join('\n'),
     digital: it.digital === true,
     digitalUrl: it.digitalUrl || '',
+    digitalAccessDays: it.digitalAccessDays ? String(it.digitalAccessDays) : '',
     digitalFilePath: it.digitalFilePath || '',
     digitalFileName: it.digitalFileName || '',
     casePack: it.casePack ? String(it.casePack) : '',
@@ -370,6 +371,7 @@ export default function RetailSettingsPage() {
         kitContents: d.kit.split('\n').map((p: string) => p.trim()).filter(Boolean).slice(0, 40),
         digital: d.digital === true,
         digitalUrl: d.digital === true ? (d.digitalUrl.trim() || null) : null,
+        digitalAccessDays: d.digital === true ? (Math.max(0, Math.floor(Number(d.digitalAccessDays) || 0)) || null) : null,
         digitalFilePath: d.digital === true ? (d.digitalFilePath || null) : null,
         digitalFileName: d.digital === true ? (d.digitalFileName || null) : null,
         casePack: Math.max(0, Math.floor(Number(d.casePack) || 0)) || null,
@@ -1447,8 +1449,12 @@ export default function RetailSettingsPage() {
                               value={d.digitalUrl}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalUrl: e.target.value } })}
                               className="h-10 rounded-xl border-2 font-bold text-xs" />
+                            <Input placeholder="Access days (blank = theirs to keep)" inputMode="numeric" aria-label="Days of access after purchase"
+                              value={d.digitalAccessDays}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDrafts({ ...drafts, [it.id]: { ...d, digitalAccessDays: e.target.value } })}
+                              className="h-10 rounded-xl border-2 font-bold text-xs" />
                             <p className="text-[10px] font-bold text-muted-foreground">
-                              Uploaded files open inside the app, watermarked with the buyer&apos;s name \u2014 never a public URL.
+                              Uploaded files open inside the app, watermarked with the buyer&apos;s name \u2014 never a public URL. Leave access days blank for lifetime access; a window only limits NEW sales, never someone who already bought.
                             </p>
                           </div>
                         )}
