@@ -173,28 +173,28 @@ export default function WholesaleAccountsPage() {
         {addOpen && (
           <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white">
             <CardContent className="p-6 space-y-3">
-              <Input placeholder="Business name" value={bizName}
+              <Input placeholder="Business name" aria-label="Business name" autoComplete="organization" value={bizName}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBizName(e.target.value)}
                 className="h-12 rounded-xl border-2 font-bold text-sm" />
               <div className="grid grid-cols-2 gap-2">
-                <Input placeholder="Contact name" value={contact}
+                <Input placeholder="Contact name" aria-label="Contact name" autoComplete="name" value={contact}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setContact(e.target.value)}
                   className="h-12 rounded-xl border-2 font-bold text-sm" />
-                <Input placeholder="Email" type="email" value={email}
+                <Input placeholder="Email" aria-label="Wholesale account email" autoComplete="email" type="email" value={email}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                   className="h-12 rounded-xl border-2 font-bold text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Extra discount % (0–50)</Label>
-                  <Input inputMode="numeric" placeholder="0" value={discount}
+                  <Input inputMode="numeric" placeholder="0" aria-label="Extra discount percent, 0 to 50" value={discount}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDiscount(e.target.value)}
                     className="h-12 rounded-xl border-2 font-black font-mono text-sm" />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Access code</Label>
                   <div className="flex gap-1.5">
-                    <Input readOnly value={newCode} className="h-12 rounded-xl border-2 font-black font-mono text-xs" />
+                    <Input readOnly aria-label="Access code for this account" value={newCode} className="h-12 rounded-xl border-2 font-black font-mono text-xs" />
                     <Button variant="outline" size="icon" className="h-12 w-12 rounded-xl border-2 shrink-0"
                       onClick={() => setNewCode(generateAccessCode())}>
                       <RefreshCw className="h-4 w-4" />
@@ -246,6 +246,7 @@ export default function WholesaleAccountsPage() {
                   <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Extra %</span>
                   <Input
                     key={`${a.id}-${a.extraDiscountPercent}`}
+                    aria-label={`Extra discount percent for ${a.businessName || 'this account'}`}
                     defaultValue={String(a.extraDiscountPercent || 0)}
                     inputMode="numeric"
                     onBlur={(e: React.FocusEvent<HTMLInputElement>) => {
