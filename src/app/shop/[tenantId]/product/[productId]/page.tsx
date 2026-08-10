@@ -344,7 +344,7 @@ export default function ProductPage() {
             </div>
             <Button disabled={!product.inStock || paused} onClick={add}
               className="flex-1 h-14 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-primary/20">
-              {paused ? 'Shop briefly paused' : product.inStock ? `Add to cart · ${fmt((price + optionDeltaCents) * qty)}` : 'Sold out'}
+              {paused ? 'Shop briefly paused' : product.inStock ? `${(product as any).digital ? 'Buy now' : 'Add to cart'} \u00b7 ${fmt((price + optionDeltaCents) * qty)}` : 'Sold out'}
             </Button>
           </div>
 
@@ -356,7 +356,9 @@ export default function ProductPage() {
               )}
             >
               <span className={cn('h-2 w-2 rounded-full', product.inStock ? 'bg-emerald-600' : 'bg-muted-foreground/40')} aria-hidden="true" />
-              {product.inStock
+              {(product as any).digital
+                ? 'Instant access \u2014 nothing ships'
+                : product.inStock
                 ? (product.lowStock ? `Only ${product.qtyAvailable} left` : 'In stock')
                 : 'Sold out'}
             </span>
@@ -365,10 +367,14 @@ export default function ProductPage() {
           {cfg.showTrust && (
           <div className="grid grid-cols-3 gap-2">
             {[
-              fulfil.offersPickup
+              (product as any).digital
+                ? { icon: Truck, title: 'Instant access', sub: 'Opens in your library the moment you pay' }
+                : fulfil.offersPickup
                 ? { icon: Truck, title: 'Fast local pickup', sub: 'Ready same day when in stock' }
                 : { icon: Truck, title: 'Ships to you', sub: 'Live carrier rates at checkout' },
-              { icon: RotateCcw, title: 'Easy returns', sub: 'Start one from your order page' },
+              (product as any).digital
+                ? { icon: RotateCcw, title: 'Yours to keep', sub: 'Personal use \u2014 please don\u2019t reshare' }
+                : { icon: RotateCcw, title: 'Easy returns', sub: 'Start one from your order page' },
               { icon: ShieldCheck, title: 'Secure checkout', sub: 'Card details never touch us' },
             ].map((t) => (
               <div key={t.title} className="rounded-2xl border-2 bg-white p-3 text-center">
