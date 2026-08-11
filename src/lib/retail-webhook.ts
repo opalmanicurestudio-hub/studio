@@ -1,1338 +1,678 @@
 /**
- * retail-orders.ts  (v2 — bridged to the existing inventory system)
+ * retail-webhook.ts
  * ─────────────────────────────────────────────────────────────────────────────
- * Single source of truth for the ClarityFlow retail ordering engine.
+ * Handles the 'retail_order' branch of checkout.session.completed for the
+ * EXISTING /api/stripe/connect-webhook route. Lives as its own module so the
+ * webhook file only needs a 4-line insertion (see bottom of this file).
  *
- * Everything here is PURE — no Firestore, no React, no side effects — so it is
- * safe to import from API routes, server components, and 'use client' files.
+ * Responsibilities (all idempotent — safe on Stripe event retries):
+ *   1. placed → paid transition inside a Firestore transaction
+ *   2. Reserve stock per line (stockReserved += qty on each inventory item)
+ *   3. Generate the HMAC-signed pickup QR token
+ *   4. Match-or-create the client by email (mirrors the deposit flow)
+ *   5. Post the sale to the ledger SPLIT BY BUCKET — merchandise + shipping
+ *      as 'revenue' (with checkoutSessionId so the existing charge.succeeded
+ *      handler backfills the exact Stripe fee onto exactly that one entry),
+ *      collected sales tax as 'tax_collected' (a liability held for the
+ *      state, never income), and the tip as 'gratuity'. One fused number
+ *      would overstate revenue by the tax and the tip — money that was never
+ *      the shop's to keep.
+ *   6. Append payment_confirmed + stock_reserved audit events
  *
- * The retail catalog is NOT a new collection. Storefront listings are the
- * existing `tenants/{tenantId}/inventory` items with `type: 'retail'`.
- * The engine adds only OPTIONAL fields to those docs (backward compatible)
- * and writes to the ledgers that already exist:
- *
- *   tenants/{tenantId}/inventory/{itemId}          (+ stockReserved, showOnline, …)
- *   tenants/{tenantId}/stockCorrections            (existing stock ledger)
- *   tenants/{tenantId}/transactions                (existing money ledger)
- *   tenants/{tenantId}/retailOrders/{orderId}                    (new)
- *   tenants/{tenantId}/retailOrders/{orderId}/events/{eventId}   (new, append-only)
- *   tenants/{tenantId}/fulfillmentBatches/{batchId}              (new)
- *   tenants/{tenantId}/retailReturns/{returnId}                  (new)
+ * NOTE on oversell races: if two orders paid for the last unit simultaneously,
+ * we still reserve in full here (stockReserved may exceed totalStock). The
+ * shelf is the source of truth — the picker resolves it via the shortLine
+ * partial-fulfillment flow. Payment confirmation is never blocked on stock.
  */
 
-/* ════════════════════════════════════════════════════════════════════════════
- * STAGES & TRANSITIONS
- * ════════════════════════════════════════════════════════════════════════════ */
+import { createHmac, timingSafeEqual } from 'crypto';
 
-export const ORDER_STAGES = [
-  'placed',      // checkout created, awaiting payment confirmation
-  'paid',        // Stripe webhook confirmed; stock reserved; in queue
-  'picking',     // claimed in a batch; items being scanned
-  'packed',      // every line fully scanned or explicitly shorted
-  'ready',       // pickup orders: on the ready shelf / label printed for ship
-  'arrived',     // curbside only: customer checked in "I'm here"
-  'shipped',     // ship orders: carrier label scanned onto box
-  'handed_off',  // pickup: customer QR scanned at counter/car
-  'completed',   // terminal success
-  'cancelled',   // terminal: refunded, reservations released
-  'refunded',    // terminal: post-completion full refund (via return flow)
-] as const;
+import { buildEvent, buildOrderQrValue } from '@/lib/retail-orders';
+import { buildEntry } from '@/lib/stock-ledger';
+import { getEmailBrand, brandedEmail, emailButton } from '@/lib/email-shell';
 
-export type OrderStage = (typeof ORDER_STAGES)[number];
+/* ── QR token (HMAC-signed; raw ids are never scannable) ─────────────────── */
 
-export const FULFILLMENT_METHODS = ['counter', 'curbside', 'in_store', 'ship'] as const;
-export type FulfillmentMethod = (typeof FULFILLMENT_METHODS)[number];
-
-/**
- * Pricing tiers. 'retail' is the public storefront price (msrp).
- * 'wholesale' is for B2B buyers (other businesses, students, pros) who unlock the
- * shop with the tenant's wholesale access code; prices come from
- * wholesalePriceDollars with msrp as the fallback.
- */
-export const PRICE_TIERS = ['retail', 'wholesale'] as const;
-export type PriceTier = (typeof PRICE_TIERS)[number];
-
-/**
- * Legal stage transitions. Any transition not listed here is rejected.
- * Method-specific branches (curbside vs ship) are enforced in canAdvance().
- */
-export const LEGAL_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
-  placed:     ['paid', 'cancelled'],
-  paid:       ['picking', 'cancelled'],
-  picking:    ['packed', 'paid', 'cancelled'],          // 'paid' = batch released back to queue
-  packed:     ['ready', 'cancelled'],                   // cancel after packed requires restock scan
-  ready:      ['arrived', 'shipped', 'handed_off', 'cancelled'],
-  arrived:    ['handed_off'],
-  shipped:    ['completed'],
-  handed_off: ['completed'],
-  completed:  ['refunded'],
-  cancelled:  [],
-  refunded:   [],
-};
-
-export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled', 'refunded'];
-
-/* ════════════════════════════════════════════════════════════════════════════
- * INVENTORY BRIDGE  (existing tenants/{tid}/inventory items, type 'retail')
- * ════════════════════════════════════════════════════════════════════════════ */
-
-/** Shape of a batch on an existing InventoryItem (FIFO by receivedDate). */
-export interface InventoryBatchRef {
-  id: string;
-  stock: number;
-  costPerUnit: number;
-  receivedDate: string;
-  expiryDate?: string;
+function qrSecret(): string {
+  return process.env.RETAIL_QR_SECRET || process.env.STRIPE_SECRET_KEY || 'dev-secret';
 }
 
-/**
- * OPTIONAL fields the retail engine reads/writes on existing InventoryItem
- * docs. All optional — no migration needed; absent means the default noted.
- */
-export interface RetailInventoryFields {
-  stockReserved?: number;      // held by paid, unfulfilled online orders (default 0)
-  showOnline?: boolean;        // listed on the public storefront (default false)
-  barcode?: string;            // physical UPC/Code-128; falls back to sku
-  casePack?: number;           // units per sealed wholesale case (>1 enables case scanning)
-  caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
-  digital?: boolean;           // nothing physical ships — delivered by link on payment
-  digitalUrl?: string;         // the delivery destination (course, PDF, download page)
-  digitalFilePath?: string;    // private storage path (never a public URL)
-  digitalFileName?: string;    // what the buyer sees it called
-  digitalAccessDays?: number;  // 0/absent = access for good; N = N days from purchase
-  onlineDescription?: string;  // storefront copy (name/msrp come from the item)
-  imageUrls?: string[];
-  lowStockThreshold?: number;
-  allowBackorder?: boolean;    // default false
-  preorder?: boolean;          // sellable before stock exists, with a promised date
-  preorderEtaAt?: string;      // ISO date the shop promises to ship by
-  preorderClosesAt?: string;   // last day to join the run (cutoff); absent = open-ended
-  preorderLimit?: number;      // how many the run can take at all; 0/absent = uncapped
-  preorderSold?: number;       // taken so far — incremented atomically at checkout
-  wholesalePriceDollars?: number; // B2B price; falls back to msrp when absent
-  wholesaleMinQty?: number;       // per-item minimum units for wholesale orders
-  howToUse?: string;              // usage/instructions shown on the product page
-  specs?: ProductSpec[];          // label/value spec rows
-  documents?: ProductDocument[];  // MSDS/SDS, guides, certificates — any linked file
+export function makeQrToken(orderId: string): string {
+  const sig = createHmac('sha256', qrSecret()).update(orderId).digest('hex').slice(0, 24);
+  return `${orderId}.${sig}`;
 }
 
-export interface ProductSpec { label: string; value: string; }
-export interface ProductDocument { name: string; url: string; }
-
-/** The slice of InventoryItem the engine needs (structural — no import cycle). */
-export type SellableItem = RetailInventoryFields & {
-  id: string;
-  name: string;
-  type: string;                // engine only sells 'retail'
-  category?: string;
-  sku?: string;
-  msrp?: number;               // retail price in DOLLARS (existing convention)
-  costPerUnit?: number;
-  unit?: string;
-  totalStock: number;
-  status?: string;             // 'archived' hides everywhere
-  batches?: InventoryBatchRef[];
-};
-
-/** Units a new order may sell right now. */
-/** Units allotted out to stations/providers — not sellable online. */
-export function allocatedUnits(item: any): number {
-  const a = (item as any)?.allocations;
-  if (!a || typeof a !== 'object') return 0;
-  return Object.values(a).reduce((s: number, x: any) => s + (Number(x?.qty) || 0), 0);
+/** Returns the orderId if the token is authentic, null otherwise. */
+export function verifyQrToken(token: string): string | null {
+  const dot = token.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const orderId = token.slice(0, dot);
+  const given = token.slice(dot + 1);
+  const expected = createHmac('sha256', qrSecret()).update(orderId).digest('hex').slice(0, 24);
+  if (given.length !== expected.length) return null;
+  return timingSafeEqual(Buffer.from(given), Buffer.from(expected)) ? orderId : null;
 }
 
-export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockReserved'>): number {
-  const allocated = allocatedUnits(item);
-  return item.totalStock - (item.stockReserved ?? 0) - allocated;
-}
+/* ── The webhook branch ──────────────────────────────────────────────────── */
 
-export function isStorefrontVisible(item: SellableItem): boolean {
-  return (
-    item.type === 'retail' &&
-    item.status !== 'archived' &&
-    item.showOnline === true &&
-    (item.msrp ?? 0) > 0
+export async function handleRetailOrderPaid(
+  db: any,               // admin Firestore from getAdminDb()
+  stripe: any,           // the stripe2 instance already in scope
+  tenantId: string,
+  connAcct: string,
+  session: any,          // Stripe.Checkout.Session
+  chargeId: string | null // already resolved at the top of the case block
+): Promise<void> {
+  const orderId = session.metadata?.retailOrderId;
+  if (!orderId) {
+    console.warn('[connect-webhook] retail_order session missing retailOrderId');
+    return;
+  }
+
+  const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists) {
+    console.warn(`[connect-webhook] retail order ${orderId} not found for tenant ${tenantId}`);
+    return;
+  }
+  let order = orderSnap.data();
+
+  // Idempotency — Stripe retries events; only the first one does work.
+  if (order.stage !== 'placed') return;
+
+  // In stripe-tax mode the draft was written with taxCents 0 — Stripe only
+  // learns the jurisdiction when the customer types an address — so the tax
+  // exists nowhere but on the session until this handler writes it back.
+  const clampCents = (v: any) => Math.max(0, Math.round(Number(v) || 0));
+  const stripeTaxMode = order.taxMode === 'stripe';
+  const sessionTaxCents = clampCents(session?.total_details?.amount_tax);
+  const sessionTotalCents = session?.amount_total != null ? clampCents(session.amount_total) : null;
+
+  // Sanity: what Stripe collected should match what we quoted at checkout.
+  // In stripe-tax mode the quote deliberately excluded tax, so the honest
+  // comparison adds Stripe's own tax figure back before crying mismatch —
+  // and a store-credit discount LOWERS the collected amount on purpose, so
+  // the expectation subtracts it too, or every credit order would cry wolf.
+  const expectedTotal = (Number(order.totalCents) || 0)
+    + (stripeTaxMode ? sessionTaxCents : 0)
+    - Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
+  if (sessionTotalCents != null && sessionTotalCents !== expectedTotal) {
+    console.warn(
+      `[connect-webhook] retail order ${orderId} amount mismatch: ` +
+      `session ${sessionTotalCents} vs expected ${expectedTotal} — proceeding, flagging in events`
+    );
+  }
+
+  const piId = typeof session.payment_intent === 'string'
+    ? session.payment_intent
+    : session.payment_intent?.id || null;
+
+  // ── Match-or-create the client by email (mirrors the deposit flow) ──────
+  const email = String(order.customerEmail || '').toLowerCase().trim();
+  let clientId: string | null = null;
+  if (email) {
+    const match = await db.collection(`tenants/${tenantId}/clients`)
+      .where('email', '==', email).limit(1).get();
+    if (!match.empty) {
+      clientId = match.docs[0].id;
+    } else {
+      const newClientRef = db.collection(`tenants/${tenantId}/clients`).doc();
+      clientId = newClientRef.id;
+      await newClientRef.set({
+        id: clientId,
+        name: order.customerName || 'Guest',
+        email,
+        phone: order.customerPhone || '',
+        avatarUrl: `https://picsum.photos/seed/${clientId}/100`,
+        lifetimeValue: 0,
+        status: 'active',
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  const qrToken = makeQrToken(orderId);
+  const now = new Date().toISOString();
+
+  // ── draft → paid: mint the number, reserve stock, all atomically ─────────
+  // The order number is issued HERE and nowhere else. Checkout creates a draft
+  // with orderNumber null; money landing is what turns it into a sale. Because
+  // the mint lives inside the same transaction that flips the stage, a webhook
+  // retry finds stage !== 'placed' and returns before touching the counter —
+  // so a redelivered event can never burn a second number, and the sequence
+  // stays gapless and in payment order.
+  const counterRef = db.collection(`tenants/${tenantId}/counters`).doc('retailOrders');
+  let assignedNumber: number | null = null;
+
+  await db.runTransaction(async (txn: any) => {
+    const freshSnap = await txn.get(orderRef);
+    if (!freshSnap.exists || freshSnap.data().stage !== 'placed') return;
+    const fresh = freshSnap.data();
+
+    const itemRefs = (fresh.lines || []).map((l: any) =>
+      db.collection(`tenants/${tenantId}/inventory`).doc(l.productId)
+    );
+    // Every read must precede every write in a Firestore transaction, so the
+    // counter is read alongside the inventory docs rather than after them.
+    const [counterSnap, itemSnaps] = await Promise.all([
+      txn.get(counterRef),
+      Promise.all(itemRefs.map((r: any) => txn.get(r))),
+    ]);
+
+    // A legacy order that already carries a number keeps it — this route has
+    // to stay safe for anything created before drafts existed.
+    assignedNumber = typeof fresh.orderNumber === 'number' && fresh.orderNumber > 0
+      ? fresh.orderNumber
+      : ((counterSnap.exists ? counterSnap.data().value : 0) || 0) + 1;
+    txn.set(counterRef, { value: assignedNumber }, { merge: true });
+
+    itemSnaps.forEach((snap: any, i: number) => {
+      if (!snap.exists) {
+        console.warn(`[connect-webhook] inventory item ${fresh.lines[i].productId} missing — reservation skipped`);
+        return;
+      }
+      const current = snap.data().stockReserved ?? 0;
+      if (fresh.lines[i].digital === true) return;
+      // Pre-orders consume RUN SLOTS, not shelf stock (reserving stock that
+      // doesn't exist yet would understate what everyone else can buy). The
+      // slot is claimed HERE, inside the paid transaction, so two people
+      // paying at once can't both take the last one.
+      if (fresh.lines[i].preorder === true) {
+        const d = snap.data() as any;
+        const sold = Math.max(0, Math.floor(Number(d.preorderSold) || 0));
+        txn.update(itemRefs[i], { preorderSold: sold + fresh.lines[i].qtyOrdered });
+        return;
+      }
+      txn.update(itemRefs[i], { stockReserved: current + fresh.lines[i].qtyOrdered });
+      // A hold that is never released hides stock from everyone forever, with
+      // no symptom but a count that looks wrong. Recording both halves — the
+      // hold here, the release at fulfilment — makes a leak findable.
+      txn.set(orderRef.firestore.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
+        productId: fresh.lines[i].productId,
+        type: 'reserved',
+        field: 'stockReserved',
+        delta: fresh.lines[i].qtyOrdered,
+        unit: (snap.data() as any).unit || 'units',
+        reason: `Held for online order #${assignedNumber}`,
+        actorId: 'system',
+        actorName: 'Checkout',
+        ref: { kind: 'order', id: orderId },
+        balanceAfter: current + fresh.lines[i].qtyOrdered,
+      }));
+    });
+
+    txn.update(orderRef, {
+      orderNumber: assignedNumber,
+      isDraft: false,
+      // The customer's order page, the receipt email and every refund
+      // calculation read these off the order — so the moment tax becomes
+      // known it becomes part of the order, atomically with 'paid'.
+      ...(fresh.taxMode === 'stripe' ? {
+        taxCents: sessionTaxCents,
+        ...(sessionTotalCents != null ? { totalCents: sessionTotalCents } : {}),
+      } : {}),
+      stage: 'paid',
+      paidAt: now,
+      qrToken,
+      clientId: clientId || fresh.clientId || null,
+      stripePaymentIntentId: piId,
+      stripeCheckoutSessionId: session.id,
+    });
+  });
+
+  // Re-read to confirm the transition actually happened (a racing retry may
+  // have won); if we didn't flip it, skip the side effects too.
+  const confirmed = await orderRef.get();
+  if (confirmed.data()?.qrToken !== qrToken) return;
+
+  // Everything below (income transaction description, confirmation email) read
+  // the PRE-transaction snapshot, whose orderNumber is still null on a draft.
+  // Re-point them at the freshly numbered document.
+  order = { ...order, ...(confirmed.data() || {}) };
+
+  // ── DIGITAL-ONLY: nothing to pick, pack, or post. The receipt below IS the
+  // delivery, so the order is finished the moment money lands — it must never
+  // appear on the board as work nobody can do. Physical orders and mixed carts
+  // are untouched: a mixed cart still has a parcel to fulfil.
+  if ((order as any).digitalOnly === true && order.stage === 'paid') {
+    try {
+      const nowIso = new Date().toISOString();
+      const dBatch = db.batch();
+      dBatch.set(orderRef, { stage: 'completed', completedAt: nowIso }, { merge: true });
+      const evD = orderRef.collection('events').doc();
+      dBatch.set(evD, {
+        id: evD.id, type: 'note', at: nowIso, actorId: 'system', actorName: 'Digital delivery',
+        meta: { text: 'Digital order \u2014 delivered by email on payment, nothing to fulfil' },
+      });
+      await dBatch.commit();
+      order = { ...order, stage: 'completed', completedAt: nowIso };
+    } catch (e: any) {
+      console.error('[retail-webhook] digital auto-complete failed (order is paid):', e?.message);
+    }
+  }
+
+  // ── Store credit consumption. The checkout gave the discount UP FRONT on
+  // the Stripe page; the credits burn only now, when money actually moved.
+  // FIFO oldest-first, partial docs tracked via usedCents. A racing second
+  // checkout can leave a shortfall — consumed < requested — which is
+  // RECORDED on the order and flagged as an event instead of silently
+  // eaten; a person settles the rare race, the books never lie.
+  const requestedCredit = Math.max(0, Number((order as any).storeCreditRequestedCents) || 0);
+  if (requestedCredit > 0) {
+    try {
+      const credSnap = await db.collection(`tenants/${tenantId}/depositCredits`)
+        .where('clientEmail', '==', String(order.customerEmail || '').toLowerCase().trim())
+        .where('status', '==', 'available')
+        .limit(25).get();
+      const docs = credSnap.docs
+        .map((d: any) => ({ ref: d.ref, ...(d.data() || {}) }))
+        .sort((a: any, b: any) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+      let remaining = requestedCredit;
+      const consumeBatch = db.batch();
+      for (const c of docs) {
+        if (remaining <= 0) break;
+        const avail = Math.max(0, (Number(c.amountCents) || 0) - (Number(c.usedCents) || 0));
+        if (avail <= 0) continue;
+        const take = Math.min(avail, remaining);
+        remaining -= take;
+        consumeBatch.set(c.ref, {
+          usedCents: (Number(c.usedCents) || 0) + take,
+          status: take >= avail ? 'used' : 'available',
+          lastUsedAt: new Date().toISOString(),
+          lastUsedOnRetailOrderId: orderId,
+        }, { merge: true });
+      }
+      const consumed = requestedCredit - remaining;
+      const evRef2 = orderRef.collection('events').doc();
+      consumeBatch.set(evRef2, {
+        id: evRef2.id, type: 'note', at: new Date().toISOString(),
+        actorId: 'system', actorName: 'Store credit',
+        meta: { text: remaining > 0
+          ? `Store credit: $${(consumed / 100).toFixed(2)} of the $${(requestedCredit / 100).toFixed(2)} discount was still available \u2014 $${(remaining / 100).toFixed(2)} shortfall needs a look`
+          : `Store credit applied \u2014 $${(consumed / 100).toFixed(2)} redeemed` },
+      });
+      if (remaining > 0) {
+        consumeBatch.set(orderRef, { creditShortfallCents: remaining }, { merge: true });
+      }
+      await consumeBatch.commit();
+    } catch (e: any) {
+      console.error('[retail-webhook] store-credit consumption failed:', e?.message);
+    }
+  }
+
+  // ── Audit events + income transaction (batched) ─────────────────────────
+  const batch = db.batch();
+  const eventsCol = orderRef.collection('events');
+
+  const evPaid = eventsCol.doc();
+  batch.set(evPaid, {
+    id: evPaid.id,
+    ...buildEvent('payment_confirmed', 'system', 'Stripe', {
+      checkoutSessionId: String(session.id),
+      amountCents: Number(session.amount_total ?? order.totalCents),
+      amountMatched: session.amount_total == null || session.amount_total === order.totalCents,
+    }),
+  });
+
+  const evReserved = eventsCol.doc();
+  batch.set(evReserved, {
+    id: evReserved.id,
+    ...buildEvent('stock_reserved', 'system', 'Retail Engine', {
+      lineCount: (order.lines || []).length,
+      units: (order.lines || []).reduce((a: number, l: any) => a + l.qtyOrdered, 0),
+      qr: buildOrderQrValue(qrToken),
+    }),
+  });
+
+  // ── The ledger split ─────────────────────────────────────────────────────
+  // order is the re-merged post-transaction snapshot, so in stripe-tax mode
+  // taxCents/totalCents here are already the written-back real figures. Every
+  // number is clamped and derived so junk cents on a legacy order degrade to
+  // zero instead of a negative posting.
+  const grossCents = clampCents(order.totalCents);
+  const taxCollectedCents = clampCents(order.taxCents);
+  const tipCollectedCents = clampCents(order.tipCents);
+  const shippingCollectedCents = clampCents(order.shippingCents);
+  const merchandiseCents = Math.max(
+    0, grossCents - taxCollectedCents - tipCollectedCents - shippingCollectedCents
   );
-}
+  const orderLabel = `Order #${String(order.orderNumber).padStart(4, '0')}`;
 
-/** Prices are stored in dollars; the engine works in cents (Stripe-safe). */
-export function listingPriceCents(
-  item: Pick<SellableItem, 'msrp' | 'wholesalePriceDollars'>,
-  tier: PriceTier = 'retail'
-): number {
-  const dollars = tier === 'wholesale'
-    ? item.wholesalePriceDollars ?? item.msrp ?? 0
-    : item.msrp ?? 0;
-  return Math.round(dollars * 100);
-}
-
-/** Wholesale orders must meet each item's minimum quantity, when one is set. */
-export function checkWholesaleMinimums(
-  entries: { item: SellableItem; qty: number }[]
-): GuardResult {
-  const failing = entries.filter(
-    (e) => (e.item.wholesaleMinQty ?? 0) > 0 && e.qty < (e.item.wholesaleMinQty as number)
-  );
-  if (failing.length > 0) {
-    return {
-      ok: false,
-      reason: failing
-        .map((e) => `${e.item.name}: minimum ${e.item.wholesaleMinQty} for wholesale`)
-        .join('; '),
-    };
-  }
-  return { ok: true };
-}
-
-export function isLowStock(item: SellableItem): boolean {
-  return sellableStock(item) <= (item.lowStockThreshold ?? 0);
-}
-
-/**
- * FIFO batch depletion — mirrors the manual Log Sale logic exactly (sort by
- * receivedDate ascending, drain oldest first) so online and in-person sales
- * consume stock identically. Pure: returns new arrays, never mutates input.
- */
-export function depleteBatchesFIFO(
-  batches: InventoryBatchRef[] | undefined,
-  qty: number
-): { batches: InventoryBatchRef[]; depleted: number; shortfall: number; cogsCents: number } {
-  const sorted = [...(batches ?? [])]
-    .map((b) => ({ ...b }))
-    .sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
-
-  let remaining = qty;
-  let cogsCents = 0;
-  for (const batch of sorted) {
-    if (remaining <= 0) break;
-    const take = Math.min(batch.stock, remaining);
-    batch.stock -= take;
-    remaining -= take;
-    cogsCents += Math.round(take * (batch.costPerUnit ?? 0) * 100);
-  }
-
-  return { batches: sorted, depleted: qty - remaining, shortfall: remaining, cogsCents };
-}
-
-/* ── Stock ledger (existing stockCorrections collection) ──────────────────── */
-
-export const INVENTORY_MOVEMENT_TYPES = [
-  'reserve',          // paid order holds stock            (stockReserved +qty)
-  'release',          // cancellation frees a hold         (stockReserved -qty)
-  'sale',             // handoff/ship converts the hold    (totalStock -qty, stockReserved -qty)
-  'short_adjustment', // picker found less on shelf        (totalStock corrected down)
-  'restock',          // cancelled-packed items scanned back (totalStock +qty)
-  'return_restock',   // sellable return scanned back      (totalStock +qty)
-  'write_off',        // damaged/defective, NOT sellable   (totalStock -qty)
-] as const;
-
-export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
-
-/**
- * Deltas a Firestore transaction must apply to the inventory doc for a given
- * movement. Keeps the math in exactly one place. NOTE: 'sale', 'restock',
- * 'return_restock', and 'write_off' must ALSO rewrite `batches` — use
- * depleteBatchesFIFO for sales; restocks append/refill a batch.
- */
-export function movementDeltas(
-  type: InventoryMovementType,
-  qty: number
-): { totalStock: number; stockReserved: number } {
-  switch (type) {
-    case 'reserve':           return { totalStock: 0,    stockReserved: qty };
-    case 'release':           return { totalStock: 0,    stockReserved: -qty };
-    case 'sale':              return { totalStock: -qty, stockReserved: -qty };
-    case 'short_adjustment':  return { totalStock: -qty, stockReserved: 0 };
-    case 'restock':           return { totalStock: qty,  stockReserved: 0 };
-    case 'return_restock':    return { totalStock: qty,  stockReserved: 0 };
-    case 'write_off':         return { totalStock: -qty, stockReserved: 0 };
-  }
-}
-
-/**
- * Entry for the EXISTING tenants/{tid}/stockCorrections collection. Core
- * fields match what the inventory page already writes; the extras are
- * additive so existing reports keep working untouched.
- */
-export interface StockCorrectionEntry {
-  productId: string;
-  date: string;
-  change: number;              // signed, existing convention (+receive / -deplete)
-  unit: string;
-  reason: string;
-  orderId?: string;
-  returnId?: string;
-  actorId?: string;
-  actorName?: string;
-  source?: 'retail_engine';
-}
-
-export function buildStockCorrection(
-  item: Pick<SellableItem, 'id' | 'unit'>,
-  type: InventoryMovementType,
-  qty: number,
-  reason: string,
-  refs?: Pick<StockCorrectionEntry, 'orderId' | 'returnId' | 'actorId' | 'actorName'>
-): StockCorrectionEntry {
-  const { totalStock } = movementDeltas(type, qty);
-  return {
-    productId: item.id,
-    date: new Date().toISOString(),
-    change: totalStock,          // reservations don't touch shelf count → change 0
-    unit: item.unit ?? 'units',
-    reason,
-    source: 'retail_engine',
-    ...refs,
-  };
-}
-
-/* ── Money ledger (existing transactions collection) ──────────────────────── */
-
-/** Matches the transaction docs the inventory page already writes (dollars). */
-export interface FinancialTransactionEntry {
-  date: string;
-  description: string;
-  clientOrVendor: string;
-  type: 'income' | 'expense';
-  context: 'Business';
-  category: 'Retail' | 'Spoilage' | 'Refund';
-  amount: number;              // DOLLARS, existing convention
-  paymentMethod: string;
-  hasReceipt: boolean;
-  receiptUrl?: string;
-  relatedOrderId?: string;
-  notes?: string;
-}
-
-export function buildRetailSaleTransaction(
-  order: Pick<RetailOrder, 'id' | 'orderNumber' | 'customerName' | 'totalCents'>
-): FinancialTransactionEntry {
-  return {
-    date: new Date().toISOString(),
-    description: `Online Retail Sale: Order #${order.orderNumber}`,
-    clientOrVendor: order.customerName,
+  // Merchandise + shipping = the shop's actual revenue. This entry alone
+  // carries checkoutSessionId, so the charge.succeeded fee backfill still
+  // finds exactly one 'revenue' transaction to stamp the Stripe fee onto.
+  const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+  batch.set(txnRef, {
+    id: txnRef.id,
+    date: now,
+    description: `${order.priceTier === 'wholesale' ? 'Wholesale Sale' : 'Online Retail Sale'} — ${orderLabel}${order.poNumber ? ` (PO ${order.poNumber})` : ''}`,
+    clientOrVendor: order.customerName || 'Guest',
+    clientId: clientId || null,
     type: 'income',
     context: 'Business',
     category: 'Retail',
-    amount: order.totalCents / 100,
-    paymentMethod: 'Card (Online)',
-    hasReceipt: true,
-    relatedOrderId: order.id,
-  };
-}
+    taxBucket: 'revenue',
+    amount: (merchandiseCents + shippingCollectedCents) / 100,
+    grossOrderTotal: grossCents / 100,
+    merchandiseSubtotal: merchandiseCents / 100,
+    shippingCollected: shippingCollectedCents / 100,
+    paymentMethod: 'Online Checkout',
+    hasReceipt: false,
+    retailOrderId: orderId,
+    checkoutSessionId: session.id,
+    stripeChargeId: chargeId,
+    stripeConnectedAccountId: connAcct,
+    tenantId,
+  });
 
-export function buildRefundTransaction(
-  order: Pick<RetailOrder, 'id' | 'orderNumber' | 'customerName'>,
-  amountCents: number,
-  scope: 'full' | 'partial'
-): FinancialTransactionEntry {
-  return {
-    date: new Date().toISOString(),
-    description: `${scope === 'full' ? 'Refund' : 'Partial refund'}: Order #${order.orderNumber}`,
-    clientOrVendor: order.customerName,
-    type: 'expense',
-    context: 'Business',
-    category: 'Refund',
-    amount: amountCents / 100,
-    paymentMethod: 'Card (Online)',
-    hasReceipt: true,
-    relatedOrderId: order.id,
-  };
-}
-
-/** Damaged/defective return units — mirrors the damaged-on-arrival pattern. */
-export function buildReturnWriteOffTransaction(
-  order: Pick<RetailOrder, 'id' | 'orderNumber'>,
-  itemName: string,
-  qty: number,
-  lossCents: number,
-  receiptUrl?: string
-): FinancialTransactionEntry {
-  return {
-    date: new Date().toISOString(),
-    description: `Return write-off: ${qty} x ${itemName} (Order #${order.orderNumber})`,
-    clientOrVendor: 'Internal',
-    type: 'expense',
-    context: 'Business',
-    category: 'Spoilage',
-    amount: lossCents / 100,
-    paymentMethod: 'Internal',
-    hasReceipt: !!receiptUrl,
-    receiptUrl,
-    relatedOrderId: order.id,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * QR / DEEP-LINK SCHEME  (extends the existing clarityflow:// scheme)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const PRODUCT_QR_PREFIX = 'clarityflow://product/';
-export const ORDER_QR_PREFIX = 'clarityflow://order/';
-
-/** Customer pickup QR value. Token is HMAC-signed server-side, never a raw id. */
-export function buildOrderQrValue(signedToken: string): string {
-  return `${ORDER_QR_PREFIX}${signedToken}`;
-}
-
-export function parseOrderQr(raw: string): string | null {
-  const t = raw.trim();
-  return t.startsWith(ORDER_QR_PREFIX) ? t.slice(ORDER_QR_PREFIX.length) : null;
-}
-
-export function parseProductQr(raw: string): string | null {
-  const t = raw.trim();
-  return t.startsWith(PRODUCT_QR_PREFIX) ? t.slice(PRODUCT_QR_PREFIX.length) : null;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * ORDER LINES
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const LINE_STATUSES = [
-  'pending',    // not yet picked
-  'picked',     // qtyScanned === qtyOrdered
-  'shorted',    // shelf discrepancy; qtyScanned < qtyOrdered, resolved below
-  'refunded',   // shorted quantity refunded to customer
-  'backordered',// shorted quantity split into a child order
-  'returned',   // came back via RMA
-] as const;
-
-export type LineStatus = (typeof LINE_STATUSES)[number];
-
-/* ── Modifiers (options) ──────────────────────────────────────────────────────
- * Per-item option groups: "Size | Small:0, Large:1.50" style. Options never
- * touch stock (same physical item) — they adjust the unit price and label
- * the order line so packing and receipts show exactly what was chosen.
- * The SERVER recomputes every delta from the item doc; client-sent prices
- * are never trusted.
- */
-
-export interface OptionChoice { id: string; label: string; deltaCents: number; }
-export interface OptionGroup { id: string; name: string; choices: OptionChoice[]; }
-
-/** Parse editor lines like "Size | Small:0, Medium:0.50, Large:1" */
-export function parseOptionGroups(text: string): OptionGroup[] {
-  return String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .flatMap((line, gi) => {
-      const [name, rest] = line.split('|');
-      if (!name || !rest) return [];
-      const choices = rest.split(',')
-        .map((c, ci) => {
-          const [label, price] = c.split(':');
-          if (!label || !label.trim()) return null;
-          return {
-            id: `c${gi}-${ci}`,
-            label: label.trim(),
-            deltaCents: Math.round((Number(String(price || '0').trim()) || 0) * 100),
-          };
-        })
-        .filter(Boolean) as OptionChoice[];
-      return choices.length > 0 ? [{ id: `g${gi}`, name: name.trim(), choices }] : [];
-    })
-    .slice(0, 6);
-}
-
-export function optionGroupsToText(groups: OptionGroup[] | undefined): string {
-  return (groups || [])
-    .map((g) => `${g.name} | ${g.choices.map((c) => `${c.label}${c.deltaCents ? `:${(c.deltaCents / 100).toFixed(2)}` : ':0'}`).join(', ')}`)
-    .join('\n');
-}
-
-/** Resolve selections {groupId: choiceId} → { deltaCents, label } from the ITEM's groups. */
-export function resolveOptions(
-  groups: OptionGroup[] | undefined,
-  selections: Record<string, string> | undefined
-): { deltaCents: number; label: string } {
-  if (!groups || groups.length === 0) return { deltaCents: 0, label: '' };
-  let delta = 0;
-  const parts: string[] = [];
-  for (const g of groups) {
-    const choiceId = selections?.[g.id];
-    const choice = g.choices.find((c) => c.id === choiceId) || g.choices[0];
-    if (!choice) continue;
-    delta += choice.deltaCents;
-    parts.push(choice.label);
-  }
-  return { deltaCents: delta, label: parts.join(' \u00b7 ') };
-}
-
-export interface OrderLine {
-  lineId: string;
-  optionsLabel?: string;              // stable per-line id (not array index)
-  productId: string;           // the tenants/{tid}/inventory doc id
-  sku: string;                 // snapshot ('' if the item has none)
-  barcode: string;             // snapshot of barcode ?? sku
-  name: string;                // snapshot at purchase time
-  unitPriceCents: number;      // snapshot of msrp at purchase time, in cents
-  qtyOrdered: number;
-  qtyScanned: number;
-  qtyShorted: number;          // portion resolved as refunded/backordered
-  qtyReturned: number;
-  status: LineStatus;
-  shortReason?: string;
-  casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
-  caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
-  qtyPacked?: number;          // second-scan count at the box (pack verification)
-  digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
-  digitalUrl?: string;         // snapshot of the delivery link at purchase time
-  digitalAccessDays?: number;  // snapshot of the access window SOLD (later policy changes never shorten it)
-  preorder?: boolean;          // bought before stock existed
-  preorderEtaAt?: string;      // the date promised AT PURCHASE — the promise that binds
-}
-
-export type ShortResolution = 'refund' | 'backorder';
-
-/** Build a line from a live inventory item at checkout time. */
-export function buildOrderLine(
-  item: SellableItem,
-  qty: number,
-  lineId: string,
-  tier: PriceTier = 'retail',
-  options?: { deltaCents: number; label: string }
-): OrderLine {
-  return {
-    lineId,
-    productId: item.id,
-    sku: item.sku ?? '',
-    barcode: item.barcode ?? item.sku ?? '',
-    name: item.name,
-    optionsLabel: options?.label || '',
-    unitPriceCents: listingPriceCents(item, tier) + (options?.deltaCents || 0),
-    qtyOrdered: qty,
-    qtyScanned: 0,
-    qtyShorted: 0,
-    qtyReturned: 0,
-    status: 'pending',
-    ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
-    ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
-    ...(item.preorder === true ? {
-      preorder: true,
-      ...(item.preorderEtaAt ? { preorderEtaAt: String(item.preorderEtaAt) } : {}),
-    } : {}),
-    ...(item.digital === true ? {
-      digital: true,
-      ...(item.digitalUrl ? { digitalUrl: String(item.digitalUrl) } : {}),
-      ...(Number(item.digitalAccessDays) > 0 ? { digitalAccessDays: Math.floor(Number(item.digitalAccessDays)) } : {}),
-    } : {}),
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * ORDERS
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export interface ShippingAddress {
-  name: string;
-  line1: string;
-  line2?: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;             // ISO-3166 alpha-2, e.g. 'US'
-  phone?: string;
-}
-
-export interface CurbsideInfo {
-  arrivedAt?: string;
-  spotOrVehicle?: string;      // "Spot 3" / "white Honda CR-V"
-}
-
-export interface RetailOrder {
-  id: string;
-  tipCents?: number;
-  pickupAt?: string;
-  tenantId: string;
-  orderNumber: number;         // human-friendly sequential per tenant (e.g. 1042)
-  stage: OrderStage;
-  method: FulfillmentMethod;
-  priceTier: PriceTier;        // 'retail' | 'wholesale'
-  businessName?: string;       // B2B/wholesale orders
-  wholesaleAccountId?: string; // set when a per-account code was used
-  poNumber?: string;           // buyer's purchase-order reference
-  lines: OrderLine[];
-
-  subtotalCents: number;
-  taxCents: number;
-  shippingCents: number;
-  refundedCents: number;       // running total across partial refunds
-  totalCents: number;
-
-  customerName: string;
-  customerEmail: string;
-  customerPhone?: string;
-  clientId?: string;           // link to existing ClarityFlow client record
-
-  shippingAddress?: ShippingAddress;   // required when method === 'ship'
-  curbside?: CurbsideInfo;
-
-  stripePaymentIntentId?: string;
-  qrToken?: string;            // HMAC-signed pickup token (generated server-side)
-
-  batchId?: string;            // current fulfillment batch claim, if any
-  parentOrderId?: string;      // set on backorder-split children & replacements
-  isReplacement?: boolean;     // $0 replacement order from an RMA
-
-  pendingRefundCents?: number; // shorted-line refunds awaiting execution in Stripe
-  holdUntilRestock?: boolean;  // backorder children parked out of the queue
-  readyAt?: string;
-  trackingNumber?: string;
-  trackingUrl?: string;
-  carrier?: string;
-
-  promiseAt?: string;          // target ready time; drives queue priority (SLA, internal)
-  shipPromiseAt?: string;      // FTC ship-by promise made to the CUSTOMER (distinct from promiseAt)
-  notifiedForPromiseAt?: string; // idempotency guard: the revised date already emailed
-  promiseRevisions?: number;   // how many times the date has moved
-  hasPreorder?: boolean;       // at least one line was sold before stock existed
-  digitalOnly?: boolean;       // nothing on this order needs picking, packing, or postage
-  placedAt: string;
-  paidAt?: string;
-  packedAt?: string;
-  completedAt?: string;
-  cancelledAt?: string;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * AUDIT EVENTS  (append-only subcollection — never update, never delete)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const ORDER_EVENT_TYPES = [
-  'placed',
-  'payment_confirmed',
-  'stock_reserved',
-  'batch_claimed',
-  'batch_released',            // manual release back to queue
-  'batch_auto_released',       // claim timed out
-  'item_scanned',              // meta: { sku, lineId, qtyScanned, qtyOrdered }
-  'scan_mismatch',             // meta: { scannedValue } — code not on order / over-scan
-  'line_shorted',
-  'line_reopened',              // meta: { lineId, qtyShorted, reason, resolution }
-  'pick_complete',
-  'packed',
-  'packing_slip_printed',
-  'label_generated',           // meta: { carrier?, trackingNumber? }
-  'label_scan_verified',       // label barcode scanned onto the correct box
-  'marked_ready',
-  'customer_arrived',          // meta: { spotOrVehicle }
-  'handoff_scanned',           // customer QR verified at counter/car
-  'shipped',
-  'completed',
-  'cancel_requested',
-  'restock_scanned',           // meta: { sku, lineId, qty } — packed-order cancel path
-  'cancelled',
-  'refund_issued',             // meta: { amountCents, stripeRefundId, scope: 'full'|'partial' }
-  'return_opened',             // meta: { returnId }
-  'return_resolved',           // meta: { returnId, resolution }
-  'replacement_created',       // meta: { childOrderId }
-  'backorder_split',           // meta: { childOrderId, lineIds }
-  'override',                  // meta: { rule, reason } — manager PIN bypass; always logged
-  'note',
-] as const;
-
-export type OrderEventType = (typeof ORDER_EVENT_TYPES)[number];
-
-export interface OrderEvent {
-  id: string;
-  type: OrderEventType;
-  at: string;
-  actorId: string;             // staff uid, 'system', or 'customer'
-  actorName: string;
-  meta?: Record<string, string | number | boolean>;
-}
-
-/** Convenience builder so every event is shaped identically. */
-export function buildEvent(
-  type: OrderEventType,
-  actorId: string,
-  actorName: string,
-  meta?: OrderEvent['meta']
-): Omit<OrderEvent, 'id'> {
-  return { type, at: new Date().toISOString(), actorId, actorName, meta };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * FULFILLMENT BATCHES  (the turn system)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const BATCH_CLAIM_TIMEOUT_MIN = 20;
-export const MAX_SHIP_ORDERS_PER_BATCH = 6;
-
-export interface FulfillmentBatch {
-  id: string;
-  tenantId: string;
-  orderIds: string[];
-  phase: 'pick' | 'pack';
-  assignedTo: string;
-  assignedToName: string;
-  claimedAt: string;
-  active?: boolean;            // queryable open-claim flag; false once done/released
-  completedAt?: string;
-  releasedAt?: string;
-  releaseType?: 'manual' | 'auto' | 'completed';
-}
-
-export function claimExpiresAt(claimedAtIso: string): Date {
-  const d = new Date(claimedAtIso);
-  return new Date(d.getTime() + BATCH_CLAIM_TIMEOUT_MIN * 60_000);
-}
-
-export function isClaimStale(batch: FulfillmentBatch, now: Date = new Date()): boolean {
-  if (batch.completedAt || batch.releasedAt) return false;
-  return now > claimExpiresAt(batch.claimedAt);
-}
-
-/**
- * Queue priority: lower number = picked sooner.
- * Curbside/counter ASAP orders beat ship orders; within a tier, promise time
- * then FIFO by paid time.
- */
-/* ════════════════════════════════════════════════════════════════════════════
- * PROMISES — first in, first out, unless something is actually due sooner
- * ════════════════════════════════════════════════════════════════════════════
- * Two fairness rules people can feel:
- *
- *   1. Orders are worked in the order they arrived. Anything else — picking
- *      the small one, the familiar name, the one on top — is how a Tuesday
- *      order ships on Friday.
- *   2. Except when a promise is closer. Somebody who asked for 4pm pickup
- *      beats a shipment placed an hour earlier, because only one of them has
- *      a person standing at a counter.
- *
- * So every order gets a DUE TIME, derived from what it is, and the queue is
- * ordered by that. Age breaks ties, which keeps it FIFO whenever promises
- * are equal — the common case.
- */
-
-export interface FulfilmentPolicy {
-  /** Minutes to get a pickup/curbside order ready. */
-  prepMinutes: number;
-  /** Business hours to get a shipment packed and labelled. */
-  shipHours: number;
-  /** Minutes before a due time that an order starts showing as "due soon". */
-  warnMinutes: number;
-}
-
-export const DEFAULT_POLICY: FulfilmentPolicy = {
-  prepMinutes: 30,
-  shipHours: 24,
-  warnMinutes: 15,
-};
-
-export function fulfilmentPolicy(retailSettings: any): FulfilmentPolicy {
-  const rs = retailSettings || {};
-  return {
-    prepMinutes: Math.max(1, Math.floor(Number(rs.prepMinutes) || DEFAULT_POLICY.prepMinutes)),
-    shipHours: Math.max(1, Math.floor(Number(rs.shipProcessingHours) || DEFAULT_POLICY.shipHours)),
-    warnMinutes: Math.max(1, Math.floor(Number(rs.slaWarnMinutes) || DEFAULT_POLICY.warnMinutes)),
-  };
-}
-
-/** When the customer was told (or reasonably expects) this to be done. */
-export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POLICY): number {
-  const placed = new Date(order.paidAt ?? order.placedAt ?? Date.now()).getTime();
-
-  // An explicit promise always wins — it is what the customer was shown.
-  if (order.promiseAt) {
-    const t = new Date(order.promiseAt).getTime();
-    if (Number.isFinite(t)) return t;
+  // Tax collected is the state's money passing through — 'tax_collected'
+  // keeps it out of revenue so income is never overstated and the quarterly
+  // remittance figure is one filtered column. A tax-exempt wholesale order
+  // carries zero tax and posts nothing here.
+  if (taxCollectedCents > 0) {
+    const taxRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    batch.set(taxRef, {
+      id: taxRef.id,
+      date: now,
+      description: `Sales tax collected — ${orderLabel}`,
+      clientOrVendor: order.customerName || 'Guest',
+      clientId: clientId || null,
+      type: 'income',
+      context: 'Business',
+      category: 'Tax Collected',
+      taxBucket: 'tax_collected',
+      amount: taxCollectedCents / 100,
+      taxMode: order.taxMode || 'flat',
+      paymentMethod: 'Online Checkout',
+      hasReceipt: false,
+      retailOrderId: orderId,
+      stripeConnectedAccountId: connAcct,
+      tenantId,
+    });
   }
 
-  // "Wants it in ~30 min" from the storefront's pickup picker.
-  const wanted = String((order as any).pickupAt || '').trim();
-  const m = wanted.match(/(\d+)\s*min/i);
-  if (m) return placed + Number(m[1]) * 60_000;
-  if (/hour/i.test(wanted)) return placed + 60 * 60_000;
-
-  if (order.method === 'ship') return placed + policy.shipHours * 3_600_000;
-  return placed + policy.prepMinutes * 60_000;
-}
-
-export type SlaState = 'ontime' | 'due' | 'late';
-
-export interface SlaInfo {
-  dueAtMs: number;
-  minutesRemaining: number;   // negative once overdue
-  state: SlaState;
-  label: string;              // "due in 12m" / "18m late" / "1h 5m left"
-  waitedMinutes: number;      // how long since it was paid for
-}
-
-function human(mins: number): string {
-  const a = Math.abs(Math.round(mins));
-  if (a < 60) return `${a}m`;
-  const h = Math.floor(a / 60);
-  const r = a % 60;
-  return r ? `${h}h ${r}m` : `${h}h`;
-}
-
-export function slaFor(
-  order: RetailOrder,
-  policy: FulfilmentPolicy = DEFAULT_POLICY,
-  now: number = Date.now()
-): SlaInfo {
-  const due = dueAt(order, policy);
-  const minutesRemaining = (due - now) / 60_000;
-  const placed = new Date(order.paidAt ?? order.placedAt ?? now).getTime();
-  const state: SlaState =
-    minutesRemaining < 0 ? 'late' : minutesRemaining <= policy.warnMinutes ? 'due' : 'ontime';
-  return {
-    dueAtMs: due,
-    minutesRemaining,
-    state,
-    waitedMinutes: Math.max(0, (now - placed) / 60_000),
-    label:
-      state === 'late' ? `${human(minutesRemaining)} late`
-      : state === 'due' ? `due in ${human(minutesRemaining)}`
-      : `${human(minutesRemaining)} left`,
-  };
-}
-
-/**
- * Queue order. Lower sorts first.
- *
- * Due time is the spine — but a shipment that has been sitting for hours
- * must never be leapfrogged forever by a stream of fresh pickups, so an
- * order that is already LATE is pulled to the front regardless of method.
- * Age breaks every tie, which makes the default behaviour plain FIFO.
- */
-export function queuePriority(
-  order: RetailOrder,
-  policy: FulfilmentPolicy = DEFAULT_POLICY,
-  now: number = Date.now()
-): number {
-  const sla = slaFor(order, policy, now);
-  const placed = new Date(order.paidAt ?? order.placedAt ?? now).getTime();
-
-  // Late work first, oldest of the late ones leading.
-  if (sla.state === 'late') return -1e15 + placed;
-
-  // Otherwise: soonest due, then oldest. The tiny placed-time fraction only
-  // ever breaks an exact tie — it is far smaller than one millisecond of due
-  // time, so it can never reorder genuinely different promises.
-  return sla.dueAtMs + placed / 1e13;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * SCAN ENGINE  (100% accuracy gates)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export type ScanResult =
-  | { ok: true; lineId: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean; caseCounted?: number }
-  | { ok: false; code: 'unknown_sku' | 'over_scan' | 'line_closed'; message: string };
-
-/**
- * Apply one scan during picking. Accepts a physical barcode, a SKU, or a
- * clarityflow://product/{id} label (the scheme the inventory page already
- * prints). Pure: returns the result and the updated lines array; the caller
- * persists inside a transaction and appends the item_scanned or
- * scan_mismatch event.
- */
-/**
- * Canonical forms of a scanned/stored code for tolerant matching:
- *  - trimmed raw and uppercased (SKUs are case-insensitive in the real world)
- *  - digits-only form, with and without leading zeros — phones' native
- *    detectors often report UPC-A (12 digits) as EAN-13 with a leading 0,
- *    so "0123456789012" and "123456789012" must be treated as the same code.
- */
-export function codeVariants(value: string): Set<string> {
-  const out = new Set<string>();
-  const raw = String(value || '').trim();
-  if (!raw) return out;
-  out.add(raw);
-  out.add(raw.toUpperCase());
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length >= 6) {
-    out.add(digits);
-    out.add(digits.replace(/^0+/, ''));
-    if (digits.length === 12) out.add('0' + digits); // UPC-A as EAN-13
-  }
-  return out;
-}
-
-export function codesMatch(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const va = codeVariants(a);
-  for (const v of codeVariants(b)) if (va.has(v)) return true;
-  return false;
-}
-
-export function applyScan(lines: OrderLine[], scannedValue: string): {
-  result: ScanResult;
-  lines: OrderLine[];
-} {
-  const raw = scannedValue.trim();
-  const productIdFromQr = parseProductQr(raw);
-
-  const idx = lines.findIndex((l) =>
-    productIdFromQr !== null
-      ? l.productId === productIdFromQr
-      : l.productId === raw ||
-        l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw))
-  );
-
-  if (idx === -1) {
-    return {
-      result: {
-        ok: false,
-        code: 'unknown_sku',
-        message: `Scanned code "${raw}" is not on this order.`,
-      },
-      lines,
-    };
+  if (tipCollectedCents > 0) {
+    const tipRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+    batch.set(tipRef, {
+      id: tipRef.id,
+      date: now,
+      description: `Tip — ${orderLabel}`,
+      clientOrVendor: order.customerName || 'Guest',
+      clientId: clientId || null,
+      type: 'income',
+      context: 'Business',
+      category: 'Tips',
+      taxBucket: 'gratuity',
+      amount: tipCollectedCents / 100,
+      paymentMethod: 'Online Checkout',
+      hasReceipt: false,
+      retailOrderId: orderId,
+      stripeConnectedAccountId: connAcct,
+      tenantId,
+    });
   }
 
-  const line = lines[idx];
+  await batch.commit();
+  console.log(`[connect-webhook] Retail order ${orderId} paid — stock reserved for tenant ${tenantId}`);
 
-  if (line.status === 'shorted' || line.status === 'refunded' || line.status === 'backordered') {
-    return {
-      result: {
-        ok: false,
-        code: 'line_closed',
-        message: `${line.name} was marked ${line.status}; reopen the line before scanning.`,
-      },
-      lines,
-    };
+  // Confirmation email — the receipt the customer expects within seconds of
+  // paying. Best-effort by design: a mail failure must never roll back a
+  // completed payment, so it runs after the commit and swallows its errors.
+  try {
+    await sendOrderConfirmation(db, tenantId, orderId, order, session);
+  } catch (e: any) {
+    console.error('[connect-webhook] confirmation email failed:', e?.message);
   }
-
-  if (line.qtyScanned >= line.qtyOrdered) {
-    return {
-      result: {
-        ok: false,
-        code: 'over_scan',
-        message: `${line.name} already has all ${line.qtyOrdered} scanned.`,
-      },
-      lines,
-    };
-  }
-
-  // A scan of the CASE code counts a sealed case's worth of units in one
-  // beep — the spec's rule: verify 20 cases, not 500 bottles. The last case
-  // never overshoots: it counts exactly the units still owed.
-  const isCaseScan = !!line.caseBarcode && (line.casePack || 0) > 1 && codesMatch(line.caseBarcode, raw);
-  const remaining = line.qtyOrdered - line.qtyScanned;
-  const increment = isCaseScan ? Math.min(line.casePack as number, remaining) : 1;
-
-  const updatedLine: OrderLine = {
-    ...line,
-    qtyScanned: line.qtyScanned + increment,
-    status: line.qtyScanned + increment === line.qtyOrdered ? 'picked' : 'pending',
-  };
-  const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
-
-  return {
-    result: {
-      ok: true,
-      lineId: line.lineId,
-      qtyScanned: updatedLine.qtyScanned,
-      qtyOrdered: line.qtyOrdered,
-      pickComplete: isPickComplete(nextLines),
-      ...(isCaseScan ? { caseCounted: increment } : {}),
-    },
-    lines: nextLines,
-  };
 }
 
 /**
- * SECOND SCAN — pack verification. The pick scan proved the item left the
- * shelf; this proves it entered the BOX. Its own counter (qtyPacked), same
- * matching rules (QR / barcode / SKU / case code), bounded by what the
- * order actually owes after shorts. Only meaningful for orders whose pick
- * scan happened at the shelf — wave orders already scan AT the bench, and
- * a third pass would be labor without information.
+ * Order confirmation email (Resend). Pickup/curbside orders get the live
+ * order-page link that carries their QR; shipping orders get the same link,
+ * which fills with tracking the moment a label is bought.
  */
-/**
- * When a digital line's access ends — null means never. The window is read
- * from the LINE, not the item: what was sold is what's honoured, so raising
- * or lowering the policy later can't retroactively shorten someone's access.
- * The clock starts at payment (paidAt), falling back to when the order was
- * placed, so a missing timestamp can never silently mean "expired".
- */
-export function digitalAccessEndsAt(line: OrderLine, paidAt?: string | null, placedAt?: string | null): string | null {
-  const days = Number(line.digitalAccessDays) || 0;
-  if (days <= 0) return null;
-  const start = Date.parse(String(paidAt || placedAt || '')) || Date.now();
-  return new Date(start + days * 24 * 60 * 60 * 1000).toISOString();
-}
+export async function sendOrderConfirmation(
+  db: any,
+  tenantId: string,
+  orderId: string,
+  order: any,
+  session: any
+): Promise<void> {
+  const RESEND_API_KEY = process.env.RESEND_API_KEY;
+  const RESEND_FROM = process.env.RESEND_FROM;
+  const to = String(order.customerEmail || '').trim();
+  if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
 
-/**
- * THE PROMISE CLOCK (FTC Mail, Internet, or Telephone Order Merchandise Rule).
- *
- * The rule in plain terms: when a shop takes money for something it hasn't
- * shipped, it must ship by the date it promised — or, if it promised no
- * date, within 30 days. If it can't, it owes the buyer a notice with a
- * revised date AND a plain way to cancel for a full refund. The buyer's
- * silence is NOT consent to wait.
- *
- * So the promise is computed from what was actually sold: the latest
- * pre-order date on the order if there is one, otherwise 30 days from
- * payment. Stored per order at checkout, but derived here too so old orders
- * and re-reads agree.
- */
-export const FTC_DEFAULT_PROMISE_DAYS = 30;
-
-export type PreorderState = {
-  isPreorder: boolean;
-  open: boolean;
-  reason: 'ok' | 'closed' | 'sold_out' | 'not_preorder';
-  closesAt: string | null;
-  etaAt: string | null;
-  remaining: number | null;   // null = uncapped
-};
-
-/**
- * Is this pre-order still joinable? Two independent doors close a run —
- * the CUTOFF (a date, so the shop can place its supplier order) and the
- * CAP (a quantity, so a limited run can't be oversold). Either one closing
- * is enough. Both are checked on the server at checkout as well: a storefront
- * that merely hides the button is not a rule.
- *
- * The cutoff is inclusive of the whole day it names — someone ordering at
- * 11pm on the last day joined the run, which is what "closes March 3" means
- * to a human reading it.
- */
-export function preorderState(item: {
-  preorder?: boolean; preorderEtaAt?: string; preorderClosesAt?: string;
-  preorderLimit?: number; preorderSold?: number;
-}): PreorderState {
-  if (item.preorder !== true) {
-    return { isPreorder: false, open: false, reason: 'not_preorder', closesAt: null, etaAt: null, remaining: null };
+  let origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim();
+  try {
+    if (session?.success_url) origin = new URL(String(session.success_url)).origin;
+  } catch {
+    // keep the env fallback
   }
-  const closesAt = item.preorderClosesAt || null;
-  const etaAt = item.preorderEtaAt || null;
-  const limit = Math.max(0, Math.floor(Number(item.preorderLimit) || 0));
-  const sold = Math.max(0, Math.floor(Number(item.preorderSold) || 0));
-  const remaining = limit > 0 ? Math.max(0, limit - sold) : null;
+  if (!origin) return;
 
-  if (closesAt) {
-    const end = Date.parse(`${closesAt}T23:59:59`);
-    if (Number.isFinite(end) && end < Date.now()) {
-      return { isPreorder: true, open: false, reason: 'closed', closesAt, etaAt, remaining };
+  let shopName = 'Your order';
+  let emailBrand = { shopName: 'Your shop', brandColor: '#16171a' };
+  try {
+    const tSnap = await db.collection('tenants').doc(tenantId).get();
+    if (tSnap.exists) {
+      const t = tSnap.data() || {};
+      shopName = String(t.businessName || t.name || shopName);
+      emailBrand = {
+        shopName,
+        brandColor: (typeof t?.retailSettings?.shopTheme?.brand === 'string' && /^#[0-9a-fA-F]{6}$/.test(t.retailSettings.shopTheme.brand.trim()))
+          ? t.retailSettings.shopTheme.brand.trim() : '#16171a',
+      };
     }
+  } catch {
+    // name is cosmetic
   }
-  if (remaining !== null && remaining <= 0) {
-    return { isPreorder: true, open: false, reason: 'sold_out', closesAt, etaAt, remaining: 0 };
+
+  const num = `#${String(order.orderNumber ?? '').padStart(4, '0')}`;
+  const money = (c: number) => `$${((Number(c) || 0) / 100).toFixed(2)}`;
+  const rows = (order.lines || []).map((l: any) => {
+    const opts = l.optionsLabel ? ` <span style="color:#64748b">(${String(l.optionsLabel)})</span>` : '';
+    return `<tr>
+      <td style="padding:6px 0;font-size:13px;color:#0f172a">${l.qtyOrdered}× ${String(l.name || 'Item')}${opts}</td>
+      <td style="padding:6px 0;font-size:13px;color:#0f172a;text-align:right">${money((l.unitPriceCents || 0) * (l.qtyOrdered || 0))}</td>
+    </tr>`;
+  }).join('');
+
+  const method = String(order.method || 'pickup');
+  const nextStep = method === 'ship'
+    ? 'We\u2019ll email tracking as soon as your package ships.'
+    : method === 'curbside'
+      ? 'We\u2019ll text or email when it\u2019s ready \u2014 tap the link below when you arrive and we\u2019ll bring it out.'
+      : 'We\u2019ll let you know the moment it\u2019s ready for pickup \u2014 your QR code is on the order page.';
+  const pickupNote = order.pickupAt && order.pickupAt !== 'ASAP'
+    ? `<p style="font-size:13px;color:#0f172a">Requested time: <strong>${String(order.pickupAt)}</strong></p>`
+    : '';
+
+  const emailBody = `
+    <p style="font-size:16px;color:#0f172a;margin:0 0 8px"><strong>Thanks${order.customerName ? `, ${String(order.customerName).split(' ')[0]}` : ''}!</strong> Your order ${num} is confirmed.</p>
+    <p style="font-size:13px;color:#64748b">${nextStep}</p>
+    ${pickupNote}
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;border-top:2px solid #e2e8f0;border-bottom:2px solid #e2e8f0">
+      ${rows}
+    </table>
+    <table style="width:100%;border-collapse:collapse">
+      <tr><td style="font-size:13px;color:#64748b">Subtotal</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.subtotalCents)}</td></tr>
+      ${(order.shippingCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Shipping</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.shippingCents)}</td></tr>` : ''}
+      ${(order.taxCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Sales tax</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.taxCents)}</td></tr>` : ''}
+      ${(order.tipCents || 0) > 0 ? `<tr><td style="font-size:13px;color:#64748b">Tip</td><td style="font-size:13px;text-align:right;color:#0f172a">${money(order.tipCents)}</td></tr>` : ''}
+      <tr><td style="font-size:14px;font-weight:700;color:#0f172a;padding-top:6px">Total paid</td><td style="font-size:14px;font-weight:700;text-align:right;color:#0f172a;padding-top:6px">${money(session?.amount_total ?? order.totalCents)}</td></tr>
+    </table>
+    ${(order.lines || []).some((l: any) => l.digital === true && l.digitalUrl)
+      ? `<div style="border:2px solid #e2e8f0;border-radius:12px;padding:14px;margin:16px 0">
+           <p style="font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:0 0 8px">Ready now</p>
+           ${(order.lines || []).filter((l: any) => l.digital === true && l.digitalUrl).map((l: any) =>
+             `<p style="font-size:13px;color:#0f172a;margin:0 0 6px"><a href="${l.digitalUrl}" style="color:#0f172a;font-weight:700">${l.name}</a></p>`).join('')}
+           <p style="font-size:11px;color:#94a3b8;margin:8px 0 0">These links are also on your order page, any time you need them again.</p>
+         </div>`
+      : ''}
+    ${emailButton(`${origin}/shop/${tenantId}/order/${orderId}`, 'View my order', emailBrand)}`;
+  const html = brandedEmail(emailBrand, emailBody, { preheader: `Order ${num} confirmed` });
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [to],
+      subject: `${shopName} \u2014 order ${num} confirmed`,
+      html,
+    }),
+  });
+  if (!res.ok) {
+    console.error('[connect-webhook] Resend rejected confirmation:', (await res.text()).slice(0, 160));
   }
-  return { isPreorder: true, open: true, reason: 'ok', closesAt, etaAt, remaining };
-}
-
-export function shipPromiseAt(lines: OrderLine[], paidAt?: string | null, placedAt?: string | null): string | null {
-  const start = Date.parse(String(paidAt || placedAt || ''));
-  if (!Number.isFinite(start)) return null;
-  const etas = lines
-    .filter((l) => l.preorder === true && l.preorderEtaAt)
-    .map((l) => Date.parse(String(l.preorderEtaAt)))
-    .filter((n) => Number.isFinite(n));
-  if (etas.length > 0) return new Date(Math.max(...etas)).toISOString();
-  return new Date(start + FTC_DEFAULT_PROMISE_DAYS * 24 * 60 * 60 * 1000).toISOString();
-}
-
-/** Past the promised date with nothing shipped or handed over yet. */
-export function isPromiseLate(order: { stage: string; lines: OrderLine[]; paidAt?: string | null; placedAt?: string | null; shipPromiseAt?: string | null }): boolean {
-  if (!['paid', 'picking', 'packed', 'ready'].includes(String(order.stage))) return false;
-  const promise = order.shipPromiseAt || shipPromiseAt(order.lines || [], order.paidAt, order.placedAt);
-  return !!promise && Date.parse(promise) < Date.now();
-}
-
-/** True when NOTHING on the order needs picking, packing, or postage. */
-export function isDigitalOnlyOrder(lines: OrderLine[]): boolean {
-  return lines.length > 0 && lines.every((l) => l.digital === true);
-}
-
-/** Physical lines only — what the floor actually handles. */
-export function physicalLines(lines: OrderLine[]): OrderLine[] {
-  return lines.filter((l) => l.digital !== true);
-}
-
-export function isPackComplete(lines: OrderLine[]): boolean {
-  return lines.every((l) =>
-    l.digital === true ||
-    ['refunded', 'backordered'].includes(l.status) ||
-    (l.qtyPacked || 0) >= l.qtyOrdered - l.qtyShorted
-  );
-}
-
-export function applyPackScan(lines: OrderLine[], scannedValue: string): {
-  result: ScanResult;
-  lines: OrderLine[];
-} {
-  const raw = scannedValue.trim();
-  const productIdFromQr = parseProductQr(raw);
-  const idx = lines.findIndex((l) =>
-    productIdFromQr !== null
-      ? l.productId === productIdFromQr
-      : l.productId === raw ||
-        l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw))
-  );
-  if (idx === -1) {
-    return { result: { ok: false, code: 'unknown_sku', message: `Scanned code "${raw}" is not on this order.` }, lines };
-  }
-  const line = lines[idx];
-  const owed = line.qtyOrdered - line.qtyShorted;
-  if (['refunded', 'backordered'].includes(line.status)) {
-    return { result: { ok: false, code: 'line_closed', message: `${line.name} was ${line.status} — it doesn't go in the box.` }, lines };
-  }
-  if ((line.qtyPacked || 0) >= owed) {
-    return { result: { ok: false, code: 'over_scan', message: `${line.name} already has all ${owed} pack-checked.` }, lines };
-  }
-  const isCaseScan = !!line.caseBarcode && (line.casePack || 0) > 1 && codesMatch(line.caseBarcode, raw);
-  const remaining = owed - (line.qtyPacked || 0);
-  const increment = isCaseScan ? Math.min(line.casePack as number, remaining) : 1;
-  const updatedLine: OrderLine = { ...line, qtyPacked: (line.qtyPacked || 0) + increment };
-  const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
-  return {
-    result: {
-      ok: true,
-      lineId: line.lineId,
-      qtyScanned: updatedLine.qtyPacked as number,
-      qtyOrdered: owed,
-      pickComplete: isPackComplete(nextLines),
-      ...(isCaseScan ? { caseCounted: increment } : {}),
-    },
-    lines: nextLines,
-  };
 }
 
 /**
- * Mark a line (or part of it) shorted due to a shelf discrepancy.
- * Pure: caller persists, appends line_shorted event, writes the
- * short_adjustment stock correction, and (for 'refund') issues the
- * partial Stripe refund.
+ * checkout.session.expired — the customer abandoned checkout (Stripe expires
+ * sessions after 24h). The order sits harmlessly in 'placed' with no
+ * reservations and no money; close it out so the board never shows it.
+ * Idempotent: only acts on stage === 'placed'.
  */
-export function shortLine(
-  lines: OrderLine[],
-  lineId: string,
-  reason: string,
-  resolution: ShortResolution
-): { lines: OrderLine[]; qtyShorted: number; refundCents: number } {
-  const idx = lines.findIndex((l) => l.lineId === lineId);
-  if (idx === -1) throw new Error(`Line ${lineId} not found`);
+export async function handleRetailCheckoutExpired(
+  db: any,
+  tenantId: string,
+  session: any
+): Promise<void> {
+  const orderId = session.metadata?.retailOrderId;
+  if (!orderId) return;
 
-  const line = lines[idx];
-  const qtyShorted = line.qtyOrdered - line.qtyScanned;
-  if (qtyShorted <= 0) throw new Error(`Line ${lineId} is fully scanned; nothing to short.`);
+  const orderRef = db.collection(`tenants/${tenantId}/retailOrders`).doc(orderId);
+  const snap = await orderRef.get();
+  if (!snap.exists || snap.data().stage !== 'placed') return;
 
-  const updated: OrderLine = {
-    ...line,
-    qtyShorted,
-    status: resolution === 'refund' ? 'refunded' : 'backordered',
-    shortReason: reason,
-  };
+  const now = new Date().toISOString();
+  const batch = db.batch();
+  batch.set(orderRef, { stage: 'cancelled', cancelledAt: now }, { merge: true });
+  const evRef = orderRef.collection('events').doc();
+  batch.set(evRef, {
+    id: evRef.id,
+    ...buildEvent('cancelled', 'system', 'Stripe', { reason: 'checkout_expired' }),
+  });
+  await batch.commit();
+  console.log(`[connect-webhook] Retail order ${orderId} expired unpaid — auto-cancelled`);
 
-  return {
-    lines: [...lines.slice(0, idx), updated, ...lines.slice(idx + 1)],
-    qtyShorted,
-    refundCents: resolution === 'refund' ? qtyShorted * line.unitPriceCents : 0,
-  };
-}
-
-/** Every line is either fully scanned or explicitly resolved. Nothing silent. */
-export function isPickComplete(lines: OrderLine[]): boolean {
-  return lines.every(
-    (l) =>
-      l.digital === true ||
-      l.qtyScanned === l.qtyOrdered ||
-      l.status === 'shorted' ||
-      l.status === 'refunded' ||
-      l.status === 'backordered'
-  );
-}
-
-/** Lines that still have sellable quantity after shorting (for totals & slips). */
-export function fulfilledQty(line: OrderLine): number {
-  return line.qtyOrdered - line.qtyShorted;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * TRANSITION GUARDS
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export type GuardResult = { ok: true } | { ok: false; reason: string };
-
-/**
- * The one gatekeeper. Every stage change — API route, board button, webhook —
- * must pass through this. UI buttons that would fail should render disabled
- * with the reason as the tooltip.
- */
-export function canAdvance(order: RetailOrder, target: OrderStage): GuardResult {
-  if (!LEGAL_TRANSITIONS[order.stage].includes(target)) {
-    return { ok: false, reason: `Cannot go from ${order.stage} to ${target}.` };
-  }
-
-  switch (target) {
-    case 'packed':
-      if (!isPickComplete(order.lines)) {
-        return { ok: false, reason: 'Every line must be fully scanned or explicitly shorted.' };
-      }
-      return { ok: true };
-
-    case 'arrived':
-      if (order.method !== 'curbside') {
-        return { ok: false, reason: 'Only curbside orders can be marked arrived.' };
-      }
-      return { ok: true };
-
-    case 'shipped':
-      if (order.method !== 'ship') {
-        return { ok: false, reason: 'Only ship orders can be shipped.' };
-      }
-      return { ok: true };
-
-    case 'handed_off':
-      if (order.method === 'ship') {
-        return { ok: false, reason: 'Ship orders complete via shipped, not handoff.' };
-      }
-      return { ok: true };
-
-    case 'cancelled':
-      return canCancel(order);
-
-    default:
-      return { ok: true };
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * CANCELLATION
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export function canCancel(order: RetailOrder): GuardResult {
-  if (TERMINAL_STAGES.includes(order.stage)) {
-    return { ok: false, reason: 'Order is already in a terminal state.' };
-  }
-  if (['arrived', 'shipped', 'handed_off'].includes(order.stage)) {
-    return { ok: false, reason: 'Too late to cancel; open a return instead.' };
-  }
-  return { ok: true };
-}
-
-export interface CancellationPlan {
-  refundCents: number;               // remaining balance to refund via Stripe
-  releaseReservations: boolean;      // free stockReserved holds (paid+ stages)
-  requiresRestockScan: boolean;      // packed orders: items must scan back in
-  releaseBatch: boolean;             // free any active batch claim
+  // Recovery email — AFTER the commit, never inside it (transactions retry;
+  // an email inside the body would apologise three times). Double-send is
+  // impossible by construction: a webhook retry finds stage !== 'placed' and
+  // exits above before reaching here. The failure direction is deliberate —
+  // if the send dies, the customer just isn't emailed; the order is still
+  // cleanly cancelled.
+  await sendCartRecovery(db, tenantId, snap.data(), session);
 }
 
 /**
- * What a cancellation must do, given where the order is. The API route
- * executes this plan inside a transaction; 'cancelled' is only written after
- * every step (including restock scans, when required) has completed.
+ * "Your cart is waiting" — the customer typed their details, saw the total,
+ * and walked at the payment screen. Their cart still lives in their browser,
+ * so one link puts them back exactly where they stood. One email, sent once,
+ * only to an address the customer themselves entered minutes earlier; a shop
+ * can switch it off with retailSettings.cartRecoveryEnabled = false.
  */
-export function cancellationPlan(order: RetailOrder): CancellationPlan {
-  return {
-    refundCents: order.stage === 'placed' ? 0 : order.totalCents - order.refundedCents,
-    releaseReservations: order.stage !== 'placed',
-    requiresRestockScan: order.stage === 'packed' || order.stage === 'ready',
-    releaseBatch: order.batchId !== undefined,
-  };
-}
+async function sendCartRecovery(
+  db: any,
+  tenantId: string,
+  order: any,
+  session: any
+): Promise<void> {
+  try {
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    const RESEND_FROM = process.env.RESEND_FROM;
+    const to = String(order?.customerEmail || '').trim();
+    if (!RESEND_API_KEY || !RESEND_FROM || !to) return;
 
-/* ════════════════════════════════════════════════════════════════════════════
- * RETURNS / RMA  (defective, damaged, wrong item)
- * ════════════════════════════════════════════════════════════════════════════ */
+    let origin = String(process.env.NEXT_PUBLIC_APP_URL || '').trim();
+    try {
+      if (session?.success_url) origin = new URL(String(session.success_url)).origin;
+    } catch {
+      // keep the env fallback
+    }
+    if (!origin) return;
 
-export const RETURN_REASONS = [
-  'damaged_in_transit',
-  'defective',
-  'wrong_item',
-  'changed_mind',
-  'other',
-] as const;
-export type ReturnReason = (typeof RETURN_REASONS)[number];
+    let shopName = 'the shop';
+    let emailBrand = { shopName: 'the shop', brandColor: '#16171a' };
+    let enabled = true;
+    try {
+      const tSnap = await db.collection('tenants').doc(tenantId).get();
+      if (tSnap.exists) {
+        const t = tSnap.data() || {};
+        shopName = String(t.businessName || t.name || shopName);
+        emailBrand = {
+          shopName,
+          brandColor: (typeof t?.retailSettings?.shopTheme?.brand === 'string' && /^#[0-9a-fA-F]{6}$/.test(t.retailSettings.shopTheme.brand.trim()))
+            ? t.retailSettings.shopTheme.brand.trim() : '#16171a',
+        };
+        enabled = (t.retailSettings || {}).cartRecoveryEnabled !== false;
+      }
+    } catch {
+      // name is cosmetic; default stays enabled
+    }
+    if (!enabled) return;
 
-export const RETURN_RESOLUTIONS = ['refund', 'replacement', 'store_credit'] as const;
-export type ReturnResolution = (typeof RETURN_RESOLUTIONS)[number];
+    const lines = Array.isArray(order?.lines) ? order.lines : [];
+    const firstName = String(order?.customerName || '').trim().split(/\s+/)[0] || 'there';
+    const money = (c: any) => ((Math.max(0, Math.round(Number(c) || 0))) / 100)
+      .toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-/** Where each returned unit physically goes — nothing damaged re-enters stock. */
-export type ReturnDisposition = 'restock' | 'open_box' | 'quarantine' | 'damaged' | 'dispose' | 'write_off';
+    const rows = lines.slice(0, 8).map((l: any) =>
+      `<tr><td style="font-size:13px;color:#0f172a;padding:4px 0">${String(l.name || 'Item')}${Number(l.qtyOrdered) > 1 ? ` \u00d7 ${Number(l.qtyOrdered)}` : ''}</td></tr>`
+    ).join('');
 
-export interface ReturnLine {
-  lineId: string;              // references the original OrderLine
-  sku: string;
-  name: string;
-  qty: number;
-  reason: ReturnReason;
-  disposition?: ReturnDisposition;   // set at receiving scan
-  dispositionScannedAt?: string;
-}
+    const recoveryBody = `
+      <p style="font-size:14px;color:#0f172a;font-weight:700;margin:0 0 8px">Hi ${firstName},</p>
+      <p style="font-size:14px;color:#334155;line-height:1.6">Your cart at <strong>${shopName}</strong> is still saved — checkout timed out before payment went through, and nothing was charged.</p>
+      <table style="border-collapse:collapse;margin:14px 0">${rows}</table>
+      ${order?.subtotalCents ? `<p style="font-size:13px;color:#64748b">Subtotal ${money(order.subtotalCents)}</p>` : ''}
+      ${emailButton(`${origin}/shop/${tenantId}/checkout`, 'Finish my order', emailBrand)}
+      <p style="font-size:12px;color:#94a3b8;line-height:1.6">Stock isn't held forever, so popular items can sell out. If you already placed this order or changed your mind, just ignore this — you won't hear from us about it again.</p>`;
+    const html = brandedEmail(emailBrand, recoveryBody, { preheader: 'Your cart is still saved — nothing was charged' });
 
-export interface RetailReturn {
-  id: string;
-  tenantId: string;
-  orderId: string;
-  orderNumber: number;
-  lines: ReturnLine[];
-  resolution: ReturnResolution;
-  status: 'open' | 'received' | 'resolved' | 'rejected';
-  photoUrls: string[];         // evidence via existing document-upload infra
-  refundCents?: number;
-  storeCreditCents?: number;
-  replacementOrderId?: string; // $0 order that re-enters the normal pipeline
-  openedBy: string;
-  openedAt: string;
-  resolvedBy?: string;
-  resolvedAt?: string;
-  notes?: string;
-}
-
-export function returnRefundCents(order: RetailOrder, lines: ReturnLine[]): number {
-  return lines.reduce((sum, rl) => {
-    const orig = order.lines.find((l) => l.lineId === rl.lineId);
-    return sum + (orig ? rl.qty * orig.unitPriceCents : 0);
-  }, 0);
-}
-
-/** A return may only be resolved once every unit has a scanned disposition. */
-export function isReturnReceivable(ret: RetailReturn): GuardResult {
-  const missing = ret.lines.filter((l) => !l.disposition);
-  if (missing.length > 0) {
-    return {
-      ok: false,
-      reason: `Scan a disposition (restock or write-off) for: ${missing
-        .map((l) => l.name)
-        .join(', ')}`,
-    };
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: RESEND_FROM,
+        to: [to],
+        subject: `Your cart at ${shopName} is still saved`,
+        html,
+      }),
+    });
+    console.log(`[connect-webhook] Cart recovery email sent for expired order to ${to}`);
+  } catch (e: any) {
+    console.warn('[connect-webhook] Cart recovery email failed (non-fatal):', e?.message || e);
   }
-  return { ok: true };
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
- * DISPLAY HELPERS
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const STAGE_LABELS: Record<OrderStage, string> = {
-  placed: 'Awaiting Payment',
-  paid: 'In Queue',
-  picking: 'Picking',
-  packed: 'Packed',
-  ready: 'Ready',
-  arrived: 'Customer Here',
-  shipped: 'Shipped',
-  handed_off: 'Picked Up',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-  refunded: 'Refunded',
-};
-
-export const METHOD_LABELS: Record<FulfillmentMethod, string> = {
-  counter: 'Counter Pickup',
-  curbside: 'Curbside',
-  in_store: 'In-Store',
-  ship: 'Shipping',
-};
-
-export function formatCents(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-
-export function orderDisplayNumber(order: Pick<RetailOrder, 'orderNumber'>): string {
-  return `#${String(order.orderNumber).padStart(4, '0')}`;
-}
+/* ─────────────────────────────────────────────────────────────────────────────
+ * INSERTION INTO src/app/api/stripe/connect-webhook/route.ts
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 1. Add to the imports at the top of the file:
+ *
+ *      import { handleRetailOrderPaid, handleRetailCheckoutExpired } from '@/lib/retail-webhook';
+ *
+ * 2. Inside case 'checkout.session.completed', directly ABOVE the line
+ *    `if (sessionType === 'deposit') {`, insert:
+ *
+ *      if (sessionType === 'retail_order') {
+ *        await handleRetailOrderPaid(db, stripe2, tenant.id, connAcct, session, chargeId);
+ *        break;
+ *      }
+ *
+ * 3. Alongside the other top-level cases (e.g. directly above
+ *    `case 'charge.succeeded': {`), insert this new case:
+ *
+ *      case 'checkout.session.expired': {
+ *        const session = event.data.object as Stripe.Checkout.Session;
+ *        if (session.metadata?.type === 'retail_order') {
+ *          const tenant = await getTenant(connAcct);
+ *          if (tenant) await handleRetailCheckoutExpired(db, tenant.id, session);
+ *        }
+ *        break;
+ *      }
+ *
+ *    Then in the Stripe Dashboard, add `checkout.session.expired` to the
+ *    connected-accounts webhook's enabled events.
+ * ──────────────────────────────────────────────────────────────────────────── */
