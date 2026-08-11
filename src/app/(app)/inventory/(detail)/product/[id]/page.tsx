@@ -69,6 +69,7 @@ import {
 } from '@/components/ui/table';
 import { format, parseISO, isPast } from 'date-fns';
 import { cn, safeNumber } from '@/lib/utils';
+import { reconcile } from '@/lib/stock-ledger';
 import { useInventory } from '@/context/InventoryContext';
 import { useTenant } from '@/context/TenantContext';
 import { type InventoryItem } from '@/lib/data';
@@ -236,6 +237,33 @@ export default function ProductDetailPage() {
         return result.reverse(); 
     }, [product, stockCorrections, appointments, clients]);
 
+    // DOES THE LEDGER EXPLAIN THE SHELF?
+    //
+    // Every movement is now recorded, so the count can be checked rather than
+    // trusted: sum the recorded changes and compare with the number the item
+    // actually carries. Zero drift means every unit is accounted for. Non-zero
+    // means something moved without a record — a hand edit, a path not yet on
+    // the ledger, or a genuine miscount — and the DATE of the first gap is
+    // where to look.
+    //
+    // Scoped to whole-unit products (the count IS the number). For uses/size
+    // costing the ledger tracks partial containers, so a simple sum would
+    // "find" drift that isn't there — we say nothing rather than cry wolf.
+    const stockDrift = useMemo(() => {
+        if (!product) return null;
+        if (product.costingMethod === 'uses' || product.costingMethod === 'size') return null;
+        const entries = stockCorrections.filter((sc: any) =>
+            sc.productId === product.id && (sc.field || 'totalStock') === 'totalStock');
+        if (entries.length === 0) return null;
+        const opening = entries
+            .map((e: any) => (typeof e.balanceAfter === 'number' ? e.balanceAfter - (Number(e.change) || 0) : null))
+            .find((v: number | null) => v !== null);
+        if (opening === null || opening === undefined) return null;
+        const { expected, actual, drift } = reconcile(entries as any, Number(product.totalStock) || 0, opening);
+        const dated = [...entries].sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)));
+        return { expected, actual, drift, entries: entries.length, since: dated[0]?.date || null };
+    }, [product, stockCorrections]);
+
     const filteredLedger = useMemo(() => {
         if (!ledgerWithRunningStock) return [];
         if (!ledgerSearchTerm.trim()) return ledgerWithRunningStock;
@@ -370,6 +398,20 @@ export default function ProductDetailPage() {
                                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground opacity-40" />
                                     <Input placeholder="SEARCH LEDGER BY GUEST OR TECH..." className="pl-12 h-14 rounded-2xl border-2 font-black uppercase text-xs tracking-widest focus-visible:ring-primary/20 bg-white shadow-inner" value={ledgerSearchTerm} onChange={(e) => setLedgerSearchTerm(e.target.value)} />
                                 </div>
+                                {stockDrift && (
+                                    <div className={cn('rounded-[1.5rem] border-2 p-5 text-left',
+                                        stockDrift.drift === 0 ? 'border-emerald-200 bg-emerald-50/60' : 'border-amber-200 bg-amber-50/60')}>
+                                        <p className={cn('text-[10px] font-black uppercase tracking-widest',
+                                            stockDrift.drift === 0 ? 'text-emerald-700' : 'text-amber-800')}>
+                                            {stockDrift.drift === 0 ? 'Every unit accounted for' : `Off by ${Math.abs(stockDrift.drift)}`}
+                                        </p>
+                                        <p className="mt-1 text-xs font-bold text-muted-foreground">
+                                            {stockDrift.drift === 0
+                                                ? `The ${stockDrift.entries} recorded movements add up to the ${stockDrift.actual} on the shelf.`
+                                                : `The record says ${stockDrift.expected}, the shelf says ${stockDrift.actual}. Something moved without being logged — the history below starts ${stockDrift.since ? format(parseISO(stockDrift.since), 'MMM d, yyyy') : 'here'}.`}
+                                        </p>
+                                    </div>
+                                )}
                                 <div className="space-y-3 text-left">
                                     {filteredLedger.length > 0 ? filteredLedger.map((correction: any) => (
                                         <div key={correction.id} className="flex flex-col sm:flex-row items-center justify-between p-5 rounded-[1.5rem] bg-white border-2 border-border/50 hover:border-primary/20 transition-all gap-4 text-left shadow-sm">
