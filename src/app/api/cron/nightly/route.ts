@@ -20,6 +20,7 @@ import { generateBillInstances } from '@/lib/bills-recurrence';
 import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
 import { sweepNoShows } from '@/lib/no-show';
+import { reconcileReservations } from '@/lib/stock-reconcile';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -496,6 +497,26 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals);
-  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, planTotals, slaTotals, results });
+  // ── STOCK: heal leaked reservations ────────────────────────────────────
+  // A hold that never released hides stock from everyone with no symptom.
+  // Recomputing from live orders each night means that bug class fixes
+  // itself instead of quietly compounding. Silent when nothing is wrong.
+  const stockTotals = { tenants: 0, corrected: 0, unitsFreed: 0, unitsHeld: 0 };
+  for (const tDoc of allTenantsSnap.docs) {
+    try {
+      const r = await reconcileReservations(db, tDoc.id);
+      if (r.corrected > 0) {
+        stockTotals.tenants += 1;
+        stockTotals.corrected += r.corrected;
+        stockTotals.unitsFreed += r.unitsFreed;
+        stockTotals.unitsHeld += r.unitsHeld;
+        results[`stock:${tDoc.id}`] = r;
+      }
+    } catch (e) {
+      results[`stock:${tDoc.id}`] = { error: String((e as any)?.message || e).slice(0, 200) };
+    }
+  }
+
+  console.log('[cron/nightly] synced', tenants.length, 'tenants', totals, '· bills scheduled', billsScheduled, '· rent marked late', rentMarkedLate, '· leases renewed', leasesRenewed, '· reminders', reminderTotals, '· no-shows', noShowTotals, '· plans', planTotals, '· sla', slaTotals, '· stock holds', stockTotals);
+  return NextResponse.json({ ok: true, tenants: tenants.length, totals, billsScheduled, rentMarkedLate, leasesRenewed, reminderTotals, noShowTotals, planTotals, slaTotals, stockTotals, results });
 }
