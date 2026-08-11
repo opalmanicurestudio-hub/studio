@@ -442,17 +442,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'shop' ? null : 'shop')}
             aria-expanded={openGroup === 'shop'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'shop' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'shop' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <StoreIcon className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'shop' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <StoreIcon className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Your shop</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Open or pause it, name it, and choose how people collect.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Your shop</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {rs.storePaused ? 'Paused' : 'Open'} · {[rs.pickupEnabled !== false && 'pickup', rs.shippingEnabled !== false && 'delivery'].filter(Boolean).join(' + ') || 'no collection method'}
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'shop' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'shop' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'shop' && (
             <div className="space-y-5">
@@ -637,17 +640,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'money' ? null : 'money')}
             aria-expanded={openGroup === 'money'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'money' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'money' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <Wallet className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'money' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Wallet className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Money</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Tax, tips, and the shipping labels you buy.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Money</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {rs.stripeTaxEnabled === true ? 'Tax by location' : `Tax ${Number(rs.taxRatePercent) || 0}%`} · {rs.tipsEnabled === false ? 'no tips' : 'tips on'}
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'money' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'money' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'money' && (
             <div className="space-y-5">
@@ -739,17 +745,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'orders' ? null : 'orders')}
             aria-expanded={openGroup === 'orders'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'orders' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'orders' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <ClipboardList className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'orders' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <ClipboardList className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Getting orders out</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">What you promise customers, and the checks that protect you.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Getting orders out</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {rs.requirePackScan === true ? 'Two scans per order' : 'One scan per order'}
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'orders' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'orders' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'orders' && (
             <div className="space-y-5">
@@ -1003,17 +1012,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'after' ? null : 'after')}
             aria-expanded={openGroup === 'after'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'after' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'after' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'after' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <RotateCcw className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">After the sale</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Returns, reported problems, and win-backs.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">After the sale</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {rs.returnsEnabled === false ? 'Returns off' : `Returns ${rs.returnWindowDays ?? 30} days`} · problems {rs.deliveryIssueWindowDays ?? 14} days
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'after' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'after' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'after' && (
             <div className="space-y-5">
@@ -1189,17 +1201,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'trade' ? null : 'trade')}
             aria-expanded={openGroup === 'trade'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'trade' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'trade' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <Building2 className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'trade' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Building2 className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Trade &amp; wholesale</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Trade pricing and who is allowed to see it.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Trade &amp; wholesale</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {rs.wholesaleAccessCode ? 'Access code set' : 'No access code yet'}{rs.wholesaleTaxExempt === true ? ' · tax-exempt' : ''}
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'trade' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'trade' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'trade' && (
             <div className="space-y-5">
@@ -1236,17 +1251,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'extras' ? null : 'extras')}
             aria-expanded={openGroup === 'extras'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'extras' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'extras' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <Sparkles className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'extras' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Sparkles className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Extras</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Order-ahead menu options.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Extras</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                Prep {Number(rs.prepMinutes) || 0} min · {Number(rs.throttlePer15) || 0} orders per 15 min
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'extras' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'extras' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'extras' && (
             <div className="space-y-5">
@@ -1295,17 +1313,20 @@ export default function RetailSettingsPage() {
             type="button"
             onClick={() => setOpenGroup(openGroup === 'products' ? null : 'products')}
             aria-expanded={openGroup === 'products'}
-            className="flex w-full items-center justify-between gap-3 rounded-2xl border-2 bg-white px-5 py-4 text-left"
+            className={cn('flex w-full items-center gap-4 rounded-2xl border-2 bg-white px-4 py-4 text-left transition-colors',
+              openGroup === 'products' ? 'border-primary/40' : 'hover:border-primary/20')}
           >
-            <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2',
-              openGroup === 'products' ? 'border-primary/30 bg-primary/10 text-primary' : 'bg-muted/40 text-muted-foreground')}>
-              <Package className="h-4 w-4" aria-hidden="true" />
+            <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-2 transition-colors',
+              openGroup === 'products' ? 'border-primary bg-primary text-primary-foreground' : 'border-primary/20 bg-primary/5 text-primary')}>
+              <Package className="h-[18px] w-[18px]" aria-hidden="true" />
             </span>
-            <span className="min-w-0">
-              <span className="block font-black uppercase tracking-tighter text-base leading-none">Your products</span>
-              <span className="mt-1 block text-[11px] font-bold text-muted-foreground">Every product, what shows on its page, and the printable catalog.</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-black uppercase tracking-tighter text-base leading-tight">Your products</span>
+              <span className="mt-0.5 block truncate text-[11px] font-bold text-muted-foreground">
+                {retailItems.length} product{retailItems.length === 1 ? '' : 's'} · {liveCount} live
+              </span>
             </span>
-            <ChevronDown className={cn('h-4 w-4 shrink-0 transition-transform', openGroup === 'products' && 'rotate-180')} aria-hidden="true" />
+            <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', openGroup === 'products' && 'rotate-180 text-primary')} aria-hidden="true" />
           </button>
           {openGroup === 'products' && (
             <div className="space-y-5">
