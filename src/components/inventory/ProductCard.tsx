@@ -24,6 +24,7 @@ import {
   Award,
   Zap
 } from 'lucide-react';
+import { Globe } from 'lucide-react';
 import { type InventoryItem } from '@/lib/data';
 import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +32,7 @@ import { isPast, parseISO } from 'date-fns';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn, safeNumber } from '@/lib/utils';
+import { storefrontBlockers } from '@/lib/retail-orders';
 import Image from 'next/image';
 
 export const ProductCard = ({ 
@@ -65,6 +67,15 @@ export const ProductCard = ({
         if (safeNumber(item.totalStock) <= 0 && safeNumber(item.partialContainerUses) <= 0 && safeNumber(item.partialContainerSize) <= 0 ) return { label: 'OUT OF STOCK', className: 'bg-slate-900 text-white border-none' };
         if (item.reorderPoint && safeNumber(item.totalStock) <= item.reorderPoint) return { label: 'LOW STOCK', className: 'bg-amber-500 text-white border-none' };
         return { label: 'IN STOCK', className: 'bg-primary/10 text-primary border-primary/20' };
+    }, [item]);
+
+    // Only retail products can be in the shop at all, so only they get the
+    // answer. Everything else (equipment, supplies) stays visually quiet.
+    const shopStatus = useMemo(() => {
+        if ((item as any).type !== 'retail') return null;
+        const blockers = storefrontBlockers(item as any);
+        if (blockers.length === 0) return { live: true, label: 'LIVE IN SHOP', detail: '' };
+        return { live: false, label: 'NOT ONLINE', detail: blockers.join(' · ') };
     }, [item]);
 
     const detailHref = `/inventory/${item.id}`;
@@ -151,7 +162,23 @@ export const ProductCard = ({
                                         <Award className="w-2 h-2 mr-1" /> EXCLUSIVE
                                     </Badge>
                                 )}
+                                {shopStatus && (
+                                    <Badge
+                                        variant="outline"
+                                        className={cn('h-4 px-1.5 font-black text-[8px] uppercase border-2',
+                                            shopStatus.live
+                                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                : 'border-amber-200 bg-amber-50 text-amber-800')}
+                                    >
+                                        <Globe className="w-2 h-2 mr-1" aria-hidden="true" /> {shopStatus.label}
+                                    </Badge>
+                                )}
                             </div>
+                            {shopStatus && !shopStatus.live && (
+                                <p className="mt-1 text-left text-[9px] font-black uppercase tracking-widest text-amber-700">
+                                    {shopStatus.detail}
+                                </p>
+                            )}
                             <div className="flex items-center gap-3 mt-3">
                                 <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-40">
                                     <Tag className="w-3 h-3" />
