@@ -76,6 +76,7 @@ import { ImageUpload } from '@/components/shared/ImageUpload';
 import { AddOrderDialog } from '@/components/inventory/AddOrderDialog';
 import { ReceiveStockDialog, type ReceivedItem } from '@/components/inventory/ReceiveStockDialog';
 import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
+import { buildEntry } from '@/lib/stock-ledger';
 import { useTenant } from '@/context/TenantContext';
 import { Html5Qrcode } from 'html5-qrcode';
 import { ProductCard } from '@/components/inventory/ProductCard';
@@ -1033,13 +1034,14 @@ export default function InventoryPage() {
 
     updateDocumentNonBlocking(productRef, updatedData);
     
-    const stockCorrection: Omit<StockCorrection, 'id'> = {
-      productId: productId,
-      date: new Date().toISOString(),
-      change: -quantity,
+    const stockCorrection = buildEntry({
+      productId,
+      type: 'spoiled',
+      delta: -quantity,
       unit: product.unit || 'units',
       reason: `Write-off: ${reason}`,
-    };
+      balanceAfter: newTotalStock,
+    });
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
     const transaction: Omit<Transaction, 'id' | 'date'> = {
@@ -1117,13 +1119,14 @@ export default function InventoryPage() {
     
     updateDocumentNonBlocking(productDocRef, updateData);
 
-    const newCorrection: Omit<StockCorrection, 'id'> = {
-        productId: productId,
-        date: new Date().toISOString(),
-        change: -quantity,
-        unit: unit,
+    const newCorrection = buildEntry({
+        productId,
+        type: 'used',
+        delta: -quantity,
+        unit,
         reason: notes || 'Manual Use Log',
-    };
+        ...(updateData.totalStock !== undefined ? { balanceAfter: updateData.totalStock } : {}),
+    });
     addDocumentNonBlocking(stockCorrectionsRef, newCorrection);
     
     return { success: true, message: `${quantity} ${unit} of ${product.name} logged.` };
@@ -1158,13 +1161,14 @@ export default function InventoryPage() {
       batches: sortedBatches,
     });
     
-    const stockCorrection: Omit<StockCorrection, 'id'> = {
-      productId: productId,
-      date: new Date().toISOString(),
-      change: -quantity,
+    const stockCorrection = buildEntry({
+      productId,
+      type: 'sold',
+      delta: -quantity,
       unit: 'units',
       reason: 'Manual Retail Sale',
-    };
+      balanceAfter: newTotalStock,
+    });
     addDocumentNonBlocking(collection(firestore, `tenants/${tenantId}/stockCorrections`), stockCorrection);
 
     const saleAmount = (product.msrp || product.costPerUnit || 0) * quantity;
