@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 
 import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
 import { releaseCoverableBackorders } from '@/lib/retail-fulfill';
+import { applyStockDelta } from '@/lib/stock-ledger';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -114,15 +115,23 @@ export function QuickReceiveDialog({
           const item = snap.data() as any;
           const cost = l.unitCost.trim() === '' ? (Number(item.costPerUnit) || 0) : Math.max(0, Number(l.unitCost) || 0);
           const batch = { id: `batch-${nanoid(8)}`, stock: l.qty, costPerUnit: cost, receivedDate: now };
+          // Batches and cost still ride the item write (FIFO costing needs the
+          // array); the COUNT and its record go through the one door, which
+          // uses an atomic increment — so a simultaneous sale can't be lost.
           txn.update(ref, JSON.parse(JSON.stringify({
             batches: [...(item.batches || []), batch],
-            totalStock: (Number(item.totalStock) || 0) + l.qty,
             costPerUnit: cost || (Number(item.costPerUnit) || 0),
           })));
-          txn.set(doc(collection(firestore as Firestore, `tenants/${tenantId}/stockCorrections`)), {
-            productId: l.productId, date: now, change: l.qty, unit: item.unit || 'units',
-            reason: 'Quick receive', actorId: user?.uid || 'staff', actorName, source: 'quick_receive',
-          });
+          applyStockDelta(firestore as Firestore, tenantId, {
+            productId: l.productId,
+            type: 'received',
+            delta: l.qty,
+            reason: 'Quick receive',
+            unit: item.unit || 'units',
+            actorId: user?.uid || 'staff',
+            actorName,
+            balanceAfter: (Number(item.totalStock) || 0) + l.qty,
+          }, txn);
         });
         units += l.qty;
       } catch {
