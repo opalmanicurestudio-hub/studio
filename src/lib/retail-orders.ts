@@ -146,6 +146,70 @@ export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockRese
   return item.totalStock - (item.stockReserved ?? 0) - allocated;
 }
 
+/**
+ * WHY an item isn't in the shop — the same four rules isStorefrontVisible
+ * enforces, but as reasons a person can act on.
+ *
+ * The rules lived only inside a boolean, so Inventory could show a perfectly
+ * healthy-looking product that silently never appeared online and say nothing
+ * about it. A gate that can refuse without explaining is a gate that makes
+ * people distrust the system. Same source of truth, two shapes: the boolean
+ * for the server, the reasons for the human.
+ */
+export type PreorderState = {
+  isPreorder: boolean;
+  open: boolean;
+  reason: 'ok' | 'closed' | 'sold_out' | 'not_preorder';
+  closesAt: string | null;
+  etaAt: string | null;
+  remaining: number | null;
+};
+
+/**
+ * Is this pre-order still joinable? Two independent doors close a run — the
+ * CUTOFF (a date, so the shop can place its supplier order) and the CAP (a
+ * quantity, so a limited run can't be oversold). Either one closing is
+ * enough, and both are re-checked server-side at checkout: a storefront that
+ * merely hides the button is not a rule.
+ *
+ * The cutoff includes the whole day it names — someone ordering at 11pm on
+ * the last day joined the run, which is what "closes March 3" means to a
+ * human reading it.
+ */
+export function preorderState(item: {
+  preorder?: boolean; preorderEtaAt?: string; preorderClosesAt?: string;
+  preorderLimit?: number; preorderSold?: number;
+}): PreorderState {
+  if (item.preorder !== true) {
+    return { isPreorder: false, open: false, reason: 'not_preorder', closesAt: null, etaAt: null, remaining: null };
+  }
+  const closesAt = item.preorderClosesAt || null;
+  const etaAt = item.preorderEtaAt || null;
+  const limit = Math.max(0, Math.floor(Number(item.preorderLimit) || 0));
+  const sold = Math.max(0, Math.floor(Number(item.preorderSold) || 0));
+  const remaining = limit > 0 ? Math.max(0, limit - sold) : null;
+
+  if (closesAt) {
+    const end = Date.parse(`${closesAt}T23:59:59`);
+    if (Number.isFinite(end) && end < Date.now()) {
+      return { isPreorder: true, open: false, reason: 'closed', closesAt, etaAt, remaining };
+    }
+  }
+  if (remaining !== null && remaining <= 0) {
+    return { isPreorder: true, open: false, reason: 'sold_out', closesAt, etaAt, remaining: 0 };
+  }
+  return { isPreorder: true, open: true, reason: 'ok', closesAt, etaAt, remaining };
+}
+
+export function storefrontBlockers(item: Partial<SellableItem> & { type?: string; status?: string }): string[] {
+  const reasons: string[] = [];
+  if (item.type !== 'retail') reasons.push('Not a retail product');
+  if (item.status === 'archived') reasons.push('Archived');
+  if (item.showOnline !== true) reasons.push('Show online is off');
+  if (!((item.msrp ?? 0) > 0)) reasons.push('No price set');
+  return reasons;
+}
+
 export function isStorefrontVisible(item: SellableItem): boolean {
   return (
     item.type === 'retail' &&
