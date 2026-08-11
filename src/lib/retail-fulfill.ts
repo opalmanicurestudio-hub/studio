@@ -13,6 +13,7 @@ import {
   type FulfillmentBatch, type InventoryBatchRef, type OrderEventType,
   type RetailOrder, type ShortResolution,
 } from '@/lib/retail-orders';
+import { buildEntry } from '@/lib/stock-ledger';
 
 // ─── src/lib/retail-fulfill.ts ────────────────────────────────────────────────
 // Client-side fulfillment actions for the board. Every state change runs in a
@@ -553,6 +554,18 @@ function convertSaleInTxn(
     txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)),
       correction(line.productId, item.unit || 'units', -qty,
         `Online order fulfilled (Order #${order.orderNumber})`, order.id, actor));
+    txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
+      productId: line.productId,
+      type: 'released',
+      field: 'stockReserved',
+      delta: -qty,
+      unit: item.unit || 'units',
+      reason: `Hold released \u2014 order fulfilled (Order #${order.orderNumber})`,
+      actorId: actor.id,
+      actorName: actor.name,
+      ref: { kind: 'order', id: order.id },
+      balanceAfter: Math.max(0, (item.stockReserved || 0) - qty),
+    }));
   });
 }
 
@@ -734,6 +747,18 @@ export async function cancelOrder(
         if (!itemSnap.exists()) continue;
         const item = itemSnap.data() as any;
         txn.update(ref, { stockReserved: Math.max(0, (Number(item.stockReserved) || 0) - qty) });
+        txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
+          productId: String(ref.id),
+          type: 'released',
+          field: 'stockReserved',
+          delta: -qty,
+          unit: item.unit || 'units',
+          reason: `Hold released \u2014 order cancelled (Order #${order.orderNumber})`,
+          actorId: actor.id,
+          actorName: actor.name,
+          ref: { kind: 'order', id: order.id },
+          balanceAfter: Math.max(0, (Number(item.stockReserved) || 0) - qty),
+        }));
       }
 
       const paidSomething = order.stage !== 'placed';
