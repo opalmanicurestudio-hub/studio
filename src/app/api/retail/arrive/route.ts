@@ -49,6 +49,21 @@ export async function POST(req: NextRequest) {
   const orderId = String(body.orderId || '').trim();
   const qrToken = String(body.qrToken || '').trim();
   const spotOrVehicle = String(body.spotOrVehicle || '').trim().slice(0, 120);
+  // Two new shapes on the same endpoint:
+  //   onWay  — "I've left" (+ optional ETA). No stage change; the shop just
+  //            gets a head start, which is the whole point of curbside.
+  //   source — how the check-in happened. A scanned spot sign is worth more
+  //            than a typed guess, and a phone deciding it is close enough is
+  //            worth less than both; the board shows which so a person can
+  //            judge rather than trust.
+  const onWay = body.onWay === true;
+  const etaMinutes = Number.isFinite(Number(body.etaMinutes))
+    ? Math.max(0, Math.min(120, Math.round(Number(body.etaMinutes)))) : null;
+  const rawSource = String(body.source || '').trim();
+  const checkInSource: 'manual' | 'sign_qr' | 'geo_auto' =
+    rawSource === 'sign_qr' ? 'sign_qr' : rawSource === 'geo_auto' ? 'geo_auto' : 'manual';
+  const accuracyM = Number.isFinite(Number(body.distanceM))
+    ? Math.max(0, Math.round(Number(body.distanceM))) : null;
 
   if (!tenantId || !orderId || !qrToken) {
     return NextResponse.json({ error: 'tenantId, orderId, and qrToken are required' }, { status: 400 });
@@ -68,10 +83,39 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date().toISOString();
+
+  // ── "On my way" ──────────────────────────────────────────────────────────
+  // Deliberately does NOT touch the stage: they aren't here yet, and an order
+  // that says "arrived" when the car is ten minutes out sends someone walking
+  // outside for nothing. It records the heads-up and lets the board show it.
+  if (onWay) {
+    const curbsideOnWay = {
+      ...(order.curbside || {}),
+      onWayAt: order.curbside?.onWayAt || now,
+      ...(etaMinutes !== null ? { etaMinutes } : {}),
+    };
+    const b = db.batch();
+    b.set(orderRef, { curbside: curbsideOnWay }, { merge: true });
+    if (!order.curbside?.onWayAt) {
+      const evRef = orderRef.collection('events').doc();
+      b.set(evRef, {
+        id: evRef.id,
+        ...buildEvent('note', 'customer', order.customerName || 'Customer', {
+          text: `On the way${etaMinutes !== null ? ` \u2014 about ${etaMinutes} min out` : ''}`,
+        }),
+      });
+    }
+    await b.commit();
+    return NextResponse.json({ ok: true, onWay: true, stage: order.stage, etaMinutes });
+  }
+
   const firstCheckIn = !order.curbside?.arrivedAt;
   const curbside = {
+    ...(order.curbside || {}),
     arrivedAt: order.curbside?.arrivedAt || now,
     spotOrVehicle: spotOrVehicle || order.curbside?.spotOrVehicle || '',
+    ...(firstCheckIn ? { checkInSource } : {}),
+    ...(firstCheckIn && accuracyM !== null ? { arrivedAccuracyM: accuracyM } : {}),
   };
 
   const batch = db.batch();
@@ -95,6 +139,8 @@ export async function POST(req: NextRequest) {
       ...buildEvent('customer_arrived', 'customer', order.customerName || 'Customer', {
         spotOrVehicle: curbside.spotOrVehicle,
         early: !onTime,
+        source: checkInSource,
+        ...(accuracyM !== null ? { accuracyM } : {}),
       }),
     });
   }
