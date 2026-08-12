@@ -60,6 +60,7 @@ import { ClientOnly } from '@/components/shared/ClientOnly';
 import { useTenant } from '@/context/TenantContext';
 import { Badge } from '@/components/ui/badge';
 import { cn, safeNumber } from '@/lib/utils';
+import { requestWaitMinutes, LOUNGE_ESCALATE_MIN } from '@/lib/retail-orders';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
@@ -84,7 +85,15 @@ const safeDate = (val: any): Date => {
     return new Date(val);
 };
 
-const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staff }: any) => {
+const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBringing, staff }: any) => {
+    // One tick a second so every guest's wait counts up on its own. The same
+    // clock the curbside board runs: "pending" tells you nothing at a glance,
+    // "waiting 6 min" tells you to move.
+    const [nowTick, setNowTick] = React.useState<Date>(() => new Date());
+    React.useEffect(() => {
+        const id = setInterval(() => setNowTick(new Date()), 1000);
+        return () => clearInterval(id);
+    }, []);
     if (!requests || requests.length === 0) return (
         <div className="p-12 text-center border-4 border-dashed rounded-[3rem] opacity-30 flex flex-col items-center gap-4">
             <Coffee className="w-12 h-12" />
@@ -122,6 +131,23 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                 <div className="space-y-1 text-left w-full sm:w-auto flex-1">
                                     <div className="flex items-center gap-3">
                                         <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
+                                        {(() => {
+                                            const mins = requestWaitMinutes(request as any, nowTick);
+                                            if (mins === null) return null;
+                                            return (
+                                                <Badge variant="outline" className={cn('h-5 px-2 border-2 font-black text-[10px] uppercase tracking-widest',
+                                                    mins >= LOUNGE_ESCALATE_MIN ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                                                        : mins >= 3 ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                                        : 'border-primary/30 bg-primary/5 text-primary')}>
+                                                    {mins === 0 ? 'just now' : `waiting ${mins} min`}
+                                                </Badge>
+                                            );
+                                        })()}
+                                        {request.bringingOutAt && (
+                                            <Badge className="bg-primary text-white border-none h-5 px-2 font-black text-[8px] uppercase tracking-widest">
+                                                {request.bringingOutBy || 'Someone'} is bringing it
+                                            </Badge>
+                                        )}
                                         <div className="flex items-center gap-2">
                                             <Badge variant="outline" className="h-5 px-2 bg-primary/10 text-primary border-none font-black text-[10px]">{safeQuantity} UNIT(S)</Badge>
                                             {request.isRedemption && (
@@ -197,6 +223,15 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, staf
                                 >
                                     Certify Delivery <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
                                 </Button>
+                                {!request.bringingOutAt && onBringing && (
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => onBringing(request.id)}
+                                        className="h-12 flex-1 sm:w-40 rounded-xl border-2 font-black uppercase text-[10px] tracking-[0.2em]"
+                                    >
+                                        I&apos;m bringing it
+                                    </Button>
+                                )}
                             </div>
                         </motion.div>
                     );
@@ -388,6 +423,24 @@ export default function DashboardPage() {
       }
   };
 
+  /**
+   * "I'm bringing it over."
+   *
+   * The lounge half of the curbside back-signal. A guest who asked for
+   * something and heard nothing assumes they were missed — and unlike a
+   * customer in a car park, they can't come and check. One tap turns silence
+   * into "Kayla is on her way", and the gap between this and delivery is how
+   * long the walk actually takes.
+   */
+  const handleBringingRefreshment = async (requestId: string) => {
+    if (!firestore || !tenantId) return;
+    updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId), {
+      bringingOutAt: new Date().toISOString(),
+      bringingOutBy: user?.displayName || 'Someone',
+    });
+    toast({ title: 'They know you\u2019re coming', description: 'The guest can see someone is on the way.' });
+  };
+
   const handleCancelRefreshment = async (requestId: string) => {
       if (!firestore || !tenantId) return;
       updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId), {
@@ -478,6 +531,7 @@ export default function DashboardPage() {
                         user={user}
                         onDeliver={handleDeliverRefreshment} 
                         onCancel={handleCancelRefreshment}
+                        onBringing={handleBringingRefreshment}
                         staff={staff}
                     />
                 </section>
