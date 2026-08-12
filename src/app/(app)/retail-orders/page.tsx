@@ -27,6 +27,8 @@ import {
 } from '@/lib/retail-orders';
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import { samePickupCount } from '@/lib/retail-orders';
+import { stillWaiting } from '@/lib/retail-orders';
+import { curbsideWaitStats } from '@/lib/retail-orders';
 import {
   cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markBringingOut, markPacked, markReady,
   notifyCurbside,
@@ -306,6 +308,31 @@ export default function RetailFulfillmentBoard() {
       notifyCurbside(tenantId, o.id, 'staff_escalation' as any);
     }
   }, [arrived, nowTick, tenantId]);
+
+  // Everyone still expecting something, in one place — because at closing
+  // time the waiting people are on two different screens and neither is the
+  // one you check on the way out.
+  const [loungeOpen, setLoungeOpen] = useState<any[]>([]);
+  useEffect(() => {
+    const fs = firestore as Firestore | null;
+    if (!fs || !tenantId) return;
+    const unsub = onSnapshot(
+      collection(fs, `tenants/${tenantId}/refreshmentRequests`),
+      (snap) => setLoungeOpen(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+      () => setLoungeOpen([]),
+    );
+    return () => unsub();
+  }, [firestore, tenantId]);
+
+  // Are we getting slower? The three timestamps were already being recorded;
+  // this only reads them. Median as well as average, because one forgotten
+  // car should not make a good week look bad.
+  const waitStats = useMemo(() => curbsideWaitStats(orders as any), [orders]);
+
+  const waitingNow = useMemo(
+    () => stillWaiting(orders as any, loungeOpen as any, nowTick),
+    [orders, loungeOpen, nowTick],
+  );
 
   const myBatch = useMemo(() => batches.find((b) => b.assignedTo === actor.id) || null, [batches, actor.id]);
   const myOrders = useMemo(
@@ -654,6 +681,8 @@ export default function RetailFulfillmentBoard() {
               <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Fulfillment</h1>
               <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5 truncate">
                 {queue.length} queued · {inProgress.length} in progress · {ready.length} ready · {arrived.length} outside
+                {waitStats.medianMin !== null ? ` · typical wait ${waitStats.medianMin} min` : ''}
+                {waitStats.neverCollected > 0 ? ` · ${waitStats.neverCollected} never collected` : ''}
               </p>
             </div>
             <div className="flex items-center gap-0.5 sm:hidden shrink-0">
@@ -989,6 +1018,26 @@ export default function RetailFulfillmentBoard() {
                 </p>
               )}
             </div>
+          </div>
+        </section>
+      )}
+
+      {waitingNow.total > 0 && (
+        <section className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="rounded-[1.75rem] border-2 border-amber-300 bg-amber-50/70 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+              Still waiting to be served — {waitingNow.total}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {[...waitingNow.curbside, ...waitingNow.lounge].slice(0, 8).map((w) => (
+                <span key={w.id} className="rounded-lg border-2 border-amber-200 bg-white px-2 py-1 text-[11px] font-black uppercase tracking-widest text-amber-900">
+                  {w.label} · {w.waitedMin} min
+                </span>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] font-bold text-amber-800">
+              Don&apos;t lock up yet — someone is out there expecting you.
+            </p>
           </div>
         </section>
       )}
