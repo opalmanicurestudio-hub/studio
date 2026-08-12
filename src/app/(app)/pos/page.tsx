@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { cn, safeNumber } from '@/lib/utils';
+import { buildEntry } from '@/lib/stock-ledger';
 // parseScan / codeVariants are what make a scanned ticket resolve at all: they
 // keep a mixed-case check-in token intact, pull the token out of a scanned
 // check-in URL, and hand back every spelling of a short code worth trying,
@@ -1042,7 +1043,7 @@ function POSPage() {
       const itemCategory = item.type === 'service' ? 'Service Revenue' : item.type === 'membership' ? 'Membership Sales' : item.type === 'package' ? 'Package Sales' : 'Retail';
       const itemDescription = item.type === 'service' ? `Service (POS): ${item.quantity}x ${item.name}` : item.type === 'membership' ? `Membership: ${item.name}` : item.type === 'package' ? `Package: ${item.name}` : `Retail Product: ${item.quantity}x ${item.name}`;
       if (!paymentData.skipLedger) batch.set(doc(collection(firestore, `tenants/${tenantId}/transactions`)), sanitizeForFirestore({ id: nanoid(), date: now, description: itemDescription, clientOrVendor: clientObj?.name || 'Client', clientId: effectiveClientId, type: 'income', context: 'Business', category: itemCategory, amount: productValue, paymentMethod: paymentData.paymentMethod, hasReceipt: true, tenantId, checkoutSessionId }));
-      if (item.type === 'product') { batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore({ id: nanoid(), productId: item.id, date: now, change: -item.quantity, unit: 'units', reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}` })); }
+      if (item.type === 'product') { batch.set(doc(firestore, 'tenants', tenantId, 'inventory', item.id), { totalStock: increment(-item.quantity) }, { merge: true }); batch.set(doc(collection(firestore, `tenants/${tenantId}/stockCorrections`)), sanitizeForFirestore(buildEntry({ productId: item.id, type: 'sold', delta: -item.quantity, reason: `Retail Sale: ${item.name} for ${clientObj?.name || 'Guest'}`, actorId: currentUser?.uid || 'staff', balanceAfter: Math.max(0, (Number(item.stock) || 0) - item.quantity) }))); }
       if (item.type === 'membership' || item.type === 'package') offeringsToEnroll.push({ offeringType: item.type, offeringId: item.id });
       totalLtvIncrease += productValue; if (paymentData.paymentMethod === 'cash') totalCashIncrease += productValue;
     });
