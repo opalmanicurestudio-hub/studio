@@ -129,6 +129,11 @@ const RefreshmentQueue = ({ requests, inventory, user, onDeliver, onCancel, onBr
                                     </div>
                                 </div>
                                 <div className="space-y-1 text-left w-full sm:w-auto flex-1">
+                                    {request.accessNote && (
+                                        <p className="rounded-lg border-2 border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-black uppercase tracking-widest text-sky-900">
+                                            {request.accessNote}
+                                        </p>
+                                    )}
                                     <div className="flex items-center gap-3">
                                         <p className="font-black text-xl uppercase tracking-tighter text-slate-900">{request.itemName}</p>
                                         {(() => {
