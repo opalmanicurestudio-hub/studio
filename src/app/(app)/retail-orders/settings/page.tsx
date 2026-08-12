@@ -79,6 +79,8 @@ interface RetailSettings {
   claimAutoResolveMaxCents?: number;
   cartRecoveryEnabled?: boolean;
   requirePackScan?: boolean;
+  curbsideLat?: number;
+  curbsideLng?: number;
   deliveryIssueWindowDays?: number;
   returnPolicyText?: string;
   shipFrom?: { name?: string; street1?: string; street2?: string; city?: string; state?: string; zip?: string; phone?: string };
@@ -194,6 +196,8 @@ export default function RetailSettingsPage() {
       claimAutoResolveMaxCents: Number(existing.claimAutoResolveMaxCents) || 0,
       cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
       requirePackScan: existing.requirePackScan === true,
+      curbsideLat: existing.curbsideLat ?? undefined,
+      curbsideLng: existing.curbsideLng ?? undefined,
       deliveryIssueWindowDays: Number(existing.deliveryIssueWindowDays) || 7,
       returnPolicyText: existing.returnPolicyText || '',
       shipFrom: existing.shipFrom || {},
@@ -294,6 +298,8 @@ export default function RetailSettingsPage() {
           claimAutoResolveMaxCents: Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0)),
           cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
           requirePackScan: rs.requirePackScan === true,
+          curbsideLat: Number.isFinite(Number(rs.curbsideLat)) ? Number(rs.curbsideLat) : null,
+          curbsideLng: Number.isFinite(Number(rs.curbsideLng)) ? Number(rs.curbsideLng) : null,
           deliveryIssueWindowDays: Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7)),
           returnPolicyText: String(rs.returnPolicyText || '').trim().slice(0, 1200),
           shipFrom: JSON.parse(JSON.stringify(rs.shipFrom || {})),
@@ -1147,6 +1153,43 @@ export default function RetailSettingsPage() {
                 checked={rs.requirePackScan === true}
                 onCheckedChange={(v: boolean) => setRs({ ...rs, requirePackScan: v })}
               />
+            </div>
+
+            <div className="space-y-2 rounded-2xl border-2 p-4">
+              <div>
+                <Label className="text-[11px] font-black uppercase tracking-widest">Curbside pickup spots</Label>
+                <p className="text-[11px] font-bold text-muted-foreground">
+                  Print numbered signs for your bays. Customers scan the sign and we know exactly where they parked &mdash; nothing to type, nothing to mistype.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline"
+                  onClick={() => window.open(`/print/curbside-signs/${tenantId}?count=6`, '_blank')}
+                  className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                  Print 6 signs
+                </Button>
+                <Button type="button" variant="outline"
+                  onClick={() => {
+                    const list = window.prompt('Which spots? Comma separated (e.g. 1,2,3 or A,B,Loading bay):', '1,2,3,4');
+                    if (list && list.trim()) window.open(`/print/curbside-signs/${tenantId}?spots=${encodeURIComponent(list.trim())}`, '_blank');
+                  }}
+                  className="h-11 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest">
+                  Choose spots
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input placeholder="Shop latitude" inputMode="decimal" aria-label="Shop latitude"
+                  value={rs.curbsideLat ?? ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideLat: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-bold text-xs" />
+                <Input placeholder="Shop longitude" inputMode="decimal" aria-label="Shop longitude"
+                  value={rs.curbsideLng ?? ''}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideLng: e.target.value === '' ? undefined : Number(e.target.value) })}
+                  className="h-11 rounded-xl border-2 font-bold text-xs" />
+              </div>
+              <p className="text-[10px] font-bold text-muted-foreground">
+                Optional. With coordinates set, a customer who taps &ldquo;on my way&rdquo; gets a rough ETA and can be checked in automatically when they pull in &mdash; only while their order page is open. Find them by right-clicking your shop in Google Maps. The signs work with or without this.
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
