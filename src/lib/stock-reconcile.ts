@@ -129,3 +129,61 @@ export async function reconcileAllTenants(db?: any): Promise<Record<string, Reco
   }
   return out;
 }
+
+/**
+ * Curbside orders that checked in and were never handed over.
+ *
+ * The failure nobody notices: a customer taps "I'm here", nothing happens,
+ * they wait, they leave. The order sits in the Outside lane looking like a
+ * live job forever, and the next morning nobody can tell a person who left
+ * from a person still parked outside.
+ *
+ * This does NOT cancel or refund anything — a customer who drove home still
+ * paid for goods that are still on the shelf, and only a person should decide
+ * what happens next. It flags: stamps the order so the desk can see it, and
+ * writes an event so the story is on the record. Quiet when nothing is stale.
+ */
+export async function sweepStaleCurbside(
+  db: any,
+  tenantId: string,
+  opts?: { staleMinutes?: number; dryRun?: boolean },
+): Promise<{ flagged: number; orders: { id: string; orderNumber: number | null; waitedMin: number }[] }> {
+  const staleMinutes = Math.max(15, Math.floor(Number(opts?.staleMinutes) || 90));
+  const out: { flagged: number; orders: { id: string; orderNumber: number | null; waitedMin: number }[] } = { flagged: 0, orders: [] };
+  try {
+    const snap = await db.collection(`tenants/${tenantId}/retailOrders`)
+      .where('stage', '==', 'arrived')
+      .limit(500)
+      .get();
+    const now = Date.now();
+    for (const doc of snap.docs) {
+      const o = doc.data() as any;
+      const at = Date.parse(String(o?.curbside?.arrivedAt || ''));
+      if (!Number.isFinite(at)) continue;
+      const waitedMin = Math.floor((now - at) / 60000);
+      if (waitedMin < staleMinutes) continue;
+      if (o?.curbside?.staleFlaggedAt) continue;
+      out.flagged += 1;
+      out.orders.push({ id: doc.id, orderNumber: o.orderNumber ?? null, waitedMin });
+      if (opts?.dryRun) continue;
+      try {
+        const batch = db.batch();
+        batch.set(doc.ref, {
+          curbside: { ...(o.curbside || {}), staleFlaggedAt: new Date().toISOString(), staleWaitedMin: waitedMin },
+        }, { merge: true });
+        const ev = doc.ref.collection('events').doc();
+        batch.set(ev, {
+          id: ev.id, type: 'note', at: new Date().toISOString(),
+          actorId: 'system', actorName: 'Curbside check',
+          meta: { text: `Checked in ${waitedMin} minutes ago and never collected \u2014 needs a person` },
+        });
+        await batch.commit();
+      } catch (e: any) {
+        console.error('[curbside-sweep] could not flag', doc.id, e?.message);
+      }
+    }
+  } catch (e: any) {
+    console.error('[curbside-sweep] failed', e?.message);
+  }
+  return out;
+}
