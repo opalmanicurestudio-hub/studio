@@ -748,6 +748,11 @@ export async function POST(req: NextRequest) {
       status: 'pending',
       requestedAt: new Date().toISOString(),
       stationName,
+      // Their own words about how to be reached — "I'm under the dryer",
+      // "please tap my shoulder, I have headphones in", "I can't turn my
+      // head". Free text on purpose: an accommodation someone had to pick
+      // from a dropdown isn't one.
+      accessNote: str(body?.accessNote, 200) || '',
       staffName: str(apt?.staffName, 80) || 'Unassigned',
       priceAtRequest: isRedemption ? 0 : num(item.price),
       isRedemption,
