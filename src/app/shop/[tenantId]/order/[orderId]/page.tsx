@@ -19,6 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { customerOutcomeHeadline, fulfilmentSummary } from '@/lib/fulfilment-state';
 import { clearCart } from '@/lib/shop-cart';
 import { cn } from '@/lib/utils';
+import { distanceMetres, roughEtaMinutes, CURBSIDE_GEOFENCE_M } from '@/lib/retail-orders';
 
 // ─── /shop/[tenantId]/order/[orderId]/page.tsx ────────────────────────────────
 // The customer's live order tracker — the success URL from Stripe Checkout
@@ -55,7 +56,7 @@ interface StatusOrder {
   subtotalCents: number; taxCents: number; shippingCents: number;
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
-  curbside: { arrivedAt: string | null; spotOrVehicle: string } | null;
+  curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number } | null;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null;
 }
 
@@ -88,6 +89,7 @@ export default function OrderStatusPage() {
   const [curbside, setCurbside] = useState<{ mode: string; spots: string[] }>({ mode: 'freeform', spots: [] });
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [selfToken, setSelfToken] = useState<string | null>(null);
+  const [shopGeo, setShopGeo] = useState<{ lat: number; lng: number } | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
   const [vehicle, setVehicle] = useState('');
@@ -96,6 +98,9 @@ export default function OrderStatusPage() {
   const [helpSending, setHelpSending] = useState(false);
   const [helpSent, setHelpSent] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [onWayBusy, setOnWayBusy] = useState(false);
+  const [geoWatching, setGeoWatching] = useState(false);
+  const geoIdRef = React.useRef<number | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [retQty, setRetQty] = useState<Record<string, number>>({});
@@ -143,6 +148,7 @@ export default function OrderStatusPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Order not found');
       setOrder(data.order);
+      setShopGeo(data.shopGeo || null);
       setQueuePosition(data.queuePosition);
       setLanePosition(data.lanePosition ?? null);
       if (data.curbsideExperience) setCurbside(data.curbsideExperience);
@@ -199,6 +205,104 @@ export default function OrderStatusPage() {
       setCheckingIn(false);
     }
   };
+
+  /**
+   * "On my way" — the head start. Location is OPTIONAL and one-time: if they
+   * allow it we turn a straight-line distance into a rough ETA so the shop
+   * can time the bag; if they refuse (or the browser has no idea) we send the
+   * heads-up anyway with no ETA. The feature must never depend on a
+   * permission prompt going the way we hoped.
+   */
+  const sendOnWay = async () => {
+    if (!order || !selfToken || onWayBusy) return;
+    setOnWayBusy(true);
+    const post = async (etaMinutes?: number) => {
+      const res = await fetch('/api/retail/arrive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, onWay: true, ...(etaMinutes ? { etaMinutes } : {}) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not send that');
+      toast({
+        title: 'Thanks — we know you\u2019re coming',
+        description: etaMinutes
+          ? `We\u2019ll have it ready in about ${etaMinutes} minutes.`
+          : 'We\u2019ll have it ready and watch for you.',
+      });
+      load();
+    };
+    try {
+      const geo = (order as any).shopGeo || shopGeo;
+      if (geo && typeof navigator !== 'undefined' && navigator.geolocation) {
+        await new Promise<void>((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+              try {
+                const m = distanceMetres({ lat: pos.coords.latitude, lng: pos.coords.longitude }, geo);
+                await post(roughEtaMinutes(m));
+              } catch { /* surfaced below */ }
+              resolve();
+            },
+            async () => { try { await post(); } catch { /* surfaced below */ } resolve(); },
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 },
+          );
+        });
+      } else {
+        await post();
+      }
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not send that', description: e?.message });
+    } finally {
+      setOnWayBusy(false);
+    }
+  };
+
+  /**
+   * The geofence, and its honest limits.
+   *
+   * This can only work while this page is OPEN — a browser cannot watch a
+   * position in the background, so a phone in a pocket on a locked screen
+   * will not check anyone in. That is a platform fact, not a setting. So the
+   * watch starts only after they say they're on the way, stops the moment it
+   * fires, and the "I'm here" button never goes away: the geofence is a
+   * convenience laid on top of a manual action that always works.
+   */
+  useEffect(() => {
+    const canWatch = !!order && !!selfToken && !!shopGeo
+      && order.method === 'curbside'
+      && !!(order as any).curbside?.onWayAt
+      && !(order as any).curbside?.arrivedAt
+      && typeof navigator !== 'undefined' && !!navigator.geolocation;
+    if (!canWatch) return;
+    setGeoWatching(true);
+    const id = navigator.geolocation.watchPosition(
+      async (pos) => {
+        const m = distanceMetres({ lat: pos.coords.latitude, lng: pos.coords.longitude }, shopGeo as any);
+        if (m > CURBSIDE_GEOFENCE_M) return;
+        if (geoIdRef.current !== null) { navigator.geolocation.clearWatch(geoIdRef.current); geoIdRef.current = null; }
+        setGeoWatching(false);
+        try {
+          await fetch('/api/retail/arrive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, source: 'geo_auto', distanceM: m, spotOrVehicle: vehicle.trim() }),
+          });
+          toast({ title: 'We can see you\u2019re here', description: 'Someone is heading out. Add your spot below if you can.' });
+          load();
+        } catch { /* the manual button is still there */ }
+      },
+      () => { setGeoWatching(false); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    );
+    geoIdRef.current = id;
+    return () => {
+      if (geoIdRef.current !== null) navigator.geolocation.clearWatch(geoIdRef.current);
+      geoIdRef.current = null;
+      setGeoWatching(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.method, (order as any)?.curbside?.onWayAt, (order as any)?.curbside?.arrivedAt, selfToken, shopGeo]);
 
   const openAccount = async () => {
     if (!selfToken) return;
@@ -743,6 +847,21 @@ export default function OrderStatusPage() {
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
                       className="h-12 rounded-xl border-2 font-bold text-sm"
                     />
+                  )}
+                  {!order.curbside?.onWayAt ? (
+                    <Button
+                      variant="outline"
+                      disabled={onWayBusy}
+                      onClick={sendOnWay}
+                      className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest"
+                    >
+                      {onWayBusy ? <Loader className="h-4 w-4 animate-spin" /> : "I'm on my way"}
+                    </Button>
+                  ) : (
+                    <p className="rounded-2xl border-2 border-primary/20 bg-primary/[0.04] p-3 text-[11px] font-bold text-muted-foreground">
+                      We know you&apos;re coming{order.curbside?.etaMinutes ? ` — about ${order.curbside.etaMinutes} min` : ''}. We&apos;ll have it ready.
+                      {geoWatching ? ' Keep this page open and we\u2019ll spot you when you pull in.' : ''}
+                    </p>
                   )}
                   <Button
                     disabled={checkingIn || (curbside.mode === 'spots' && curbside.spots.length > 0 && !vehicle)}
