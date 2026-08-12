@@ -38,6 +38,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
+import { buildEntry } from '@/lib/stock-ledger';
+import { FieldValue } from 'firebase-admin/firestore';
 
 const MAX_AMENITIES = 60;
 const MAX_UPSELL = 8;
@@ -399,6 +401,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, error: 'Already being prepared — please ask your technician.' }, { status: 409 });
       }
       await ref.set({ status: 'cancelled', cancelledAt: new Date().toISOString(), cancelledBy: 'guest' }, { merge: true });
+      try {
+        const back = Math.max(1, Math.floor(num(r.quantity) || 1));
+        const itemRef = db.doc(`tenants/${tenantId}/inventory/${str(r.itemId, 120)}`);
+        const batch = db.batch();
+        batch.set(itemRef, { totalStock: FieldValue.increment(back) }, { merge: true });
+        batch.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
+          productId: str(r.itemId, 120),
+          type: 'returned',
+          delta: back,
+          reason: `Lounge order recalled by ${str(r.clientName, 60) || 'guest'}`,
+          actorId: 'system',
+          actorName: 'Guest lounge',
+          ref: { kind: 'appointment', id: str(r.appointmentId, 120) },
+        }));
+        await batch.commit();
+      } catch (e: any) {
+        console.error('[guest-lounge] recall stock give-back failed', e?.message);
+      }
       return NextResponse.json({ ok: true });
     }
 
@@ -673,6 +693,35 @@ export async function POST(req: NextRequest) {
         const rSnap = await db.doc(`tenants/${tenantId}/resources/${String(resId)}`).get();
         if (rSnap.exists) stationName = str((rSnap.data() as any)?.name, 60) || 'Station';
       }
+    }
+
+    // ── THE MISSING HALF. Until now a lounge order CHECKED stock and never
+    // reduced it: the same coffee could be ordered forever, "Only 3 left"
+    // never moved, and the count on the shelf and the count in the app drifted
+    // apart with every service. A request is a commitment of a physical unit,
+    // so it moves stock the moment it is made — through the same one door
+    // every other movement uses, atomically, with a record naming the guest.
+    //
+    // Recalled/cancelled orders put it back (the recall handler above), so a
+    // change of mind never loses a unit.
+    try {
+      const itemRef = db.doc(`tenants/${tenantId}/inventory/${itemId}`);
+      const batch = db.batch();
+      batch.set(itemRef, { totalStock: FieldValue.increment(-qty) }, { merge: true });
+      batch.set(db.collection(`tenants/${tenantId}/stockCorrections`).doc(), buildEntry({
+        productId: itemId,
+        type: 'used',
+        delta: -qty,
+        unit: str((item as any).unit, 20) || 'units',
+        reason: `Lounge order — ${str(client?.name, 60) || 'guest'}${isRedemption ? ' (member perk)' : ''}`,
+        actorId: 'system',
+        actorName: 'Guest lounge',
+        ref: { kind: 'appointment', id: appointmentId },
+        balanceAfter: Math.max(0, Math.floor(num(item.totalStock)) - qty),
+      }));
+      await batch.commit();
+    } catch (e: any) {
+      console.error('[guest-lounge] stock move failed (order still placed)', e?.message);
     }
 
     const ref = db.collection(`tenants/${tenantId}/refreshmentRequests`).doc();
