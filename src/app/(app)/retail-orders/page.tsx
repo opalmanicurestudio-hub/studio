@@ -28,6 +28,7 @@ import {
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import {
   cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markBringingOut, markPacked, markReady,
+  notifyCurbside,
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine, splitReadyFromWaiting,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
@@ -885,7 +886,11 @@ export default function RetailFulfillmentBoard() {
                       ) : (
                         <Button
                           disabled={busy === `ready-${o.id}`}
-                          onClick={() => act(`ready-${o.id}`, () => markReady(requireCtx() as Firestore, tenantId, o.id, actor))}
+                          onClick={() => act(`ready-${o.id}`, async () => {
+                            const r = await markReady(requireCtx() as Firestore, tenantId, o.id, actor);
+                            if (r.ok && (r as any).notifyReady) notifyCurbside(tenantId, o.id, 'ready');
+                            return r;
+                          })}
                           className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
                         >
                           <Package className="mr-1.5 h-3.5 w-3.5" /> Mark ready
@@ -995,7 +1000,11 @@ export default function RetailFulfillmentBoard() {
                 {o.stage === 'packed' && (
                   <Button
                     disabled={busy === `ready-${o.id}`}
-                    onClick={() => act(`ready-${o.id}`, () => markReady(requireCtx() as Firestore, tenantId, o.id, actor))}
+                    onClick={() => act(`ready-${o.id}`, async () => {
+                            const r = await markReady(requireCtx() as Firestore, tenantId, o.id, actor);
+                            if (r.ok && (r as any).notifyReady) notifyCurbside(tenantId, o.id, 'ready');
+                            return r;
+                          })}
                     className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
                   >
                     Mark ready
@@ -1047,7 +1056,13 @@ export default function RetailFulfillmentBoard() {
                 {o.stage === 'arrived' && !(o.curbside as any)?.bringingOutAt && (
                   <Button
                     disabled={busy === `out-${o.id}`}
-                    onClick={() => act(`out-${o.id}`, () => markBringingOut(requireCtx() as Firestore, tenantId, o.id, actor))}
+                    onClick={() => act(`out-${o.id}`, async () => {
+                      const r = await markBringingOut(requireCtx() as Firestore, tenantId, o.id, actor);
+                      // A banner only reaches a phone that is awake and looking.
+                      // The text reaches the one in the cupholder.
+                      if (r.ok) notifyCurbside(tenantId, o.id, 'out');
+                      return r;
+                    })}
                     className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
                   >
                     On my way out
