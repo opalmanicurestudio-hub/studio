@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -65,6 +64,7 @@ import {
     ImageIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { syncPublicFields } from '@/lib/product-public';
 import { format, parseISO } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Calendar } from '../ui/calendar';
@@ -511,13 +511,13 @@ export const EditProductDialog: React.FC<{
     const updatedBatches = [...product.batches];
     if (updatedBatches.length > 0) updatedBatches[0] = { ...updatedBatches[0], costPerUnit, expirationDate: data.expirationDate?.toISOString() };
     
-    onProductUpdated({ 
+    onProductUpdated(syncPublicFields({ 
         ...product, 
         ...data, 
         costPerUnit, 
         batches: updatedBatches, 
         supplierUrl: data.purchaseLink 
-    });
+    }));
     onOpenChange(false);
   };
 
