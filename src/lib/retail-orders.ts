@@ -696,6 +696,18 @@ export interface CurbsideInfo {
    *  walk actually takes. */
   bringingOutAt?: string;
   bringingOutBy?: string;
+  /**
+   * "Please bring it to my window — I can't come in."
+   *
+   * For some people curbside is not convenience, it is ACCESS: a wheelchair
+   * in the boot, a sleeping baby, a bad day. This flag is set by the customer
+   * and shown to staff FIRST, above everything else on the card, because a
+   * note nobody reads until after they have called the person inside is not
+   * an accommodation.
+   */
+  bringToVehicle?: boolean;
+  /** Their own words — "silver Civic, I'll wave", "please knock, I'm deaf". */
+  accessNote?: string;
 }
 
 /**
@@ -705,6 +717,62 @@ export interface CurbsideInfo {
  * from across the room. Returns null when they haven't arrived — an order
  * nobody is waiting on shouldn't be shown a clock.
  */
+/**
+ * Orders that belong to the same trip.
+ *
+ * A mother and daughter both order; one car comes. The board shows two
+ * arrivals, someone walks out twice, and the second trip finds an empty
+ * space. Matching on the phone number they gave — the one thing a shared
+ * trip actually shares — lets the board say "2 orders, one car" and send a
+ * person out once.
+ *
+ * Deliberately phone-only: matching on surname would group strangers, and
+ * matching on address would group flatmates who came separately.
+ */
+export function groupBySamePickup<T extends { id: string; customerPhone?: string; customerName?: string; curbside?: CurbsideInfo }>(
+  orders: T[],
+): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const o of orders) {
+    const digits = String(o.customerPhone || '').replace(/\D/g, '');
+    const key = digits.length >= 7 ? `p:${digits.slice(-10)}` : `o:${o.id}`;
+    const list = groups.get(key) || [];
+    list.push(o);
+    groups.set(key, list);
+  }
+  return groups;
+}
+
+/** How many OTHER orders are waiting on the same trip. */
+export function samePickupCount<T extends { id: string; customerPhone?: string }>(order: T, all: T[]): number {
+  const digits = String(order.customerPhone || '').replace(/\D/g, '');
+  if (digits.length < 7) return 0;
+  const tail = digits.slice(-10);
+  return all.filter((o) => o.id !== order.id && String(o.customerPhone || '').replace(/\D/g, '').slice(-10) === tail).length;
+}
+
+/**
+ * The same clock, for a guest in a chair.
+ *
+ * A lounge request has exactly the curbside problem in a different room: the
+ * guest asks for something, hears nothing, and cannot tell whether anyone saw
+ * it. They are also stuck — a person mid-service can't go and check. So the
+ * wait matters MORE here, not less, and it deserves the same escalating
+ * treatment rather than a list nobody is watching.
+ */
+export function requestWaitMinutes(
+  request: { requestedAt?: string; status?: string },
+  now: Date = new Date(),
+): number | null {
+  if (['delivered', 'cancelled', 'done'].includes(String(request.status || ''))) return null;
+  const t = Date.parse(String(request.requestedAt || ''));
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.floor((now.getTime() - t) / 60000));
+}
+
+/** Minutes after which a waiting guest deserves more than a list entry. */
+export const LOUNGE_ESCALATE_MIN = 6;
+
 export function curbsideWaitMinutes(order: { curbside?: CurbsideInfo }, now: Date = new Date()): number | null {
   const at = order.curbside?.arrivedAt;
   if (!at) return null;
