@@ -21,6 +21,7 @@ import { logAuditAdmin } from '@/lib/audit';
 import { runReminderSweep } from '@/lib/reminders';
 import { sweepNoShows } from '@/lib/no-show';
 import { reconcileReservations } from '@/lib/stock-reconcile';
+import { sweepStaleCurbside } from '@/lib/stock-reconcile';
 
 export const maxDuration = 300; // allow up to 5 min on Vercel Pro
 
@@ -505,6 +506,9 @@ export async function GET(req: NextRequest) {
   for (const tDoc of allTenantsSnap.docs) {
     try {
       const r = await reconcileReservations(db, tDoc.id);
+      // Anyone still showing as "outside" hours later did not get their order.
+      const stale = await sweepStaleCurbside(db, tDoc.id);
+      if (stale.flagged > 0) results[`curbside:${tDoc.id}`] = stale;
       if (r.corrected > 0) {
         stockTotals.tenants += 1;
         stockTotals.corrected += r.corrected;
