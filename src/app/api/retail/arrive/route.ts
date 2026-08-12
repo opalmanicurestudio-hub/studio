@@ -64,6 +64,16 @@ export async function POST(req: NextRequest) {
     rawSource === 'sign_qr' ? 'sign_qr' : rawSource === 'geo_auto' ? 'geo_auto' : 'manual';
   const accuracyM = Number.isFinite(Number(body.distanceM))
     ? Math.max(0, Math.round(Number(body.distanceM))) : null;
+  // Access, set by the person who needs it. Sent with any check-in or
+  // on-my-way, so nobody has to explain themselves twice.
+  const bringToVehicle = body.bringToVehicle === true ? true
+    : body.bringToVehicle === false ? false : null;
+  const accessNote = typeof body.accessNote === 'string'
+    ? body.accessNote.trim().slice(0, 200) : null;
+  const accessPatch = {
+    ...(bringToVehicle !== null ? { bringToVehicle } : {}),
+    ...(accessNote !== null ? { accessNote } : {}),
+  };
 
   if (!tenantId || !orderId || !qrToken) {
     return NextResponse.json({ error: 'tenantId, orderId, and qrToken are required' }, { status: 400 });
@@ -91,6 +101,7 @@ export async function POST(req: NextRequest) {
   if (onWay) {
     const curbsideOnWay = {
       ...(order.curbside || {}),
+      ...accessPatch,
       onWayAt: order.curbside?.onWayAt || now,
       ...(etaMinutes !== null ? { etaMinutes } : {}),
     };
@@ -112,6 +123,7 @@ export async function POST(req: NextRequest) {
   const firstCheckIn = !order.curbside?.arrivedAt;
   const curbside = {
     ...(order.curbside || {}),
+    ...accessPatch,
     arrivedAt: order.curbside?.arrivedAt || now,
     spotOrVehicle: spotOrVehicle || order.curbside?.spotOrVehicle || '',
     ...(firstCheckIn ? { checkInSource } : {}),
