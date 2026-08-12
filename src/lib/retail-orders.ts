@@ -691,6 +691,11 @@ export interface CurbsideInfo {
   checkInSource?: 'manual' | 'sign_qr' | 'geo_auto';
   /** Distance in metres at auto-check-in — evidence, not a claim. */
   arrivedAccuracyM?: number;
+  /** Someone set off with the order — the customer sees this, the board
+   *  keeps counting, and the gap between this and handoff is how long the
+   *  walk actually takes. */
+  bringingOutAt?: string;
+  bringingOutBy?: string;
 }
 
 /**
