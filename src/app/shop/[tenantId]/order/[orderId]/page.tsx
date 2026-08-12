@@ -56,7 +56,7 @@ interface StatusOrder {
   subtotalCents: number; taxCents: number; shippingCents: number;
   refundedCents: number; totalCents: number;
   timestamps: Record<string, string | null>;
-  curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number } | null;
+  curbside: { arrivedAt: string | null; spotOrVehicle: string; onWayAt?: string | null; etaMinutes?: number; bringingOutAt?: string | null; bringingOutBy?: string } | null;
   shipCity: string | null; trackingNumber: string | null; trackingUrl: string | null; carrier: string | null;
 }
 
@@ -826,9 +826,19 @@ export default function OrderStatusPage() {
                   {curbside.mode === 'drive_thru' && lanePosition != null ? ` You're #${lanePosition + 1} in line.` : ''}
                 </p>
               ) : order.stage === 'arrived' ? (
-                <p className="text-sm font-bold text-muted-foreground">
-                  Checked in{order.curbside?.spotOrVehicle ? ` — ${order.curbside.spotOrVehicle}` : ''}. Hang tight!
-                </p>
+                order.curbside?.bringingOutAt ? (
+                  <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.05] p-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-primary">On the way to you</p>
+                    <p className="mt-1 text-sm font-bold text-foreground">
+                      {order.curbside.bringingOutBy || 'Someone'} is walking out with your order now
+                      {order.curbside?.spotOrVehicle ? ` — ${order.curbside.spotOrVehicle}` : ''}.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm font-bold text-muted-foreground">
+                    Checked in{order.curbside?.spotOrVehicle ? ` — ${order.curbside.spotOrVehicle}` : ''}. Hang tight!
+                  </p>
+                )
               ) : (
                 <>
                   {curbside.mode === 'spots' && curbside.spots.length > 0 ? (
