@@ -432,14 +432,48 @@ export default function DashboardPage() {
    * into "Kayla is on her way", and the gap between this and delivery is how
    * long the walk actually takes.
    */
+  /** Fire-and-forget: a text must never block a floor action. */
+  const notifyLounge = (requestId: string, moment: 'out' | 'staff_escalation') => {
+    if (typeof window === 'undefined' || !tenantId) return;
+    try {
+      void fetch('/api/retail/lounge-notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, requestId, moment }),
+        keepalive: true,
+      }).catch(() => undefined);
+    } catch { /* the badge on the board is still true */ }
+  };
+
   const handleBringingRefreshment = async (requestId: string) => {
     if (!firestore || !tenantId) return;
     updateDocumentNonBlocking(doc(firestore, `tenants/${tenantId}/refreshmentRequests`, requestId), {
       bringingOutAt: new Date().toISOString(),
       bringingOutBy: user?.displayName || 'Someone',
     });
+    // A badge only reaches a guest who is looking at their phone. Under a
+    // lamp, mid-service, they are not — so the text goes too.
+    notifyLounge(requestId, 'out');
     toast({ title: 'They know you\u2019re coming', description: 'The guest can see someone is on the way.' });
   };
+
+  // A guest in a chair cannot come and ask. If a request passes the threshold
+  // with nobody bringing it, the alert leaves the building and finds a person.
+  const loungeEscalatedRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    const tick = setInterval(() => {
+      for (const r of (pendingRequests || []) as any[]) {
+        if (!r?.id || loungeEscalatedRef.current.has(r.id)) continue;
+        if (r.bringingOutAt) continue;
+        const mins = requestWaitMinutes(r, new Date());
+        if (mins === null || mins < LOUNGE_ESCALATE_MIN) continue;
+        loungeEscalatedRef.current.add(r.id);
+        notifyLounge(r.id, 'staff_escalation');
+      }
+    }, 30000);
+    return () => clearInterval(tick);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingRequests, tenantId]);
 
   const handleCancelRefreshment = async (requestId: string) => {
       if (!firestore || !tenantId) return;
