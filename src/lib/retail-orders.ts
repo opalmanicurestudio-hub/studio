@@ -93,6 +93,7 @@ export interface RetailInventoryFields {
   stockReserved?: number;      // held by paid, unfulfilled online orders (default 0)
   showOnline?: boolean;        // listed on the public storefront (default false)
   barcode?: string;            // physical UPC/Code-128; falls back to sku
+  optionGroups?: OptionGroup[]; // buyer choices; a choice may BE another item (a variant)
   casePack?: number;           // units per sealed wholesale case (>1 enables case scanning)
   caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
   palletPack?: number;         // CASES per pallet or master carton (not units)
@@ -472,8 +473,75 @@ export type LineStatus = (typeof LINE_STATUSES)[number];
  * are never trusted.
  */
 
-export interface OptionChoice { id: string; label: string; deltaCents: number; }
+export interface OptionChoice {
+  id: string;
+  label: string;
+  deltaCents: number;
+  /**
+   * The inventory item this choice IS.
+   *
+   * The distinction that decides whether stock can ever be right: an option
+   * that consumes its own units on its own shelf (15ml vs 30ml, shade 04 vs
+   * shade 07) is a PRODUCT, and must be counted as one. An option that only
+   * changes the price of the same physical thing (gift wrap, engraving) is
+   * decoration and needs no stock of its own.
+   *
+   * When set, this choice's stock, SKU and barcode come from that item, and
+   * buying it decrements THAT item — so "sold out in 30ml" becomes something
+   * the system can know instead of something the shelf knows and the app
+   * doesn't. Absent = decoration, as before.
+   */
+  variantProductId?: string;
+}
 export interface OptionGroup { id: string; name: string; choices: OptionChoice[]; }
+
+/**
+ * Which inventory item a set of selections actually resolves to.
+ *
+ * A product with stock-bearing variants is a PARENT: it holds the name, the
+ * photos and the shop copy, but never the stock. Its variants hold the units.
+ * This is the one place that mapping is made, so the storefront, the checkout
+ * and the bench can never disagree about which shelf a sale came from.
+ */
+export function resolveVariantProductId(
+  groups: OptionGroup[] | undefined,
+  selections: Record<string, string> | undefined,
+): string | null {
+  if (!groups || groups.length === 0) return null;
+  for (const g of groups) {
+    const choiceId = selections?.[g.id];
+    const choice = g.choices.find((c) => c.id === choiceId) || g.choices[0];
+    if (choice?.variantProductId) return choice.variantProductId;
+  }
+  return null;
+}
+
+/** True when any choice carries its own stock — the product is a parent. */
+export function hasStockVariants(groups: OptionGroup[] | undefined): boolean {
+  return !!groups?.some((g) => g.choices.some((c) => !!c.variantProductId));
+}
+
+/**
+ * Stock for a product whose variants hold the units: the sum of what its
+ * variants can sell. A parent showing its own (zero) stock would read as
+ * "sold out" while three sizes sit on the shelf.
+ */
+export function variantAwareStock(
+  item: SellableItem,
+  variantsById: Map<string, SellableItem>,
+): number {
+  if (!hasStockVariants(item.optionGroups)) return sellableStock(item);
+  const ids = new Set<string>();
+  for (const g of item.optionGroups || []) {
+    for (const c of g.choices) if (c.variantProductId) ids.add(c.variantProductId);
+  }
+  let total = 0;
+  for (const id of ids) {
+    const v = variantsById.get(id);
+    if (v) total += sellableStock(v);
+  }
+  return total;
+}
 
 /** Parse editor lines like "Size | Small:0, Medium:0.50, Large:1" */
 export function parseOptionGroups(text: string): OptionGroup[] {
@@ -486,12 +554,13 @@ export function parseOptionGroups(text: string): OptionGroup[] {
       if (!name || !rest) return [];
       const choices = rest.split(',')
         .map((c, ci) => {
-          const [label, price] = c.split(':');
+          const [label, price, variantId] = c.split(':');
           if (!label || !label.trim()) return null;
           return {
             id: `c${gi}-${ci}`,
             label: label.trim(),
             deltaCents: Math.round((Number(String(price || '0').trim()) || 0) * 100),
+            ...(variantId && variantId.trim() ? { variantProductId: variantId.trim() } : {}),
           };
         })
         .filter(Boolean) as OptionChoice[];
@@ -501,8 +570,13 @@ export function parseOptionGroups(text: string): OptionGroup[] {
 }
 
 export function optionGroupsToText(groups: OptionGroup[] | undefined): string {
+  // Round-trips variantProductId too, so opening and saving the editor can
+  // never silently drop the link between a choice and its shelf.
   return (groups || [])
-    .map((g) => `${g.name} | ${g.choices.map((c) => `${c.label}${c.deltaCents ? `:${(c.deltaCents / 100).toFixed(2)}` : ':0'}`).join(', ')}`)
+    .map((g) => `${g.name} | ${g.choices.map((c) => {
+      const price = c.deltaCents ? (c.deltaCents / 100).toFixed(2) : '0';
+      return c.variantProductId ? `${c.label}:${price}:${c.variantProductId}` : `${c.label}:${price}`;
+    }).join(', ')}`)
     .join('\n');
 }
 
