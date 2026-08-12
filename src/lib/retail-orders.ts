@@ -773,6 +773,78 @@ export function requestWaitMinutes(
 /** Minutes after which a waiting guest deserves more than a list entry. */
 export const LOUNGE_ESCALATE_MIN = 6;
 
+/**
+ * Anyone still waiting to be served.
+ *
+ * The closing-time failure: the last person locks up while a car is still in
+ * the bay and a guest is still expecting a drink. Nobody is malicious — the
+ * waiting people are on two different screens, and neither is the one you
+ * look at on the way out. This gathers both into one answer so a shop can ask
+ * "is anyone still out there?" and get a number rather than a feeling.
+ */
+export function stillWaiting(
+  orders: { id: string; orderNumber?: number; stage?: string; customerName?: string; curbside?: CurbsideInfo }[],
+  requests: { id: string; status?: string; requestedAt?: string; clientName?: string; itemName?: string }[],
+  now: Date = new Date(),
+): {
+  curbside: { id: string; label: string; waitedMin: number }[];
+  lounge: { id: string; label: string; waitedMin: number }[];
+  total: number;
+} {
+  const curbside = orders
+    .filter((o) => o.stage === 'arrived' && !!o.curbside?.arrivedAt)
+    .map((o) => ({
+      id: o.id,
+      label: `#${String(o.orderNumber ?? '').padStart(4, '0')}${o.customerName ? ` · ${o.customerName}` : ''}${o.curbside?.spotOrVehicle ? ` · ${o.curbside.spotOrVehicle}` : ''}`,
+      waitedMin: curbsideWaitMinutes(o, now) ?? 0,
+    }))
+    .sort((a, b) => b.waitedMin - a.waitedMin);
+
+  const lounge = requests
+    .filter((r) => !['delivered', 'cancelled'].includes(String(r.status || '')))
+    .map((r) => ({
+      id: r.id,
+      label: `${r.clientName || 'Guest'}${r.itemName ? ` · ${r.itemName}` : ''}`,
+      waitedMin: requestWaitMinutes(r, now) ?? 0,
+    }))
+    .sort((a, b) => b.waitedMin - a.waitedMin);
+
+  return { curbside, lounge, total: curbside.length + lounge.length };
+}
+
+/**
+ * How long people actually waited, from what was already recorded.
+ *
+ * Three timestamps already exist on every served order — arrived, someone set
+ * off, handed over — so the report costs nothing to collect and answers the
+ * only question that matters: are we getting slower? Median as well as
+ * average, because one forgotten car shouldn't make a good week look bad.
+ */
+export function curbsideWaitStats(
+  orders: { curbside?: CurbsideInfo; completedAt?: string; handedOffAt?: string }[],
+): { served: number; medianMin: number | null; averageMin: number | null; worstMin: number | null; neverCollected: number } {
+  const waits: number[] = [];
+  let neverCollected = 0;
+  for (const o of orders) {
+    const arrived = Date.parse(String(o.curbside?.arrivedAt || ''));
+    if (!Number.isFinite(arrived)) continue;
+    if ((o.curbside as any)?.staleFlaggedAt) neverCollected += 1;
+    const done = Date.parse(String(o.handedOffAt || o.completedAt || o.curbside?.bringingOutAt || ''));
+    if (!Number.isFinite(done) || done < arrived) continue;
+    waits.push(Math.round((done - arrived) / 60000));
+  }
+  if (waits.length === 0) return { served: 0, medianMin: null, averageMin: null, worstMin: null, neverCollected };
+  const sorted = [...waits].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return {
+    served: waits.length,
+    medianMin: sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2),
+    averageMin: Math.round(waits.reduce((a, b) => a + b, 0) / waits.length),
+    worstMin: sorted[sorted.length - 1],
+    neverCollected,
+  };
+}
+
 export function curbsideWaitMinutes(order: { curbside?: CurbsideInfo }, now: Date = new Date()): number | null {
   const at = order.curbside?.arrivedAt;
   if (!at) return null;
