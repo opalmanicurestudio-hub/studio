@@ -99,6 +99,8 @@ export default function OrderStatusPage() {
   const [helpSent, setHelpSent] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [onWayBusy, setOnWayBusy] = useState(false);
+  const [bringToVehicle, setBringToVehicle] = useState(false);
+  const [accessNote, setAccessNote] = useState('');
   const [geoWatching, setGeoWatching] = useState(false);
   const geoIdRef = React.useRef<number | null>(null);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -201,7 +203,7 @@ export default function OrderStatusPage() {
       const res = await fetch('/api/retail/arrive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, qrToken, spotOrVehicle: vehicle.trim() }),
+        body: JSON.stringify({ tenantId, orderId, qrToken, spotOrVehicle: vehicle.trim(), bringToVehicle, accessNote: accessNote.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Check-in failed');
@@ -233,7 +235,7 @@ export default function OrderStatusPage() {
       const res = await fetch('/api/retail/arrive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, onWay: true, ...(etaMinutes ? { etaMinutes } : {}) }),
+        body: JSON.stringify({ tenantId, orderId, qrToken: selfToken, onWay: true, bringToVehicle, accessNote: accessNote.trim(), ...(etaMinutes ? { etaMinutes } : {}) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not send that');
@@ -869,6 +871,30 @@ export default function OrderStatusPage() {
                       value={vehicle}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVehicle(e.target.value)}
                       className="h-12 rounded-xl border-2 font-bold text-sm"
+                    />
+                  )}
+                  <label className="flex items-start gap-3 rounded-2xl border-2 p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-5 w-5 shrink-0 rounded border-2"
+                      checked={bringToVehicle}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBringToVehicle(e.target.checked)}
+                      aria-label="Please bring my order to my vehicle"
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-black uppercase tracking-tight">Please bring it to my vehicle</span>
+                      <span className="mt-0.5 block text-[11px] font-bold text-muted-foreground">
+                        Tick this if coming inside is difficult for any reason. We&apos;ll come to you \u2014 no explanation needed.
+                      </span>
+                    </span>
+                  </label>
+                  {bringToVehicle && (
+                    <Input
+                      placeholder="Anything that helps us find you? (optional)"
+                      aria-label="Anything that helps us find you"
+                      value={accessNote}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAccessNote(e.target.value)}
+                      className="h-11 rounded-xl border-2 font-bold text-sm"
                     />
                   )}
                   {!order.curbside?.onWayAt ? (
