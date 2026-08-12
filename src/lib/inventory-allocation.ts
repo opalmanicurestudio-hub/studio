@@ -4,6 +4,7 @@ import {
   Firestore, collection, doc, runTransaction,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { buildEntry } from '@/lib/stock-ledger';
 
 // ─── src/lib/inventory-allocation.ts ──────────────────────────────────────────
 // Station & provider allotments. Every unit of an item lives in exactly one
@@ -199,12 +200,16 @@ export async function markUsed(
         batches: nextBatches,
         totalStock: Math.max(0, (Number(item.totalStock) || 0) - qty),
       })));
-      txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
-        productId, date: new Date().toISOString(), change: -qty,
+      txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
+        productId,
+        type: 'used',
+        delta: -qty,
         unit: item.unit || 'units',
         reason: `Used at ${holder.name}${note ? ` — ${note}` : ''}`,
-        actorId: actor.id, actorName: actor.name, source: 'allocation',
-      });
+        actorId: actor.id,
+        actorName: actor.name,
+        balanceAfter: Math.max(0, (Number(item.totalStock) || 0) - qty),
+      }));
       logMove(txn, fs, tenantId, productId, String(item.name || 'Item'), qty, key, 'used', 'use', actor, note);
       return { ok: true, message: `${qty} × ${item.name} used at ${holder.name} (cost $${costDollars.toFixed(2)})` };
     });
