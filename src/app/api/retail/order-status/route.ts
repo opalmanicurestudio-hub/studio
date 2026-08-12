@@ -98,6 +98,17 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     shopName: String((tenantSnap.exists ? (tenantSnap.data() as any) : {})?.businessName || (tenantSnap.exists ? (tenantSnap.data() as any) : {})?.name || ''),
+    // Where the shop physically is, so the customer's phone can answer "am I
+    // there yet?" locally. Sent to the browser deliberately: the alternative
+    // is streaming their position to us, which is worse for them and worse
+    // for us. Absent = the geofence simply never fires and everything else
+    // still works.
+    shopGeo: (() => {
+      const t: any = tenantSnap.exists ? tenantSnap.data() : {};
+      const lat = Number(t?.retailSettings?.curbsideLat);
+      const lng = Number(t?.retailSettings?.curbsideLng);
+      return Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0) ? { lat, lng } : null;
+    })(),
     selfServeToken,
     order: {
       id: orderId,
