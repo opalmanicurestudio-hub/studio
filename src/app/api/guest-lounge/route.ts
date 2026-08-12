@@ -351,6 +351,17 @@ export async function GET(req: NextRequest) {
           isRedemption: r.isRedemption === true,
           status: str(r.status, 30),
           stage: stageOf(r),
+          // The same anti-anxiety data curbside gets: how long it has been,
+          // and whether somebody is actually walking over with it. A guest in
+          // a chair cannot go and check, so silence is worse here, not better.
+          waitedMin: (() => {
+            const t = Date.parse(String(r.requestedAt || ''));
+            if (!Number.isFinite(t)) return null;
+            if (['delivered', 'cancelled'].includes(String(r.status || ''))) return null;
+            return Math.max(0, Math.floor((Date.now() - t) / 60000));
+          })(),
+          bringingOutAt: str(r.bringingOutAt, 40) || null,
+          bringingOutBy: str(r.bringingOutBy, 60) || null,
         })),
     });
   } catch (err) {
