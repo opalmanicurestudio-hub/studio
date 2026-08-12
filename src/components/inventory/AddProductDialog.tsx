@@ -14,6 +14,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Switch } from '@/components/ui/switch';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 import { type InventoryItem, type Location } from '@/lib/data';
+import { syncPublicFields } from '@/lib/product-public';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -319,7 +320,10 @@ export const AddProductDialog: React.FC<{
 
   const onSubmit = (data: FormData) => {
     const costPerUnit = (data.numUnits || 1) > 0 ? ((data.totalPurchaseCost || 0) + (data.shippingCost || 0) + (data.taxCost || 0) - (data.discounts || 0)) / (data.numUnits || 1) : 0;
-    onProductAdded({
+    // Same bridge as the edit dialog: a product typed once here arrives at
+    // the storefront with its images and copy already in the shape the shop
+    // reads, so "why isn't my description showing" stops being a question.
+    onProductAdded(syncPublicFields({
       id: `prod-${nanoid(8)}`,
       name: data.name,
       type: data.type,
@@ -353,7 +357,7 @@ export const AddProductDialog: React.FC<{
       // equipment — the first approved StaffReplenishmentRequest is what
       // creates this item's first StationAllocation.
       ...(data.type === 'professional' && data.trackCustody ? { trackingMode: 'bulk' as const } : {}),
-    });
+    }));
     onOpenChange(false);
   };
 
