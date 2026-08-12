@@ -681,6 +681,65 @@ export interface ShippingAddress {
 export interface CurbsideInfo {
   arrivedAt?: string;
   spotOrVehicle?: string;      // "Spot 3" / "white Honda CR-V"
+  /** They tapped "on my way" — the shop can start moving before they park. */
+  onWayAt?: string;
+  /** Minutes away when they said so. From a one-time location share if they
+   *  allowed it, otherwise their own estimate. Never treated as a promise. */
+  etaMinutes?: number;
+  /** How the check-in happened, so a person can tell a scanned sign from a
+   *  typed guess from a phone that decided it was close enough. */
+  checkInSource?: 'manual' | 'sign_qr' | 'geo_auto';
+  /** Distance in metres at auto-check-in — evidence, not a claim. */
+  arrivedAccuracyM?: number;
+}
+
+/**
+ * How long someone has been waiting outside, in whole minutes.
+ *
+ * The number that turns "did anyone go out?" into something a person can see
+ * from across the room. Returns null when they haven't arrived — an order
+ * nobody is waiting on shouldn't be shown a clock.
+ */
+export function curbsideWaitMinutes(order: { curbside?: CurbsideInfo }, now: Date = new Date()): number | null {
+  const at = order.curbside?.arrivedAt;
+  if (!at) return null;
+  const t = Date.parse(at);
+  if (!Number.isFinite(t)) return null;
+  return Math.max(0, Math.floor((now.getTime() - t) / 60000));
+}
+
+/**
+ * Straight-line distance in metres (haversine).
+ *
+ * Deliberately simple: this is used to decide "are they in the car park",
+ * not to navigate. Road distance would be more accurate and would cost an
+ * API call per position update, which is the wrong trade for a 100m question.
+ */
+export function distanceMetres(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(h))));
+}
+
+/** Metres within which "they're here" is true enough to act on. */
+export const CURBSIDE_GEOFENCE_M = 100;
+
+/**
+ * A rough drive-time estimate from a straight-line distance.
+ *
+ * Honest about what it is: distance ÷ an average town speed, with a floor of
+ * one minute and a cap of an hour. It exists so the shop can start packing at
+ * roughly the right moment, not to be right to the minute — which is why the
+ * customer is always shown "about N minutes" and can override it.
+ */
+export function roughEtaMinutes(metres: number, kmh = 30): number {
+  const minutes = (metres / 1000) / kmh * 60;
+  return Math.max(1, Math.min(60, Math.round(minutes * 1.3)));
 }
 
 export interface RetailOrder {
