@@ -4,6 +4,7 @@ import {
   Firestore, collection, doc, runTransaction,
 } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
+import { buildEntry } from '@/lib/stock-ledger';
 
 // ─── src/lib/formulas.ts ──────────────────────────────────────────────────────
 // The maker's module: a Formula is a recipe — components in, finished items
@@ -112,10 +113,17 @@ export async function produce(
           batches: nextBatches,
           totalStock: Math.max(0, (Number(item.totalStock) || 0) - c.qty * runs),
         })));
-        txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
-          productId: c.itemId, date: now, change: -(c.qty * runs), unit: c.unit || 'units',
-          reason: `Production: ${formula.name}`, actorId: actor.id, actorName: actor.name, source: 'production',
-        });
+        txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
+          productId: c.itemId,
+          type: 'used',
+          delta: -(c.qty * runs),
+          unit: c.unit || 'units',
+          reason: `Production: ${formula.name}`,
+          actorId: actor.id,
+          actorName: actor.name,
+          ref: { kind: 'formula', id: formula.id },
+          balanceAfter: Math.max(0, (Number(item.totalStock) || 0) - c.qty * runs),
+        }));
       }
 
       const outUnits = formula.yieldQty * runs;
@@ -131,11 +139,17 @@ export async function produce(
         totalStock: (Number(outItem.totalStock) || 0) + outUnits,
         costPerUnit: Math.round(unitCost * 100) / 100,
       })));
-      txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), {
-        productId: formula.outputItemId, date: now, change: outUnits, unit: outItem.unit || 'units',
+      txn.set(doc(collection(fs, `tenants/${tenantId}/stockCorrections`)), buildEntry({
+        productId: formula.outputItemId,
+        type: 'received',
+        delta: outUnits,
+        unit: outItem.unit || 'units',
         reason: `Produced via ${formula.name} ($${unitCost.toFixed(2)}/unit)`,
-        actorId: actor.id, actorName: actor.name, source: 'production',
-      });
+        actorId: actor.id,
+        actorName: actor.name,
+        ref: { kind: 'formula', id: formula.id },
+        balanceAfter: (Number(outItem.totalStock) || 0) + outUnits,
+      }));
       txn.set(doc(formulaCol(fs, tenantId), formula.id), { lastProducedAt: now }, { merge: true });
 
       return {
