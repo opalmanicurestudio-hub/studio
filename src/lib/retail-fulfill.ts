@@ -576,6 +576,51 @@ async function readOrderItems(txn: any, fs: Firestore, tenantId: string, order: 
   }));
 }
 
+/**
+ * "We're bringing it out."
+ *
+ * The missing half of a conversation. The customer told us they arrived and
+ * then heard nothing — so they wonder whether the tap worked, whether anyone
+ * saw it, whether to go inside. One tap here closes that loop, and it is
+ * deliberately NOT a stage change: nothing has been handed over yet, so the
+ * order must stay exactly where it is on the board. It records who set off
+ * and when, which is also the number that tells you later how long the walk
+ * really takes.
+ *
+ * Idempotent: tapping twice tells the customer once.
+ */
+export async function markBringingOut(
+  fs: Firestore, tenantId: string, orderId: string, actor: Actor
+): Promise<{ ok: boolean; message: string }> {
+  try {
+    return await runTransaction(fs, async (txn) => {
+      const oRef = doc(orderCol(fs, tenantId), orderId);
+      const oSnap = await txn.get(oRef);
+      if (!oSnap.exists()) return { ok: false, message: 'Order not found.' };
+      const order = oSnap.data() as RetailOrder;
+      if (!['ready', 'arrived'].includes(String(order.stage))) {
+        return { ok: false, message: 'This order is not waiting to go out.' };
+      }
+      if ((order.curbside as any)?.bringingOutAt) {
+        return { ok: true, message: 'They already know someone is coming.' };
+      }
+      txn.update(oRef, {
+        curbside: {
+          ...(order.curbside || {}),
+          bringingOutAt: new Date().toISOString(),
+          bringingOutBy: actor.name || 'Staff',
+        },
+      });
+      txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
+        text: 'Heading out to the customer',
+      }));
+      return { ok: true, message: 'They know you\u2019re coming out' };
+    });
+  } catch (e: any) {
+    return { ok: false, message: e?.message || 'Could not send that.' };
+  }
+}
+
 export async function handoffByScan(
   fs: Firestore, tenantId: string, scannedValue: string, actor: Actor
 ): Promise<{ ok: boolean; message: string; orderNumber?: number }> {
