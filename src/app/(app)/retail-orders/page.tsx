@@ -27,7 +27,7 @@ import {
 } from '@/lib/retail-orders';
 import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import {
-  cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
+  cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markBringingOut, markPacked, markReady,
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine, splitReadyFromWaiting,
   sweepStaleClaims, type Actor,
 } from '@/lib/retail-fulfill';
@@ -1043,6 +1043,20 @@ export default function RetailFulfillmentBoard() {
                   >
                     Ship what&apos;s ready now
                   </Button>
+                )}
+                {o.stage === 'arrived' && !(o.curbside as any)?.bringingOutAt && (
+                  <Button
+                    disabled={busy === `out-${o.id}`}
+                    onClick={() => act(`out-${o.id}`, () => markBringingOut(requireCtx() as Firestore, tenantId, o.id, actor))}
+                    className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
+                  >
+                    On my way out
+                  </Button>
+                )}
+                {o.stage === 'arrived' && !!(o.curbside as any)?.bringingOutAt && (
+                  <p className="rounded-xl border-2 border-primary/30 bg-primary/[0.04] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-primary">
+                    {(o.curbside as any).bringingOutBy || 'Someone'} is heading out
+                  </p>
                 )}
                 {['ready', 'arrived'].includes(o.stage) && o.method !== 'ship' && (
                   <Button
