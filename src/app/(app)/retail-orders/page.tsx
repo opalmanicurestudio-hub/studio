@@ -1,1579 +1,1342 @@
-/**
- * retail-orders.ts  (v2 — bridged to the existing inventory system)
- * ─────────────────────────────────────────────────────────────────────────────
- * Single source of truth for the ClarityFlow retail ordering engine.
- *
- * Everything here is PURE — no Firestore, no React, no side effects — so it is
- * safe to import from API routes, server components, and 'use client' files.
- *
- * The retail catalog is NOT a new collection. Storefront listings are the
- * existing `tenants/{tenantId}/inventory` items with `type: 'retail'`.
- * The engine adds only OPTIONAL fields to those docs (backward compatible)
- * and writes to the ledgers that already exist:
- *
- *   tenants/{tenantId}/inventory/{itemId}          (+ stockReserved, showOnline, …)
- *   tenants/{tenantId}/stockCorrections            (existing stock ledger)
- *   tenants/{tenantId}/transactions                (existing money ledger)
- *   tenants/{tenantId}/retailOrders/{orderId}                    (new)
- *   tenants/{tenantId}/retailOrders/{orderId}/events/{eventId}   (new, append-only)
- *   tenants/{tenantId}/fulfillmentBatches/{batchId}              (new)
- *   tenants/{tenantId}/retailReturns/{returnId}                  (new)
- */
+'use client';
 
-/* ════════════════════════════════════════════════════════════════════════════
- * STAGES & TRANSITIONS
- * ════════════════════════════════════════════════════════════════════════════ */
+import { collection, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
+import {
+  AlertTriangle, Car, Check, ClipboardList, Loader, Package, PackageCheck,
+  History, PackageOpen, Printer, QrCode, RefreshCw, RotateCcw, ScanLine, Settings, Ship, Store, Truck, X, Zap,
+} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-export const ORDER_STAGES = [
-  'placed',      // checkout created, awaiting payment confirmation
-  'paid',        // Stripe webhook confirmed; stock reserved; in queue
-  'picking',     // claimed in a batch; items being scanned
-  'packed',      // every line fully scanned or explicitly shorted
-  'ready',       // pickup orders: on the ready shelf / label printed for ship
-  'arrived',     // curbside only: customer checked in "I'm here"
-  'shipped',     // ship orders: carrier label scanned onto box
-  'handed_off',  // pickup: customer QR scanned at counter/car
-  'completed',   // terminal success
-  'cancelled',   // terminal: refunded, reservations released
-  'refunded',    // terminal: post-completion full refund (via return flow)
-] as const;
+import { ScanGate, scanFeedback } from '@/components/retail/ScanGate';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { useInventory } from '@/context/InventoryContext';
+import { useTenant } from '@/context/TenantContext';
+import { useFirebase, useUser } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+import {
+  STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
+  fulfilmentPolicy, slaFor, type SlaInfo,
+} from '@/lib/retail-orders';
+import { curbsideWaitMinutes } from '@/lib/retail-orders';
+import { samePickupCount } from '@/lib/retail-orders';
+import {
+  cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markBringingOut, markPacked, markReady,
+  notifyCurbside,
+  markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine, splitReadyFromWaiting,
+  sweepStaleClaims, type Actor,
+} from '@/lib/retail-fulfill';
+import { markRefundExecuted } from '@/lib/retail-returns';
+import Link from 'next/link';
+import { cn } from '@/lib/utils';
 
-export type OrderStage = (typeof ORDER_STAGES)[number];
+// ─── Fulfillment Board ────────────────────────────────────────────────────────
+// The staff-side drive-thru: Queue → Picking → Ready → Arrived, plus the
+// backorder tray and pending-refund flags. Live via onSnapshot; stale claims
+// auto-release from any open board every 60 seconds.
 
-export const FULFILLMENT_METHODS = ['counter', 'curbside', 'in_store', 'ship'] as const;
-export type FulfillmentMethod = (typeof FULFILLMENT_METHODS)[number];
+const fmt = (cents: number) =>
+  (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
-/**
- * Pricing tiers. 'retail' is the public storefront price (msrp).
- * 'wholesale' is for B2B buyers (other businesses, students, pros) who unlock the
- * shop with the tenant's wholesale access code; prices come from
- * wholesalePriceDollars with msrp as the fallback.
- */
-export const PRICE_TIERS = ['retail', 'wholesale'] as const;
-export type PriceTier = (typeof PRICE_TIERS)[number];
+const printUrl = (kind: 'packing-slip' | 'label', tenantId: string, o: { id: string; qrToken?: string }) =>
+  `/print/${kind}/${tenantId}/${o.id}?t=${encodeURIComponent(o.qrToken || '')}`;
 
-/**
- * Legal stage transitions. Any transition not listed here is rejected.
- * Method-specific branches (curbside vs ship) are enforced in canAdvance().
- */
-export const LEGAL_TRANSITIONS: Record<OrderStage, OrderStage[]> = {
-  placed:     ['paid', 'cancelled'],
-  paid:       ['picking', 'cancelled'],
-  picking:    ['packed', 'paid', 'cancelled'],          // 'paid' = batch released back to queue
-  packed:     ['ready', 'cancelled'],                   // cancel after packed requires restock scan
-  ready:      ['arrived', 'shipped', 'handed_off', 'cancelled'],
-  arrived:    ['handed_off'],
-  shipped:    ['completed'],
-  handed_off: ['completed'],
-  completed:  ['refunded'],
-  cancelled:  [],
-  refunded:   [],
-};
+const methodIcon = (m: string) =>
+  m === 'curbside' ? Car : m === 'ship' ? Truck : Store;
 
-export const TERMINAL_STAGES: OrderStage[] = ['completed', 'cancelled', 'refunded'];
+type BoardOrder = RetailOrder & { id: string };
 
-/* ════════════════════════════════════════════════════════════════════════════
- * INVENTORY BRIDGE  (existing tenants/{tid}/inventory items, type 'retail')
- * ════════════════════════════════════════════════════════════════════════════ */
+export default function RetailFulfillmentBoard() {
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const { inventory } = useInventory();
 
-/** Shape of a batch on an existing InventoryItem (FIFO by receivedDate). */
-export interface InventoryBatchRef {
-  id: string;
-  stock: number;
-  costPerUnit: number;
-  receivedDate: string;
-  expiryDate?: string;
-}
+  // Picking is a visual task: a thumbnail is faster to match against a shelf
+  // than a name, and it catches the classic "two products, similar words"
+  // mistake before it reaches the box.
+  const policy = useMemo(
+    () => fulfilmentPolicy((selectedTenant as any)?.retailSettings),
+    [selectedTenant]
+  );
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
-/**
- * OPTIONAL fields the retail engine reads/writes on existing InventoryItem
- * docs. All optional — no migration needed; absent means the default noted.
- */
-export interface RetailInventoryFields {
-  stockReserved?: number;      // held by paid, unfulfilled online orders (default 0)
-  showOnline?: boolean;        // listed on the public storefront (default false)
-  barcode?: string;            // physical UPC/Code-128; falls back to sku
-  optionGroups?: OptionGroup[]; // buyer choices; a choice may BE another item (a variant)
-  casePack?: number;           // units per sealed wholesale case (>1 enables case scanning)
-  caseBarcode?: string;        // the case carton's own code (ITF-14/UPC)
-  palletPack?: number;         // CASES per pallet or master carton (not units)
-  palletBarcode?: string;      // the pallet label's own code (SSCC/ITF-14)
-  digital?: boolean;           // nothing physical ships — delivered by link on payment
-  digitalUrl?: string;         // the delivery destination (course, PDF, download page)
-  digitalFilePath?: string;    // private storage path (never a public URL)
-  digitalFileName?: string;    // what the buyer sees it called
-  digitalAccessDays?: number;  // 0/absent = access for good; N = N days from purchase
-  onlineDescription?: string;  // storefront copy (name/msrp come from the item)
-  imageUrls?: string[];
-  lowStockThreshold?: number;
-  allowBackorder?: boolean;    // default false
-  preorder?: boolean;          // sellable before stock exists, with a promised date
-  preorderEtaAt?: string;      // ISO date the shop promises to ship by
-  wholesalePriceDollars?: number; // B2B price; falls back to msrp when absent
-  wholesaleMinQty?: number;       // per-item minimum units for wholesale orders
-  howToUse?: string;              // usage/instructions shown on the product page
-  specs?: ProductSpec[];          // label/value spec rows
-  documents?: ProductDocument[];  // MSDS/SDS, guides, certificates — any linked file
-}
+  const [batchView, setBatchView] = useState<'orders' | 'shelf'>('shelf');
+  const [stationMode, setStationMode] = useState(false);
 
-export interface ProductSpec { label: string; value: string; }
-export interface ProductDocument { name: string; url: string; }
+  /*
+   * Where a product physically sits. The allocation system already records
+   * which station or provider holds units, and items can carry a storage
+   * note — so the pick line can say "Station 2" instead of leaving someone
+   * to remember. Back-stock only means no hint, which is the honest answer.
+   */
+  const shelfFor = useMemo(() => {
+    const map = new Map<string, string>();
+    (inventory || []).forEach((i: any) => {
+      const explicit = String(i.storageLocation || i.shelf || i.binLocation || '').trim();
+      if (explicit) { map.set(i.id, explicit); return; }
+      const allocs = Object.values((i.allocations && typeof i.allocations === 'object') ? i.allocations : {}) as any[];
+      const held = allocs.filter((a) => a && Number(a.qty) > 0).sort((a, b) => Number(b.qty) - Number(a.qty));
+      if (held.length > 0) {
+        map.set(i.id, held.length > 1 ? `${held[0].name} +${held.length - 1}` : String(held[0].name || ''));
+      }
+    });
+    return map;
+  }, [inventory]);
 
-/** The slice of InventoryItem the engine needs (structural — no import cycle). */
-export type SellableItem = RetailInventoryFields & {
-  id: string;
-  name: string;
-  type: string;                // engine only sells 'retail'
-  category?: string;
-  sku?: string;
-  msrp?: number;               // retail price in DOLLARS (existing convention)
-  costPerUnit?: number;
-  unit?: string;
-  totalStock: number;
-  status?: string;             // 'archived' hides everywhere
-  batches?: InventoryBatchRef[];
-};
+  const photoFor = useMemo(() => {
+    const map = new Map<string, string>();
+    (inventory || []).forEach((i: any) => {
+      const url = (Array.isArray(i.imageUrls) && i.imageUrls.find((u: any) => typeof u === 'string' && u.trim()))
+        || (typeof i.imageUrl === 'string' && i.imageUrl.trim() ? i.imageUrl : '');
+      if (url) map.set(i.id, String(url));
+    });
+    return map;
+  }, [inventory]);
 
-/** Units a new order may sell right now. */
-/** Units allotted out to stations/providers — not sellable online. */
-export function allocatedUnits(item: any): number {
-  const a = (item as any)?.allocations;
-  if (!a || typeof a !== 'object') return 0;
-  return Object.values(a).reduce((s: number, x: any) => s + (Number(x?.qty) || 0), 0);
-}
+  const staleHours = Math.max(
+    1,
+    Math.floor(Number((selectedTenant as any)?.retailSettings?.readyStaleHours) || 24)
+  );
 
-export function sellableStock(item: Pick<SellableItem, 'totalStock' | 'stockReserved'>): number {
-  const allocated = allocatedUnits(item);
-  return item.totalStock - (item.stockReserved ?? 0) - allocated;
-}
+  const tenantId = selectedTenant?.id || '';
+  const { user } = useUser();
+  const { toast } = useToast();
 
-/**
- * WHY an item isn't in the shop — the same four rules isStorefrontVisible
- * enforces, but as reasons a person can act on.
- *
- * The rules lived only inside a boolean, so Inventory could show a perfectly
- * healthy-looking product that silently never appeared online and say nothing
- * about it. A gate that can refuse without explaining is a gate that makes
- * people distrust the system. Same source of truth, two shapes: the boolean
- * for the server, the reasons for the human.
- */
-export type PreorderState = {
-  isPreorder: boolean;
-  open: boolean;
-  reason: 'ok' | 'closed' | 'sold_out' | 'not_preorder';
-  closesAt: string | null;
-  etaAt: string | null;
-  remaining: number | null;
-};
+  const actor: Actor = useMemo(
+    () => ({ id: user?.uid || 'staff', name: user?.displayName || user?.email || 'Staff' }),
+    [user]
+  );
 
-/**
- * Is this pre-order still joinable? Two independent doors close a run — the
- * CUTOFF (a date, so the shop can place its supplier order) and the CAP (a
- * quantity, so a limited run can't be oversold). Either one closing is
- * enough, and both are re-checked server-side at checkout: a storefront that
- * merely hides the button is not a rule.
- *
- * The cutoff includes the whole day it names — someone ordering at 11pm on
- * the last day joined the run, which is what "closes March 3" means to a
- * human reading it.
- */
-export function preorderState(item: {
-  preorder?: boolean; preorderEtaAt?: string; preorderClosesAt?: string;
-  preorderLimit?: number; preorderSold?: number;
-}): PreorderState {
-  if (item.preorder !== true) {
-    return { isPreorder: false, open: false, reason: 'not_preorder', closesAt: null, etaAt: null, remaining: null };
-  }
-  const closesAt = item.preorderClosesAt || null;
-  const etaAt = item.preorderEtaAt || null;
-  const limit = Math.max(0, Math.floor(Number(item.preorderLimit) || 0));
-  const sold = Math.max(0, Math.floor(Number(item.preorderSold) || 0));
-  const remaining = limit > 0 ? Math.max(0, limit - sold) : null;
+  const [orders, setOrders] = useState<BoardOrder[]>([]);
+  const [batches, setBatches] = useState<(FulfillmentBatch & { id: string })[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [claiming, setClaiming] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  if (closesAt) {
-    const end = Date.parse(`${closesAt}T23:59:59`);
-    if (Number.isFinite(end) && end < Date.now()) {
-      return { isPreorder: true, open: false, reason: 'closed', closesAt, etaAt, remaining };
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const [shortTarget, setShortTarget] = useState<{ order: BoardOrder; line: OrderLine } | null>(null);
+  const [shortReason, setShortReason] = useState('');
+  const [shipTarget, setShipTarget] = useState<BoardOrder | null>(null);
+  const [parcel, setParcel] = useState({ weightLb: '1', weightOz: '0', lengthIn: '10', widthIn: '8', heightIn: '4' });
+  const [boxes, setBoxes] = useState(1);
+  const [extraLabels, setExtraLabels] = useState<string[]>([]);
+  const perBoxOz = () => Math.max(1, (Number(parcel.weightLb) || 0) * 16 + (Number(parcel.weightOz) || 0));
+  const [rates, setRates] = useState<{ id: string; provider: string; service: string; amountCents: number; days: number | null }[]>([]);
+  const [ratesLoading, setRatesLoading] = useState(false);
+  const [buyingRate, setBuyingRate] = useState<string | null>(null);
+  const [labelUrl, setLabelUrl] = useState('');
+  const shippoConfigured = !!(selectedTenant as any)?.retailSettings?.shippoApiKey;
+  const [shipCarrier, setShipCarrier] = useState('');
+  const [shipNumber, setShipNumber] = useState('');
+  const [shipUrl, setShipUrl] = useState('');
+  const [noScanTarget, setNoScanTarget] = useState<BoardOrder | null>(null);
+  const [verifiedBy, setVerifiedBy] = useState('');
+
+  // ── Live subscriptions ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const qo = query(
+      collection(firestore as Firestore, `tenants/${tenantId}/retailOrders`),
+      where('stage', 'in', ['paid', 'picking', 'packed', 'ready', 'arrived'])
+    );
+    const unsubO = onSnapshot(qo, (snap: any) => {
+      setOrders(snap.docs.map((d: any) => ({ ...(d.data() as RetailOrder), id: d.id as string })));
+      setLoading(false);
+    });
+    const qb = query(
+      collection(firestore as Firestore, `tenants/${tenantId}/fulfillmentBatches`),
+      where('active', '==', true)
+    );
+    const unsubB = onSnapshot(qb, (snap: any) => {
+      setBatches(snap.docs.map((d: any) => ({ ...(d.data() as FulfillmentBatch), id: d.id as string })));
+    });
+    return () => { unsubO(); unsubB(); };
+  }, [firestore, tenantId]);
+
+  // ── Stale-claim sweep: on load + every 60s ────────────────────────────────
+  useEffect(() => {
+    if (!firestore || !tenantId) return;
+    const run = () => sweepStaleClaims(firestore as Firestore, tenantId).then((n: number) => {
+      if (n > 0) toast({ title: 'Claims released', description: `${n} idle claim(s) returned to the queue.` });
+    }).catch(() => {});
+    run();
+    const t = setInterval(run, 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firestore, tenantId]);
+
+  // ── Derived lanes ─────────────────────────────────────────────────────────
+  const queue = useMemo(
+    () => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock !== true).sort((a, b) => queuePriority(a, policy) - queuePriority(b, policy)),
+    [orders]
+  );
+  const backorders = useMemo(() => orders.filter((o) => o.stage === 'paid' && o.holdUntilRestock === true), [orders]);
+  const inProgress = useMemo(() => orders.filter((o) => ['picking', 'packed'].includes(o.stage)), [orders]);
+  const ready = useMemo(() => orders.filter((o) => o.stage === 'ready'), [orders]);
+
+  const health = useMemo(() => {
+    const active = orders.filter((o) => ['paid', 'picking', 'packed'].includes(o.stage));
+    const slas = active.map((o) => slaFor(o, policy));
+    return {
+      late: slas.filter((x) => x.state === 'late').length,
+      due: slas.filter((x) => x.state === 'due').length,
+      working: active.length,
+      oldest: slas.reduce((a, b) => (b.waitedMinutes > a ? b.waitedMinutes : a), 0),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, policy, tick]);
+
+
+  /*
+   * The exception lane. Shorts, orders cancelled mid-pick, backorders and
+   * abandoned claims each used to live in a different corner of the board, so
+   * the one thing they have in common — a human has to decide something — was
+   * invisible. Anything here is work that will not resolve itself.
+   */
+  const exceptions = useMemo(() => {
+    const out: { id: string; kind: string; title: string; detail: string; tone: 'warn' | 'bad' }[] = [];
+    orders.forEach((o) => {
+      const num = `#${String(o.orderNumber).padStart(4, '0')}`;
+
+      if (['cancelled', 'refunded'].includes(String(o.stage)) && (o.batchId || o.waveId)) {
+        out.push({
+          id: `${o.id}-dead`, kind: 'cancelled', tone: 'bad',
+          title: `${num} cancelled while being picked`,
+          detail: o.waveTote ? `Return the items and free tote ${o.waveTote}` : 'Return the items to stock',
+        });
+      }
+
+      (o.lines || []).forEach((l: any) => {
+        if ((l.qtyShorted || 0) > 0 && l.status === 'backordered') {
+          out.push({
+            id: `${o.id}-${l.lineId}-bo`, kind: 'backorder', tone: 'warn',
+            title: `${num} · ${l.name} on backorder`,
+            detail: `${l.qtyShorted} owed — release when stock lands`,
+          });
+        }
+      });
+
+      if ((o.pendingRefundCents || 0) > 0) {
+        out.push({
+          id: `${o.id}-refund`, kind: 'refund', tone: 'warn',
+          title: `${num} refund queued`,
+          detail: `$${((o.pendingRefundCents || 0) / 100).toFixed(2)} to process in Stripe, then mark refunded`,
+        });
+      }
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, tick]);
+
+  const staleReady = useMemo(
+    () => ready.filter((o) => {
+      const t = Date.parse(String((o as any).readyAt || o.placedAt || ''));
+      return Number.isFinite(t) && Date.now() - t > staleHours * 3_600_000;
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ready, staleHours, tick]
+  );
+
+  const arrived = useMemo(
+    () => orders.filter((o) => o.stage === 'arrived')
+      .sort((a, b) => (a.curbside?.arrivedAt || '').localeCompare(b.curbside?.arrivedAt || '')),
+    [orders]
+  );
+  // One tick a second, so every wait clock on the board counts up without
+  // each card owning a timer.
+  const [nowTick, setNowTick] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // THE ALARM. A board nobody is looking at is a customer sitting in a car
+  // park. When someone new checks in, make a noise once — not per render, not
+  // per poll — and only for arrivals we haven't already announced.
+  const announcedRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = arrived.filter((o) => !announcedRef.current.has(o.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((o) => announcedRef.current.add(o.id));
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (Ctx) {
+        const ctx = new Ctx();
+        const gain = ctx.createGain();
+        gain.gain.value = 0.06;
+        gain.connect(ctx.destination);
+        [880, 1320].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          osc.frequency.value = freq;
+          osc.connect(gain);
+          osc.start(ctx.currentTime + i * 0.18);
+          osc.stop(ctx.currentTime + i * 0.18 + 0.15);
+        });
+      }
+    } catch { /* a silent board still shows the card */ }
+    const o = fresh[0];
+    toast({
+      title: `#${String(o.orderNumber).padStart(4, '0')} is outside`,
+      description: `${o.customerName}${o.curbside?.spotOrVehicle ? ` — ${o.curbside.spotOrVehicle}` : ''}. Take it out.`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrived.map((o) => o.id).join(',')]);
+
+  // If a wait crosses five minutes and nobody has set off, the alert leaves
+  // the building. The route sends once per order; this only has to notice.
+  const escalatedRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const o of arrived) {
+      if (escalatedRef.current.has(o.id)) continue;
+      if ((o.curbside as any)?.bringingOutAt) continue;
+      const mins = curbsideWaitMinutes(o as any, nowTick);
+      if (mins === null || mins < 5) continue;
+      escalatedRef.current.add(o.id);
+      notifyCurbside(tenantId, o.id, 'staff_escalation' as any);
     }
-  }
-  if (remaining !== null && remaining <= 0) {
-    return { isPreorder: true, open: false, reason: 'sold_out', closesAt, etaAt, remaining: 0 };
-  }
-  return { isPreorder: true, open: true, reason: 'ok', closesAt, etaAt, remaining };
-}
+  }, [arrived, nowTick, tenantId]);
 
-export function storefrontBlockers(item: Partial<SellableItem> & { type?: string; status?: string }): string[] {
-  const reasons: string[] = [];
-  if (item.type !== 'retail') reasons.push('Not a retail product');
-  if (item.status === 'archived') reasons.push('Archived');
-  if (item.showOnline !== true) reasons.push('Show online is off');
-  if (!((item.msrp ?? 0) > 0)) reasons.push('No price set');
-  return reasons;
-}
+  const myBatch = useMemo(() => batches.find((b) => b.assignedTo === actor.id) || null, [batches, actor.id]);
+  const myOrders = useMemo(
+    () => (myBatch ? inProgress.filter((o) => o.batchId === myBatch.id) : []),
+    [myBatch, inProgress]
+  );
 
-export function isStorefrontVisible(item: SellableItem): boolean {
+  const shelfList = useMemo(() => {
+    const map = new Map<string, {
+      productId: string; name: string; photo: string;
+      needed: number; scanned: number; orders: { number: number; qty: number }[];
+    }>();
+    myOrders.filter((o) => o.stage === 'picking').forEach((o) => {
+      (o.lines || []).forEach((l: any) => {
+        const open = Math.max(0, (l.qtyOrdered || 0) - (l.qtyShorted || 0));
+        if (open <= 0) return;
+        const key = String(l.productId);
+        const row = map.get(key) || {
+          productId: key, name: String(l.name || 'Item'), photo: photoFor.get(key) || '',
+          needed: 0, scanned: 0, orders: [],
+        };
+        row.needed += open;
+        row.scanned += Math.min(l.qtyScanned || 0, open);
+        row.orders.push({ number: Number(o.orderNumber) || 0, qty: open });
+        map.set(key, row);
+      });
+    });
+    // Group the walk by where things live, so the list reads like a route
+    // through the room rather than a jumble.
+    return [...map.values()].sort((a, b) => {
+      const ad = a.scanned >= a.needed ? 1 : 0;
+      const bd = b.scanned >= b.needed ? 1 : 0;
+      const al = shelfFor.get(a.productId) || 'zzz';
+      const bl = shelfFor.get(b.productId) || 'zzz';
+      return ad - bd || al.localeCompare(bl) || b.needed - a.needed || a.name.localeCompare(b.name);
+    });
+  }, [myOrders, photoFor, shelfFor]);
+
+  const pendingRefunds = useMemo(
+    () => orders.filter((o) => (o.pendingRefundCents || 0) > 0),
+    [orders]
+  );
+
+  const fetchRates = async () => {
+    if (!shipTarget || ratesLoading) return;
+    setRatesLoading(true);
+    setRates([]);
+    try {
+      const res = await fetch('/api/retail/shipping-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '',
+          action: 'rates',
+          parcels: Array.from({ length: Math.max(1, boxes) }, () => ({
+            weightOz: perBoxOz(),
+            lengthIn: Number(parcel.lengthIn) || 10,
+            widthIn: Number(parcel.widthIn) || 8,
+            heightIn: Number(parcel.heightIn) || 4,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not fetch rates');
+      setRates(data.rates || []);
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Rates unavailable', description: e?.message });
+    } finally {
+      setRatesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Automation feel: opening the Ship dialog IS the request for rates —
+    // no "Get live rates" tap needed when Shippo is connected.
+    if (shipTarget && shippoConfigured && rates.length === 0 && !labelUrl && !ratesLoading) {
+      fetchRates();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipTarget?.id]);
+
+  const buyLabel = async (rateId: string) => {
+    if (!shipTarget || buyingRate) return;
+    setBuyingRate(rateId);
+    try {
+      const res = await fetch('/api/retail/shipping-label', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '', action: 'purchase', rateId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Label purchase failed');
+      setShipCarrier(data.carrier || '');
+      setShipNumber(data.trackingNumber || '');
+      setShipUrl(data.trackingUrl || '');
+      setLabelUrl(data.labelUrl || '');
+      setExtraLabels((data.extraLabelUrls || []) as string[]);
+      setRates([]);
+      if (data.labelUrl) window.open(data.labelUrl, '_blank');
+      toast({ title: 'Label purchased', description: 'Tracking filled in — print, affix, then confirm shipped.' });
+    } catch (e: any) {
+      toast({ variant: 'destructive', title: 'Could not buy label', description: e?.message });
+    } finally {
+      setBuyingRate(null);
+    }
+  };
+
+  const requireCtx = () => {
+    if (!firestore || !tenantId) { toast({ variant: 'destructive', title: 'Not connected' }); return null; }
+    return firestore as Firestore;
+  };
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  const takeNext = async () => {
+    const fs = requireCtx(); if (!fs || claiming) return;
+    setClaiming(true);
+    const res = await claimNextBatch(fs, tenantId, actor);
+    setClaiming(false);
+    if ('error' in res) toast({ title: 'Queue', description: res.error });
+    else toast({ title: `Claimed ${res.orderIds.length} order(s)`, description: 'Start scanning items.' });
+  };
+
+  const onPickScan = useCallback(async (value: string) => {
+    const fs = requireCtx(); if (!fs) return;
+    // Route the scan to whichever of my orders accepts it; mismatch on all = real mismatch.
+    let specific: string | null = null;
+    for (const o of myOrders.filter((x) => x.stage === 'picking')) {
+      const res = await recordItemScan(fs, tenantId, o.id, value, actor);
+      if (res.ok) {
+        scanFeedback(true);
+        if (res.pickComplete) {
+          // Express flow: the last scan IS the pack. Auto-advance so a
+          // pickup order needs zero admin taps between scanning and the
+          // shelf — packed, then ready (which notifies the customer).
+          const packed = await markPacked(fs, tenantId, o.id, actor);
+          if (packed.ok && o.method !== 'ship') {
+            const ready = await markReady(fs, tenantId, o.id, actor);
+            toast({
+              title: `#${String(o.orderNumber).padStart(4, '0')} complete`,
+              description: ready.ok ? 'Packed & Ready — customer notified. On to the shelf.' : `Packed. ${ready.message}`,
+            });
+          } else {
+            toast({
+              title: `#${String(o.orderNumber).padStart(4, '0')} · ${res.message}`,
+              description: packed.ok
+                ? (o.method === 'ship' ? 'Packed — open Ship to buy the label.' : undefined)
+                : `Pick complete. ${packed.message}`,
+            });
+          }
+        } else {
+          toast({ title: `#${String(o.orderNumber).padStart(4, '0')} · ${res.message}` });
+        }
+        return;
+      }
+      if (!specific && res.message && !res.message.includes('is not on this order')) {
+        specific = `#${String(o.orderNumber).padStart(4, '0')}: ${res.message}`;
+      }
+    }
+    if (specific) {
+      scanFeedback(false);
+      toast({ variant: 'destructive', title: 'Scan matched — but that line is closed', description: specific });
+      return;
+    }
+    const raw = value.trim();
+    const pid = parseProductQr(raw);
+    const lineHit = (o: BoardOrder) => o.lines?.some((l: any) =>
+      (pid && l.productId === pid) ||
+      l.productId === raw || String(l.productId).toLowerCase() === raw.toLowerCase() ||
+      codesMatch(l.barcode, raw) || codesMatch(l.sku, raw));
+    const elsewhere = orders.find((o) => !['cancelled', 'refunded', 'completed'].includes(o.stage) && lineHit(o));
+    if (elsewhere) {
+      const num = `#${String(elsewhere.orderNumber).padStart(4, '0')}`;
+      if (elsewhere.stage === 'paid' && !elsewhere.batchId) {
+        const grab = await claimSpecificOrder(fs, tenantId, elsewhere.id, actor);
+        if (!('error' in grab)) {
+          const res2 = await recordItemScan(fs, tenantId, elsewhere.id, value, actor);
+          if (res2.ok) {
+            scanFeedback(true);
+            toast({
+              title: `Claimed ${num} \u00b7 ${res2.message}`,
+              description: res2.pickComplete ? undefined : 'Scan-to-claim: the order is yours now \u2014 keep scanning.',
+            });
+            if (res2.pickComplete) {
+              const packed2 = await markPacked(fs, tenantId, elsewhere.id, actor);
+              if (packed2.ok && elsewhere.method !== 'ship') await markReady(fs, tenantId, elsewhere.id, actor);
+            }
+            return;
+          }
+        }
+      }
+      const why = elsewhere.stage === 'paid'
+        ? `${num} is in the Queue and claimed by someone else right now.`
+        : ['picking', 'packed'].includes(elsewhere.stage)
+          ? `${num} is claimed by ${elsewhere.claimedByName || 'another teammate'}.`
+          : `${num} is already ${elsewhere.stage} \u2014 picking is done there.`;
+      scanFeedback(false);
+      toast({ variant: 'destructive', title: 'Right product, different order', description: why });
+      return;
+    }
+    scanFeedback(false);
+    toast({
+      variant: 'destructive',
+      title: `Scanned: ${raw.slice(0, 40)}`,
+      description: 'This code isn\u2019t on any open order\u2019s lines. If it IS the right product, open it in Inventory and paste this exact code into its Barcode field \u2014 it will match instantly.',
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myOrders, tenantId, actor]);
+
+  const doShort = async (resolution: 'refund' | 'backorder') => {
+    const fs = requireCtx(); if (!fs || !shortTarget) return;
+    const res = await resolveShortLine(fs, tenantId, shortTarget.order.id, shortTarget.line.lineId,
+      shortReason.trim() || 'Shelf discrepancy', resolution, actor);
+    toast({ variant: res.ok ? 'default' : 'destructive', title: res.ok ? 'Line shorted' : 'Problem', description: res.message });
+    if (res.ok) { setShortTarget(null); setShortReason(''); }
+  };
+
+  const act = async (key: string, fn: () => Promise<{ ok: boolean; message: string }>) => {
+    const fs = requireCtx(); if (!fs || busy) return;
+    setBusy(key);
+    const res = await fn();
+    setBusy(null);
+    toast({ variant: res.ok ? 'default' : 'destructive', title: res.ok ? res.message : 'Problem', description: res.ok ? undefined : res.message });
+  };
+
+  const onHandoffScan = useCallback(async (value: string) => {
+    const fs = requireCtx(); if (!fs) return;
+    const res = await handoffByScan(fs, tenantId, value, actor);
+    scanFeedback(res.ok);
+    toast({ variant: res.ok ? 'default' : 'destructive', title: res.ok ? 'Handed off ✓' : 'Hold on', description: res.message });
+    if (res.ok) setHandoffOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, actor]);
+
+  // ── Card ──────────────────────────────────────────────────────────────────
+  const OrderCard = ({ o, children }: { o: BoardOrder; children?: React.ReactNode }) => {
+    const Icon = methodIcon(o.method);
+    const waiting = o.method === 'curbside' && !!o.curbside?.arrivedAt && o.stage !== 'arrived';
+    // How long they have actually been sitting outside. A clock beats a badge:
+    // "arrived" tells you nothing at a glance, "waiting 6 min" tells you to go.
+    const waitMin = curbsideWaitMinutes(o as any, nowTick);
+    const onWay = o.method === 'curbside' && !!o.curbside?.onWayAt && !o.curbside?.arrivedAt;
+    // One car, two orders: without this the board sends someone out twice and
+    // the second trip finds an empty space.
+    const sameTrip = o.method === 'curbside' && o.curbside?.arrivedAt
+      ? samePickupCount(o as any, arrived as any) : 0;
+    const sla: SlaInfo | null = ['paid', 'picking', 'packed'].includes(o.stage) ? slaFor(o, policy) : null;
+    return (
+      <Card className={cn(
+        'border-2 rounded-[1.75rem] overflow-hidden bg-white',
+        o.stage === 'arrived' && 'border-primary shadow-lg shadow-primary/15',
+        sla?.state === 'late' && 'border-destructive/60',
+        sla?.state === 'due' && 'border-amber-300',
+        waiting && 'border-amber-300'
+      )}>
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{o.customerName}</p>
+              {(o.curbside as any)?.bringToVehicle && (
+                <p className="mt-1 rounded-lg border-2 border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-black uppercase tracking-widest text-sky-900">
+                  Bring to vehicle
+                  {(o.curbside as any)?.accessNote ? ` — ${(o.curbside as any).accessNote}` : ''}
+                </p>
+              )}
+              {sameTrip > 0 && (
+                <p className="mt-1 rounded-lg border-2 border-primary/40 bg-primary/5 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-primary">
+                  +{sameTrip} more order{sameTrip === 1 ? '' : 's'} for this car — take them together
+                </p>
+              )}
+              {waitMin !== null && (
+                <p className={cn('mt-1 inline-flex items-center gap-1 rounded-lg border-2 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest',
+                  waitMin >= 5 ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                    : waitMin >= 3 ? 'border-amber-300 bg-amber-50 text-amber-800'
+                    : 'border-primary/40 bg-primary/5 text-primary')}>
+                  <Car className="h-3 w-3" aria-hidden="true" />
+                  Outside {waitMin === 0 ? 'just now' : `${waitMin} min`}
+                  {o.curbside?.spotOrVehicle ? ` · ${o.curbside.spotOrVehicle}` : ''}
+                  {o.curbside?.checkInSource === 'geo_auto' ? ' · auto' : o.curbside?.checkInSource === 'sign_qr' ? ' · scanned' : ''}
+                </p>
+              )}
+              {onWay && (
+                <p className="mt-1 inline-flex items-center gap-1 rounded-lg border-2 border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-sky-800">
+                  <Car className="h-3 w-3" aria-hidden="true" />
+                  On the way{o.curbside?.etaMinutes ? ` · ~${o.curbside.etaMinutes} min` : ''}
+                </p>
+              )}
+              {(o as any).shelfSlot && ['ready', 'arrived'].includes(o.stage) && (
+                <p className="mt-1 inline-flex items-center gap-1 rounded-lg border-2 border-primary/40 bg-primary/5 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-primary">
+                  Shelf {(o as any).shelfSlot}
+                </p>
+              )}
+              {sla && (
+                <p className={cn('text-[10px] font-black uppercase tracking-widest mt-0.5',
+                  sla.state === 'late' ? 'text-destructive' : sla.state === 'due' ? 'text-amber-600' : 'text-muted-foreground/70')}>
+                  {sla.label} · waited {Math.round(sla.waitedMinutes)}m
+                </p>
+              )}
+              {(o as any).pickupAt && (o as any).pickupAt !== 'ASAP' && (
+                <p className="text-[8px] font-black uppercase tracking-widest text-primary">Wants it {(o as any).pickupAt}</p>
+              )}
+            </div>
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2">
+                <Icon className="w-3 h-3 mr-1" />{o.method}
+              </Badge>
+              {o.priceTier === 'wholesale' && (
+                <Badge className="h-5 px-2 bg-primary/10 text-primary border-2 border-primary/20 font-black text-[8px] uppercase tracking-widest">B2B</Badge>
+              )}
+            </div>
+          </div>
+          <p className="text-[10px] font-bold text-muted-foreground">
+            {o.lines.reduce((a, l) => a + l.qtyOrdered, 0)} items · {fmt(o.totalCents)}
+          </p>
+          {waiting && (
+            <p className="text-[9px] font-black uppercase tracking-widest text-amber-600 animate-pulse">
+              Customer waiting{o.curbside?.spotOrVehicle ? ` · ${o.curbside.spotOrVehicle}` : ''}
+            </p>
+          )}
+          {o.stage === 'arrived' && (
+            <p className="text-[9px] font-black uppercase tracking-widest text-primary">
+              {o.curbside?.spotOrVehicle || 'Outside now'}
+            </p>
+          )}
+          {children}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-4 bg-muted/5">
+        <Loader className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-[10px] font-black uppercase tracking-widest opacity-40">Opening the board…</p>
+      </div>
+    );
+  }
+
   return (
-    item.type === 'retail' &&
-    item.status !== 'archived' &&
-    item.showOnline === true &&
-    (item.msrp ?? 0) > 0
+    <div className={`min-h-dvh bg-muted/5 pb-28${stationMode ? ' station-mode' : ''}`}>
+      <header className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b-2">
+        <div className="max-w-7xl mx-auto px-4 py-3 sm:py-4 flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="font-black uppercase tracking-tighter text-xl leading-none">Fulfillment</h1>
+              <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mt-0.5 truncate">
+                {queue.length} queued · {inProgress.length} in progress · {ready.length} ready · {arrived.length} outside
+              </p>
+            </div>
+            <div className="flex items-center gap-0.5 sm:hidden shrink-0">
+              <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
+                <Link href="/retail-orders/history" aria-label="Order history"><History className="h-4 w-4" aria-hidden="true" /></Link>
+              </Button>
+              <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl">
+                <Link href="/retail-orders/settings" aria-label="Shop settings"><Settings className="h-4 w-4" aria-hidden="true" /></Link>
+              </Button>
+              <Button asChild variant="ghost" size="icon" className="h-10 w-10 rounded-xl text-primary">
+                <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer" aria-label="Open your storefront in a new tab"><Store className="h-4 w-4" aria-hidden="true" /></a>
+              </Button>
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            aria-pressed={stationMode}
+            onClick={() => setStationMode((v) => !v)}
+            className="h-11 rounded-xl border-2 text-[10px] font-black uppercase tracking-widest shrink-0"
+          >
+            {stationMode ? 'Phone view' : 'Station view'}
+          </Button>
+          <Button
+            onClick={takeNext}
+            disabled={claiming || !!myBatch || queue.length === 0}
+            className="flex-1 sm:flex-none h-12 sm:h-11 rounded-xl font-black uppercase text-[10px] tracking-widest shadow-md shadow-primary/20"
+          >
+            {claiming ? <Loader className="h-4 w-4 animate-spin" /> : <><Zap className="mr-1.5 h-4 w-4" /> Take next</>}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setHandoffOpen(true)}
+            className="h-12 sm:h-11 rounded-xl font-black uppercase text-[10px] tracking-widest border-2"
+          >
+            <QrCode className="mr-1.5 h-4 w-4" /> Handoff
+          </Button>
+          <Button asChild variant="outline" className="h-12 w-12 sm:h-11 sm:w-auto rounded-xl font-black uppercase text-[10px] tracking-widest border-2 px-0 sm:px-4">
+            <Link href="/retail-orders/returns"><RotateCcw className="h-4 w-4 sm:mr-1.5" /><span className="hidden sm:inline">Returns</span></Link>
+          </Button>
+          <div className="hidden sm:flex items-center gap-1">
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+              <Link href="/retail-orders/history" aria-label="Order history"><History className="h-4 w-4" aria-hidden="true" /></Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl">
+              <Link href="/retail-orders/settings" aria-label="Shop settings"><Settings className="h-4 w-4" aria-hidden="true" /></Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" className="h-11 w-11 rounded-xl text-primary">
+              <a href={`/shop/${tenantId}`} target="_blank" rel="noreferrer" aria-label="Open your storefront in a new tab"><Store className="h-4 w-4" aria-hidden="true" /></a>
+            </Button>
+          </div>
+        </div>
+        {pendingRefunds.length > 0 && (
+          <div className="bg-amber-50 border-t border-amber-100">
+            <div className="max-w-7xl mx-auto px-4 py-1.5 flex flex-wrap items-center gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 flex-1">
+                {pendingRefunds.length} refund(s) to execute in Stripe:
+              </p>
+              {pendingRefunds.map((o) => (
+                <Button
+                  key={o.id}
+                  variant="outline"
+                  size="sm"
+                  disabled={busy === `refund-${o.id}`}
+                  onClick={() => act(`refund-${o.id}`, () => markRefundExecuted(requireCtx() as Firestore, tenantId, o.id, actor))}
+                  className="h-7 rounded-lg font-black uppercase text-[8px] tracking-widest border-2 border-amber-200 text-amber-700 hover:bg-amber-100"
+                >
+                  #{o.orderNumber} {fmt(o.pendingRefundCents || 0)} · Mark refunded
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+      </header>
+
+      {staleReady.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="rounded-[1.5rem] border-2 border-amber-300 bg-amber-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+              {staleReady.length} order{staleReady.length === 1 ? '' : 's'} waiting on the shelf over {staleHours}h
+            </p>
+            <p className="mt-1 text-[11px] font-bold text-amber-900/80">
+              Uncollected orders quietly become dead stock — a nudge usually clears them.
+            </p>
+            <div className="mt-3 space-y-2">
+              {staleReady.slice(0, 5).map((o) => (
+                <div key={o.id} className="flex items-center justify-between gap-3 rounded-xl border-2 border-amber-200 bg-white p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-black uppercase tracking-tight">
+                      #{String(o.orderNumber).padStart(4, '0')} · {o.customerName}
+                    </p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                      ready {Math.round((Date.now() - Date.parse(String((o as any).readyAt || o.placedAt || ''))) / 3_600_000)}h ago
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    {o.customerEmail && (
+                      <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest">
+                        <a href={`mailto:${o.customerEmail}?subject=${encodeURIComponent(`Your order #${String(o.orderNumber).padStart(4, '0')} is ready`)}&body=${encodeURIComponent(`Hi ${String(o.customerName || '').split(' ')[0]}, your order is packed and waiting for you whenever you can swing by.`)}`}>
+                          Remind
+                        </a>
+                      </Button>
+                    )}
+                    {o.customerPhone && (
+                      <Button asChild variant="outline" size="sm" className="h-9 rounded-xl border-2 text-[9px] font-black uppercase tracking-widest">
+                        <a href={`sms:${o.customerPhone}`}>Text</a>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {myBatch && (
+        <section className="max-w-7xl mx-auto px-4 pt-5">
+          <Card className="border-2 border-primary rounded-[2rem] overflow-hidden bg-white shadow-xl shadow-primary/10">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <ScanLine className="w-4 h-4 text-primary shrink-0" />
+                  <p className="text-[10px] font-black uppercase tracking-widest truncate">Your pick — scan every item</p>
+                </div>
+                <div className="flex rounded-xl border-2 overflow-hidden shrink-0">
+                  {(['shelf', 'orders'] as const).map((v) => (
+                    <button key={v} type="button" aria-pressed={batchView === v}
+                      onClick={() => setBatchView(v)}
+                      className={cn('h-8 px-3 text-[9px] font-black uppercase tracking-widest',
+                        batchView === v ? 'bg-foreground text-background' : 'bg-white')}>
+                      {v === 'shelf' ? 'By shelf' : 'By order'}
+                    </button>
+                  ))}
+                </div>
+                <Button
+                  variant="ghost" size="sm"
+                  className="h-8 font-black uppercase text-[9px] tracking-widest text-muted-foreground"
+                  onClick={() => { const fs = requireCtx(); if (fs) releaseBatch(fs, tenantId, myBatch, 'manual', actor); }}
+                >
+                  <X className="mr-1 h-3 w-3" /> Release
+                </Button>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <ScanGate onScan={onPickScan} label="Scan item barcode, SKU label, or product QR" />
+                <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
+                  {batchView === 'shelf' && (
+                    <>
+                      {shelfList.length === 0 && (
+                        <p className="py-6 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          Nothing left to pick
+                        </p>
+                      )}
+                      {shelfList.map((row) => {
+                        const done = row.scanned >= row.needed;
+                        return (
+                          <div key={row.productId} className={cn('flex items-center gap-3 rounded-2xl border-2 p-3', done && 'opacity-50')}>
+                            {row.photo ? (
+                              <img src={row.photo} alt="" loading="lazy" className="h-12 w-12 shrink-0 rounded-xl border object-cover" />
+                            ) : (
+                              <div className="h-12 w-12 shrink-0 rounded-xl border bg-muted/30" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-black uppercase tracking-tight">{row.name}</p>
+                              <p className="truncate text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                {shelfFor.get(row.productId) ? `${shelfFor.get(row.productId)} · ` : ''}
+                                {row.orders.map((x) => `#${String(x.number).padStart(4, '0')}${x.qty > 1 ? ` ×${x.qty}` : ''}`).join(' · ')}
+                              </p>
+                            </div>
+                            <p className={cn('shrink-0 font-mono text-base font-black', done && 'text-primary')}>
+                              {row.scanned}/{row.needed}
+                            </p>
+                          </div>
+                        );
+                      })}
+                      {shelfList.length > 0 && (
+                        <p className="pt-1 text-center text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                          Grab {shelfList.reduce((a, r) => a + Math.max(0, r.needed - r.scanned), 0)} item(s) · each scan still files to its own order
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {batchView === 'orders' && myOrders.map((o) => (
+                    <div key={o.id} className="rounded-2xl border-2 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="font-black uppercase tracking-tight text-xs">#{String(o.orderNumber).padStart(4, '0')} · {o.customerName}</p>
+                        <Badge variant="outline" className="h-5 px-2 font-black text-[8px] uppercase tracking-widest border-2">
+                          {STAGE_LABELS[o.stage]}
+                        </Badge>
+                      </div>
+                      {o.lines.map((l) => {
+                        const doneLine = l.qtyScanned >= l.qtyOrdered || ['shorted', 'refunded', 'backordered'].includes(l.status);
+                        return (
+                          <div key={l.lineId} className="flex items-center gap-2">
+                            <div className={cn(
+                              'w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0',
+                              doneLine ? 'bg-primary border-primary text-primary-foreground' : 'border-muted'
+                            )}>
+                              {doneLine ? <Check className="w-3.5 h-3.5" /> : null}
+                            </div>
+                            {photoFor.get(l.productId) ? (
+                              <img
+                                src={photoFor.get(l.productId)}
+                                alt=""
+                                loading="lazy"
+                                className={cn('w-9 h-9 rounded-lg border object-cover shrink-0', doneLine && 'opacity-40')}
+                              />
+                            ) : (
+                              <div className={cn('w-9 h-9 rounded-lg border bg-muted/30 shrink-0', doneLine && 'opacity-40')} />
+                            )}
+                            <p className={cn('text-[11px] font-bold flex-1 min-w-0 truncate', doneLine && 'opacity-50')}>
+                              {l.name}
+                              {(l as any).optionsLabel ? <span className="block text-[8px] font-black uppercase tracking-widest text-primary">{(l as any).optionsLabel}</span> : null}
+                              {shelfFor.get(l.productId) ? (
+                                <span className="block text-[8px] font-black uppercase tracking-widest text-muted-foreground/80">
+                                  {shelfFor.get(l.productId)}
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="font-black font-mono text-[11px]">{l.qtyScanned}/{l.qtyOrdered}</p>
+                            {!doneLine && o.stage === 'picking' && (l.qtyShorted || 0) === 0 && (
+                              <Button
+                                variant="ghost" size="sm"
+                                className="h-6 px-2 font-black uppercase text-[8px] tracking-widest text-amber-600"
+                                onClick={() => setShortTarget({ order: o, line: l })}
+                              >
+                                Short
+                              </Button>
+                            )}
+                            {o.stage === 'picking' && (l.qtyShorted || 0) > 0 && (
+                              <Button
+                                variant="ghost" size="sm"
+                                disabled={busy === `reopen-${l.lineId}`}
+                                className="h-6 px-2 font-black uppercase text-[8px] tracking-widest text-primary"
+                                onClick={() => act(`reopen-${l.lineId}`, () => reopenShortedLine(requireCtx() as Firestore, tenantId, o.id, l.lineId, actor))}
+                              >
+                                Reopen
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                      <Button
+                        variant="outline"
+                        onClick={() => window.open(printUrl('packing-slip', tenantId, o), '_blank')}
+                        className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-muted-foreground"
+                      >
+                        <Printer className="mr-1 h-3 w-3" /> Packing slip
+                      </Button>
+                      {o.stage === 'picking' ? (
+                        <Button
+                          disabled={!isPickComplete(o.lines) || busy === `pack-${o.id}`}
+                          onClick={() => act(`pack-${o.id}`, () => markPacked(requireCtx() as Firestore, tenantId, o.id, actor))}
+                          className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                        >
+                          <PackageCheck className="mr-1.5 h-3.5 w-3.5" /> Mark packed
+                        </Button>
+                      ) : (
+                        <Button
+                          disabled={busy === `ready-${o.id}`}
+                          onClick={() => act(`ready-${o.id}`, async () => {
+                            const r = await markReady(requireCtx() as Firestore, tenantId, o.id, actor);
+                            if (r.ok && (r as any).notifyReady) notifyCurbside(tenantId, o.id, 'ready');
+                            return r;
+                          })}
+                          className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                        >
+                          <Package className="mr-1.5 h-3.5 w-3.5" /> Mark ready
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  {myOrders.length === 0 && (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-center py-8">
+                      Batch complete — take the next one
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+      )}
+
+      <div className="max-w-7xl mx-auto px-4 pt-4">
+        <div className={cn('rounded-[1.5rem] border-2 p-3 grid grid-cols-2 sm:grid-cols-4 gap-3',
+          health.late > 0 ? 'border-destructive/50 bg-destructive/[0.04]' : 'bg-white')}>
+          {[
+            { n: health.late, label: 'past due', tone: health.late > 0 ? 'bad' : 'ok' },
+            { n: health.due, label: 'due soon', tone: health.due > 0 ? 'warn' : 'ok' },
+            { n: health.working, label: 'in the queue', tone: 'ok' },
+            { n: staleReady.length, label: `on shelf >${staleHours}h`, tone: staleReady.length > 0 ? 'warn' : 'ok' },
+          ].map((k) => (
+            <div key={k.label} className="min-w-0">
+              <p className={cn('font-mono text-xl font-bold leading-none',
+                k.tone === 'bad' && 'text-destructive', k.tone === 'warn' && 'text-amber-600')}>{k.n}</p>
+              <p className="mt-1 text-[10px] font-black uppercase tracking-widest text-muted-foreground truncate">{k.label}</p>
+            </div>
+          ))}
+        </div>
+        {health.late > 0 && (
+          <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-destructive">
+            Past-due orders lead the queue — Take Next picks them first
+          </p>
+        )}
+      </div>
+
+      {exceptions.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 pt-4">
+          <div className="rounded-[1.5rem] border-2 border-amber-300 bg-amber-50 p-4">
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+              {exceptions.length} thing{exceptions.length === 1 ? '' : 's'} need a decision
+            </p>
+            <div className="mt-3 space-y-2">
+              {exceptions.slice(0, 6).map((x) => (
+                <div
+                  key={x.id}
+                  className={cn('rounded-xl border-2 bg-white p-3',
+                    x.tone === 'bad' ? 'border-destructive/40' : 'border-amber-200')}
+                >
+                  <p className={cn('text-xs font-black uppercase tracking-tight',
+                    x.tone === 'bad' && 'text-destructive')}>
+                    {x.title}
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">{x.detail}</p>
+                </div>
+              ))}
+              {exceptions.length > 6 && (
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">
+                  +{exceptions.length - 6} more in Order History
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      <main className="max-w-7xl mx-auto px-4 py-5 grid grid-cols-1 md:grid-cols-4 gap-4">
+        {[
+          { title: 'Queue', icon: ClipboardList, list: queue },
+          { title: 'In Progress', icon: PackageOpen, list: inProgress },
+          { title: 'Ready', icon: Package, list: ready },
+          { title: 'Outside', icon: Car, list: arrived },
+        ].map((lane) => (
+          <div key={lane.title} className={cn('space-y-3', lane.list.length === 0 && lane.title !== 'Queue' && 'hidden md:block')}>
+            <div className="flex items-center gap-2 px-1 sticky top-[104px] md:static z-10 bg-muted/5 backdrop-blur py-1 -my-1 rounded-lg">
+              <lane.icon className="w-3.5 h-3.5 text-primary" />
+              <p className="text-[10px] font-black uppercase tracking-widest">{lane.title}</p>
+              <span className="ml-auto font-black font-mono text-xs opacity-40">{lane.list.length}</span>
+            </div>
+            {lane.list.map((o) => (
+              <OrderCard key={o.id} o={o}>
+                {o.stage === 'paid' && (
+                  <Button
+                    variant="outline"
+                    disabled={busy === `cancel-${o.id}`}
+                    onClick={() => {
+                      const why = window.prompt(`Cancel order #${String(o.orderNumber).padStart(4, '0')}? Reason (optional):`);
+                      if (why === null) return;
+                      act(`cancel-${o.id}`, () => cancelOrder(requireCtx() as Firestore, tenantId, o.id, actor, why.trim()));
+                    }}
+                    className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 border-destructive/30 text-destructive"
+                  >
+                    Cancel order
+                  </Button>
+                )}
+                {o.stage === 'picking' && o.batchId !== myBatch?.id && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                    Picking · {batches.find((b) => b.id === o.batchId)?.assignedToName || 'claimed'}
+                  </p>
+                )}
+                {o.stage === 'packed' && (
+                  <Button
+                    disabled={busy === `ready-${o.id}`}
+                    onClick={() => act(`ready-${o.id}`, async () => {
+                            const r = await markReady(requireCtx() as Firestore, tenantId, o.id, actor);
+                            if (r.ok && (r as any).notifyReady) notifyCurbside(tenantId, o.id, 'ready');
+                            return r;
+                          })}
+                    className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                  >
+                    Mark ready
+                  </Button>
+                )}
+                {o.stage === 'ready' && o.method === 'ship' && (
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => window.open(printUrl('label', tenantId, o), '_blank')}
+                      className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-muted-foreground"
+                    >
+                      <Printer className="mr-1 h-3 w-3" /> Print 4x6 label
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShipTarget(o);
+                        setShipCarrier(''); setShipNumber(''); setShipUrl('');
+                        setRates([]); setLabelUrl((o as any).labelUrl || '');
+                        const known = (o.lines || []).reduce((sum: number, l: any) => {
+                          const w = Number((inventory || []).find((i: any) => i.id === l.productId)?.weightOz) || 0;
+                          return sum + w * Math.max(0, l.qtyOrdered - (l.qtyShorted || 0));
+                        }, 0);
+                        setBoxes(1);
+                        setExtraLabels(((o as any).extraLabelUrls || []) as string[]);
+                        if (known > 0) {
+                          const total = known + 4;
+                          setParcel((prev) => ({ ...prev, weightLb: String(Math.floor(total / 16)), weightOz: String(total % 16) }));
+                        }
+                      }}
+                      className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest"
+                    >
+                      <Ship className="mr-1.5 h-3.5 w-3.5" /> Mark shipped
+                    </Button>
+                  </div>
+                )}
+                {['paid', 'picking'].includes(o.stage) && !(o as any).parentOrderId
+                  && (o.lines || []).some((l: any) => l.preorder === true && !['refunded', 'cancelled'].includes(String(l.status)))
+                  && (o.lines || []).some((l: any) => l.preorder !== true) && (
+                  <Button
+                    variant="outline"
+                    disabled={busy === `split-${o.id}`}
+                    onClick={() => act(`split-${o.id}`, () => splitReadyFromWaiting(requireCtx() as Firestore, tenantId, o.id, actor))}
+                    className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-amber-700 border-amber-200"
+                  >
+                    Ship what&apos;s ready now
+                  </Button>
+                )}
+                {o.stage === 'arrived' && !(o.curbside as any)?.bringingOutAt && (
+                  <Button
+                    disabled={busy === `out-${o.id}`}
+                    onClick={() => act(`out-${o.id}`, async () => {
+                      const r = await markBringingOut(requireCtx() as Firestore, tenantId, o.id, actor);
+                      // A banner only reaches a phone that is awake and looking.
+                      // The text reaches the one in the cupholder.
+                      if (r.ok) notifyCurbside(tenantId, o.id, 'out');
+                      return r;
+                    })}
+                    className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20"
+                  >
+                    On my way out
+                  </Button>
+                )}
+                {o.stage === 'arrived' && !!(o.curbside as any)?.bringingOutAt && (
+                  <p className="rounded-xl border-2 border-primary/30 bg-primary/[0.04] px-3 py-2 text-[9px] font-black uppercase tracking-widest text-primary">
+                    {(o.curbside as any).bringingOutBy || 'Someone'} is heading out
+                  </p>
+                )}
+                {['ready', 'arrived'].includes(o.stage) && o.method !== 'ship' && (
+                  <Button
+                    variant="outline"
+                    onClick={() => { setNoScanTarget(o); setVerifiedBy(''); }}
+                    className="w-full h-8 rounded-xl font-black uppercase text-[8px] tracking-widest border-2 text-muted-foreground"
+                  >
+                    Hand off without scan
+                  </Button>
+                )}
+              </OrderCard>
+            ))}
+            {lane.list.length === 0 && (
+              <div className="rounded-2xl border-2 border-dashed py-8 text-center">
+                <p className="text-[9px] font-black uppercase tracking-widest opacity-30">Empty</p>
+              </div>
+            )}
+          </div>
+        ))}
+      </main>
+
+      {backorders.length > 0 && (
+        <section className="max-w-7xl mx-auto px-4 pb-6 space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
+            <p className="text-[10px] font-black uppercase tracking-widest text-amber-700">Backorders — waiting on restock</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {backorders.map((o) => (
+              <OrderCard key={o.id} o={o}>
+                <Button
+                  disabled={busy === `bo-${o.id}`}
+                  onClick={() => act(`bo-${o.id}`, () => releaseBackorder(requireCtx() as Firestore, tenantId, o.id, actor))}
+                  variant="outline"
+                  className="w-full h-9 rounded-xl font-black uppercase text-[9px] tracking-widest border-2"
+                >
+                  Release to queue
+                </Button>
+              </OrderCard>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <Sheet open={handoffOpen} onOpenChange={setHandoffOpen}>
+        <SheetContent side="bottom" className="rounded-t-[2rem] border-t-4 p-6">
+          <SheetHeader className="text-left pb-3">
+            <SheetTitle className="font-black uppercase tracking-tighter text-xl">Scan customer pickup QR</SheetTitle>
+          </SheetHeader>
+          {handoffOpen && <ScanGate onScan={onHandoffScan} label="Customer's pickup code from their order page" />}
+        </SheetContent>
+      </Sheet>
+
+      <Dialog open={!!shortTarget} onOpenChange={(v: boolean) => !v && setShortTarget(null)}>
+        <DialogContent className="sm:max-w-md rounded-[2rem] border-4 p-7">
+          <DialogHeader className="text-left space-y-1">
+            <DialogTitle className="font-black uppercase tracking-tighter text-lg">Short this line?</DialogTitle>
+            <DialogDescription className="text-xs font-bold text-muted-foreground">
+              {shortTarget ? `${shortTarget.line.name} — ${shortTarget.line.qtyOrdered - shortTarget.line.qtyScanned} missing. Shelf count will be corrected automatically.` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <Input
+              placeholder="What happened? (e.g. shelf empty, damaged)"
+              aria-label="What happened"
+              value={shortReason}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShortReason(e.target.value)}
+              className="h-12 rounded-xl border-2 font-bold text-sm"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Button onClick={() => doShort('refund')} className="h-12 rounded-2xl font-black uppercase text-[9px] tracking-widest">
+                Refund missing
+              </Button>
+              <Button onClick={() => doShort('backorder')} variant="outline" className="h-12 rounded-2xl font-black uppercase text-[9px] tracking-widest border-2">
+                Backorder it
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!shipTarget} onOpenChange={(v: boolean) => !v && setShipTarget(null)}>
+        <DialogContent className="sm:max-w-md rounded-[2rem] border-4 p-7">
+          <DialogHeader className="text-left space-y-1">
+            <DialogTitle className="font-black uppercase tracking-tighter text-lg">
+              Ship order #{shipTarget ? String(shipTarget.orderNumber).padStart(4, '0') : ''}
+            </DialogTitle>
+            <DialogDescription className="text-xs font-bold text-muted-foreground">
+              Stock deducts the moment you confirm. Tracking is optional but shows on the customer&apos;s page instantly.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1 max-h-[55dvh] overflow-y-auto pr-1">
+            {shippoConfigured && !labelUrl && (
+              <div className="rounded-2xl border-2 border-primary/30 bg-primary/[0.03] p-4 space-y-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-primary">Live label via Shippo</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Boxes</p>
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" disabled={boxes <= 1}
+                      onClick={() => { setBoxes(boxes - 1); setRates([]); }}>−</Button>
+                    <span className="font-black font-mono text-sm w-6 text-center">{boxes}</span>
+                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-2" disabled={boxes >= 10}
+                      onClick={() => { setBoxes(boxes + 1); setRates([]); }}>+</Button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-5 gap-2">
+                  {([['weightLb', boxes > 1 ? 'lb / box' : 'lb', 'Weight in pounds'], ['weightOz', 'oz', 'Weight in ounces'], ['lengthIn', 'L in', 'Length in inches'], ['widthIn', 'W in', 'Width in inches'], ['heightIn', 'H in', 'Height in inches']] as const).map(([k, lbl, a11y]) => (
+                    <div key={k} className="space-y-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground text-center">{lbl}</p>
+                      <Input inputMode="decimal" aria-label={a11y} value={(parcel as any)[k]}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setParcel({ ...parcel, [k]: e.target.value }); setRates([]); }}
+                        className="h-10 rounded-xl border-2 font-black font-mono text-xs text-center" />
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground text-center">
+                  Total: {Math.floor((perBoxOz() * boxes) / 16)} lb {(perBoxOz() * boxes) % 16} oz{boxes > 1 ? ` across ${boxes} boxes` : ''}
+                </p>
+                {perBoxOz() > 1120 && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-destructive text-center">
+                    Over 70 lb per box — carriers will refuse it. Add boxes to split the weight.
+                  </p>
+                )}
+                <Button variant="outline" disabled={ratesLoading} onClick={fetchRates}
+                  className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
+                  {ratesLoading ? <Loader className="h-4 w-4 animate-spin" /> : 'Get live rates'}
+                </Button>
+                {rates.length > 0 && (
+                  <div className="space-y-1.5">
+                    {rates.map((r) => (
+                      <button key={r.id} type="button" disabled={!!buyingRate} onClick={() => buyLabel(r.id)}
+                        className="w-full rounded-xl border-2 p-3 flex items-center justify-between gap-2 hover:border-primary/50 transition-all disabled:opacity-50">
+                        <span className="text-left">
+                          <span className="block text-[10px] font-black uppercase tracking-widest">{r.provider} · {r.service}</span>
+                          {r.days != null && <span className="block text-[8px] font-bold uppercase tracking-widest text-muted-foreground">~{r.days} day{r.days === 1 ? '' : 's'}</span>}
+                        </span>
+                        <span className="font-black font-mono text-sm text-primary shrink-0">
+                          {buyingRate === r.id ? '…' : `$${(r.amountCents / 100).toFixed(2)}`}
+                        </span>
+                      </button>
+                    ))}
+                    <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/60">Tap a rate to buy the 4x6 label</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {labelUrl && (
+              <div className="space-y-2">
+                <Button asChild variant="outline" className="w-full h-11 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
+                  <a href={labelUrl} target="_blank" rel="noreferrer">{extraLabels.length > 0 ? 'Open label — box 1' : 'Open purchased label (4x6 PDF)'}</a>
+                </Button>
+                {extraLabels.map((u, i) => (
+                  <Button key={u} asChild variant="outline" className="w-full h-10 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest text-primary border-primary/40">
+                    <a href={u} target="_blank" rel="noreferrer">Open label — box {i + 2}</a>
+                  </Button>
+                ))}
+                <Button
+                  variant="outline"
+                  disabled={busy === 'void-label'}
+                  onClick={async () => {
+                    if (!shipTarget) return;
+                    if (!window.confirm('Void this label? The postage is refunded by the carrier and the tracking is cleared.')) return;
+                    setBusy('void-label');
+                    try {
+                      const res = await fetch('/api/retail/shipping-label', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tenantId, orderId: shipTarget.id, qrToken: shipTarget.qrToken || '', action: 'void' }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || 'Void failed');
+                      setLabelUrl(''); setShipCarrier(''); setShipNumber(''); setShipUrl('');
+                      toast({ title: 'Label voided', description: data.message });
+                    } catch (e: any) {
+                      toast({ variant: 'destructive', title: 'Could not void', description: e?.message });
+                    } finally {
+                      setBusy(null);
+                    }
+                  }}
+                  className="w-full h-10 rounded-xl border-2 border-destructive/30 text-destructive font-black uppercase text-[9px] tracking-widest"
+                >
+                  Void label &amp; refund postage
+                </Button>
+              </div>
+            )}
+            <Input placeholder="Carrier (USPS, UPS…)" aria-label="Carrier" value={shipCarrier} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipCarrier(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-sm" />
+            <Input placeholder="Tracking number" aria-label="Tracking number" value={shipNumber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipNumber(e.target.value)} className="h-12 rounded-xl border-2 font-mono font-black text-xs" />
+            <Input placeholder="Tracking URL (optional)" aria-label="Tracking URL, optional" value={shipUrl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setShipUrl(e.target.value)} className="h-12 rounded-xl border-2 font-bold text-xs" />
+          </div>
+          <DialogFooter className="pt-3">
+            <Button
+              disabled={busy === 'ship'}
+              onClick={() => shipTarget && act('ship', async () => {
+                const r = await markShipped(requireCtx() as Firestore, tenantId, shipTarget.id,
+                  { carrier: shipCarrier.trim(), number: shipNumber.trim(), url: shipUrl.trim() }, actor);
+                if (r.ok) setShipTarget(null);
+                return r;
+              })}
+              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+            >
+              Confirm shipped
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!noScanTarget} onOpenChange={(v: boolean) => !v && setNoScanTarget(null)}>
+        <DialogContent className="sm:max-w-md rounded-[2rem] border-4 p-7">
+          <DialogHeader className="text-left space-y-1">
+            <DialogTitle className="font-black uppercase tracking-tighter text-lg">Hand off without scan</DialogTitle>
+            <DialogDescription className="text-xs font-bold text-muted-foreground">
+              For customers without their QR. This is logged as an override with your name — verify identity first.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <Input
+              placeholder="How was identity verified? (name + order #, ID…)" aria-label="How was identity verified"
+              value={verifiedBy}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVerifiedBy(e.target.value)}
+              className="h-12 rounded-xl border-2 font-bold text-sm"
+            />
+            <Button
+              disabled={!verifiedBy.trim() || busy === 'noscan'}
+              onClick={() => noScanTarget && act('noscan', async () => {
+                const r = await handoffWithoutScan(requireCtx() as Firestore, tenantId, noScanTarget.id, verifiedBy.trim(), actor);
+                if (r.ok) setNoScanTarget(null);
+                return r;
+              })}
+              className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest"
+            >
+              Confirm handoff
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
-}
-
-/** Prices are stored in dollars; the engine works in cents (Stripe-safe). */
-export function listingPriceCents(
-  item: Pick<SellableItem, 'msrp' | 'wholesalePriceDollars'>,
-  tier: PriceTier = 'retail'
-): number {
-  const dollars = tier === 'wholesale'
-    ? item.wholesalePriceDollars ?? item.msrp ?? 0
-    : item.msrp ?? 0;
-  return Math.round(dollars * 100);
-}
-
-/** Wholesale orders must meet each item's minimum quantity, when one is set. */
-export function checkWholesaleMinimums(
-  entries: { item: SellableItem; qty: number }[]
-): GuardResult {
-  const failing = entries.filter(
-    (e) => (e.item.wholesaleMinQty ?? 0) > 0 && e.qty < (e.item.wholesaleMinQty as number)
-  );
-  if (failing.length > 0) {
-    return {
-      ok: false,
-      reason: failing
-        .map((e) => `${e.item.name}: minimum ${e.item.wholesaleMinQty} for wholesale`)
-        .join('; '),
-    };
-  }
-  return { ok: true };
-}
-
-export function isLowStock(item: SellableItem): boolean {
-  return sellableStock(item) <= (item.lowStockThreshold ?? 0);
-}
-
-/**
- * FIFO batch depletion — mirrors the manual Log Sale logic exactly (sort by
- * receivedDate ascending, drain oldest first) so online and in-person sales
- * consume stock identically. Pure: returns new arrays, never mutates input.
- */
-export function depleteBatchesFIFO(
-  batches: InventoryBatchRef[] | undefined,
-  qty: number
-): { batches: InventoryBatchRef[]; depleted: number; shortfall: number; cogsCents: number } {
-  const sorted = [...(batches ?? [])]
-    .map((b) => ({ ...b }))
-    .sort((a, b) => new Date(a.receivedDate).getTime() - new Date(b.receivedDate).getTime());
-
-  let remaining = qty;
-  let cogsCents = 0;
-  for (const batch of sorted) {
-    if (remaining <= 0) break;
-    const take = Math.min(batch.stock, remaining);
-    batch.stock -= take;
-    remaining -= take;
-    cogsCents += Math.round(take * (batch.costPerUnit ?? 0) * 100);
-  }
-
-  return { batches: sorted, depleted: qty - remaining, shortfall: remaining, cogsCents };
-}
-
-/* ── Stock ledger (existing stockCorrections collection) ──────────────────── */
-
-export const INVENTORY_MOVEMENT_TYPES = [
-  'reserve',          // paid order holds stock            (stockReserved +qty)
-  'release',          // cancellation frees a hold         (stockReserved -qty)
-  'sale',             // handoff/ship converts the hold    (totalStock -qty, stockReserved -qty)
-  'short_adjustment', // picker found less on shelf        (totalStock corrected down)
-  'restock',          // cancelled-packed items scanned back (totalStock +qty)
-  'return_restock',   // sellable return scanned back      (totalStock +qty)
-  'write_off',        // damaged/defective, NOT sellable   (totalStock -qty)
-] as const;
-
-export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
-
-/**
- * Deltas a Firestore transaction must apply to the inventory doc for a given
- * movement. Keeps the math in exactly one place. NOTE: 'sale', 'restock',
- * 'return_restock', and 'write_off' must ALSO rewrite `batches` — use
- * depleteBatchesFIFO for sales; restocks append/refill a batch.
- */
-export function movementDeltas(
-  type: InventoryMovementType,
-  qty: number
-): { totalStock: number; stockReserved: number } {
-  switch (type) {
-    case 'reserve':           return { totalStock: 0,    stockReserved: qty };
-    case 'release':           return { totalStock: 0,    stockReserved: -qty };
-    case 'sale':              return { totalStock: -qty, stockReserved: -qty };
-    case 'short_adjustment':  return { totalStock: -qty, stockReserved: 0 };
-    case 'restock':           return { totalStock: qty,  stockReserved: 0 };
-    case 'return_restock':    return { totalStock: qty,  stockReserved: 0 };
-    case 'write_off':         return { totalStock: -qty, stockReserved: 0 };
-  }
-}
-
-/**
- * Entry for the EXISTING tenants/{tid}/stockCorrections collection. Core
- * fields match what the inventory page already writes; the extras are
- * additive so existing reports keep working untouched.
- */
-export interface StockCorrectionEntry {
-  productId: string;
-  date: string;
-  change: number;              // signed, existing convention (+receive / -deplete)
-  unit: string;
-  reason: string;
-  orderId?: string;
-  returnId?: string;
-  actorId?: string;
-  actorName?: string;
-  source?: 'retail_engine';
-}
-
-export function buildStockCorrection(
-  item: Pick<SellableItem, 'id' | 'unit'>,
-  type: InventoryMovementType,
-  qty: number,
-  reason: string,
-  refs?: Pick<StockCorrectionEntry, 'orderId' | 'returnId' | 'actorId' | 'actorName'>
-): StockCorrectionEntry {
-  const { totalStock } = movementDeltas(type, qty);
-  return {
-    productId: item.id,
-    date: new Date().toISOString(),
-    change: totalStock,          // reservations don't touch shelf count → change 0
-    unit: item.unit ?? 'units',
-    reason,
-    source: 'retail_engine',
-    ...refs,
-  };
-}
-
-/* ── Money ledger (existing transactions collection) ──────────────────────── */
-
-/** Matches the transaction docs the inventory page already writes (dollars). */
-export interface FinancialTransactionEntry {
-  date: string;
-  description: string;
-  clientOrVendor: string;
-  type: 'income' | 'expense';
-  context: 'Business';
-  category: 'Retail' | 'Spoilage' | 'Refund';
-  amount: number;              // DOLLARS, existing convention
-  paymentMethod: string;
-  hasReceipt: boolean;
-  receiptUrl?: string;
-  relatedOrderId?: string;
-  notes?: string;
-}
-
-export function buildRetailSaleTransaction(
-  order: Pick<RetailOrder, 'id' | 'orderNumber' | 'customerName' | 'totalCents'>
-): FinancialTransactionEntry {
-  return {
-    date: new Date().toISOString(),
-    description: `Online Retail Sale: Order #${order.orderNumber}`,
-    clientOrVendor: order.customerName,
-    type: 'income',
-    context: 'Business',
-    category: 'Retail',
-    amount: order.totalCents / 100,
-    paymentMethod: 'Card (Online)',
-    hasReceipt: true,
-    relatedOrderId: order.id,
-  };
-}
-
-export function buildRefundTransaction(
-  order: Pick<RetailOrder, 'id' | 'orderNumber' | 'customerName'>,
-  amountCents: number,
-  scope: 'full' | 'partial'
-): FinancialTransactionEntry {
-  return {
-    date: new Date().toISOString(),
-    description: `${scope === 'full' ? 'Refund' : 'Partial refund'}: Order #${order.orderNumber}`,
-    clientOrVendor: order.customerName,
-    type: 'expense',
-    context: 'Business',
-    category: 'Refund',
-    amount: amountCents / 100,
-    paymentMethod: 'Card (Online)',
-    hasReceipt: true,
-    relatedOrderId: order.id,
-  };
-}
-
-/** Damaged/defective return units — mirrors the damaged-on-arrival pattern. */
-export function buildReturnWriteOffTransaction(
-  order: Pick<RetailOrder, 'id' | 'orderNumber'>,
-  itemName: string,
-  qty: number,
-  lossCents: number,
-  receiptUrl?: string
-): FinancialTransactionEntry {
-  return {
-    date: new Date().toISOString(),
-    description: `Return write-off: ${qty} x ${itemName} (Order #${order.orderNumber})`,
-    clientOrVendor: 'Internal',
-    type: 'expense',
-    context: 'Business',
-    category: 'Spoilage',
-    amount: lossCents / 100,
-    paymentMethod: 'Internal',
-    hasReceipt: !!receiptUrl,
-    receiptUrl,
-    relatedOrderId: order.id,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * QR / DEEP-LINK SCHEME  (extends the existing clarityflow:// scheme)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const PRODUCT_QR_PREFIX = 'clarityflow://product/';
-export const ORDER_QR_PREFIX = 'clarityflow://order/';
-
-/** Customer pickup QR value. Token is HMAC-signed server-side, never a raw id. */
-export function buildOrderQrValue(signedToken: string): string {
-  return `${ORDER_QR_PREFIX}${signedToken}`;
-}
-
-export function parseOrderQr(raw: string): string | null {
-  const t = raw.trim();
-  return t.startsWith(ORDER_QR_PREFIX) ? t.slice(ORDER_QR_PREFIX.length) : null;
-}
-
-export function parseProductQr(raw: string): string | null {
-  const t = raw.trim();
-  return t.startsWith(PRODUCT_QR_PREFIX) ? t.slice(PRODUCT_QR_PREFIX.length) : null;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * ORDER LINES
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const LINE_STATUSES = [
-  'pending',    // not yet picked
-  'picked',     // qtyScanned === qtyOrdered
-  'shorted',    // shelf discrepancy; qtyScanned < qtyOrdered, resolved below
-  'refunded',   // shorted quantity refunded to customer
-  'backordered',// shorted quantity split into a child order
-  'returned',   // came back via RMA
-] as const;
-
-export type LineStatus = (typeof LINE_STATUSES)[number];
-
-/* ── Modifiers (options) ──────────────────────────────────────────────────────
- * Per-item option groups: "Size | Small:0, Large:1.50" style. Options never
- * touch stock (same physical item) — they adjust the unit price and label
- * the order line so packing and receipts show exactly what was chosen.
- * The SERVER recomputes every delta from the item doc; client-sent prices
- * are never trusted.
- */
-
-export interface OptionChoice {
-  id: string;
-  label: string;
-  deltaCents: number;
-  /**
-   * The inventory item this choice IS.
-   *
-   * The distinction that decides whether stock can ever be right: an option
-   * that consumes its own units on its own shelf (15ml vs 30ml, shade 04 vs
-   * shade 07) is a PRODUCT, and must be counted as one. An option that only
-   * changes the price of the same physical thing (gift wrap, engraving) is
-   * decoration and needs no stock of its own.
-   *
-   * When set, this choice's stock, SKU and barcode come from that item, and
-   * buying it decrements THAT item — so "sold out in 30ml" becomes something
-   * the system can know instead of something the shelf knows and the app
-   * doesn't. Absent = decoration, as before.
-   */
-  variantProductId?: string;
-}
-export interface OptionGroup { id: string; name: string; choices: OptionChoice[]; }
-
-/**
- * Which inventory item a set of selections actually resolves to.
- *
- * A product with stock-bearing variants is a PARENT: it holds the name, the
- * photos and the shop copy, but never the stock. Its variants hold the units.
- * This is the one place that mapping is made, so the storefront, the checkout
- * and the bench can never disagree about which shelf a sale came from.
- */
-export function resolveVariantProductId(
-  groups: OptionGroup[] | undefined,
-  selections: Record<string, string> | undefined,
-): string | null {
-  if (!groups || groups.length === 0) return null;
-  for (const g of groups) {
-    const choiceId = selections?.[g.id];
-    const choice = g.choices.find((c) => c.id === choiceId) || g.choices[0];
-    if (choice?.variantProductId) return choice.variantProductId;
-  }
-  return null;
-}
-
-/** True when any choice carries its own stock — the product is a parent. */
-export function hasStockVariants(groups: OptionGroup[] | undefined): boolean {
-  return !!groups?.some((g) => g.choices.some((c) => !!c.variantProductId));
-}
-
-/**
- * Stock for a product whose variants hold the units: the sum of what its
- * variants can sell. A parent showing its own (zero) stock would read as
- * "sold out" while three sizes sit on the shelf.
- */
-export function variantAwareStock(
-  item: SellableItem,
-  variantsById: Map<string, SellableItem>,
-): number {
-  if (!hasStockVariants(item.optionGroups)) return sellableStock(item);
-  const ids = new Set<string>();
-  for (const g of item.optionGroups || []) {
-    for (const c of g.choices) if (c.variantProductId) ids.add(c.variantProductId);
-  }
-  let total = 0;
-  for (const id of ids) {
-    const v = variantsById.get(id);
-    if (v) total += sellableStock(v);
-  }
-  return total;
-}
-
-/** Parse editor lines like "Size | Small:0, Medium:0.50, Large:1" */
-export function parseOptionGroups(text: string): OptionGroup[] {
-  return String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .flatMap((line, gi) => {
-      const [name, rest] = line.split('|');
-      if (!name || !rest) return [];
-      const choices = rest.split(',')
-        .map((c, ci) => {
-          const [label, price, variantId] = c.split(':');
-          if (!label || !label.trim()) return null;
-          return {
-            id: `c${gi}-${ci}`,
-            label: label.trim(),
-            deltaCents: Math.round((Number(String(price || '0').trim()) || 0) * 100),
-            ...(variantId && variantId.trim() ? { variantProductId: variantId.trim() } : {}),
-          };
-        })
-        .filter(Boolean) as OptionChoice[];
-      return choices.length > 0 ? [{ id: `g${gi}`, name: name.trim(), choices }] : [];
-    })
-    .slice(0, 6);
-}
-
-export function optionGroupsToText(groups: OptionGroup[] | undefined): string {
-  // Round-trips variantProductId too, so opening and saving the editor can
-  // never silently drop the link between a choice and its shelf.
-  return (groups || [])
-    .map((g) => `${g.name} | ${g.choices.map((c) => {
-      const price = c.deltaCents ? (c.deltaCents / 100).toFixed(2) : '0';
-      return c.variantProductId ? `${c.label}:${price}:${c.variantProductId}` : `${c.label}:${price}`;
-    }).join(', ')}`)
-    .join('\n');
-}
-
-/** Resolve selections {groupId: choiceId} → { deltaCents, label } from the ITEM's groups. */
-export function resolveOptions(
-  groups: OptionGroup[] | undefined,
-  selections: Record<string, string> | undefined
-): { deltaCents: number; label: string } {
-  if (!groups || groups.length === 0) return { deltaCents: 0, label: '' };
-  let delta = 0;
-  const parts: string[] = [];
-  for (const g of groups) {
-    const choiceId = selections?.[g.id];
-    const choice = g.choices.find((c) => c.id === choiceId) || g.choices[0];
-    if (!choice) continue;
-    delta += choice.deltaCents;
-    parts.push(choice.label);
-  }
-  return { deltaCents: delta, label: parts.join(' \u00b7 ') };
-}
-
-export interface OrderLine {
-  lineId: string;
-  optionsLabel?: string;              // stable per-line id (not array index)
-  productId: string;           // the tenants/{tid}/inventory doc id
-  sku: string;                 // snapshot ('' if the item has none)
-  barcode: string;             // snapshot of barcode ?? sku
-  name: string;                // snapshot at purchase time
-  unitPriceCents: number;      // snapshot of msrp at purchase time, in cents
-  qtyOrdered: number;
-  qtyScanned: number;
-  qtyShorted: number;          // portion resolved as refunded/backordered
-  qtyReturned: number;
-  status: LineStatus;
-  shortReason?: string;
-  casePack?: number;           // units per sealed case (snapshot; >1 enables case scanning)
-  caseBarcode?: string;        // the CASE's own code (ITF-14/UPC on the carton)
-  palletPack?: number;         // CASES per pallet (snapshot)
-  palletBarcode?: string;      // the pallet label's own code (snapshot)
-  qtyPacked?: number;          // second-scan count at the box (pack verification)
-  digital?: boolean;           // snapshot: this line needs no picking, packing, or postage
-  digitalUrl?: string;         // snapshot of the delivery link at purchase time
-  digitalAccessDays?: number;  // snapshot of the access window SOLD (later policy changes never shorten it)
-  preorder?: boolean;          // bought before stock existed
-  preorderEtaAt?: string;      // the date promised AT PURCHASE — the promise that binds
-}
-
-export type ShortResolution = 'refund' | 'backorder';
-
-/** Build a line from a live inventory item at checkout time. */
-export function buildOrderLine(
-  item: SellableItem,
-  qty: number,
-  lineId: string,
-  tier: PriceTier = 'retail',
-  options?: { deltaCents: number; label: string }
-): OrderLine {
-  return {
-    lineId,
-    productId: item.id,
-    sku: item.sku ?? '',
-    barcode: item.barcode ?? item.sku ?? '',
-    name: item.name,
-    optionsLabel: options?.label || '',
-    unitPriceCents: listingPriceCents(item, tier) + (options?.deltaCents || 0),
-    qtyOrdered: qty,
-    qtyScanned: 0,
-    qtyShorted: 0,
-    qtyReturned: 0,
-    status: 'pending',
-    ...(Number(item.casePack) > 1 ? { casePack: Math.floor(Number(item.casePack)) } : {}),
-    ...(item.caseBarcode ? { caseBarcode: String(item.caseBarcode) } : {}),
-    ...(Number(item.palletPack) > 1 ? { palletPack: Math.floor(Number(item.palletPack)) } : {}),
-    ...(item.palletBarcode ? { palletBarcode: String(item.palletBarcode) } : {}),
-    ...(item.preorder === true ? {
-      preorder: true,
-      ...(item.preorderEtaAt ? { preorderEtaAt: String(item.preorderEtaAt) } : {}),
-    } : {}),
-    ...(item.digital === true ? {
-      digital: true,
-      ...(item.digitalUrl ? { digitalUrl: String(item.digitalUrl) } : {}),
-      ...(Number(item.digitalAccessDays) > 0 ? { digitalAccessDays: Math.floor(Number(item.digitalAccessDays)) } : {}),
-    } : {}),
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * ORDERS
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export interface ShippingAddress {
-  name: string;
-  line1: string;
-  line2?: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  country: string;             // ISO-3166 alpha-2, e.g. 'US'
-  phone?: string;
-}
-
-export interface CurbsideInfo {
-  arrivedAt?: string;
-  spotOrVehicle?: string;      // "Spot 3" / "white Honda CR-V"
-  /** They tapped "on my way" — the shop can start moving before they park. */
-  onWayAt?: string;
-  /** Minutes away when they said so. From a one-time location share if they
-   *  allowed it, otherwise their own estimate. Never treated as a promise. */
-  etaMinutes?: number;
-  /** How the check-in happened, so a person can tell a scanned sign from a
-   *  typed guess from a phone that decided it was close enough. */
-  checkInSource?: 'manual' | 'sign_qr' | 'geo_auto';
-  /** Distance in metres at auto-check-in — evidence, not a claim. */
-  arrivedAccuracyM?: number;
-  /** Someone set off with the order — the customer sees this, the board
-   *  keeps counting, and the gap between this and handoff is how long the
-   *  walk actually takes. */
-  bringingOutAt?: string;
-  bringingOutBy?: string;
-  /**
-   * "Please bring it to my window — I can't come in."
-   *
-   * For some people curbside is not convenience, it is ACCESS: a wheelchair
-   * in the boot, a sleeping baby, a bad day. This flag is set by the customer
-   * and shown to staff FIRST, above everything else on the card, because a
-   * note nobody reads until after they have called the person inside is not
-   * an accommodation.
-   */
-  bringToVehicle?: boolean;
-  /** Their own words — "silver Civic, I'll wave", "please knock, I'm deaf". */
-  accessNote?: string;
-}
-
-/**
- * How long someone has been waiting outside, in whole minutes.
- *
- * The number that turns "did anyone go out?" into something a person can see
- * from across the room. Returns null when they haven't arrived — an order
- * nobody is waiting on shouldn't be shown a clock.
- */
-/**
- * Orders that belong to the same trip.
- *
- * A mother and daughter both order; one car comes. The board shows two
- * arrivals, someone walks out twice, and the second trip finds an empty
- * space. Matching on the phone number they gave — the one thing a shared
- * trip actually shares — lets the board say "2 orders, one car" and send a
- * person out once.
- *
- * Deliberately phone-only: matching on surname would group strangers, and
- * matching on address would group flatmates who came separately.
- */
-export function groupBySamePickup<T extends { id: string; customerPhone?: string; customerName?: string; curbside?: CurbsideInfo }>(
-  orders: T[],
-): Map<string, T[]> {
-  const groups = new Map<string, T[]>();
-  for (const o of orders) {
-    const digits = String(o.customerPhone || '').replace(/\D/g, '');
-    const key = digits.length >= 7 ? `p:${digits.slice(-10)}` : `o:${o.id}`;
-    const list = groups.get(key) || [];
-    list.push(o);
-    groups.set(key, list);
-  }
-  return groups;
-}
-
-/** How many OTHER orders are waiting on the same trip. */
-export function samePickupCount<T extends { id: string; customerPhone?: string }>(order: T, all: T[]): number {
-  const digits = String(order.customerPhone || '').replace(/\D/g, '');
-  if (digits.length < 7) return 0;
-  const tail = digits.slice(-10);
-  return all.filter((o) => o.id !== order.id && String(o.customerPhone || '').replace(/\D/g, '').slice(-10) === tail).length;
-}
-
-export function curbsideWaitMinutes(order: { curbside?: CurbsideInfo }, now: Date = new Date()): number | null {
-  const at = order.curbside?.arrivedAt;
-  if (!at) return null;
-  const t = Date.parse(at);
-  if (!Number.isFinite(t)) return null;
-  return Math.max(0, Math.floor((now.getTime() - t) / 60000));
-}
-
-/**
- * Straight-line distance in metres (haversine).
- *
- * Deliberately simple: this is used to decide "are they in the car park",
- * not to navigate. Road distance would be more accurate and would cost an
- * API call per position update, which is the wrong trade for a 100m question.
- */
-export function distanceMetres(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-  return Math.round(2 * R * Math.asin(Math.min(1, Math.sqrt(h))));
-}
-
-/** Metres within which "they're here" is true enough to act on. */
-export const CURBSIDE_GEOFENCE_M = 100;
-
-/**
- * A rough drive-time estimate from a straight-line distance.
- *
- * Honest about what it is: distance ÷ an average town speed, with a floor of
- * one minute and a cap of an hour. It exists so the shop can start packing at
- * roughly the right moment, not to be right to the minute — which is why the
- * customer is always shown "about N minutes" and can override it.
- */
-export function roughEtaMinutes(metres: number, kmh = 30): number {
-  const minutes = (metres / 1000) / kmh * 60;
-  return Math.max(1, Math.min(60, Math.round(minutes * 1.3)));
-}
-
-export interface RetailOrder {
-  id: string;
-  tipCents?: number;
-  pickupAt?: string;
-  tenantId: string;
-  orderNumber: number;         // human-friendly sequential per tenant (e.g. 1042)
-  stage: OrderStage;
-  method: FulfillmentMethod;
-  priceTier: PriceTier;        // 'retail' | 'wholesale'
-  businessName?: string;       // B2B/wholesale orders
-  wholesaleAccountId?: string; // set when a per-account code was used
-  poNumber?: string;           // buyer's purchase-order reference
-  lines: OrderLine[];
-
-  subtotalCents: number;
-  taxCents: number;
-  shippingCents: number;
-  refundedCents: number;       // running total across partial refunds
-  totalCents: number;
-
-  customerName: string;
-  customerEmail: string;
-  customerPhone?: string;
-  clientId?: string;           // link to existing ClarityFlow client record
-
-  shippingAddress?: ShippingAddress;   // required when method === 'ship'
-  curbside?: CurbsideInfo;
-
-  stripePaymentIntentId?: string;
-  qrToken?: string;            // HMAC-signed pickup token (generated server-side)
-
-  batchId?: string;            // current fulfillment batch claim, if any
-  parentOrderId?: string;      // set on backorder-split children & replacements
-  isReplacement?: boolean;     // $0 replacement order from an RMA
-
-  pendingRefundCents?: number; // shorted-line refunds awaiting execution in Stripe
-  holdUntilRestock?: boolean;  // backorder children parked out of the queue
-  readyAt?: string;
-  trackingNumber?: string;
-  trackingUrl?: string;
-  carrier?: string;
-
-  promiseAt?: string;          // target ready time; drives queue priority
-  placedAt: string;
-  paidAt?: string;
-  packedAt?: string;
-  completedAt?: string;
-  cancelledAt?: string;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * AUDIT EVENTS  (append-only subcollection — never update, never delete)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const ORDER_EVENT_TYPES = [
-  'placed',
-  'payment_confirmed',
-  'stock_reserved',
-  'batch_claimed',
-  'batch_released',            // manual release back to queue
-  'batch_auto_released',       // claim timed out
-  'item_scanned',              // meta: { sku, lineId, qtyScanned, qtyOrdered }
-  'scan_mismatch',             // meta: { scannedValue } — code not on order / over-scan
-  'line_shorted',
-  'line_reopened',              // meta: { lineId, qtyShorted, reason, resolution }
-  'pick_complete',
-  'packed',
-  'packing_slip_printed',
-  'label_generated',           // meta: { carrier?, trackingNumber? }
-  'label_scan_verified',       // label barcode scanned onto the correct box
-  'marked_ready',
-  'customer_arrived',          // meta: { spotOrVehicle }
-  'handoff_scanned',           // customer QR verified at counter/car
-  'shipped',
-  'completed',
-  'cancel_requested',
-  'restock_scanned',           // meta: { sku, lineId, qty } — packed-order cancel path
-  'cancelled',
-  'refund_issued',             // meta: { amountCents, stripeRefundId, scope: 'full'|'partial' }
-  'return_opened',             // meta: { returnId }
-  'return_resolved',           // meta: { returnId, resolution }
-  'replacement_created',       // meta: { childOrderId }
-  'backorder_split',           // meta: { childOrderId, lineIds }
-  'override',                  // meta: { rule, reason } — manager PIN bypass; always logged
-  'note',
-] as const;
-
-export type OrderEventType = (typeof ORDER_EVENT_TYPES)[number];
-
-export interface OrderEvent {
-  id: string;
-  type: OrderEventType;
-  at: string;
-  actorId: string;             // staff uid, 'system', or 'customer'
-  actorName: string;
-  meta?: Record<string, string | number | boolean>;
-}
-
-/** Convenience builder so every event is shaped identically. */
-export function buildEvent(
-  type: OrderEventType,
-  actorId: string,
-  actorName: string,
-  meta?: OrderEvent['meta']
-): Omit<OrderEvent, 'id'> {
-  return { type, at: new Date().toISOString(), actorId, actorName, meta };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * FULFILLMENT BATCHES  (the turn system)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const BATCH_CLAIM_TIMEOUT_MIN = 20;
-export const MAX_SHIP_ORDERS_PER_BATCH = 6;
-
-export interface FulfillmentBatch {
-  id: string;
-  tenantId: string;
-  orderIds: string[];
-  phase: 'pick' | 'pack';
-  assignedTo: string;
-  assignedToName: string;
-  claimedAt: string;
-  active?: boolean;            // queryable open-claim flag; false once done/released
-  completedAt?: string;
-  releasedAt?: string;
-  releaseType?: 'manual' | 'auto' | 'completed';
-}
-
-export function claimExpiresAt(claimedAtIso: string): Date {
-  const d = new Date(claimedAtIso);
-  return new Date(d.getTime() + BATCH_CLAIM_TIMEOUT_MIN * 60_000);
-}
-
-export function isClaimStale(batch: FulfillmentBatch, now: Date = new Date()): boolean {
-  if (batch.completedAt || batch.releasedAt) return false;
-  return now > claimExpiresAt(batch.claimedAt);
-}
-
-/**
- * Queue priority: lower number = picked sooner.
- * Curbside/counter ASAP orders beat ship orders; within a tier, promise time
- * then FIFO by paid time.
- */
-/* ════════════════════════════════════════════════════════════════════════════
- * PROMISES — first in, first out, unless something is actually due sooner
- * ════════════════════════════════════════════════════════════════════════════
- * Two fairness rules people can feel:
- *
- *   1. Orders are worked in the order they arrived. Anything else — picking
- *      the small one, the familiar name, the one on top — is how a Tuesday
- *      order ships on Friday.
- *   2. Except when a promise is closer. Somebody who asked for 4pm pickup
- *      beats a shipment placed an hour earlier, because only one of them has
- *      a person standing at a counter.
- *
- * So every order gets a DUE TIME, derived from what it is, and the queue is
- * ordered by that. Age breaks ties, which keeps it FIFO whenever promises
- * are equal — the common case.
- */
-
-export interface FulfilmentPolicy {
-  /** Minutes to get a pickup/curbside order ready. */
-  prepMinutes: number;
-  /** Business hours to get a shipment packed and labelled. */
-  shipHours: number;
-  /** Minutes before a due time that an order starts showing as "due soon". */
-  warnMinutes: number;
-}
-
-export const DEFAULT_POLICY: FulfilmentPolicy = {
-  prepMinutes: 30,
-  shipHours: 24,
-  warnMinutes: 15,
-};
-
-export function fulfilmentPolicy(retailSettings: any): FulfilmentPolicy {
-  const rs = retailSettings || {};
-  return {
-    prepMinutes: Math.max(1, Math.floor(Number(rs.prepMinutes) || DEFAULT_POLICY.prepMinutes)),
-    shipHours: Math.max(1, Math.floor(Number(rs.shipProcessingHours) || DEFAULT_POLICY.shipHours)),
-    warnMinutes: Math.max(1, Math.floor(Number(rs.slaWarnMinutes) || DEFAULT_POLICY.warnMinutes)),
-  };
-}
-
-/** When the customer was told (or reasonably expects) this to be done. */
-export function dueAt(order: RetailOrder, policy: FulfilmentPolicy = DEFAULT_POLICY): number {
-  const placed = new Date(order.paidAt ?? order.placedAt ?? Date.now()).getTime();
-
-  // An explicit promise always wins — it is what the customer was shown.
-  if (order.promiseAt) {
-    const t = new Date(order.promiseAt).getTime();
-    if (Number.isFinite(t)) return t;
-  }
-
-  // "Wants it in ~30 min" from the storefront's pickup picker.
-  const wanted = String((order as any).pickupAt || '').trim();
-  const m = wanted.match(/(\d+)\s*min/i);
-  if (m) return placed + Number(m[1]) * 60_000;
-  if (/hour/i.test(wanted)) return placed + 60 * 60_000;
-
-  if (order.method === 'ship') return placed + policy.shipHours * 3_600_000;
-  return placed + policy.prepMinutes * 60_000;
-}
-
-export type SlaState = 'ontime' | 'due' | 'late';
-
-export interface SlaInfo {
-  dueAtMs: number;
-  minutesRemaining: number;   // negative once overdue
-  state: SlaState;
-  label: string;              // "due in 12m" / "18m late" / "1h 5m left"
-  waitedMinutes: number;      // how long since it was paid for
-}
-
-function human(mins: number): string {
-  const a = Math.abs(Math.round(mins));
-  if (a < 60) return `${a}m`;
-  const h = Math.floor(a / 60);
-  const r = a % 60;
-  return r ? `${h}h ${r}m` : `${h}h`;
-}
-
-export function slaFor(
-  order: RetailOrder,
-  policy: FulfilmentPolicy = DEFAULT_POLICY,
-  now: number = Date.now()
-): SlaInfo {
-  const due = dueAt(order, policy);
-  const minutesRemaining = (due - now) / 60_000;
-  const placed = new Date(order.paidAt ?? order.placedAt ?? now).getTime();
-  const state: SlaState =
-    minutesRemaining < 0 ? 'late' : minutesRemaining <= policy.warnMinutes ? 'due' : 'ontime';
-  return {
-    dueAtMs: due,
-    minutesRemaining,
-    state,
-    waitedMinutes: Math.max(0, (now - placed) / 60_000),
-    label:
-      state === 'late' ? `${human(minutesRemaining)} late`
-      : state === 'due' ? `due in ${human(minutesRemaining)}`
-      : `${human(minutesRemaining)} left`,
-  };
-}
-
-/**
- * Queue order. Lower sorts first.
- *
- * Due time is the spine — but a shipment that has been sitting for hours
- * must never be leapfrogged forever by a stream of fresh pickups, so an
- * order that is already LATE is pulled to the front regardless of method.
- * Age breaks every tie, which makes the default behaviour plain FIFO.
- */
-export function queuePriority(
-  order: RetailOrder,
-  policy: FulfilmentPolicy = DEFAULT_POLICY,
-  now: number = Date.now()
-): number {
-  const sla = slaFor(order, policy, now);
-  const placed = new Date(order.paidAt ?? order.placedAt ?? now).getTime();
-
-  // Late work first, oldest of the late ones leading.
-  if (sla.state === 'late') return -1e15 + placed;
-
-  // Otherwise: soonest due, then oldest. The tiny placed-time fraction only
-  // ever breaks an exact tie — it is far smaller than one millisecond of due
-  // time, so it can never reorder genuinely different promises.
-  return sla.dueAtMs + placed / 1e13;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * SCAN ENGINE  (100% accuracy gates)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export type ScanResult =
-  | { ok: true; lineId: string; qtyScanned: number; qtyOrdered: number; pickComplete: boolean; caseCounted?: number }
-  | { ok: false; code: 'unknown_sku' | 'over_scan' | 'line_closed'; message: string };
-
-/**
- * Apply one scan during picking. Accepts a physical barcode, a SKU, or a
- * clarityflow://product/{id} label (the scheme the inventory page already
- * prints). Pure: returns the result and the updated lines array; the caller
- * persists inside a transaction and appends the item_scanned or
- * scan_mismatch event.
- */
-/**
- * Canonical forms of a scanned/stored code for tolerant matching:
- *  - trimmed raw and uppercased (SKUs are case-insensitive in the real world)
- *  - digits-only form, with and without leading zeros — phones' native
- *    detectors often report UPC-A (12 digits) as EAN-13 with a leading 0,
- *    so "0123456789012" and "123456789012" must be treated as the same code.
- */
-export function codeVariants(value: string): Set<string> {
-  const out = new Set<string>();
-  const raw = String(value || '').trim();
-  if (!raw) return out;
-  out.add(raw);
-  out.add(raw.toUpperCase());
-  const digits = raw.replace(/\D/g, '');
-  if (digits.length >= 6) {
-    out.add(digits);
-    out.add(digits.replace(/^0+/, ''));
-    if (digits.length === 12) out.add('0' + digits); // UPC-A as EAN-13
-  }
-  return out;
-}
-
-export function codesMatch(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  const va = codeVariants(a);
-  for (const v of codeVariants(b)) if (va.has(v)) return true;
-  return false;
-}
-
-export function applyScan(lines: OrderLine[], scannedValue: string): {
-  result: ScanResult;
-  lines: OrderLine[];
-} {
-  const raw = scannedValue.trim();
-  const productIdFromQr = parseProductQr(raw);
-
-  const idx = lines.findIndex((l) =>
-    productIdFromQr !== null
-      ? l.productId === productIdFromQr
-      : l.productId === raw ||
-        l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
-        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw))
-  );
-
-  if (idx === -1) {
-    return {
-      result: {
-        ok: false,
-        code: 'unknown_sku',
-        message: `Scanned code "${raw}" is not on this order.`,
-      },
-      lines,
-    };
-  }
-
-  const line = lines[idx];
-
-  if (line.status === 'shorted' || line.status === 'refunded' || line.status === 'backordered') {
-    return {
-      result: {
-        ok: false,
-        code: 'line_closed',
-        message: `${line.name} was marked ${line.status}; reopen the line before scanning.`,
-      },
-      lines,
-    };
-  }
-
-  if (line.qtyScanned >= line.qtyOrdered) {
-    return {
-      result: {
-        ok: false,
-        code: 'over_scan',
-        message: `${line.name} already has all ${line.qtyOrdered} scanned.`,
-      },
-      lines,
-    };
-  }
-
-  // A scan of the CASE code counts a sealed case's worth of units in one
-  // beep — the spec's rule: verify 20 cases, not 500 bottles. The last case
-  // never overshoots: it counts exactly the units still owed.
-  const remaining = line.qtyOrdered - line.qtyScanned;
-  const resolved = scanUnitsFor(line, raw, remaining);
-  const isCaseScan = resolved.tier !== 'unit';
-  const increment = resolved.units;
-
-  const updatedLine: OrderLine = {
-    ...line,
-    qtyScanned: line.qtyScanned + increment,
-    status: line.qtyScanned + increment === line.qtyOrdered ? 'picked' : 'pending',
-  };
-  const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
-
-  return {
-    result: {
-      ok: true,
-      lineId: line.lineId,
-      qtyScanned: updatedLine.qtyScanned,
-      qtyOrdered: line.qtyOrdered,
-      pickComplete: isPickComplete(nextLines),
-      ...(isCaseScan ? { caseCounted: increment } : {}),
-    },
-    lines: nextLines,
-  };
-}
-
-/**
- * THE PHYSICAL HIERARCHY, resolved in ONE place: unit -> case -> pallet.
- *
- * A pallet label is worth its cases, a case label is worth its units, a unit
- * code is worth one. Picking, pack-checking and receiving all ask this
- * function rather than repeating the arithmetic, because three copies of a
- * multiplier is three places for a miscount to hide. `remaining` caps every
- * answer, which is what stops a pallet beep on a 3-unit line from inventing
- * 144 units.
- */
-export function scanUnitsFor(
-  identity: { casePack?: number; caseBarcode?: string; palletPack?: number; palletBarcode?: string },
-  raw: string,
-  remaining: number,
-): { units: number; tier: 'unit' | 'case' | 'pallet' } {
-  const casePack = Math.max(0, Math.floor(Number(identity.casePack) || 0));
-  const palletPack = Math.max(0, Math.floor(Number(identity.palletPack) || 0));
-  const cap = Math.max(0, Math.floor(remaining));
-
-  if (palletPack > 1 && casePack > 1 && identity.palletBarcode && codesMatch(identity.palletBarcode, raw)) {
-    const units = casePack * palletPack;
-    return { units: cap > 0 ? Math.min(units, cap) : units, tier: 'pallet' };
-  }
-  if (casePack > 1 && identity.caseBarcode && codesMatch(identity.caseBarcode, raw)) {
-    return { units: cap > 0 ? Math.min(casePack, cap) : casePack, tier: 'case' };
-  }
-  return { units: 1, tier: 'unit' };
-}
-
-/** Units on a full pallet, or null when the product isn't palletised. */
-export function unitsPerPallet(identity: { casePack?: number; palletPack?: number }): number | null {
-  const c = Math.max(0, Math.floor(Number(identity.casePack) || 0));
-  const p = Math.max(0, Math.floor(Number(identity.palletPack) || 0));
-  return c > 1 && p > 1 ? c * p : null;
-}
-
-/**
- * SECOND SCAN — pack verification. The pick scan proved the item left the
- * shelf; this proves it entered the BOX. Its own counter (qtyPacked), same
- * matching rules (QR / barcode / SKU / case code), bounded by what the
- * order actually owes after shorts. Only meaningful for orders whose pick
- * scan happened at the shelf — wave orders already scan AT the bench, and
- * a third pass would be labor without information.
- */
-/**
- * When a digital line's access ends — null means never. The window is read
- * from the LINE, not the item: what was sold is what's honoured, so raising
- * or lowering the policy later can't retroactively shorten someone's access.
- * The clock starts at payment (paidAt), falling back to when the order was
- * placed, so a missing timestamp can never silently mean "expired".
- */
-export function digitalAccessEndsAt(line: OrderLine, paidAt?: string | null, placedAt?: string | null): string | null {
-  const days = Number(line.digitalAccessDays) || 0;
-  if (days <= 0) return null;
-  const start = Date.parse(String(paidAt || placedAt || '')) || Date.now();
-  return new Date(start + days * 24 * 60 * 60 * 1000).toISOString();
-}
-
-/**
- * THE PROMISE CLOCK (FTC Mail, Internet, or Telephone Order Merchandise Rule).
- *
- * The rule in plain terms: when a shop takes money for something it hasn't
- * shipped, it must ship by the date it promised — or, if it promised no
- * date, within 30 days. If it can't, it owes the buyer a notice with a
- * revised date AND a plain way to cancel for a full refund. The buyer's
- * silence is NOT consent to wait.
- *
- * So the promise is computed from what was actually sold: the latest
- * pre-order date on the order if there is one, otherwise 30 days from
- * payment. Stored per order at checkout, but derived here too so old orders
- * and re-reads agree.
- */
-export const FTC_DEFAULT_PROMISE_DAYS = 30;
-
-export function shipPromiseAt(lines: OrderLine[], paidAt?: string | null, placedAt?: string | null): string | null {
-  const start = Date.parse(String(paidAt || placedAt || ''));
-  if (!Number.isFinite(start)) return null;
-  const etas = lines
-    .filter((l) => l.preorder === true && l.preorderEtaAt)
-    .map((l) => Date.parse(String(l.preorderEtaAt)))
-    .filter((n) => Number.isFinite(n));
-  if (etas.length > 0) return new Date(Math.max(...etas)).toISOString();
-  return new Date(start + FTC_DEFAULT_PROMISE_DAYS * 24 * 60 * 60 * 1000).toISOString();
-}
-
-/** Past the promised date with nothing shipped or handed over yet. */
-export function isPromiseLate(order: { stage: string; lines: OrderLine[]; paidAt?: string | null; placedAt?: string | null; shipPromiseAt?: string | null }): boolean {
-  if (!['paid', 'picking', 'packed', 'ready'].includes(String(order.stage))) return false;
-  const promise = order.shipPromiseAt || shipPromiseAt(order.lines || [], order.paidAt, order.placedAt);
-  return !!promise && Date.parse(promise) < Date.now();
-}
-
-/** True when NOTHING on the order needs picking, packing, or postage. */
-export function isDigitalOnlyOrder(lines: OrderLine[]): boolean {
-  return lines.length > 0 && lines.every((l) => l.digital === true);
-}
-
-/** Physical lines only — what the floor actually handles. */
-export function physicalLines(lines: OrderLine[]): OrderLine[] {
-  return lines.filter((l) => l.digital !== true);
-}
-
-export function isPackComplete(lines: OrderLine[]): boolean {
-  return lines.every((l) =>
-    l.digital === true ||
-    ['refunded', 'backordered'].includes(l.status) ||
-    (l.qtyPacked || 0) >= l.qtyOrdered - l.qtyShorted
-  );
-}
-
-export function applyPackScan(lines: OrderLine[], scannedValue: string): {
-  result: ScanResult;
-  lines: OrderLine[];
-} {
-  const raw = scannedValue.trim();
-  const productIdFromQr = parseProductQr(raw);
-  const idx = lines.findIndex((l) =>
-    productIdFromQr !== null
-      ? l.productId === productIdFromQr
-      : l.productId === raw ||
-        l.productId.toLowerCase() === raw.toLowerCase() ||
-        codesMatch(l.barcode, raw) || codesMatch(l.sku, raw) ||
-        (!!l.caseBarcode && codesMatch(l.caseBarcode, raw)) ||
-        (!!l.palletBarcode && codesMatch(l.palletBarcode, raw))
-  );
-  if (idx === -1) {
-    return { result: { ok: false, code: 'unknown_sku', message: `Scanned code "${raw}" is not on this order.` }, lines };
-  }
-  const line = lines[idx];
-  const owed = line.qtyOrdered - line.qtyShorted;
-  if (['refunded', 'backordered'].includes(line.status)) {
-    return { result: { ok: false, code: 'line_closed', message: `${line.name} was ${line.status} — it doesn't go in the box.` }, lines };
-  }
-  if ((line.qtyPacked || 0) >= owed) {
-    return { result: { ok: false, code: 'over_scan', message: `${line.name} already has all ${owed} pack-checked.` }, lines };
-  }
-  const remaining = owed - (line.qtyPacked || 0);
-  const resolved = scanUnitsFor(line, raw, remaining);
-  const isCaseScan = resolved.tier !== 'unit';
-  const increment = resolved.units;
-  const updatedLine: OrderLine = { ...line, qtyPacked: (line.qtyPacked || 0) + increment };
-  const nextLines = [...lines.slice(0, idx), updatedLine, ...lines.slice(idx + 1)];
-  return {
-    result: {
-      ok: true,
-      lineId: line.lineId,
-      qtyScanned: updatedLine.qtyPacked as number,
-      qtyOrdered: owed,
-      pickComplete: isPackComplete(nextLines),
-      ...(isCaseScan ? { caseCounted: increment } : {}),
-    },
-    lines: nextLines,
-  };
-}
-
-/**
- * Mark a line (or part of it) shorted due to a shelf discrepancy.
- * Pure: caller persists, appends line_shorted event, writes the
- * short_adjustment stock correction, and (for 'refund') issues the
- * partial Stripe refund.
- */
-export function shortLine(
-  lines: OrderLine[],
-  lineId: string,
-  reason: string,
-  resolution: ShortResolution
-): { lines: OrderLine[]; qtyShorted: number; refundCents: number } {
-  const idx = lines.findIndex((l) => l.lineId === lineId);
-  if (idx === -1) throw new Error(`Line ${lineId} not found`);
-
-  const line = lines[idx];
-  const qtyShorted = line.qtyOrdered - line.qtyScanned;
-  if (qtyShorted <= 0) throw new Error(`Line ${lineId} is fully scanned; nothing to short.`);
-
-  const updated: OrderLine = {
-    ...line,
-    qtyShorted,
-    status: resolution === 'refund' ? 'refunded' : 'backordered',
-    shortReason: reason,
-  };
-
-  return {
-    lines: [...lines.slice(0, idx), updated, ...lines.slice(idx + 1)],
-    qtyShorted,
-    refundCents: resolution === 'refund' ? qtyShorted * line.unitPriceCents : 0,
-  };
-}
-
-/** Every line is either fully scanned or explicitly resolved. Nothing silent. */
-export function isPickComplete(lines: OrderLine[]): boolean {
-  return lines.every(
-    (l) =>
-      l.digital === true ||
-      l.qtyScanned === l.qtyOrdered ||
-      l.status === 'shorted' ||
-      l.status === 'refunded' ||
-      l.status === 'backordered'
-  );
-}
-
-/** Lines that still have sellable quantity after shorting (for totals & slips). */
-export function fulfilledQty(line: OrderLine): number {
-  return line.qtyOrdered - line.qtyShorted;
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * TRANSITION GUARDS
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export type GuardResult = { ok: true } | { ok: false; reason: string };
-
-/**
- * The one gatekeeper. Every stage change — API route, board button, webhook —
- * must pass through this. UI buttons that would fail should render disabled
- * with the reason as the tooltip.
- */
-export function canAdvance(order: RetailOrder, target: OrderStage): GuardResult {
-  if (!LEGAL_TRANSITIONS[order.stage].includes(target)) {
-    return { ok: false, reason: `Cannot go from ${order.stage} to ${target}.` };
-  }
-
-  switch (target) {
-    case 'packed':
-      if (!isPickComplete(order.lines)) {
-        return { ok: false, reason: 'Every line must be fully scanned or explicitly shorted.' };
-      }
-      return { ok: true };
-
-    case 'arrived':
-      if (order.method !== 'curbside') {
-        return { ok: false, reason: 'Only curbside orders can be marked arrived.' };
-      }
-      return { ok: true };
-
-    case 'shipped':
-      if (order.method !== 'ship') {
-        return { ok: false, reason: 'Only ship orders can be shipped.' };
-      }
-      return { ok: true };
-
-    case 'handed_off':
-      if (order.method === 'ship') {
-        return { ok: false, reason: 'Ship orders complete via shipped, not handoff.' };
-      }
-      return { ok: true };
-
-    case 'cancelled':
-      return canCancel(order);
-
-    default:
-      return { ok: true };
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * CANCELLATION
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export function canCancel(order: RetailOrder): GuardResult {
-  if (TERMINAL_STAGES.includes(order.stage)) {
-    return { ok: false, reason: 'Order is already in a terminal state.' };
-  }
-  if (['arrived', 'shipped', 'handed_off'].includes(order.stage)) {
-    return { ok: false, reason: 'Too late to cancel; open a return instead.' };
-  }
-  return { ok: true };
-}
-
-export interface CancellationPlan {
-  refundCents: number;               // remaining balance to refund via Stripe
-  releaseReservations: boolean;      // free stockReserved holds (paid+ stages)
-  requiresRestockScan: boolean;      // packed orders: items must scan back in
-  releaseBatch: boolean;             // free any active batch claim
-}
-
-/**
- * What a cancellation must do, given where the order is. The API route
- * executes this plan inside a transaction; 'cancelled' is only written after
- * every step (including restock scans, when required) has completed.
- */
-export function cancellationPlan(order: RetailOrder): CancellationPlan {
-  return {
-    refundCents: order.stage === 'placed' ? 0 : order.totalCents - order.refundedCents,
-    releaseReservations: order.stage !== 'placed',
-    requiresRestockScan: order.stage === 'packed' || order.stage === 'ready',
-    releaseBatch: order.batchId !== undefined,
-  };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * RETURNS / RMA  (defective, damaged, wrong item)
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const RETURN_REASONS = [
-  'damaged_in_transit',
-  'defective',
-  'wrong_item',
-  'changed_mind',
-  'other',
-] as const;
-export type ReturnReason = (typeof RETURN_REASONS)[number];
-
-export const RETURN_RESOLUTIONS = ['refund', 'replacement', 'store_credit'] as const;
-export type ReturnResolution = (typeof RETURN_RESOLUTIONS)[number];
-
-/** Where each returned unit physically goes — nothing damaged re-enters stock. */
-export type ReturnDisposition = 'restock' | 'open_box' | 'quarantine' | 'damaged' | 'dispose' | 'write_off';
-
-export interface ReturnLine {
-  lineId: string;              // references the original OrderLine
-  sku: string;
-  name: string;
-  qty: number;
-  reason: ReturnReason;
-  disposition?: ReturnDisposition;   // set at receiving scan
-  dispositionScannedAt?: string;
-}
-
-export interface RetailReturn {
-  id: string;
-  tenantId: string;
-  orderId: string;
-  orderNumber: number;
-  lines: ReturnLine[];
-  resolution: ReturnResolution;
-  status: 'open' | 'received' | 'resolved' | 'rejected';
-  photoUrls: string[];         // evidence via existing document-upload infra
-  refundCents?: number;
-  storeCreditCents?: number;
-  replacementOrderId?: string; // $0 order that re-enters the normal pipeline
-  openedBy: string;
-  openedAt: string;
-  resolvedBy?: string;
-  resolvedAt?: string;
-  notes?: string;
-}
-
-export function returnRefundCents(order: RetailOrder, lines: ReturnLine[]): number {
-  return lines.reduce((sum, rl) => {
-    const orig = order.lines.find((l) => l.lineId === rl.lineId);
-    return sum + (orig ? rl.qty * orig.unitPriceCents : 0);
-  }, 0);
-}
-
-/** A return may only be resolved once every unit has a scanned disposition. */
-export function isReturnReceivable(ret: RetailReturn): GuardResult {
-  const missing = ret.lines.filter((l) => !l.disposition);
-  if (missing.length > 0) {
-    return {
-      ok: false,
-      reason: `Scan a disposition (restock or write-off) for: ${missing
-        .map((l) => l.name)
-        .join(', ')}`,
-    };
-  }
-  return { ok: true };
-}
-
-/* ════════════════════════════════════════════════════════════════════════════
- * DISPLAY HELPERS
- * ════════════════════════════════════════════════════════════════════════════ */
-
-export const STAGE_LABELS: Record<OrderStage, string> = {
-  placed: 'Awaiting Payment',
-  paid: 'In Queue',
-  picking: 'Picking',
-  packed: 'Packed',
-  ready: 'Ready',
-  arrived: 'Customer Here',
-  shipped: 'Shipped',
-  handed_off: 'Picked Up',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-  refunded: 'Refunded',
-};
-
-export const METHOD_LABELS: Record<FulfillmentMethod, string> = {
-  counter: 'Counter Pickup',
-  curbside: 'Curbside',
-  in_store: 'In-Store',
-  ship: 'Shipping',
-};
-
-export function formatCents(cents: number): string {
-  return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-
-export function orderDisplayNumber(order: Pick<RetailOrder, 'orderNumber'>): string {
-  return `#${String(order.orderNumber).padStart(4, '0')}`;
 }
