@@ -8,6 +8,7 @@ import Stripe from 'stripe';
 import { nanoid } from 'nanoid';
 import { makeQrToken, sendOrderConfirmation } from '@/lib/retail-webhook';
 import { isDigitalOnlyOrder } from '@/lib/retail-orders';
+import { resolveVariantProductId } from '@/lib/retail-orders';
 import { shipPromiseAt } from '@/lib/retail-orders';
 import { verifyQuote } from '@/lib/shipping-quote';
 
@@ -210,7 +211,32 @@ async function handleCheckout(req: NextRequest) {
     if (!snap.exists) {
       return NextResponse.json({ error: `Item ${productIds[i]} is no longer available` }, { status: 409 });
     }
-    const item = { id: snap.id, ...snap.data() } as SellableItem;
+    let item = { id: snap.id, ...snap.data() } as SellableItem;
+
+    // ── VARIANTS. When the chosen option IS a product (15ml vs 30ml), the
+    // sale belongs to THAT item: its stock is what must be available, its
+    // shelf is what gets decremented, its SKU is what the picker scans. The
+    // parent supplies the name and the photos and nothing else. Resolving it
+    // HERE means every check below — stock, reservation, pre-order, digital —
+    // applies to the thing actually being sold.
+    const variantId = resolveVariantProductId(item.optionGroups, selectionsByProduct.get(productIds[i]));
+    if (variantId && variantId !== item.id) {
+      const vSnap = await db.collection(`tenants/${tenantId}/inventory`).doc(variantId).get();
+      if (!vSnap.exists) {
+        return NextResponse.json({ error: `${item.name || 'That option'} is no longer available` }, { status: 409 });
+      }
+      const variant = { id: vSnap.id, ...vSnap.data() } as SellableItem;
+      // Keep the parent's shop identity, take the variant's physical one —
+      // the customer bought "Gel #127 · 30ml", not a differently-named item.
+      item = {
+        ...variant,
+        name: `${item.name}${variant.name && variant.name !== item.name ? ` \u00b7 ${variant.name}` : ''}`,
+        optionGroups: item.optionGroups,
+        showOnline: item.showOnline,
+        status: item.status,
+        type: item.type,
+      } as SellableItem;
+    }
 
     if (!isStorefrontVisible(item)) {
       return NextResponse.json({ error: `${item.name || 'An item'} is no longer available` }, { status: 409 });
