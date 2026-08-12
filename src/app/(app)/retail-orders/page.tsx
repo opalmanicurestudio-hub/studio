@@ -25,6 +25,7 @@ import {
   STAGE_LABELS, codesMatch, parseProductQr, isPickComplete, queuePriority, type FulfillmentBatch, type OrderLine, type RetailOrder,
   fulfilmentPolicy, slaFor, type SlaInfo,
 } from '@/lib/retail-orders';
+import { curbsideWaitMinutes } from '@/lib/retail-orders';
 import {
   cancelOrder, claimNextBatch, claimSpecificOrder, reopenShortedLine, handoffByScan, handoffWithoutScan, markPacked, markReady,
   markShipped, recordItemScan, releaseBackorder, releaseBatch, resolveShortLine, splitReadyFromWaiting,
@@ -250,6 +251,46 @@ export default function RetailFulfillmentBoard() {
       .sort((a, b) => (a.curbside?.arrivedAt || '').localeCompare(b.curbside?.arrivedAt || '')),
     [orders]
   );
+  // One tick a second, so every wait clock on the board counts up without
+  // each card owning a timer.
+  const [nowTick, setNowTick] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // THE ALARM. A board nobody is looking at is a customer sitting in a car
+  // park. When someone new checks in, make a noise once — not per render, not
+  // per poll — and only for arrivals we haven't already announced.
+  const announcedRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const fresh = arrived.filter((o) => !announcedRef.current.has(o.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((o) => announcedRef.current.add(o.id));
+    try {
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (Ctx) {
+        const ctx = new Ctx();
+        const gain = ctx.createGain();
+        gain.gain.value = 0.06;
+        gain.connect(ctx.destination);
+        [880, 1320].forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          osc.frequency.value = freq;
+          osc.connect(gain);
+          osc.start(ctx.currentTime + i * 0.18);
+          osc.stop(ctx.currentTime + i * 0.18 + 0.15);
+        });
+      }
+    } catch { /* a silent board still shows the card */ }
+    const o = fresh[0];
+    toast({
+      title: `#${String(o.orderNumber).padStart(4, '0')} is outside`,
+      description: `${o.customerName}${o.curbside?.spotOrVehicle ? ` — ${o.curbside.spotOrVehicle}` : ''}. Take it out.`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arrived.map((o) => o.id).join(',')]);
+
   const myBatch = useMemo(() => batches.find((b) => b.assignedTo === actor.id) || null, [batches, actor.id]);
   const myOrders = useMemo(
     () => (myBatch ? inProgress.filter((o) => o.batchId === myBatch.id) : []),
@@ -486,6 +527,10 @@ export default function RetailFulfillmentBoard() {
   const OrderCard = ({ o, children }: { o: BoardOrder; children?: React.ReactNode }) => {
     const Icon = methodIcon(o.method);
     const waiting = o.method === 'curbside' && !!o.curbside?.arrivedAt && o.stage !== 'arrived';
+    // How long they have actually been sitting outside. A clock beats a badge:
+    // "arrived" tells you nothing at a glance, "waiting 6 min" tells you to go.
+    const waitMin = curbsideWaitMinutes(o as any, nowTick);
+    const onWay = o.method === 'curbside' && !!o.curbside?.onWayAt && !o.curbside?.arrivedAt;
     const sla: SlaInfo | null = ['paid', 'picking', 'packed'].includes(o.stage) ? slaFor(o, policy) : null;
     return (
       <Card className={cn(
@@ -500,6 +545,23 @@ export default function RetailFulfillmentBoard() {
             <div className="min-w-0">
               <p className="font-black uppercase tracking-tight text-sm">#{String(o.orderNumber).padStart(4, '0')}</p>
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground truncate">{o.customerName}</p>
+              {waitMin !== null && (
+                <p className={cn('mt-1 inline-flex items-center gap-1 rounded-lg border-2 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest',
+                  waitMin >= 5 ? 'border-destructive/50 bg-destructive/10 text-destructive'
+                    : waitMin >= 3 ? 'border-amber-300 bg-amber-50 text-amber-800'
+                    : 'border-primary/40 bg-primary/5 text-primary')}>
+                  <Car className="h-3 w-3" aria-hidden="true" />
+                  Outside {waitMin === 0 ? 'just now' : `${waitMin} min`}
+                  {o.curbside?.spotOrVehicle ? ` · ${o.curbside.spotOrVehicle}` : ''}
+                  {o.curbside?.checkInSource === 'geo_auto' ? ' · auto' : o.curbside?.checkInSource === 'sign_qr' ? ' · scanned' : ''}
+                </p>
+              )}
+              {onWay && (
+                <p className="mt-1 inline-flex items-center gap-1 rounded-lg border-2 border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-sky-800">
+                  <Car className="h-3 w-3" aria-hidden="true" />
+                  On the way{o.curbside?.etaMinutes ? ` · ~${o.curbside.etaMinutes} min` : ''}
+                </p>
+              )}
               {(o as any).shelfSlot && ['ready', 'arrived'].includes(o.stage) && (
                 <p className="mt-1 inline-flex items-center gap-1 rounded-lg border-2 border-primary/40 bg-primary/5 px-2 py-0.5 text-[11px] font-black uppercase tracking-widest text-primary">
                   Shelf {(o as any).shelfSlot}
