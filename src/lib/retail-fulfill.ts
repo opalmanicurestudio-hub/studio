@@ -318,6 +318,18 @@ export async function recordItemScan(
  * database. A dead network or an unconfigured mail key must not turn a
  * successful short into an error the picker has to interpret at the shelf.
  */
+export function notifyCurbside(tenantId: string, orderId: string, moment: 'ready' | 'out'): void {
+  if (typeof window === 'undefined') return;
+  try {
+    void fetch('/api/retail/curbside-notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId, orderId, moment }),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch { /* the board banner is still true */ }
+}
+
 function notifyCustomerOfShort(tenantId: string, orderId: string, lineId: string): void {
   if (typeof window === 'undefined') return;
   try {
@@ -524,6 +536,9 @@ export async function markReady(
       return {
         ok: true, autoArrived: customerWaiting,
         message: customerWaiting ? 'Customer is already outside — take it out!' : 'On the ready shelf',
+        // Text a curbside customer who is NOT already outside: they may still
+        // be at home, and "it's ready" is the message that starts the trip.
+        notifyReady: order.method === 'curbside' && !customerWaiting,
       };
     });
   } catch (e: any) {
@@ -591,7 +606,7 @@ async function readOrderItems(txn: any, fs: Firestore, tenantId: string, order: 
  */
 export async function markBringingOut(
   fs: Firestore, tenantId: string, orderId: string, actor: Actor
-): Promise<{ ok: boolean; message: string }> {
+): Promise<{ ok: boolean; message: string; notify?: { phone: string; orderNumber: number; spot: string } }> {
   try {
     return await runTransaction(fs, async (txn) => {
       const oRef = doc(orderCol(fs, tenantId), orderId);
@@ -614,7 +629,15 @@ export async function markBringingOut(
       txn.set(doc(collection(oRef, 'events')), evPayload('note', actor, {
         text: 'Heading out to the customer',
       }));
-      return { ok: true, message: 'They know you\u2019re coming out' };
+      return {
+        ok: true,
+        message: 'They know you\u2019re coming out',
+        notify: {
+          phone: order.customerPhone || '',
+          orderNumber: order.orderNumber,
+          spot: (order.curbside as any)?.spotOrVehicle || '',
+        },
+      };
     });
   } catch (e: any) {
     return { ok: false, message: e?.message || 'Could not send that.' };
