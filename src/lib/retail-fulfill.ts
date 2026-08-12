@@ -318,7 +318,7 @@ export async function recordItemScan(
  * database. A dead network or an unconfigured mail key must not turn a
  * successful short into an error the picker has to interpret at the shelf.
  */
-export function notifyCurbside(tenantId: string, orderId: string, moment: 'ready' | 'out'): void {
+export function notifyCurbside(tenantId: string, orderId: string, moment: 'ready' | 'out' | 'staff_escalation'): void {
   if (typeof window === 'undefined') return;
   try {
     void fetch('/api/retail/curbside-notify', {
