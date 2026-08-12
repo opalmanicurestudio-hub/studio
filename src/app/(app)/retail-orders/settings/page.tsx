@@ -79,6 +79,7 @@ interface RetailSettings {
   claimAutoResolveMaxCents?: number;
   cartRecoveryEnabled?: boolean;
   requirePackScan?: boolean;
+  curbsideAlertPhone?: string;
   curbsideLat?: number;
   curbsideLng?: number;
   deliveryIssueWindowDays?: number;
@@ -196,6 +197,7 @@ export default function RetailSettingsPage() {
       claimAutoResolveMaxCents: Number(existing.claimAutoResolveMaxCents) || 0,
       cartRecoveryEnabled: existing.cartRecoveryEnabled !== false,
       requirePackScan: existing.requirePackScan === true,
+      curbsideAlertPhone: existing.curbsideAlertPhone ?? '',
       curbsideLat: existing.curbsideLat ?? undefined,
       curbsideLng: existing.curbsideLng ?? undefined,
       deliveryIssueWindowDays: Number(existing.deliveryIssueWindowDays) || 7,
@@ -298,6 +300,7 @@ export default function RetailSettingsPage() {
           claimAutoResolveMaxCents: Math.max(0, Math.floor(Number(rs.claimAutoResolveMaxCents) || 0)),
           cartRecoveryEnabled: rs.cartRecoveryEnabled !== false,
           requirePackScan: rs.requirePackScan === true,
+          curbsideAlertPhone: String(rs.curbsideAlertPhone || '').trim() || null,
           curbsideLat: Number.isFinite(Number(rs.curbsideLat)) ? Number(rs.curbsideLat) : null,
           curbsideLng: Number.isFinite(Number(rs.curbsideLng)) ? Number(rs.curbsideLng) : null,
           deliveryIssueWindowDays: Math.max(1, Math.floor(Number(rs.deliveryIssueWindowDays) || 7)),
@@ -1177,6 +1180,13 @@ export default function RetailSettingsPage() {
                   Choose spots
                 </Button>
               </div>
+              <Input placeholder="Alert phone — texted when someone waits too long" inputMode="tel" aria-label="Phone to alert when a customer or guest waits too long"
+                value={rs.curbsideAlertPhone ?? ''}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRs({ ...rs, curbsideAlertPhone: e.target.value })}
+                className="h-11 rounded-xl border-2 font-bold text-xs" />
+              <p className="text-[10px] font-bold text-muted-foreground">
+                If a customer waits 5 minutes outside, or a lounge guest waits 6, this number gets a text \u2014 because a board nobody is watching is a person nobody is helping. Leave blank to turn it off.
+              </p>
               <div className="grid grid-cols-2 gap-2">
                 <Input placeholder="Shop latitude" inputMode="decimal" aria-label="Shop latitude"
                   value={rs.curbsideLat ?? ''}
