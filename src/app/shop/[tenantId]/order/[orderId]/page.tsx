@@ -149,6 +149,19 @@ export default function OrderStatusPage() {
       if (!res.ok) throw new Error(data.error || 'Order not found');
       setOrder(data.order);
       setShopGeo(data.shopGeo || null);
+      // Remember this order on THIS phone, so scanning a spot sign in the car
+      // park can check the right person in without typing. Stored locally and
+      // never sent anywhere except back to their own order — the sign itself
+      // knows only a bay number, which is what keeps it safe to hang outside.
+      try {
+        const tok = data.selfServeToken || (data.qrValue ? String(data.qrValue).split('order/')[1] : null);
+        if (tok && data.order?.method === 'curbside') {
+          window.localStorage.setItem(
+            `clarityflow-last-order-${tenantId}`,
+            JSON.stringify({ orderId, token: tok, at: Date.now() }),
+          );
+        }
+      } catch { /* private browsing — the manual button still works */ }
       setQueuePosition(data.queuePosition);
       setLanePosition(data.lanePosition ?? null);
       if (data.curbsideExperience) setCurbside(data.curbsideExperience);
