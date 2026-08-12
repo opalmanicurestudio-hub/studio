@@ -23,7 +23,21 @@ import { sendTenantSms } from '@/lib/sms';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Moment = 'ready' | 'out';
+type Moment = 'ready' | 'out' | 'staff_escalation';
+
+/**
+ * Nobody at the board.
+ *
+ * The chime only helps if a screen is awake in the building. On a quiet
+ * afternoon, in the back room, mid-service — nobody hears it, and the
+ * customer waits. After a few minutes the alert has to leave the building and
+ * find a person, which means a text to the shop's own number.
+ *
+ * Sent once per order, ever: the point is to get someone moving, not to
+ * pester a staff member who is already walking.
+ */
+const ESCALATE_TO = (t: any): string =>
+  String(t?.retailSettings?.curbsideAlertPhone || t?.sms?.fromNumber || t?.phone || '').trim();
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -51,7 +65,9 @@ export async function POST(req: NextRequest) {
     }
     const tenantId = String(body.tenantId || '').trim();
     const orderId = String(body.orderId || '').trim();
-    const moment: Moment = body.moment === 'ready' ? 'ready' : 'out';
+    const raw = String(body.moment || '');
+    const moment: Moment = raw === 'ready' ? 'ready'
+      : raw === 'staff_escalation' ? 'staff_escalation' : 'out';
     if (!tenantId || !orderId) {
       return NextResponse.json({ ok: false, error: 'Missing details' }, { status: 400 });
     }
@@ -66,9 +82,16 @@ export async function POST(req: NextRequest) {
       if (!snap.exists) return null;
       const o = snap.data() as any;
       if (o.method !== 'curbside') return null;
-      const sentKey = moment === 'ready' ? 'smsReadyAt' : 'smsBringingOutAt';
+      const sentKey = moment === 'ready' ? 'smsReadyAt'
+        : moment === 'staff_escalation' ? 'smsStaffAlertAt' : 'smsBringingOutAt';
       if (o.curbside?.[sentKey]) return null;
-      const phone = String(o.customerPhone || '').trim();
+      // The escalation goes to the SHOP, not the customer.
+      let phone = String(o.customerPhone || '').trim();
+      if (moment === 'staff_escalation') {
+        const tSnap = await txn.get(db.doc(`tenants/${tenantId}`));
+        phone = ESCALATE_TO(tSnap.exists ? tSnap.data() : {});
+        if (!phone) return null;
+      }
       if (!phone) return null;
       txn.update(orderRef, {
         curbside: { ...(o.curbside || {}), [sentKey]: new Date().toISOString() },
@@ -79,6 +102,7 @@ export async function POST(req: NextRequest) {
         orderNumber: o.orderNumber ?? null,
         spot: String(o.curbside?.spotOrVehicle || '').trim(),
         email: String(o.customerEmail || '').trim() || null,
+        arrivedAt: String(o.curbside?.arrivedAt || ''),
       };
     });
 
@@ -86,6 +110,15 @@ export async function POST(req: NextRequest) {
 
     const num = `#${String(claimed.orderNumber ?? '').padStart(4, '0')}`;
     const hi = claimed.firstName ? `${claimed.firstName}, ` : '';
+    if (moment === 'staff_escalation') {
+      const waited = Math.max(1, Math.floor((Date.now() - Date.parse(String(claimed.arrivedAt || ''))) / 60000) || 1);
+      const res = await sendTenantSms(
+        db, tenantId, claimed.phone,
+        `${claimed.firstName || 'A customer'} has been waiting outside ${waited} min for order ${num}${claimed.spot ? ` (${claimed.spot})` : ''}. Nobody has taken it out.`,
+      );
+      return NextResponse.json({ ok: true, sent: res.ok === true });
+    }
+
     const message = moment === 'ready'
       // Said plainly, because they may be reading it while driving.
       ? `${hi}order ${num} is ready. Park anywhere out front and tap "I'm here" on your order link, or scan the sign at your spot.`
