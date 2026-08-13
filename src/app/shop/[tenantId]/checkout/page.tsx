@@ -17,13 +17,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import {
-  ArrowLeft, Loader, Minus, Package, Plus, Store, Truck, X,
+  ArrowLeft, CalendarClock, Loader, Minus, Package, Plus, Store, Truck, X,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import {
   cartExpiresAt, clearCart, parseCartKey, readCart, readWholesaleCode,
   touchCartExpiry, writeCart, writeWholesaleCode,
 } from '@/lib/shop-cart';
+import { formatPromiseDay, preorderNotice } from '@/lib/preorder-terms';
 import { cn } from '@/lib/utils';
 
 type Method = 'counter' | 'curbside' | 'ship';
@@ -105,6 +106,7 @@ export default function CheckoutPage() {
   const [tipPct, setTipPct] = useState<number>(0);
   const [applyCredit, setApplyCredit] = useState(false);
   const [pickupChoice, setPickupChoice] = useState('ASAP');
+  const [preorderAgreed, setPreorderAgreed] = useState(false);
 
   // Live carrier rates. The server signs every option (amount + service +
   // expiry); the browser only ever sends the chosen option's token back, so
@@ -192,6 +194,38 @@ export default function CheckoutPage() {
   const digitalOnlyCart = cartEntries.length > 0 && cartEntries.every(([key]) =>
     (byId.get(parseCartKey(key).productId) as any)?.digital === true);
 
+  // ── PRE-ORDERS IN THE CART ────────────────────────────────────────────────
+  // A pre-order is the one thing in a cart that is not what it looks like:
+  // the customer is paying today for something that is not on the shelf. The
+  // FTC rule treats the ship-by date as a disclosure that must be made BEFORE
+  // payment, not a detail to discover in a confirmation email — so it is
+  // stated here, in the cart, and the order cannot be placed until it is
+  // ticked. Derived AFTER cartEntries so the read is never above its source.
+  const preorderItems = cartEntries
+    .map(([key, qty]) => {
+      const prod: any = byId.get(parseCartKey(key).productId);
+      return prod?.preorder?.open === true
+        ? { name: String(prod.name || 'Item'), etaAt: prod.preorder.etaAt || null, qty }
+        : null;
+    })
+    .filter(Boolean) as { name: string; etaAt: string | null; qty: number }[];
+
+  const hasPreorder = preorderItems.length > 0;
+  const preorderKey = preorderItems.map((i) => `${i.name}|${i.etaAt}|${i.qty}`).join('~');
+  const notice = useMemo(
+    () => (hasPreorder ? preorderNotice({ items: preorderItems }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasPreorder, preorderKey]
+  );
+
+  // Agreeing to a March 3 promise is not agreeing to an April 3 one. If the
+  // pre-ordered items change AFTER the tick, the tick is withdrawn — an
+  // acknowledgement that survives the thing it acknowledged is worthless as
+  // a record and unfair as a term.
+  useEffect(() => {
+    setPreorderAgreed(false);
+  }, [preorderKey]);
+
   const optionDelta = (key: string) => {
     const { productId, selections } = parseCartKey(key);
     const prod: any = byId.get(productId);
@@ -276,6 +310,7 @@ export default function CheckoutPage() {
 
   const canPlace =
     cartCount > 0 && name.trim() && email.trim() && minIssues.length === 0 &&
+    (!hasPreorder || preorderAgreed) &&
     (digitalOnlyCart || method !== 'ship' || (addr.name && addr.line1 && addr.city && addr.state && addr.postalCode));
 
   const placeOrder = async () => {
@@ -292,6 +327,7 @@ export default function CheckoutPage() {
           pickupAt: !digitalOnlyCart && method !== 'ship' && shop?.scheduledPickup ? pickupChoice : '',
           method: digitalOnlyCart ? 'counter' : method,
           applyStoreCredit: applyCredit,
+          preorderAck: hasPreorder ? true : undefined,
           customer: { name: name.trim(), email: email.trim(), phone: phone.trim() },
           shippingAddress: method === 'ship' && !digitalOnlyCart ? { ...addr, country: 'US' } : undefined,
           shippingQuote: method === 'ship' && selectedQuote
@@ -371,6 +407,11 @@ export default function CheckoutPage() {
                     <p className="font-black uppercase tracking-tight text-xs truncate">{p.name}</p>
                     {optInfo.label && (
                       <p className="text-[8px] font-black uppercase tracking-widest text-primary truncate">{optInfo.label}</p>
+                    )}
+                    {p?.preorder?.open === true && (
+                      <p className="text-[8px] font-black uppercase tracking-widest text-amber-700">
+                        {`Pre-order${p.preorder.etaAt ? ` \u00b7 ships by ${formatPromiseDay(p.preorder.etaAt)}` : ''}`}
+                      </p>
                     )}
                     <p className="text-[10px] font-bold text-primary">{fmt(unitPrice(p))} each</p>
                     {wholesale && p.wholesaleMinQty ? (
@@ -517,6 +558,35 @@ export default function CheckoutPage() {
             </div>
           )}
 
+          {notice && (
+            <div className="space-y-3 rounded-2xl border-2 border-amber-300 bg-amber-50/60 p-4">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-amber-800">{notice.headline}</p>
+              </div>
+              <ul className="space-y-1">
+                {notice.itemLines.map((l) => (
+                  <li key={l} className="text-[11px] font-black uppercase tracking-tight text-amber-900">{l}</li>
+                ))}
+              </ul>
+              <ul className="space-y-1.5">
+                {notice.bullets.map((b) => (
+                  <li key={b} className="text-[11px] font-bold leading-relaxed text-amber-900/80">{b}</li>
+                ))}
+              </ul>
+              <label className="flex items-start gap-2.5 rounded-xl border-2 border-amber-300 bg-white/70 p-3">
+                <input
+                  type="checkbox"
+                  checked={preorderAgreed}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPreorderAgreed(e.target.checked)}
+                  aria-label={notice.agreeLabel}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-current"
+                />
+                <span className="text-[11px] font-bold leading-relaxed text-amber-900">{notice.agreeLabel}</span>
+              </label>
+            </div>
+          )}
+
           <div className="space-y-3 rounded-2xl border-2 p-5">
             <div className="flex justify-between text-xs font-bold uppercase tracking-widest text-muted-foreground">
               <span>Subtotal</span><span className="font-mono">{fmt(subtotalCents)}</span>
@@ -544,21 +614,21 @@ export default function CheckoutPage() {
                 </select>
               </div>
             )}
+            <label className="flex items-start gap-2.5 rounded-2xl border-2 p-3">
+              <input
+                type="checkbox"
+                aria-label="Apply my store credit if I have any"
+                checked={applyCredit}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApplyCredit(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-current"
+              />
+              <span className="text-[11px] font-bold leading-relaxed text-muted-foreground">
+                <span className="font-black uppercase tracking-widest text-foreground">Apply my store credit</span>
+                <br />From past returns, if any is on file for your email — the discount appears on the payment page.
+              </span>
+            </label>
             {shop.tipsEnabled && (
               <div className="flex items-center justify-between gap-2">
-              <label className="mb-3 flex items-start gap-2.5 rounded-2xl border-2 p-3">
-                <input
-                  type="checkbox"
-                  aria-label="Apply my store credit if I have any"
-                  checked={applyCredit}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApplyCredit(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 accent-current"
-                />
-                <span className="text-[11px] font-bold leading-relaxed text-muted-foreground">
-                  <span className="font-black uppercase tracking-widest text-foreground">Apply my store credit</span>
-                  <br />From past returns, if any is on file for your email — the discount appears on the payment page.
-                </span>
-              </label>
                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tip</span>
                 <div className="flex gap-1">
                   {[0, 10, 15, 20].map((pct) => (
