@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isStorefrontVisible, listingPriceCents, sellableStock, type SellableItem } from '@/lib/retail-orders';
+import { isStorefrontVisible, listingPriceCents, preorderState, sellableStock, type SellableItem } from '@/lib/retail-orders';
 import { publicDescription, collectImages } from '@/lib/product-public';
 import { sanitizeShopConfig } from '@/lib/shop-config';
 import { discountedCents, resolveWholesaleAccess } from '@/lib/retail-wholesale';
@@ -67,6 +67,14 @@ export async function GET(req: NextRequest) {
       // anything that throws here is skipped (and logged), not fatal.
       try {
         const available = Math.max(0, sellableStock(item) || 0);
+        // Pre-orders sell BEFORE stock exists — that is the whole point — so a
+        // grid that decides availability from the shelf alone marks an open
+        // pre-order sold out, and the customer never reaches the
+        // product page that knows better. The product endpoint already had
+        // this rule; the catalog did not, so the two disagreed.
+        const pre = item.preorder === true ? preorderState(item as any) : null;
+        const preOpen = pre?.open === true;
+        const preCap = pre && pre.remaining !== null ? Math.max(0, pre.remaining) : MAX_SHOWN_QTY;
         return [{
         id: item.id,
         name: String(item.name || '').trim() || 'Item',
@@ -77,9 +85,19 @@ export async function GET(req: NextRequest) {
         priceCents: listingPriceCents(item, 'retail'),
         wholesalePriceCents: wholesaleUnlocked ? discountedCents(listingPriceCents(item, 'wholesale'), wsDiscount) : null,
         wholesaleMinQty: wholesaleUnlocked ? item.wholesaleMinQty ?? 0 : null,
-        inStock: available > 0 || item.allowBackorder === true,
-        qtyAvailable: item.allowBackorder === true ? MAX_SHOWN_QTY : Math.min(available, MAX_SHOWN_QTY),
+        inStock: available > 0 || item.allowBackorder === true || preOpen,
+        qtyAvailable: item.allowBackorder === true
+          ? MAX_SHOWN_QTY
+          : preOpen
+            ? Math.min(Math.max(available, preCap), MAX_SHOWN_QTY)
+            : Math.min(available, MAX_SHOWN_QTY),
         lowStock: available > 0 && available <= (item.lowStockThreshold ?? 0),
+        // The cart cannot warn about something it was never told. Only the
+        // OPEN state travels: a closed run is simply unavailable, and a
+        // closed date is not a promise anyone should be shown at checkout.
+        preorder: preOpen
+          ? { open: true, etaAt: pre?.etaAt || null, closesAt: pre?.closesAt || null, remaining: pre?.remaining ?? null }
+          : null,
         }];
       } catch (e: any) {
         console.error('[retail-catalog] skipped malformed item', item?.id, e?.message);
