@@ -58,6 +58,27 @@ const FILTER_CHIPS: { id: string; label: string }[] = [
   { id: 'equipment', label: 'Equipment' },
   { id: 'overhead', label: 'Overhead' },
 ];
+
+export type SortKey = 'name' | 'stock_low' | 'recent' | 'value';
+
+/**
+ * The only three problems worth interrupting someone for, and each is a
+ * BUTTON rather than a statistic — tapping narrows the list to exactly those
+ * items. A chip with a count of zero renders nothing at all: a permanent row
+ * of "0 low on stock" teaches you to stop reading the row.
+ */
+const ATTENTION_CHIPS: {
+  id: 'low' | 'noprice' | 'offline';
+  key: 'lowStock' | 'noPrice' | 'notOnline';
+  label: string;
+  forceType?: string;
+  onClass: string;
+  offClass: string;
+}[] = [
+  { id: 'low', key: 'lowStock', label: 'low', onClass: 'border-amber-500 bg-amber-500 text-white', offClass: 'border-amber-200 bg-amber-50 text-amber-800' },
+  { id: 'noprice', key: 'noPrice', label: 'no price', forceType: 'retail', onClass: 'border-destructive bg-destructive text-white', offClass: 'border-destructive/30 bg-destructive/5 text-destructive' },
+  { id: 'offline', key: 'notOnline', label: 'not in shop', forceType: 'retail', onClass: 'border-sky-600 bg-sky-600 text-white', offClass: 'border-sky-200 bg-sky-50 text-sky-800' },
+];
 import { ManageSpoilageDialog } from '@/components/inventory/ManageSpoilageDialog';
 import { InventorySidebar } from '@/components/inventory/InventorySidebar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
@@ -732,6 +753,7 @@ export default function InventoryPage() {
   const [activeView, setActiveView] = useState('products');
   const [activeFilter, setActiveFilter] = useState('all');
   const [attentionFilter, setAttentionFilter] = useState<'low' | 'noprice' | 'offline' | null>(null);
+  const [sortBy, setSortBy] = useState<SortKey>('name');
   const [searchTerm, setSearchTerm] = useState('');
   const [showArchived, setShowArchived] = useState(false);
   
@@ -1368,8 +1390,19 @@ export default function InventoryPage() {
         items = items.filter((item: any) => item.type === 'retail' && item.showOnline !== true);
     }
 
-    return items;
-  }, [inventory, activeFilter, searchTerm, showArchived, attentionFilter]);
+    // Sorted last, so ordering never changes WHICH items you see — only the
+    // order they arrive in. "Least stock first" is the one that earns its
+    // place: it puts the thing about to run out at the top of the screen.
+    const value = (i: any) => (Number(i.totalStock) || 0) * (Number(i.costPerUnit) || 0);
+    const available = (i: any) => Math.max(0, (Number(i.totalStock) || 0) - (Number(i.stockReserved) || 0));
+    const sorted = [...items];
+    if (sortBy === 'stock_low') sorted.sort((a, b) => available(a) - available(b));
+    else if (sortBy === 'value') sorted.sort((a, b) => value(b) - value(a));
+    else if (sortBy === 'recent') sorted.sort((a: any, b: any) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    else sorted.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+    return sorted;
+  }, [inventory, activeFilter, searchTerm, showArchived, attentionFilter, sortBy]);
   
   const totalPages = Math.ceil(filteredInventory.length / ITEMS_PER_PAGE);
   const paginatedItems = useMemo(() => {
@@ -1530,69 +1563,74 @@ export default function InventoryPage() {
                                     </Button>
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                    {FILTER_CHIPS.map((chip) => {
-                                        const count = typeCounts[chip.id] ?? 0;
-                                        const on = activeFilter === chip.id;
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <select
+                                        aria-label="Filter by type"
+                                        value={activeFilter}
+                                        onChange={(e) => setActiveFilter(e.target.value)}
+                                        className="h-9 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                                    >
+                                        {FILTER_CHIPS.map((chip) => (
+                                            <option key={chip.id} value={chip.id}>
+                                                {chip.label} ({typeCounts[chip.id] ?? 0})
+                                            </option>
+                                        ))}
+                                    </select>
+
+                                    <select
+                                        aria-label="Sort products"
+                                        value={sortBy}
+                                        onChange={(e) => setSortBy(e.target.value as SortKey)}
+                                        className="h-9 rounded-xl border-2 bg-white px-2 text-[11px] font-black uppercase tracking-widest"
+                                    >
+                                        <option value="name">A \u2013 Z</option>
+                                        <option value="stock_low">Least stock first</option>
+                                        <option value="recent">Recently updated</option>
+                                        <option value="value">Highest value</option>
+                                    </select>
+
+                                    {ATTENTION_CHIPS.map((chip) => {
+                                        const count = attention[chip.key];
+                                        if (count === 0) return null;
+                                        const on = attentionFilter === chip.id;
                                         return (
                                             <button
                                                 key={chip.id}
                                                 type="button"
-                                                onClick={() => setActiveFilter(chip.id)}
+                                                onClick={() => {
+                                                    setAttentionFilter(on ? null : chip.id);
+                                                    if (!on && chip.forceType) setActiveFilter(chip.forceType);
+                                                }}
                                                 aria-pressed={on}
-                                                className={cn(
-                                                    'flex items-center gap-1.5 rounded-xl border-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest transition-colors',
-                                                    on ? 'border-primary bg-primary text-primary-foreground' : 'bg-white hover:border-primary/30',
-                                                )}
+                                                className={cn('h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest transition-colors',
+                                                    on ? chip.onClass : chip.offClass)}
                                             >
-                                                {chip.label}
-                                                <span className={cn('font-mono', on ? 'opacity-80' : 'text-muted-foreground')}>{count}</span>
+                                                {count} {chip.label}
                                             </button>
                                         );
                                     })}
-                                    <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+
                                     <button
                                         type="button"
                                         onClick={() => setShowArchived(!showArchived)}
                                         aria-pressed={showArchived}
-                                        className={cn(
-                                            'rounded-xl border-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest transition-colors',
-                                            showArchived ? 'border-slate-800 bg-slate-800 text-white' : 'bg-white hover:border-primary/30',
-                                        )}
+                                        className={cn('ml-auto h-9 rounded-xl border-2 px-3 text-[11px] font-black uppercase tracking-widest transition-colors',
+                                            showArchived ? 'border-slate-800 bg-slate-800 text-white' : 'bg-white text-muted-foreground hover:border-primary/30')}
                                     >
                                         Archived
                                     </button>
+
+                                    {(activeFilter !== 'all' || attentionFilter || searchTerm || showArchived) && (
+                                        <button
+                                            type="button"
+                                            onClick={() => { setActiveFilter('all'); setAttentionFilter(null); setSearchTerm(''); setShowArchived(false); }}
+                                            className="h-9 rounded-xl px-3 text-[11px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                                        >
+                                            Clear
+                                        </button>
+                                    )}
                                 </div>
                             </div>
-                            {(attention.lowStock > 0 || attention.notOnline > 0 || attention.noPrice > 0) && !showArchived && (
-                                <div className="mb-4 flex flex-wrap items-center gap-2">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Needs attention</span>
-                                    {attention.lowStock > 0 && (
-                                        <button type="button" onClick={() => { setActiveFilter('all'); setSearchTerm(''); setAttentionFilter(attentionFilter === 'low' ? null : 'low'); }}
-                                            aria-pressed={attentionFilter === 'low'}
-                                            className={cn('rounded-lg border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
-                                                attentionFilter === 'low' ? 'border-amber-500 bg-amber-500 text-white' : 'border-amber-200 bg-amber-50 text-amber-800')}>
-                                            {attention.lowStock} low on stock
-                                        </button>
-                                    )}
-                                    {attention.noPrice > 0 && (
-                                        <button type="button" onClick={() => { setActiveFilter('retail'); setSearchTerm(''); setAttentionFilter(attentionFilter === 'noprice' ? null : 'noprice'); }}
-                                            aria-pressed={attentionFilter === 'noprice'}
-                                            className={cn('rounded-lg border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
-                                                attentionFilter === 'noprice' ? 'border-destructive bg-destructive text-white' : 'border-destructive/30 bg-destructive/5 text-destructive')}>
-                                            {attention.noPrice} missing a price
-                                        </button>
-                                    )}
-                                    {attention.notOnline > 0 && (
-                                        <button type="button" onClick={() => { setActiveFilter('retail'); setSearchTerm(''); setAttentionFilter(attentionFilter === 'offline' ? null : 'offline'); }}
-                                            aria-pressed={attentionFilter === 'offline'}
-                                            className={cn('rounded-lg border-2 px-2.5 py-1 text-[11px] font-black uppercase tracking-widest',
-                                                attentionFilter === 'offline' ? 'border-sky-600 bg-sky-600 text-white' : 'border-sky-200 bg-sky-50 text-sky-800')}>
-                                            {attention.notOnline} not in the shop
-                                        </button>
-                                    )}
-                                </div>
-                            )}
                              {selectedItems.size > 0 && (
                                 <div className="mb-4 p-3 rounded-lg bg-muted/50 flex items-center justify-between">
                                     <p className="text-sm font-medium">{selectedItems.size} item(s) selected</p>
