@@ -4,6 +4,7 @@ import React from 'react';
 import { listingPriceCents, sellableStock, isStorefrontVisible, type SellableItem } from '@/lib/retail-orders';
 import { publicDescription } from '@/lib/product-public';
 import { productJsonLd, seoDescription, seoTitle } from '@/lib/shop-seo';
+import { faqJsonLd } from '@/lib/shop-seo';
 
 // ─── /shop/[tenantId]/product/[productId]/layout.tsx ─────────────────────────
 // The product page itself is a client component — it has a cart, a quantity
@@ -47,9 +48,13 @@ async function load(tenantId: string, productId: string) {
     return {
       shopName: String(tenant?.businessName || tenant?.name || '').trim(),
       item,
+      // The shop's product-page FAQ — already written, already shown to
+      // customers, just not machine-readable until now.
+      faq: Array.isArray(tenant?.retailSettings?.pdpFaq) ? tenant.retailSettings.pdpFaq : [],
+      showFaq: tenant?.retailSettings?.pdpShowFaq !== false,
     };
   } catch {
-    return { shopName: '', item: null };
+    return { shopName: '', item: null, faq: [], showFaq: false };
   }
 }
 
@@ -112,7 +117,7 @@ export default async function ProductSeoLayout({
   params: Promise<{ tenantId: string; productId: string }>;
 }) {
   const { tenantId, productId } = await params;
-  const { shopName, item } = await load(tenantId, productId);
+  const { shopName, item, faq, showFaq } = await load(tenantId, productId);
 
   if (!item || !isStorefrontVisible(item as SellableItem)) return <>{children}</>;
 
@@ -133,12 +138,23 @@ export default async function ProductSeoLayout({
     seoDescription: String(item.seoDescription || ''),
   });
 
+  // Only marked up when the page actually SHOWS the questions — Google
+  // requires the same Q&A to be visible, and marking up an invisible FAQ is
+  // the kind of thing that gets rich results switched off site-wide.
+  const faqLd = showFaq ? faqJsonLd(faq) : null;
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(ld) }}
       />
+      {faqLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+        />
+      )}
       {children}
     </>
   );
