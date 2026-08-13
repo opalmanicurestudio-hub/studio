@@ -183,3 +183,76 @@ export function bookingJsonLd(input: {
   }
   return ld;
 }
+
+/**
+ * FAQ structured data.
+ *
+ * The questions a shop already answers on its page — "how long does it last?",
+ * "do you take walk-ins?" — become answers a search engine can show directly,
+ * and an assistant can speak aloud. This is the cheapest reach in the whole
+ * file: the copy exists, it just isn't machine-readable yet.
+ *
+ * Google's rules are strict and worth honouring rather than gaming: the same
+ * Q&A must be visible on the page, questions must be genuinely asked by
+ * users, and marking up a page that has no visible FAQ is the kind of thing
+ * that gets rich results turned off site-wide. So this returns null unless
+ * there is something real to describe.
+ */
+export function faqJsonLd(
+  items: { q?: string; a?: string; question?: string; answer?: string }[] | undefined,
+): Record<string, any> | null {
+  const pairs = (items || [])
+    .map((it) => ({
+      q: String(it.q ?? it.question ?? '').trim(),
+      a: String(it.a ?? it.answer ?? '').trim(),
+    }))
+    .filter((p) => p.q && p.a)
+    .slice(0, 10);
+  if (pairs.length === 0) return null;
+  return {
+    '@context': 'https://schema.org/',
+    '@type': 'FAQPage',
+    mainEntity: pairs.map((p) => ({
+      '@type': 'Question',
+      name: p.q,
+      acceptedAnswer: { '@type': 'Answer', text: p.a },
+    })),
+  };
+}
+
+/**
+ * A single staff member's booking page.
+ *
+ * People search for a PERSON — "book with Kayla" — far more often than a
+ * salon expects, and that page currently says the same thing as every other.
+ * Modelled as the business's employee with their own booking action, so the
+ * answer to "can I book with Kayla on Friday" has somewhere to point.
+ */
+export function staffBookingJsonLd(input: {
+  shopName: string;
+  staffName: string;
+  role?: string;
+  url?: string;
+  imageUrl?: string;
+}): Record<string, any> {
+  return {
+    '@context': 'https://schema.org/',
+    '@type': 'Person',
+    name: input.staffName,
+    ...(input.role ? { jobTitle: input.role } : {}),
+    ...(input.imageUrl ? { image: input.imageUrl } : {}),
+    worksFor: { '@type': 'HealthAndBeautyBusiness', name: input.shopName },
+    ...(input.url ? {
+      url: input.url,
+      potentialAction: {
+        '@type': 'ReserveAction',
+        target: {
+          '@type': 'EntryPoint',
+          urlTemplate: input.url,
+          actionPlatform: ['https://schema.org/DesktopWebPlatform', 'https://schema.org/MobileWebPlatform'],
+        },
+        result: { '@type': 'Reservation', name: `Appointment with ${input.staffName}` },
+      },
+    } : {}),
+  };
+}
