@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { storefrontBlockers, parseOptionGroups, optionGroupsToText, type OptionGroup } from '@/lib/retail-orders';
+import { seoTitle, seoDescription, SEO_TITLE_MAX, SEO_DESC_MAX } from '@/lib/shop-seo';
 import { cn } from '@/lib/utils';
 
 type Item = any;
@@ -141,6 +142,8 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
     (Array.isArray(product.kitContents) ? product.kitContents : []).map((k: string) => [String(k)]),
   );
   const [showOnline, setShowOnline] = useState<boolean>(product.showOnline === true);
+  const [seoT, setSeoT] = useState<string>(product.seoTitle || '');
+  const [seoD, setSeoD] = useState<string>(product.seoDescription || '');
   const [groups, setGroups] = useState<OptionGroup[]>(
     Array.isArray(product.optionGroups) ? product.optionGroups : [],
   );
@@ -173,7 +176,14 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
     kit: JSON.stringify(kit) !== JSON.stringify((Array.isArray(product.kitContents) ? product.kitContents : []).map((k: string) => [String(k)])),
     options: optionGroupsToText(groups) !== optionGroupsToText(Array.isArray(product.optionGroups) ? product.optionGroups : []),
     publish: showOnline !== (product.showOnline === true),
+    seo: seoT !== (product.seoTitle || '') || seoD !== (product.seoDescription || ''),
   };
+
+  // What a search result will actually look like. Both fields fall back to
+  // copy that already exists, so leaving them blank is a valid answer rather
+  // than a missing chore.
+  const previewTitle = seoTitle({ shopName: '', productName: product.name, seoTitle: seoT });
+  const previewDesc = seoDescription({ shopName: '', productName: product.name, description: desc, seoDescription: seoD });
 
   return (
     <div className="space-y-4 text-left">
@@ -377,6 +387,53 @@ export function OnlineListingTab({ product, inventory, onSave }: Props) {
         </Button>
         <p className="text-[10px] font-bold text-muted-foreground">
           A choice that picks a product keeps its own stock and sells out on its own. A choice with no product just adds to the price.
+        </p>
+      </Section>
+
+      <Section
+        title="Findable on Google"
+        hint="How this product looks in search results and when someone shares the link."
+        dirty={dirty.seo}
+        onSave={async () => { await onSave({ seoTitle: seoT.trim(), seoDescription: seoD.trim() }); flash('seo'); }}
+      >
+        <div className="rounded-xl border-2 bg-muted/20 p-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Preview</p>
+          <p className="mt-1 truncate text-sm font-bold text-[#1a0dab]">{previewTitle}</p>
+          <p className="text-[11px] font-bold text-emerald-800 truncate">your-shop.com &rsaquo; product</p>
+          <p className="mt-0.5 text-[11px] font-medium text-muted-foreground line-clamp-2">{previewDesc}</p>
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search title</Label>
+            <span className={cn('text-[10px] font-black', seoT.length > SEO_TITLE_MAX ? 'text-destructive' : 'text-muted-foreground')}>
+              {seoT.length}/{SEO_TITLE_MAX}
+            </span>
+          </div>
+          <Input
+            aria-label="Search title"
+            placeholder={`Leave blank to use "${product.name}"`}
+            value={seoT}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSeoT(e.target.value)}
+            className="h-11 rounded-xl border-2 font-bold text-xs"
+          />
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search description</Label>
+            <span className={cn('text-[10px] font-black', seoD.length > SEO_DESC_MAX ? 'text-destructive' : 'text-muted-foreground')}>
+              {seoD.length}/{SEO_DESC_MAX}
+            </span>
+          </div>
+          <Textarea
+            aria-label="Search description"
+            placeholder="Leave blank to use your description above."
+            value={seoD}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setSeoD(e.target.value)}
+            className="min-h-[70px] rounded-xl border-2 font-bold text-sm"
+          />
+        </div>
+        <p className="text-[10px] font-bold text-muted-foreground">
+          Both are optional. Google often rewrites descriptions anyway \u2014 write for the person deciding whether to click, not for the search engine.
         </p>
       </Section>
 
