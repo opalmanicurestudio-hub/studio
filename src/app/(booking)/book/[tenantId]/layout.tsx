@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import React from 'react';
 
 import { bookingJsonLd, clip, seoDescription, SEO_DESC_MAX } from '@/lib/shop-seo';
+import { faqJsonLd } from '@/lib/shop-seo';
 
 // ─── /(booking)/book/[tenantId]/layout.tsx ───────────────────────────────────
 // The booking page is the most-shared link a salon owns — it goes in bios, on
@@ -70,10 +71,12 @@ async function loadBookingContext(tenantId: string) {
         country: String(t.address.country || 'US'),
       } : null,
       services,
+      // The questions the shop already answers on this page.
+      faqs: Array.isArray(t?.bookingPageConfig?.faqs) ? t.bookingPageConfig.faqs : [],
     };
   } catch {
     // Metadata is decoration; never let it stop someone booking.
-    return { shopName: '', tagline: '', telephone: '', logoUrl: '', address: null, services: [] };
+    return { shopName: '', tagline: '', telephone: '', logoUrl: '', address: null, services: [], faqs: [] };
   }
 }
 
@@ -90,7 +93,7 @@ export async function generateMetadata(
 
   // The description does real work here: it is the sentence a person reads
   // before deciding to tap. Name the services rather than saying "book now".
-  const menu = ctx.services.slice(0, 4).map((s) => s.name).join(', ');
+  const menu = ctx.services.slice(0, 4).map((s: { name: string }) => s.name).join(', ');
   const description = seoDescription({
     shopName: shop,
     description: ctx.tagline
@@ -138,12 +141,20 @@ export default async function BookingSeoLayout({
     services: ctx.services,
   });
 
+  const faqLd = faqJsonLd(ctx.faqs);
+
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(ld) }}
       />
+      {faqLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }}
+        />
+      )}
       {children}
     </>
   );
